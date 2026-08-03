@@ -146,7 +146,13 @@ public static partial class BindingEngine
             if (current is null) return false;
             current = Step(current, segs[i].Trim());
         }
-        return current is not null && ReflectionSet(current, segs[^1].Trim(), value);
+        if (current is null) return false;
+        var name = segs[^1].Trim();
+        // AOT/trim-clean fast path: source-generated setter (no reflection). Without this, the
+        // reflection setter below is trimmed away in a published/AOT build and every two-way
+        // control (switch, slider, tabs, select, text fields…) silently stops writing back.
+        return current is IBindableAccessor accessor ? accessor.SetBindable(name, value)
+                                                     : ReflectionSet(current, name, value);
     }
 
     [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2075",
