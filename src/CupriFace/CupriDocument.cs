@@ -33,6 +33,8 @@ public sealed partial class CupriDocument : IDisposable
     private RenderNode _root = null!;
     private List<CssRule> _rules = new();   // reused by ReStyle (hover/active without a full rebuild)
     private Dictionary<string, List<Keyframe>> _keyframes = new();
+    private List<CssRule>? _cachedRules;    // parsed once (CSS is immutable) and reused every rebuild
+    private Dictionary<string, List<Keyframe>>? _cachedKeyframes;
     private float _viewportWidth = 1024f;
     private bool _hasMedia;
 
@@ -75,6 +77,8 @@ public sealed partial class CupriDocument : IDisposable
     public CupriDocument UseComponents(ComponentRegistry components)
     {
         _components = components;
+        _cachedRules = null; // component CSS changes the rule set — rebuild the cache
+        _cachedKeyframes = null;
         Rebuild();
         return this;
     }
@@ -90,16 +94,32 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>Re-apply bindings with the current model (call after model changes).</summary>
     public void Refresh() => Rebuild();
 
+    /// <summary>Optional diagnostic hook: invoked with (phaseName, ms) for each Rebuild phase.</summary>
+    public static Action<string, double>? ProfileHook;
+
     private void Rebuild()
     {
+        var prof = ProfileHook;
+        var t = prof is not null ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+        void Mark(string phase)
+        {
+            if (prof is null) return;
+            var now = System.Diagnostics.Stopwatch.GetTimestamp();
+            prof(phase, System.Diagnostics.Stopwatch.GetElapsedTime(t, now).TotalMilliseconds);
+            t = now;
+        }
+
         _dom?.Dispose();
         var dom = new HtmlParser().ParseDocument(_templateHtml);
+        Mark("parse-html");
 
         if (_model is not null)
             BindingEngine.Apply(dom, _model);
+        Mark("bind");
 
         // Expand custom elements after binding so components see concrete attribute values.
         _components?.Expand(dom);
+        Mark("expand-components");
 
         // Re-apply text focus across the rebuild (typing rebuilds the DOM each keystroke), and
         // paint the raw edit buffer (which may be invalid) over the bound value, flagging
@@ -126,27 +146,37 @@ public sealed partial class CupriDocument : IDisposable
             }
         }
 
-        // Component defaults first (low priority), then author CSS, then <style> tags.
-        var rules = new List<CssRule>();
-        if (_components is not null) rules.AddRange(CssParser.Parse(_components.AggregatedCss));
-        rules.AddRange(CssParser.Parse(_css));
-        foreach (var styleEl in dom.QuerySelectorAll("style"))
-            rules.AddRange(CssParser.Parse(styleEl.TextContent));
+        Mark("focus");
 
-        // @keyframes (parsed from the same sources; not matched as normal rules).
-        _keyframes = Animation.Parse(_css);
-        if (_components is not null)
-            foreach (var (k, frames) in Animation.Parse(_components.AggregatedCss)) _keyframes[k] = frames;
-        foreach (var styleEl in dom.QuerySelectorAll("style"))
-            foreach (var (k, frames) in Animation.Parse(styleEl.TextContent)) _keyframes[k] = frames;
+        // CSS rules + @keyframes come from immutable sources (component CSS, author CSS, template
+        // <style> tags), so parse them ONCE and reuse across rebuilds — a rebuild happens on every
+        // click/keystroke, and re-parsing + re-allocating the rule set each time was pure waste.
+        if (_cachedRules is null)
+        {
+            var rules = new List<CssRule>();
+            if (_components is not null) rules.AddRange(CssParser.Parse(_components.AggregatedCss));
+            rules.AddRange(CssParser.Parse(_css));
+            foreach (var styleEl in dom.QuerySelectorAll("style"))
+                rules.AddRange(CssParser.Parse(styleEl.TextContent));
+            for (var i = 0; i < rules.Count; i++) rules[i].Order = i; // later stylesheets win ties
 
-        // Reassign a global source order so later stylesheets win ties (author > component).
-        for (var i = 0; i < rules.Count; i++) rules[i].Order = i;
+            var kf = Animation.Parse(_css);
+            if (_components is not null)
+                foreach (var (k, frames) in Animation.Parse(_components.AggregatedCss)) kf[k] = frames;
+            foreach (var styleEl in dom.QuerySelectorAll("style"))
+                foreach (var (k, frames) in Animation.Parse(styleEl.TextContent)) kf[k] = frames;
 
-        _hasMedia = rules.Exists(r => r.Media is not null);
-        _rules = rules;
+            _cachedRules = rules;
+            _cachedKeyframes = kf;
+            _hasMedia = rules.Exists(r => r.Media is not null);
+        }
+        _rules = _cachedRules;
+        _keyframes = _cachedKeyframes!;
+        Mark("parse-css");
+
         _hoverChain.Clear();
-        _root = new StyleResolver(rules, _viewportWidth).BuildTree(dom);
+        _root = new StyleResolver(_rules, _viewportWidth).BuildTree(dom);
+        Mark("style+tree");
         _hasActiveAnim = _keyframes.Count > 0 && AnyAnimated(_root);
         _dom = dom;
     }

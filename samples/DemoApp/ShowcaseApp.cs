@@ -354,20 +354,27 @@ public sealed partial class ShowcaseModel
     public bool TreeOpen { get; set; } = true;
     public bool PopOpen { get; set; }
 
-    // Diagnostics — live metrics (read fresh each re-bind; host ticks once per second).
-    // GC + Stopwatch work everywhere; the OS-process metrics (working set, private bytes,
-    // threads) throw in the browser WASM sandbox, so they're guarded and show "n/a" there.
+    // Diagnostics — live metrics. The OS-process metrics (working set, private bytes, threads)
+    // are EXPENSIVE (Process.GetCurrentProcess + Threads enumerates every thread) and would run
+    // on every data-bind (i.e. every click/keystroke, even when the tab is hidden), so they're
+    // sampled at most once per second into a cache. GC/Stopwatch are cheap. On the browser WASM
+    // sandbox System.Diagnostics.Process is unsupported → the process metrics show "n/a".
     private static readonly System.Diagnostics.Stopwatch _up = System.Diagnostics.Stopwatch.StartNew();
-    private static string Mb(long bytes) => (bytes / (1024.0 * 1024)).ToString("0.0");
-    private static string ProcMb(Func<System.Diagnostics.Process, long> f)
+    private static string Mb(long bytes) => (bytes / (1024.0 * 1024)).ToString("0.0") + " MB";
+    private static double _lastSample = -1;
+    private static string _ws = "…", _pv = "…", _thr = "…";
+    private static void Sample()
     {
-        try { using var p = System.Diagnostics.Process.GetCurrentProcess(); return Mb(f(p)) + " MB"; }
-        catch { return "n/a"; } // e.g. browser/WASM — System.Diagnostics.Process is unsupported
+        var now = _up.Elapsed.TotalSeconds;
+        if (now - _lastSample < 1.0) return; // cache: at most once per second
+        _lastSample = now;
+        try { using var p = System.Diagnostics.Process.GetCurrentProcess(); _ws = Mb(p.WorkingSet64); _pv = Mb(p.PrivateMemorySize64); _thr = p.Threads.Count.ToString(); }
+        catch { _ws = _pv = _thr = "n/a"; } // browser/WASM — Process is unsupported
     }
-    public string WorkingSetMb => ProcMb(p => p.WorkingSet64);
-    public string PrivateMb => ProcMb(p => p.PrivateMemorySize64);
-    public string ManagedHeapMb => Mb(GC.GetTotalMemory(false)) + " MB";
+    public string WorkingSetMb { get { Sample(); return _ws; } }
+    public string PrivateMb { get { Sample(); return _pv; } }
+    public string Threads { get { Sample(); return _thr; } }
+    public string ManagedHeapMb => Mb(GC.GetTotalMemory(false));
     public string GcCounts => $"{GC.CollectionCount(0)} / {GC.CollectionCount(1)} / {GC.CollectionCount(2)}";
-    public string Threads { get { try { using var p = System.Diagnostics.Process.GetCurrentProcess(); return p.Threads.Count.ToString(); } catch { return "n/a"; } } }
     public string Uptime => $"{(int)_up.Elapsed.TotalMinutes}m {_up.Elapsed.Seconds:00}s";
 }
