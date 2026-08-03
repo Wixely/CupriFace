@@ -9,11 +9,14 @@ the UI** — only the ~40-line canvas/input shim required to reach a `<canvas>` 
 ## Run it
 
 ```bash
-# Publish (recommended — enables the jiterpreter; MUCH faster than `dotnet run`):
-dotnet publish samples/WebWasm/WebWasm.csproj -c Release -o out
+# Fastest — AOT publish (compiles the managed code to WASM; ~3-4 min build):
+dotnet publish samples/WebWasm/WebWasm.csproj -c Release -p:Aot=true -o out
 # then serve out/wwwroot with any static file server that sends .wasm as application/wasm
 
-# Or, for quick dev iteration (SLOW — pure interpreter, see Performance below):
+# Faster build, slower app — plain publish (jiterpreter only):
+dotnet publish samples/WebWasm/WebWasm.csproj -c Release -o out
+
+# Dev-loop only (SLOW — pure interpreter, see Performance below):
 dotnet run --project samples/WebWasm/WebWasm.csproj -c Release
 ```
 
@@ -31,17 +34,30 @@ the engine does real compute per interaction, so the dev server feels very laggy
 
 Options, in order of impact:
 
-1. **Publish instead of `dotnet run`.** `dotnet publish -c Release` (no extra flags) enables
-   the **jiterpreter** (a partial JIT for hot interpreter loops) that the dev server does not.
-   This is the easy win and renders correctly.
-2. **Reduce per-interaction work.** Each click/keystroke rebuilds the whole document; the
+1. **AOT publish** (`-p:Aot=true`) — compiles the managed code to native WASM. The earlier
+   boot failure (`RuntimeError: function signature mismatch`) was root-caused with a symbol
+   map: Mono's AOT emits one mismatched indirect call inside the CupriFace assembly
+   (`SliderComponent.Expand` → interface dispatch). The fix keeps **CupriFace interpreted**
+   (`_AOT_InternalForceInterpretAssemblies`) while CoreLib, AngleSharp, Regex, the JS-interop
+   layer etc. are AOT-compiled — those were the bulk of the interpreter time in the profile.
+   Verified booting + painting end-to-end under a Node host (`tools/node-host.mjs`).
+2. **Plain publish** enables the **jiterpreter** (partial JIT for hot interpreter loops) that
+   the dev server does not.
+3. **Reduce per-interaction work.** Each click/keystroke rebuilds the whole document; the
    engine already caches CSS parsing and samples diagnostics at ≤1 Hz. True incremental
    updates (patching only what changed instead of a full rebuild) are the next big lever.
-3. **Full AOT** (`<RunAOTCompilation>true</RunAOTCompilation>`, publish only) is the largest
-   win (~5–15×) in principle, **but currently fails to boot** in this SkiaSharp/HarfBuzz-heavy
-   app with `RuntimeError: function signature mismatch` — an AOT-codegen/native-interop
-   incompatibility that needs dedicated investigation before it can be enabled. Not stripping
-   IL (`WasmStripILAfterAOT`) does not fix it.
+
+## Diagnostics
+
+- `main.js` mirrors boot progress + console into a hidden `<pre id="bootlog">` and paints any
+  boot/render error onto the canvas — failures are visible without dev tools, and headless
+  `--dump-dom` can read the log.
+- `tools/node-host.mjs` boots a published build under Node (no browser):
+  `node --experimental-wasm-eh tools/node-host.mjs <path-to>/wwwroot/_framework`
+  (drop a `{"type":"module"}` package.json into `_framework` first). Prints each boot step,
+  paints one frame, and times a few interactions.
+- AOT publishes emit `dotnet.native.js.symbols` (in `obj/.../wasm/for-publish/`): map a crash
+  frame `wasm-function[N]` to its real name with `grep '^N:' dotnet.native.js.symbols`.
 
 ## How it works
 

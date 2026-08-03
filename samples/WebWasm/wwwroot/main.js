@@ -7,10 +7,25 @@ import { dotnet } from './_framework/dotnet.js'
 const canvas = document.getElementById('cupri');
 const ctx = canvas.getContext('2d');
 
+// Boot log mirrored into the DOM (hidden) so headless --dump-dom diagnostics can read boot
+// progress and errors even when the canvas never paints. Harmless in normal use.
+const bootLog = document.createElement('pre');
+bootLog.id = 'bootlog'; bootLog.style.display = 'none';
+document.body.appendChild(bootLog);
+function logBoot(s) { bootLog.textContent += s + '\n'; }
+window.addEventListener('error', e => logBoot('WINDOW-ERROR: ' + (e.error && e.error.stack || e.message)));
+window.addEventListener('unhandledrejection', e => logBoot('UNHANDLED-REJECTION: ' + (e.reason && e.reason.stack || e.reason)));
+// Mirror console output (runtime asserts + diagnostic tracing) into the boot log.
+for (const lvl of ['error', 'warn', 'info', 'log', 'debug']) {
+    const orig = console[lvl].bind(console);
+    console[lvl] = (...a) => { try { logBoot(lvl.toUpperCase() + ': ' + a.map(x => x && x.stack || String(x)).join(' ')); } catch {} orig(...a); };
+}
+
 // Any boot/render failure is drawn onto the canvas so it's visible without dev tools.
 function showError(where, err) {
     const msg = (err && (err.stack || err.message)) || String(err);
     console.error('[CupriFace] ' + where, err);
+    logBoot('ERROR(' + where + '): ' + msg);
     ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = '#b00020'; ctx.font = '14px monospace';
     ctx.fillText('CupriFace failed to start (' + where + '):', 16, 28);
@@ -18,9 +33,11 @@ function showError(where, err) {
 }
 
 try {
+    logBoot('create...');
     const { setModuleImports, getAssemblyExports, getConfig, runMain } = await dotnet
         .withDiagnosticTracing(false)
         .create();
+    logBoot('created');
 
     // C# → JS: `rgba` is a MemoryView over the engine's bitmap in WASM memory. `.slice()` reads
     // it into a Uint8Array in a single WASM→JS copy (no managed allocation on the .NET side —
@@ -35,8 +52,10 @@ try {
     });
 
     const config = getConfig();
+    logBoot('exports...');
     const exports = await getAssemblyExports(config.mainAssemblyName);
     const I = exports.Interop;
+    logBoot('exports ok');
 
     canvas.width = canvas.clientWidth || 940;
     canvas.height = canvas.clientHeight || 720;
@@ -60,16 +79,20 @@ try {
 
     // Start the runtime with runMain (runs Main and STAYS RESIDENT — unlike dotnet.run(),
     // which exits after Main so later [JSExport] calls would fail) before calling any export.
+    logBoot('runMain...');
     await runMain();
+    logBoot('runMain ok');
 
     I.Init();
+    logBoot('Init ok');
     canvas.tabIndex = 0;
     canvas.focus();
 
     // Frame loop: Tick decides whether to paint (render-on-demand) — after input, on the app's
     // periodic re-bind, or throttled while something animates. An idle page costs ~nothing.
+    let firstTick = true;
     function frame(now) {
-        try { I.Tick(canvas.width, canvas.height, now); }
+        try { I.Tick(canvas.width, canvas.height, now); if (firstTick) { firstTick = false; logBoot('Tick ok'); } }
         catch (err) { showError('Tick', err); return; }
         requestAnimationFrame(frame);
     }

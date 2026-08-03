@@ -12,10 +12,28 @@
     <NoWarn>$(NoWarn);CA1416</NoWarn>
     <!-- SkiaSharp ships a static wasm lib that must be linked into the app. -->
     <WasmBuildNative>true</WasmBuildNative>
+    <!-- AOT-compile managed code to WASM, opt-in: `dotnet publish -c Release -p:Aot=true`.
+         Gated behind an explicit property (NOT Configuration) so plain builds/runs never mix
+         with AOT artifacts in obj/ — a prior AOT publish poisoning obj/ makes a later
+         `dotnet run` render a blank canvas. Emit a symbol map so wasm-function[N] frames in
+         crash stacks can be resolved to real names. -->
+    <RunAOTCompilation Condition="'$(Aot)' == 'true'">true</RunAOTCompilation>
+    <WasmEmitSymbolMap Condition="'$(Aot)' == 'true'">true</WasmEmitSymbolMap>
+    <!-- Strip debug names/DWARF from the (large) AOT wasm: much smaller download and faster
+         browser instantiation. Crash indices still resolve via the emitted .symbols map. -->
+    <WasmNativeDebugSymbols Condition="'$(Aot)' == 'true'">false</WasmNativeDebugSymbols>
   </PropertyGroup>
 
   <ItemGroup>
     <StaticWebAssetFingerprintPattern Include="JS" Pattern="*.js" Expression="#[.{fingerprint}]!" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(Aot)' == 'true'">
+    <!-- Mono's WASM AOT emits a mismatched indirect call in CupriFace (symbolized crash:
+         SliderComponent.Expand → interface dispatch), trapping at boot with "function
+         signature mismatch". Keep CupriFace interpreted (jiterpreter still applies); CoreLib,
+         AngleSharp, Regex, Skia bindings etc. remain AOT-compiled. -->
+    <_AOT_InternalForceInterpretAssemblies Include="CupriFace.dll" />
   </ItemGroup>
 
   <ItemGroup>
