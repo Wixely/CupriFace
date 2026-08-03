@@ -20,9 +20,13 @@ dotnet publish samples/WebWasm/WebWasm.csproj -c Release -o out
 dotnet run --project samples/WebWasm/WebWasm.csproj -c Release
 ```
 
-> If you switch between `dotnet publish` and `dotnet run`, delete `samples/WebWasm/obj` and
-> `bin` in between — a prior AOT/publish can leave artifacts in the shared `obj/` that make a
-> later `dotnet run` render a blank canvas.
+> **If the page is blank or the browser reports an SRI `integrity` error** (`Failed to find a
+> valid digest in the 'integrity' attribute for … main.<hash>.js`), the build's static-asset
+> fingerprints went stale — usually from switching between `dotnet publish` and `dotnet run`,
+> which share `obj/`. Fix: delete `samples/WebWasm/obj`, `bin`, and `publish*`, then rebuild
+> (VS Code: run the **clean-webwasm** task), and hard-reload the browser. The two VS Code
+> launches don't normally collide (dev = Debug → `obj/Debug`, AOT = Release → `obj/Release`);
+> mixing extra `dotnet build`/`run -c Release`/`publish` on the command line is what stales it.
 
 ## Performance — why `dotnet run` is slow, and what to do
 

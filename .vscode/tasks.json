@@ -66,6 +66,15 @@
       }
     },
     {
+      "label": "clean-webwasm",
+      "detail": "Delete samples/WebWasm obj/bin/publish output. Run this if the WASM page ever shows an SRI 'integrity' error or a blank canvas after switching build modes.",
+      "type": "shell",
+      "windows": {
+        "command": "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue '${workspaceFolder}/samples/WebWasm/obj','${workspaceFolder}/samples/WebWasm/bin','${workspaceFolder}/samples/WebWasm/publish-aot','${workspaceFolder}/samples/WebWasm/publish'"
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "publish-webwasm-aot",
       "detail": "AOT-publish the raw .NET-WASM host (slow first build ~3-4 min; then incremental).",
       "command": "dotnet",
