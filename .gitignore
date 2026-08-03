@@ -85,3 +85,6 @@ kbd-button.png
 kbdnav-radio.png
 kbdnav-open.png
 samples/WebWasm/publish/
+
+# local scratch (HAR captures, screenshots)
+/test/

@@ -330,8 +330,11 @@ the canvas/runtime bridge differs:
   + the live Diagnostics re-bind, and forwards pointer/wheel/keyboard so text input, keyboard
   focus/Tab order, scrolling and overlays all work in the browser — the **same ShowcaseApp**
   the desktop Viewer runs. This is the literal §9.1 "thin JS glue" model — no Blazor, minimal
-  deps. **Build + publish verified** (emscripten native-links Skia → 22 wasm modules; the dev
-  server serves it); pixel rendering is the identical engine code proven headlessly on desktop.
+  deps. **Verified rendering in a real browser** (headless Chrome screenshot of the running
+  WASM app shows the full ShowcaseApp). Two WASM-specific gotchas fixed: `System.Diagnostics.
+  Process` is unsupported in the browser sandbox (the Diagnostics metrics are guarded → "n/a"),
+  and the runtime must be started with `runMain()` (which stays resident), not `dotnet.run()`
+  (which exits after `Main`, breaking later `[JSExport]` calls).
 - **Blazor (`samples/Web`, alternative)** — `SkiaSharp.Views.Blazor`'s `<SKCanvasView>`
   provides the canvas glue for free; heavier, but ideal for **embedding CupriFace inside
   an existing Blazor app**.
