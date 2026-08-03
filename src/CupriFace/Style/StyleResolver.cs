@@ -13,6 +13,17 @@ public sealed class StyleResolver
 {
     private static readonly Regex _repeat = new(@"repeat\(\s*(\d+)\s*,\s*([^)]+)\)",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex _var = new(@"var\(\s*(--[\w-]+)\s*(?:,\s*([^)]*))?\)", RegexOptions.Compiled);
+
+    /// <summary>Resolve var(--token[, fallback]) against the cascaded custom properties.</summary>
+    private static string ResolveVars(string value, Dictionary<string, string> props)
+    {
+        if (!value.Contains("var(", StringComparison.Ordinal)) return value;
+        for (var pass = 0; pass < 4 && value.Contains("var(", StringComparison.Ordinal); pass++)
+            value = _var.Replace(value, m =>
+                props.TryGetValue(m.Groups[1].Value, out var v) ? v : m.Groups[2].Value.Trim());
+        return value;
+    }
 
     private readonly List<CssRule> _rules;
     private readonly float _viewportWidth;
@@ -101,17 +112,24 @@ public sealed class StyleResolver
 
         ApplyUserAgentDefaults(node);
 
-        // Author rules, ordered by (specificity, source order).
+        // Ordered declaration sets: author rules (specificity, order) then inline (wins).
+        var ordered = new List<Dictionary<string, string>>();
         if (node.Element is { } el && _matched.TryGetValue(el, out var rules))
-        {
             foreach (var rule in rules.OrderBy(r => r.Specificity).ThenBy(r => r.Order))
-                Apply(style, rule.Declarations);
-        }
-
-        // Inline style attribute wins.
+                ordered.Add(rule.Declarations);
         var inline = node.Element?.GetAttribute("style");
         if (!string.IsNullOrWhiteSpace(inline))
-            Apply(style, CssParser.ParseDeclarations(inline));
+            ordered.Add(CssParser.ParseDeclarations(inline));
+
+        // Pass 1: custom properties (--tokens) cascade + inherit into CustomProps.
+        foreach (var decls in ordered)
+            foreach (var (k, v) in decls)
+                if (k.StartsWith("--", StringComparison.Ordinal))
+                    style.CustomProps[k] = ResolveVars(v, style.CustomProps);
+
+        // Pass 2: normal properties, with var() resolved against the final tokens.
+        foreach (var decls in ordered)
+            Apply(style, decls);
     }
 
     private static void ApplyUserAgentDefaults(RenderNode node)
@@ -138,7 +156,8 @@ public sealed class StyleResolver
         foreach (var (propRaw, valueRaw) in decls)
         {
             var prop = propRaw.ToLowerInvariant();
-            var v = valueRaw.Trim();
+            if (prop.StartsWith("--", StringComparison.Ordinal)) continue; // custom props: pass 1
+            var v = ResolveVars(valueRaw.Trim(), s.CustomProps);
             switch (prop)
             {
                 case "display": s.Display = ParseDisplay(v); break;

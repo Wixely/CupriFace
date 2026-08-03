@@ -95,6 +95,8 @@ public sealed class SkiaWindow : IDisposable
         // Surface is recreated lazily on the next frame at the new size.
         _surface?.Dispose(); _surface = null;
         _renderTarget?.Dispose(); _renderTarget = null;
+        // Repaint immediately so a drag-resize streams rather than snapping on release.
+        try { _window?.DoRender(); } catch { /* reentrancy on some platforms — ignore */ }
     }
 
     private void EnsureSurface()

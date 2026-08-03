@@ -24,7 +24,9 @@ public sealed class LayoutEngine
 
     public void Layout(RenderNode root, float viewportWidth, float viewportHeight)
     {
-        LayoutNode(root, viewportWidth, viewportHeight);
+        // The root (body) is the initial containing block: it fills the viewport, so
+        // percentage heights resolve and `height:100%` fills the window.
+        LayoutNode(root, viewportWidth, viewportHeight, viewportWidth, viewportHeight);
         root.X = 0;
         root.Y = 0;
         LayoutFixedNodes(root, viewportWidth, viewportHeight);

@@ -28,6 +28,7 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     private Texture* _texture;
     private SKBitmap? _bitmap;
     private SKCanvas? _canvas;
+    private EventFilter? _resizeWatch; // kept alive: fires during the OS modal resize loop
 
     public event Action<RenderContext>? Render;
     public event Action<float, float>? PointerDown;
@@ -55,6 +56,11 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         if (_renderer is null) throw new InvalidOperationException($"SDL_CreateRenderer failed: {_sdl.GetErrorS()}");
 
         EnsureSurface(_width, _height);
+
+        // Repaint DURING resize: Windows/macOS run a modal loop that blocks the main loop,
+        // but SDL still dispatches size events to an event watch — so we render from there.
+        _resizeWatch = ResizeWatch;
+        _sdl.AddEventWatch(new PfnEventFilter(_resizeWatch), null);
 
         var running = true;
         var e = new Event();
@@ -84,6 +90,16 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
             RenderFrame();
             _sdl.Delay(16); // ~60 fps cap
         }
+    }
+
+    private int ResizeWatch(void* userData, Event* e)
+    {
+        if ((EventType)e->Type == EventType.Windowevent && (WindowEventID)e->Window.Event == WindowEventID.SizeChanged)
+        {
+            EnsureSurface(e->Window.Data1, e->Window.Data2);
+            RenderFrame();
+        }
+        return 0;
     }
 
     private void EnsureSurface(int w, int h)

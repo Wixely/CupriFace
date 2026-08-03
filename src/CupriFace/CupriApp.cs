@@ -3,6 +3,9 @@ using SkiaSharp;
 
 namespace CupriFace;
 
+/// <summary>How the document is presented into the window (see <see cref="CupriApp.Present"/>).</summary>
+public readonly record struct PresentInfo(float LogicalWidth, float LogicalHeight, float Scale);
+
 /// <summary>
 /// A portable application definition: markup, styles, components, model, and behaviour —
 /// with **no** windowing or platform dependency. The same subclass runs on a desktop host
@@ -27,6 +30,14 @@ public abstract class CupriApp
 
     /// <summary>Hook to register click handlers etc. after the document is built.</summary>
     public virtual void Configure(CupriDocument document) { }
+
+    /// <summary>
+    /// Given the window size, return the logical viewport the document is laid out at and a
+    /// scale factor the host applies. Default = responsive (lay out at the window, scale 1).
+    /// Override for zoom/hybrid/fixed scaling.
+    /// </summary>
+    public virtual PresentInfo Present(float windowWidth, float windowHeight) =>
+        new(windowWidth, windowHeight, 1f);
 
     /// <summary>Build a ready-to-render document — identical on every host.</summary>
     public CupriDocument CreateDocument()

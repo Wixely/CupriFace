@@ -393,9 +393,12 @@ correct **native accessibility roles** per platform (§5), so a screen reader tr
 ### 10.3 Binding & theming
 - Components expose typed, bindable properties; attributes bind to the app's C#
   model (`value="{{Volume}}"`, two-way for inputs) via the §6 source-gen binding.
-- **Design tokens / theme:** a default light+dark theme exposed as CSS custom
-  properties (`--cupri-color-primary`, `--cupri-radius`, `--cupri-space-*`…).
+- **Design tokens / theme (IMPLEMENTED):** CSS custom properties (`--name: value`) +
+  `var(--name, fallback)` are supported in the engine — cascaded and inherited like real
+  CSS. First-party controls read tokens with light fallbacks (e.g. `background:var(
+  --cupri-surface, white)`), so **dark mode is a token swap**: `body.dark { --cupri-bg…}`.
   Authors reskin by overriding tokens — no need to touch component internals.
+  (Demo: the Showcase's Dark-mode switch toggles `body.dark`.)
 - **Scoped styles (optional):** a component's default CSS is scoped so it neither
   leaks into nor is clobbered by app styles; app-level overrides still win via
   tokens and documented class hooks (MudBlazor's approach).
@@ -534,6 +537,21 @@ The stack is layered so OS-specific code is isolated and opt-in:
 
 Net: to add a platform you implement (at most) a windowing backend + an a11y bridge; the
 engine, layout, paint, text, binding, and components are shared unchanged.
+
+### Presentation scaling
+The host presents a document via `CupriApp.Present(windowW, windowH)` → a **logical
+viewport + scale factor**; the host does `canvas.Scale(scale)` then lays out at the
+logical size, and divides pointer coordinates by `scale`. This unifies four modes:
+- **None** — logical = fixed design size; window resize reveals background (no reflow).
+- **Responsive** — logical = window; reflows every frame (the engine re-layouts cheaply).
+- **Zoom z%** — logical = window/z, scale = z (DPI-like; Skia scales the vectors crisply).
+- **Hybrid** — `z = min(winW/designW, winH/designH)`: the tighter axis sits at design
+  scale, the longer axis gets extra logical space and reflows.
+
+The root (body) fills the viewport (initial containing block), so `height:100%` fills the
+window and "None vs Responsive" is just "fixed vs window" logical size. *(Live-resize
+fluidity during the OS modal resize loop is a per-backend follow-up — the reflow itself
+is instant.)*
 
 ### Write-once app model (desktop ⇄ web)
 An app is a portable **`CupriApp`** (markup + CSS + components + model + handlers, no

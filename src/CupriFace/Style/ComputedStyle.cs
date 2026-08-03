@@ -65,6 +65,9 @@ public sealed class ComputedStyle
     public string? AnimationName;
     public float AnimationDuration; // seconds
 
+    // CSS custom properties (design tokens). Inherit by default; resolved by var().
+    public Dictionary<string, string> CustomProps = new();
+
     // Text (inherited)
     public SKColor Color = SKColors.Black;
     public float FontSize = 16f;
@@ -76,6 +79,7 @@ public sealed class ComputedStyle
     /// <summary>Copy inherited properties down from a parent as the starting point.</summary>
     public void InheritFrom(ComputedStyle parent)
     {
+        CustomProps = new Dictionary<string, string>(parent.CustomProps); // custom props inherit
         Color = parent.Color;
         FontSize = parent.FontSize;
         FontWeight = parent.FontWeight;

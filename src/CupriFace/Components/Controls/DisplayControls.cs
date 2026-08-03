@@ -39,7 +39,8 @@ public sealed class CardComponent : ComponentBase
 {
     public override string Tag => "cupri-card";
     public override string DefaultCss => """
-        .cupri-card { display:block; background:white; border-radius:12px; padding:18px; border:1px #e6e9f0; }
+        .cupri-card { display:block; background:var(--cupri-surface, white); border-radius:12px;
+                      padding:18px; border:1px var(--cupri-border, #e6e9f0); }
         """;
 
     public override void Expand(IElement el) => el.ClassList.Add("cupri-card");
@@ -64,8 +65,8 @@ public sealed class StatComponent : ComponentBase
     public override string Tag => "cupri-stat";
     public override string DefaultCss => """
         .cupri-stat { display:block; }
-        .cupri-stat .n { font-size:26px; font-weight:bold; color:#1e2430; }
-        .cupri-stat .l { color:#8b93a7; font-size:13px; margin-top:2px; }
+        .cupri-stat .n { font-size:26px; font-weight:bold; color:var(--cupri-text, #1e2430); }
+        .cupri-stat .l { color:var(--cupri-muted, #8b93a7); font-size:13px; margin-top:2px; }
         """;
 
     public override void Expand(IElement el)
