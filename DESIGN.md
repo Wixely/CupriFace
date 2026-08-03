@@ -324,9 +324,14 @@ Reuse Layers 1–6; swap Layer 0 (Shell) and the a11y bridge:
 The same `CupriApp` runs in the browser via either host — the engine is identical; only
 the canvas/runtime bridge differs:
 - **Raw .NET-WASM (`samples/WebWasm`, default)** — `Microsoft.NET.Sdk.WebAssembly` + a
-  ~40-line `main.js`: boot `dotnet.js`, `[JSExport]` render/click, `[JSImport]` a
-  `present(rgba,w,h)` that `putImageData`s the engine's pixels onto a `<canvas>`. This is
-  the literal §9.1 "thin JS glue" model — no Blazor, minimal deps.
+  ~50-line `main.js`: boot `dotnet.js`, `[JSExport]` `RenderFrame`/`PointerDown/Move/Up`/
+  `Wheel`/`KeyChar`/`EditKeyPress`, `[JSImport]` a `present(rgba,w,h)` that `putImageData`s
+  the engine's pixels onto a `<canvas>`. A `requestAnimationFrame` loop drives `@keyframes`
+  + the live Diagnostics re-bind, and forwards pointer/wheel/keyboard so text input, keyboard
+  focus/Tab order, scrolling and overlays all work in the browser — the **same ShowcaseApp**
+  the desktop Viewer runs. This is the literal §9.1 "thin JS glue" model — no Blazor, minimal
+  deps. **Build + publish verified** (emscripten native-links Skia → 22 wasm modules; the dev
+  server serves it); pixel rendering is the identical engine code proven headlessly on desktop.
 - **Blazor (`samples/Web`, alternative)** — `SkiaSharp.Views.Blazor`'s `<SKCanvasView>`
   provides the canvas glue for free; heavier, but ideal for **embedding CupriFace inside
   an existing Blazor app**.

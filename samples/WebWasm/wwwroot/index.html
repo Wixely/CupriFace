@@ -9,13 +9,17 @@
   <script type="importmap"></script>
   <script type='module' src="main#[.{fingerprint}].js"></script>
   <style>
-    html, body { margin: 0; height: 100%; background: #e7eaf0; }
-    #cupri { width: 100vw; height: 100vh; display: block; }
+    html, body { margin: 0; height: 100%; background: #e7eaf0;
+                 display: flex; align-items: center; justify-content: center;
+                 font-family: sans-serif; }
+    /* The same ShowcaseApp the desktop Viewer runs — rendered by the engine, not the browser. */
+    #cupri { width: 940px; height: 720px; display: block; outline: none;
+             box-shadow: 0 12px 48px #00000030; border-radius: 8px; background: #f4f5f7; }
   </style>
 </head>
 
 <body>
-  <!-- The engine draws here. No HTML widgets, no Blazor — just a canvas. -->
+  <!-- The engine draws the entire UI here. No HTML widgets, no Blazor — just a canvas. -->
   <canvas id="cupri"></canvas>
 </body>
 

@@ -7,6 +7,9 @@
     <LangVersion>latest</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
+    <!-- This project is browser-only by definition; the JSExport/JSImport platform hints
+         (CA1416 "only supported on browser") are expected and not actionable here. -->
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
     <!-- SkiaSharp ships a static wasm lib that must be linked into the app. -->
     <WasmBuildNative>true</WasmBuildNative>
   </PropertyGroup>
