@@ -64,6 +64,39 @@
           "endsPattern": "App url:"
         }
       }
+    },
+    {
+      "label": "publish-webwasm-aot",
+      "detail": "AOT-publish the raw .NET-WASM host (slow first build ~3-4 min; then incremental).",
+      "command": "dotnet",
+      "type": "process",
+      "args": [
+        "publish", "${workspaceFolder}/samples/WebWasm/WebWasm.csproj",
+        "-c", "Release", "-p:Aot=true",
+        "-o", "${workspaceFolder}/samples/WebWasm/publish-aot"
+      ],
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "serve-webwasm-aot",
+      "detail": "Publish (AOT) then statically serve the output at http://127.0.0.1:5199.",
+      "dependsOn": "publish-webwasm-aot",
+      "command": "node",
+      "type": "process",
+      "args": [
+        "${workspaceFolder}/samples/WebWasm/tools/serve.mjs",
+        "${workspaceFolder}/samples/WebWasm/publish-aot/wwwroot",
+        "5199"
+      ],
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": { "regexp": "^\\s*$" },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "Serving",
+          "endsPattern": "Serving"
+        }
+      }
     }
   ]
 }

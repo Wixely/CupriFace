@@ -11,6 +11,15 @@
       "browserAttachLocation": "workspace"
     },
     {
+      "name": "Web (raw WASM, AOT) — browser",
+      "type": "msedge",
+      "request": "launch",
+      "url": "http://127.0.0.1:5199",
+      "webRoot": "${workspaceFolder}/samples/WebWasm/publish-aot/wwwroot",
+      "preLaunchTask": "serve-webwasm-aot",
+      "browserAttachLocation": "workspace"
+    },
+    {
       "name": "Web — Blazor WASM (browser + debug)",
       "type": "blazorwasm",
       "request": "launch",
