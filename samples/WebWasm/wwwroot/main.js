@@ -43,11 +43,13 @@ try {
     // it into a Uint8Array in a single WASM→JS copy (no managed allocation on the .NET side —
     // bitmap.Bytes would allocate + copy 2.7 MB every frame). We reuse one ImageData per size.
     let img = null;
+    window.__paints = 0; // diagnostic: count actual canvas paints (a paint = one full render)
     setModuleImports('cupri', {
         present: (rgba, w, h) => {
             if (!img || img.width !== w || img.height !== h) img = ctx.createImageData(w, h);
             img.data.set(rgba.slice());
             ctx.putImageData(img, 0, 0);
+            window.__paints++;
         }
     });
 

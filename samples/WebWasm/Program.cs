@@ -88,14 +88,16 @@ public partial class Interop
         }
     }
 
-    // Pointer + wheel + keyboard route through the SAME dispatch the desktop hosts use, and just
-    // mark the document dirty; the rAF Tick paints the next frame.
-    [JSExport] internal static void PointerDown(double x, double y) { _doc?.DispatchClick((float)(x / _scale), (float)(y / _scale)); _dirty = true; }
-    [JSExport] internal static void PointerMove(double x, double y) { _doc?.DispatchPointerMove((float)(x / _scale), (float)(y / _scale)); _dirty = true; }
-    [JSExport] internal static void PointerUp(double x, double y) { _doc?.DispatchPointerUp((float)(x / _scale), (float)(y / _scale)); _dirty = true; }
-    [JSExport] internal static void Wheel(double x, double y, double dy) { _doc?.DispatchWheel((float)(x / _scale), (float)(y / _scale), (float)-dy); _dirty = true; }
-    [JSExport] internal static void KeyChar(string text) { _doc?.DispatchKey(text, EditKey.None); _dirty = true; }
-    [JSExport] internal static void EditKeyPress(int code) { _doc?.DispatchKey(null, (EditKey)code); _dirty = true; }
+    // Pointer + wheel + keyboard route through the SAME dispatch the desktop hosts use. Each
+    // Dispatch* returns whether anything actually changed; only THEN mark dirty for a repaint.
+    // (Marking dirty unconditionally repainted the whole 940x720 canvas on every mouse-move —
+    // even over empty space where hover didn't change — saturating the CPU while moving.)
+    [JSExport] internal static void PointerDown(double x, double y) { if (_doc?.DispatchClick((float)(x / _scale), (float)(y / _scale)) == true) _dirty = true; }
+    [JSExport] internal static void PointerMove(double x, double y) { if (_doc?.DispatchPointerMove((float)(x / _scale), (float)(y / _scale)) == true) _dirty = true; }
+    [JSExport] internal static void PointerUp(double x, double y) { _doc?.DispatchPointerUp((float)(x / _scale), (float)(y / _scale)); }
+    [JSExport] internal static void Wheel(double x, double y, double dy) { if (_doc?.DispatchWheel((float)(x / _scale), (float)(y / _scale), (float)-dy) == true) _dirty = true; }
+    [JSExport] internal static void KeyChar(string text) { if (_doc?.DispatchKey(text, EditKey.None) == true) _dirty = true; }
+    [JSExport] internal static void EditKeyPress(int code) { if (_doc?.DispatchKey(null, (EditKey)code) == true) _dirty = true; }
 
     // JS side (module "cupri") copies the pixels into the 2D canvas via putImageData.
     [JSImport("present", "cupri")]
