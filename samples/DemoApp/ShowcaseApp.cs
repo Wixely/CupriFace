@@ -23,6 +23,7 @@ public sealed class ShowcaseApp : CupriApp
     {
         doc.OnClick(".nav", e => { if (e.Element.GetAttribute("data-section") is { } s) _model.Section = s; });
         doc.OnClick(".act-dialog", _ => _model.DialogOpen = true);
+        doc.OnClick(".act-drawer", _ => _model.DrawerOpen = true);
         doc.OnClick(".act-toast", _ => _model.ShowToast = !_model.ShowToast);
         // Zoom via buttons — a slider would fight the live re-scale it triggers.
         doc.OnClick(".zoom-dec", _ => _model.ZoomPct = Math.Clamp(_model.ZoomPct - 10, 80, 200));
@@ -35,6 +36,7 @@ public sealed class ShowcaseApp : CupriApp
         <div class="sidebar">
           <div class="brand">CupriFace</div>
           <div class="nav {{NavControls}}" data-section="controls">Controls</div>
+          <div class="nav {{NavComponents}}" data-section="components">Components</div>
           <div class="nav {{NavOverlays}}" data-section="overlays">Overlays</div>
           <div class="nav {{NavLayout}}" data-section="layout">Layout</div>
           <div class="nav {{NavMotion}}" data-section="motion">Motion</div>
@@ -93,6 +95,45 @@ public sealed class ShowcaseApp : CupriApp
               <cupri-card style="width:150px"><cupri-stat label="Users" value="12.4k"></cupri-stat></cupri-card>
               <cupri-card style="width:150px"><cupri-stat label="Revenue" value="$8.9k"></cupri-stat></cupri-card>
               <cupri-card style="width:150px"><cupri-stat label="Uptime" value="99.9%"></cupri-stat></cupri-card>
+            </div>
+          </div>
+
+          <!-- COMPONENTS -->
+          <div class="section" style="display:{{SecComponents}}">
+            <div class="title">Components</div>
+            <p class="sub">Tabs, select, textarea, popover, accordion, tree and a table.</p>
+            <cupri-tabs value="{{Tab}}">
+              <cupri-tab id="one" label="First">First tab content.</cupri-tab>
+              <cupri-tab id="two" label="Second">Second tab content.</cupri-tab>
+              <cupri-tab id="three" label="Third">Third tab content.</cupri-tab>
+            </cupri-tabs>
+            <div class="row">
+              <span class="lbl">Size</span>
+              <cupri-select value="{{Size}}" open="{{SizeOpen}}">
+                <cupri-option value="small">Small</cupri-option>
+                <cupri-option value="medium">Medium</cupri-option>
+                <cupri-option value="large">Large</cupri-option>
+              </cupri-select>
+              <cupri-popover label="Info" open="{{PopOpen}}">A popover panel with rich content.</cupri-popover>
+              <cupri-button variant="ghost" class="act-drawer">Open drawer</cupri-button>
+            </div>
+            <cupri-textarea value="{{Notes}}" placeholder="Write a note…"></cupri-textarea>
+            <cupri-accordion>
+              <cupri-accordion-item label="What is CupriFace?" open="{{Acc1}}">A managed HTML+CSS UI runtime — no browser, no JS engine.</cupri-accordion-item>
+              <cupri-accordion-item label="How does binding work?" open="{{Acc2}}">Two-way bindings link elements to a C# model.</cupri-accordion-item>
+            </cupri-accordion>
+            <div class="row" style="align-items:flex-start">
+              <cupri-tree style="width:190px">
+                <cupri-tree-item label="src" open="{{TreeOpen}}">
+                  <cupri-tree-item label="CupriFace"></cupri-tree-item>
+                  <cupri-tree-item label="Shell"></cupri-tree-item>
+                </cupri-tree-item>
+              </cupri-tree>
+              <cupri-table style="flex:1">
+                <cupri-row header><cupri-cell>Name</cupri-cell><cupri-cell>Role</cupri-cell></cupri-row>
+                <cupri-row><cupri-cell>Ada</cupri-cell><cupri-cell>Admin</cupri-cell></cupri-row>
+                <cupri-row><cupri-cell>Grace</cupri-cell><cupri-cell>Editor</cupri-cell></cupri-row>
+              </cupri-table>
             </div>
           </div>
 
@@ -176,6 +217,10 @@ public sealed class ShowcaseApp : CupriApp
         <div class="dlg-actions"><cupri-button data-cupri-dismiss="true">OK</cupri-button></div>
       </cupri-dialog>
       <cupri-toast style="display:{{ToastDisplay}}">Toast shown — click “Toggle toast” to hide.</cupri-toast>
+      <cupri-drawer open="{{DrawerOpen}}" side="right">
+        <div class="dlg-title">Drawer</div>
+        <div class="dlg-body">An edge-pinned panel in the top layer. Click the backdrop to dismiss.</div>
+      </cupri-drawer>
     </body>
     """;
 
@@ -248,11 +293,13 @@ public sealed partial class ShowcaseModel
     public string Section { get; set; } = "controls";
 
     public string SecControls => Section == "controls" ? "block" : "none";
+    public string SecComponents => Section == "components" ? "block" : "none";
     public string SecOverlays => Section == "overlays" ? "block" : "none";
     public string SecLayout => Section == "layout" ? "block" : "none";
     public string SecMotion => Section == "motion" ? "block" : "none";
     public string SecSettings => Section == "settings" ? "block" : "none";
     public string NavControls => Section == "controls" ? "active" : "";
+    public string NavComponents => Section == "components" ? "active" : "";
     public string NavOverlays => Section == "overlays" ? "active" : "";
     public string NavLayout => Section == "layout" ? "active" : "";
     public string NavMotion => Section == "motion" ? "active" : "";
@@ -269,7 +316,17 @@ public sealed partial class ShowcaseModel
     public bool DarkMode { get; set; }
     public string Size { get; set; } = "medium";
     public bool DialogOpen { get; set; }
+    public bool DrawerOpen { get; set; }
     public bool MenuOpen { get; set; }
     public bool ShowToast { get; set; }
     public string ToastDisplay => ShowToast ? "block" : "none";
+
+    // Components section
+    public string Tab { get; set; } = "one";
+    public bool SizeOpen { get; set; }
+    public string Notes { get; set; } = "";
+    public bool Acc1 { get; set; } = true;
+    public bool Acc2 { get; set; }
+    public bool TreeOpen { get; set; } = true;
+    public bool PopOpen { get; set; }
 }
