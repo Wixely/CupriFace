@@ -78,6 +78,11 @@ public sealed class ShowcaseApp : CupriApp
               <cupri-textfield value="{{Name}}" placeholder="Type your name…"></cupri-textfield>
             </div>
             <div class="row">
+              <span class="lbl">Quantity</span>
+              <cupri-number value="{{Quantity}}" min="0" max="20" step="1"></cupri-number>
+              <span class="val">{{Quantity}}</span>
+            </div>
+            <div class="row">
               <cupri-chip>Design</cupri-chip><cupri-chip closable="true">Removable</cupri-chip>
               <cupri-avatar initials="AM"></cupri-avatar><cupri-badge>NEW</cupri-badge>
               <cupri-spinner></cupri-spinner>
@@ -260,6 +265,7 @@ public sealed partial class ShowcaseModel
 
     public int Volume { get; set; } = 60;
     public string Name { get; set; } = "";
+    public int Quantity { get; set; } = 3;
     public bool Notifications { get; set; } = true;
     public bool DarkMode { get; set; }
     public string Size { get; set; } = "medium";

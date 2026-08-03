@@ -156,14 +156,21 @@ public static partial class BindingEngine
         var prop = obj.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
         if (prop is null || !prop.CanWrite) return false;
         var t = prop.PropertyType;
-        object? converted = value is null ? null
-            : t == typeof(int) ? Convert.ToInt32(value)
-            : t == typeof(bool) ? Convert.ToBoolean(value)
-            : t == typeof(double) ? Convert.ToDouble(value)
-            : t == typeof(float) ? Convert.ToSingle(value)
-            : t == typeof(string) ? value.ToString()
-            : Convert.ChangeType(value, t);
-        prop.SetValue(obj, converted);
-        return true;
+        try
+        {
+            object? converted = value is null ? null
+                : t == typeof(int) ? Convert.ToInt32(value)
+                : t == typeof(bool) ? Convert.ToBoolean(value)
+                : t == typeof(double) ? Convert.ToDouble(value)
+                : t == typeof(float) ? Convert.ToSingle(value)
+                : t == typeof(string) ? value.ToString()
+                : Convert.ChangeType(value, t);
+            prop.SetValue(obj, converted);
+            return true;
+        }
+        catch (Exception e) when (e is FormatException or OverflowException or InvalidCastException)
+        {
+            return false; // invalid partial entry (e.g. "" or "-" into an int) — leave the model unchanged
+        }
     }
 }

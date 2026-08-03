@@ -52,6 +52,7 @@ public sealed class ComponentRegistry
         .Register(new CheckboxComponent())
         .Register(new RadioComponent())
         .Register(new TextFieldComponent())
+        .Register(new NumberFieldComponent())
         // Content
         .Register(new IconComponent())
         .Register(new BadgeComponent())

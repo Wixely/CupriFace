@@ -12,6 +12,7 @@
     <Project Path="samples/HtmlView/HtmlView.csproj" />
     <Project Path="samples/Interactive/Interactive.csproj" />
     <Project Path="samples/Motion/Motion.csproj" />
+    <Project Path="samples/NumberInput/NumberInput.csproj" />
     <Project Path="samples/Overlays/Overlays.csproj" />
     <Project Path="samples/Responsive/Responsive.csproj" />
     <Project Path="samples/Scaling/Scaling.csproj" />

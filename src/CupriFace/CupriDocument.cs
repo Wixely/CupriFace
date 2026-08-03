@@ -39,6 +39,7 @@ public sealed class CupriDocument : IDisposable
     // Hover + drag + text-focus state
     private readonly List<IElement> _hoverChain = new();
     private string? _focusKey;  // the focused field's bound path (survives rebuilds)
+    private bool _focusNumeric; // focused field only accepts numeric input
     private int _caret;
     private bool _dragging;
     private float _dragX0, _dragInnerW, _dragPad;
@@ -155,7 +156,7 @@ public sealed class CupriDocument : IDisposable
         var field = FindFocused(_root);
         if (field is null) return;
 
-        var value = BindingEngine.Resolve(_model, _focusKey) as string ?? "";
+        var value = BindingEngine.Resolve(_model, _focusKey)?.ToString() ?? "";
         var caret = Math.Clamp(_caret, 0, value.Length);
         var box = HitTesting.AbsoluteBox(field);
         var textW = _fonts.MeasureText(field.Style, value[..caret]);
@@ -209,15 +210,18 @@ public sealed class CupriDocument : IDisposable
         var hit = HitTesting.HitTest(_root, x, y);
         if (hit is null) return UpdateFocus(null); // click on empty space blurs
 
-        // Focus: a click inside a textbox focuses it (caret at end); elsewhere blurs.
+        // Focus: a click inside a text/number field focuses it (caret at end); elsewhere blurs.
         RenderNode? field = hit;
-        while (field is not null && field.Element?.GetAttribute("role") != "textbox") field = field.Parent;
+        while (field is not null && field.Element?.GetAttribute("role") is not ("textbox" or "spinbutton")) field = field.Parent;
         var focusChanged = UpdateFocus(field?.Element);
 
         var handled = false;
         for (var node = hit; node is not null && !handled; node = node.Parent)
         {
             if (node.Element is not { } el) continue;
+
+            // Number stepper: +/- button adjusts the nearest numeric field's bound value.
+            if (el.GetAttribute("data-cupri-step") is { Length: > 0 } stepRaw) { handled = StepNumber(node, stepRaw); break; }
 
             // Overlay open/close: dismiss (backdrop/outside) and trigger toggle.
             if (el.HasAttribute("data-cupri-dismiss")) { handled = SetNearestOpen(node, false); break; }
@@ -252,7 +256,8 @@ public sealed class CupriDocument : IDisposable
         var key = field?.GetAttribute("data-bind-value") ?? field?.GetAttribute("id");
         if (key == _focusKey) return false;
         _focusKey = key;
-        if (key is not null) _caret = (BindingEngine.Resolve(_model, key) as string)?.Length ?? 0;
+        _focusNumeric = field?.HasAttribute("data-numeric") == true;
+        if (key is not null) _caret = (BindingEngine.Resolve(_model, key)?.ToString())?.Length ?? 0;
         return true;
     }
 
@@ -263,7 +268,7 @@ public sealed class CupriDocument : IDisposable
     public bool DispatchKey(string? text, EditKey key)
     {
         if (_focusKey is null || _model is null) return false;
-        var value = BindingEngine.Resolve(_model, _focusKey) as string ?? "";
+        var value = BindingEngine.Resolve(_model, _focusKey)?.ToString() ?? "";
         var caret = Math.Clamp(_caret, 0, value.Length);
         var edited = false;
 
@@ -277,7 +282,12 @@ public sealed class CupriDocument : IDisposable
             case EditKey.End: caret = value.Length; break;
             case EditKey.Enter: _focusKey = null; Refresh(); return true; // commit + blur
             default:
-                if (!string.IsNullOrEmpty(text)) { value = value.Insert(caret, text); caret += text.Length; edited = true; }
+                if (!string.IsNullOrEmpty(text))
+                {
+                    var candidate = value.Insert(caret, text);
+                    if (_focusNumeric && !IsNumericValue(candidate)) break; // reject non-numeric keystrokes
+                    value = candidate; caret += text.Length; edited = true;
+                }
                 break;
         }
 
@@ -320,6 +330,30 @@ public sealed class CupriDocument : IDisposable
             }
         return false;
     }
+
+    // A stepper (+/-) inside a number field: nudge the field's bound value by step*delta, clamped.
+    private bool StepNumber(RenderNode node, string stepRaw)
+    {
+        if (_model is null || !int.TryParse(stepRaw, out var dir)) return false;
+        for (var n = node; n is not null; n = n.Parent)
+        {
+            if (n.Element?.GetAttribute("data-bind-value") is not { Length: > 0 } path) continue;
+            var cur = BindingEngine.Resolve(_model, path) is { } v && double.TryParse(v.ToString(), out var d) ? d : 0;
+            var step = double.TryParse(n.Element.GetAttribute("data-step"), out var s) ? s : 1;
+            var next = cur + dir * step;
+            if (double.TryParse(n.Element.GetAttribute("data-min"), out var min)) next = Math.Max(min, next);
+            if (double.TryParse(n.Element.GetAttribute("data-max"), out var max)) next = Math.Min(max, next);
+            // Keep integers integral so a bound int round-trips cleanly.
+            var text = next == Math.Floor(next) ? ((long)next).ToString() : next.ToString();
+            UpdateFocus(n.Element); // focus the field being stepped
+            return BindingEngine.TrySet(_model, path, text);
+        }
+        return false;
+    }
+
+    // True if the string is a valid (possibly partial) numeric entry: optional sign, digits, one dot.
+    private static bool IsNumericValue(string s) =>
+        s.Length == 0 || System.Text.RegularExpressions.Regex.IsMatch(s, @"^-?\d*\.?\d*$");
 
     // Begin a slider interaction: cache its geometry so drag-moves don't need the node.
     private bool StartSliderDrag(RenderNode node, IElement el, float x)
