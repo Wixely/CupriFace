@@ -17,7 +17,7 @@ namespace CupriFace;
 /// The public entry point: loads HTML + CSS, applies data binding, resolves styles,
 /// and renders to a Skia canvas. Ties together Layers 1–5 of DESIGN.md.
 /// </summary>
-public sealed class CupriDocument : IDisposable
+public sealed partial class CupriDocument : IDisposable
 {
     private readonly string _templateHtml;
     private readonly string? _css;

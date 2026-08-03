@@ -517,19 +517,23 @@ CupriFace.sln
 | M8 | AOT hardening | `PublishAot` build of the gallery on all three desktop OSes |
 | M9 | (Step 2) WASM | Same gallery rendering to `<canvas>` with hidden-DOM a11y |
 
-### Planned — agent / dev introspection (debug channel)
+### Agent / dev introspection (debug channel) — DONE (v1)
 A rudimentary debug feature so an **AI agent** (or developer) can "see" and diagnose the
-live form during development **without a screenshot**. Programmatic access to:
-- the **render tree** as text — each node's tag/classes, computed **layout box** (x/y/w/h),
-  text content, and key computed styles;
-- **interaction state** — focus (+caret index), hover chain, scroll offsets, drag;
-- **current bound model values** (what each `{{path}}` resolved to);
-- the **semantics tree** (§5 — already implemented via `AccessibilityTree.Dump`).
+live form during development **without a screenshot**. `doc.DebugDump(w, h)` lays out and
+returns one indented **JSON** snapshot (read-only; never mutates state):
+- the **render tree** — each node's tag/classes/role, absolute **layout box** (x/y/w/h),
+  text content, key styles (display/bg/color/font-size), and state **flags**
+  (`focus`/`hover`/`active`/`invalid`/`top-layer`/`scrollable`, with scroll y/max);
+- **interaction state** — focus (key + caret + edit buffer + numeric validity/min/max),
+  hover chain, drag, and open **overlays** (each `data-bind-open` path + bool);
+- **current bound model values** — every `data-bind-*` path resolved to its value;
+- the **semantics tree** (§5) — role/name/value/checked/focusable per node.
 
-Delivered as a `doc.DebugDump()` (structured text/JSON) plus an optional **debug overlay**
-that outlines layout boxes / flags overflow. Goal: an agent can query "what's on screen,
-where, and why" and pinpoint layout/binding bugs mechanically instead of eyeballing a PNG.
-(This is essentially the manual inspection used to verify features so far, made first-class.)
+Verified in `samples/AgentDebug` (drives an invalid over-max entry, then asserts the dump
+exposes the focus buffer, `bufferValid:false`, the model's last-good value, a11y, and
+boxes). Goal met: an agent can query "what's on screen, where, and why" and pinpoint
+layout/binding bugs mechanically instead of eyeballing a PNG. Remaining (optional): a
+visual **debug overlay** that outlines layout boxes / flags overflow in the live window.
 
 ### Implementation status — M0–M9 complete
 Every roadmap milestone and the §8 feature scope is implemented and verified (snapshots
