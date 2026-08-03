@@ -107,7 +107,12 @@ public sealed class CupriDocument : IDisposable
             focusEl.SetAttribute("data-focus", "");
             if (_editBuffer is not null)
             {
-                (focusEl.QuerySelector("[data-caret-anchor]") ?? focusEl).TextContent = _editBuffer;
+                // Only overwrite the value text when the buffer is non-empty: blanking a text
+                // node removes it (no line box → the field collapses and its rounded corners
+                // read as a pill). An empty buffer keeps the component's own content — e.g. the
+                // placeholder for a text field stays visible until the user types.
+                if (_editBuffer.Length > 0)
+                    (focusEl.QuerySelector("[data-caret-anchor]") ?? focusEl).TextContent = _editBuffer;
                 if (!BufferValid(_editBuffer)) focusEl.SetAttribute("data-invalid", "");
             }
         }

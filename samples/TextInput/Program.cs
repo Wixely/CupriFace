@@ -32,6 +32,7 @@ Snap("text-empty.png");                             // placeholder shown
 var field = Find(doc.Root, n => n.Element?.GetAttribute("role") == "textbox");
 var b = HitTesting.AbsoluteBox(field!);
 doc.DispatchClick(b.X + b.W / 2, b.Y + b.H / 2);
+Snap("text-focus-empty.png");                       // focused + empty: placeholder stays, shape unchanged
 foreach (var ch in "Hello") doc.DispatchKey(ch.ToString(), EditKey.None);
 Snap("text-typed.png");                             // "Hello" + caret
 
