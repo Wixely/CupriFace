@@ -80,7 +80,6 @@ public sealed class ShowcaseApp : CupriApp
             <div class="row">
               <span class="lbl">Quantity</span>
               <cupri-number value="{{Quantity}}" min="0" max="20" step="1"></cupri-number>
-              <span class="val">{{Quantity}}</span>
             </div>
             <div class="row">
               <cupri-chip>Design</cupri-chip><cupri-chip closable="true">Removable</cupri-chip>
