@@ -495,6 +495,20 @@ CupriFace.sln
 | M8 | AOT hardening | `PublishAot` build of the gallery on all three desktop OSes |
 | M9 | (Step 2) WASM | Same gallery rendering to `<canvas>` with hidden-DOM a11y |
 
+### Planned — agent / dev introspection (debug channel)
+A rudimentary debug feature so an **AI agent** (or developer) can "see" and diagnose the
+live form during development **without a screenshot**. Programmatic access to:
+- the **render tree** as text — each node's tag/classes, computed **layout box** (x/y/w/h),
+  text content, and key computed styles;
+- **interaction state** — focus (+caret index), hover chain, scroll offsets, drag;
+- **current bound model values** (what each `{{path}}` resolved to);
+- the **semantics tree** (§5 — already implemented via `AccessibilityTree.Dump`).
+
+Delivered as a `doc.DebugDump()` (structured text/JSON) plus an optional **debug overlay**
+that outlines layout boxes / flags overflow. Goal: an agent can query "what's on screen,
+where, and why" and pinpoint layout/binding bugs mechanically instead of eyeballing a PNG.
+(This is essentially the manual inspection used to verify features so far, made first-class.)
+
 ### Implementation status — M0–M9 complete
 Every roadmap milestone and the §8 feature scope is implemented and verified (snapshots
 for visual features; thread-ID/console assertions for non-visual; build for the two the
