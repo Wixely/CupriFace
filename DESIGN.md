@@ -415,7 +415,7 @@ own. Each is accessible + themed + bindable out of the box.
 
 **Shipped (buildable on today's engine):** `<cupri-icon>` (SVG icon set),
 `<cupri-button>`, `<cupri-icon-button>`, `<cupri-checkbox>`, `<cupri-radio>`,
-`<cupri-switch>`, `<cupri-slider>`, `<cupri-textfield>`, `<cupri-badge>`, `<cupri-chip>`, `<cupri-avatar>`,
+`<cupri-switch>`, `<cupri-slider>`, `<cupri-textfield>`, `<cupri-number>`, `<cupri-badge>`, `<cupri-chip>`, `<cupri-avatar>`,
 `<cupri-card>`, `<cupri-divider>`, `<cupri-stat>`, `<cupri-progress>`,
 `<cupri-spinner>`, `<cupri-skeleton>`, `<cupri-alert>` (`samples/Controls`), plus the
 **overlays** `<cupri-dialog>`, `<cupri-toast>`, `<cupri-menu>`/`<cupri-menu-item>`,
@@ -448,6 +448,28 @@ own. Each is accessible + themed + bindable out of the box.
 > built-in tags) and keep us compatible with the real browser DOM in the §9 web
 > target. `<cuprislider>` would work in our parser but breaks that convention — we
 > standardise on the hyphenated form.
+
+### 10.6 Input validation — permissive edit, validate on commit
+A **project-wide UX principle** for every validated field (not just numbers): **never
+block the user mid-edit.** While a field is focused it edits a permissive *buffer* that
+may hold an invalid value; the field shows a **red border** (`[data-invalid]`) while the
+buffer is invalid, and validation/clamping happens only on **commit** (blur or Enter).
+This keeps text always editable — you can type past a limit, delete to empty, or paste
+garbage, then fix it — instead of the engine silently rejecting keystrokes.
+
+Mechanics (engine, `CupriDocument`):
+- A focused field holds `_editBuffer` (raw text), seeded from the bound value on focus.
+- Keystrokes edit the buffer freely. A **valid** buffer is *live-committed* to the model
+  (so other bindings track it); an **invalid** buffer stays local and the model keeps its
+  last good value.
+- On blur/Enter the buffer is validated: parseable + in range → clamp + commit;
+  unparseable (`""`, `"abc"`) → **revert** to the last good value.
+- Validity is per-field (attributes like `data-numeric`, `data-min`, `data-max`). The
+  focused field's buffer is painted over the bound value each rebuild, with
+  `[data-invalid]` toggled for the red border. Verified in `samples/NumberInput`.
+
+New validated controls should follow this same buffer → red-border → commit-on-blur shape
+rather than rejecting input inline.
 
 ---
 

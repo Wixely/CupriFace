@@ -15,6 +15,7 @@ public sealed class TextFieldComponent : ComponentBase
                            border:2px var(--cupri-border, #cbd2dc); border-radius:8px; padding:9px 12px; font-size:15px; }
         .cupri-textfield[data-hover] { border:2px #98a2b3; }
         .cupri-textfield:focus { border:2px #B87333; }
+        .cupri-textfield[data-invalid] { border:2px #d92d20; }
         .cupri-tf-text { color:var(--cupri-text, #1e2430); }
         .cupri-tf-ph { color:#98a2b3; }
         """;

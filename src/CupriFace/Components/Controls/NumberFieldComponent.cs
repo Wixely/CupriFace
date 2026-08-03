@@ -15,6 +15,7 @@ public sealed class NumberFieldComponent : ComponentBase
                         border:2px var(--cupri-border, #cbd2dc); border-radius:8px; font-size:15px; }
         .cupri-number[data-hover] { border:2px #98a2b3; }
         .cupri-number:focus { border:2px #B87333; }
+        .cupri-number[data-invalid] { border:2px #d92d20; }
         .cupri-num-text { flex:1; padding:9px 12px; color:var(--cupri-text, #1e2430); }
         .cupri-num-steps { display:flex; flex-direction:column; width:26px; border-left:1px var(--cupri-border, #cbd2dc); }
         .cupri-num-step { flex:1; display:flex; align-items:center; justify-content:center;

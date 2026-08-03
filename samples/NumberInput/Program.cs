@@ -40,26 +40,53 @@ var afterDown = form.Count;                          // expect 5
 for (var i = 0; i < 12; i++) ClickStep("1");
 var clamped = form.Count;                            // expect 10
 
-// Typed entry: focus the field (value "10"), then edit the number string.
+// Validation philosophy: type freely (even invalid), see a red border, validate on blur.
+// From "10", type "5" → buffer "105" > max 10 → INVALID: red border, model keeps 10.
 ClickField();
-doc.DispatchKey(null, EditKey.End);                 // caret after "10"
-doc.DispatchKey("x", EditKey.None);                 // non-numeric → rejected
-doc.DispatchKey("5", EditKey.None);                 // "105" > max 10 → rejected
-var overMax = form.Count;                           // still 10
-doc.DispatchKey(null, EditKey.Backspace);           // "10" -> "1"
-var edited1 = form.Count;                           // expect 1
-doc.DispatchKey("0", EditKey.None);                 // "1" -> "10" (== max, allowed)
-var edited2 = form.Count;                           // expect 10
-Snap("num-typed.png");
-doc.DispatchKey(null, EditKey.Home);                // caret before "10" — should sit at text start
-Snap("num-caret-home.png");
+doc.DispatchKey(null, EditKey.End);
+doc.DispatchKey("5", EditKey.None);                 // buffer "105" (over max) — allowed, but flagged
+var invalidBorder = FieldHasInvalid();              // expect true (red border)
+var modelWhileInvalid = form.Count;                 // expect 10 (last good value kept)
+Snap("num-invalid.png");                            // shows "105" with a red border
 
-Console.WriteLine($"[CupriFace] up={afterUp} down={afterDown} clamped={clamped} overMax={overMax} edited1={edited1} edited2={edited2}");
-var pass = afterUp == 6 && afterDown == 5 && clamped == 10 && overMax == 10 && edited1 == 1 && edited2 == 10;
+// Blur (click outside the field) → validate + clamp to max.
+Blur();
+var afterBlur = form.Count;                         // expect 10 (105 clamped)
+var borderCleared = !FieldHasInvalid();             // red border gone
+Snap("num-after-blur.png");
+
+// Unparseable buffer reverts on blur (keeps the last good value). Append a letter so we
+// never pass through a valid intermediate that would live-commit.
+ClickField();
+doc.DispatchKey(null, EditKey.End);
+doc.DispatchKey("x", EditKey.None);                 // "10x" — invalid, never parseable
+var modelWhileGarbage = form.Count;                 // expect 10 (not committed)
+Blur();
+var afterRevert = form.Count;                       // expect 10 (unparseable → reverted to last good)
+
+Console.WriteLine($"[CupriFace] up={afterUp} down={afterDown} clamped={clamped} " +
+    $"invalidBorder={invalidBorder} modelWhileInvalid={modelWhileInvalid} afterBlur={afterBlur} " +
+    $"borderCleared={borderCleared} modelWhileGarbage={modelWhileGarbage} afterRevert={afterRevert}");
+var pass = afterUp == 6 && afterDown == 5 && clamped == 10
+    && invalidBorder && modelWhileInvalid == 10 && afterBlur == 10 && borderCleared
+    && modelWhileGarbage == 10 && afterRevert == 10;
 Console.WriteLine(pass
-    ? "[CupriFace] PASS: steppers nudge + clamp, typed digits filter, two-way bound int."
+    ? "[CupriFace] PASS: permissive typing → red border while invalid → clamp/revert on blur."
     : "[CupriFace] FAIL");
 return pass ? 0 : 1;
+
+bool FieldHasInvalid()
+{
+    using (var _ = doc.RenderToImage(460, 180)) { }
+    return Find(doc.Root, n => n.Element?.GetAttribute("role") == "spinbutton")!
+        .Element!.HasAttribute("data-invalid");
+}
+
+void Blur()
+{
+    using (var _ = doc.RenderToImage(460, 180)) { }
+    doc.DispatchClick(8, 8); // page padding — no field there → blur + validate
+}
 
 // Lay out the current (possibly just-rebuilt) tree, then click the matching node's centre.
 // A live host renders every frame, so layout is always current before the next click; the

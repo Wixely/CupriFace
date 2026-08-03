@@ -39,8 +39,9 @@ public sealed class CupriDocument : IDisposable
     // Hover + drag + text-focus state
     private readonly List<IElement> _hoverChain = new();
     private string? _focusKey;  // the focused field's bound path (survives rebuilds)
-    private bool _focusNumeric; // focused field only accepts numeric input
-    private double? _focusMin, _focusMax; // numeric field bounds (for clamping typed entry)
+    private bool _focusNumeric; // focused field is validated as a number
+    private double? _focusMin, _focusMax; // numeric field bounds (for validation/clamping)
+    private string? _editBuffer; // raw text being edited (permissive); validated/committed on blur
     private int _caret;
     private bool _dragging;
     private float _dragX0, _dragInnerW, _dragPad;
@@ -97,9 +98,19 @@ public sealed class CupriDocument : IDisposable
         // Expand custom elements after binding so components see concrete attribute values.
         _components?.Expand(dom);
 
-        // Re-apply text focus across the rebuild (typing rebuilds the DOM each keystroke).
-        if (_focusKey is not null)
-            dom.QuerySelector($"[data-bind-value=\"{_focusKey}\"]")?.SetAttribute("data-focus", "");
+        // Re-apply text focus across the rebuild (typing rebuilds the DOM each keystroke), and
+        // paint the raw edit buffer (which may be invalid) over the bound value, flagging
+        // data-invalid so the field can show a red border while the user is mid-edit.
+        if (_focusKey is not null &&
+            dom.QuerySelector($"[data-bind-value=\"{_focusKey}\"]") is { } focusEl)
+        {
+            focusEl.SetAttribute("data-focus", "");
+            if (_editBuffer is not null)
+            {
+                (focusEl.QuerySelector("[data-caret-anchor]") ?? focusEl).TextContent = _editBuffer;
+                if (!BufferValid(_editBuffer)) focusEl.SetAttribute("data-invalid", "");
+            }
+        }
 
         // Component defaults first (low priority), then author CSS, then <style> tags.
         var rules = new List<CssRule>();
@@ -161,7 +172,7 @@ public sealed class CupriDocument : IDisposable
         // nest it in a padded span — e.g. cupri-number puts its padding on the text span, not
         // the field), so the caret lines up regardless of where the padding lives.
         var anchor = FindCaretAnchor(field) ?? field;
-        var value = BindingEngine.Resolve(_model, _focusKey)?.ToString() ?? "";
+        var value = _editBuffer ?? BindingEngine.Resolve(_model, _focusKey)?.ToString() ?? "";
         var caret = Math.Clamp(_caret, 0, value.Length);
         var box = HitTesting.AbsoluteBox(anchor);
         var textW = _fonts.MeasureText(anchor.Style, value[..caret]);
@@ -268,11 +279,13 @@ public sealed class CupriDocument : IDisposable
     {
         var key = field?.GetAttribute("data-bind-value") ?? field?.GetAttribute("id");
         if (key == _focusKey) return false;
+        CommitBuffer(); // blur the previous field: validate + commit (or revert) its edit buffer
         _focusKey = key;
         _focusNumeric = field?.HasAttribute("data-numeric") == true;
         _focusMin = double.TryParse(field?.GetAttribute("data-min"), out var mn) ? mn : null;
         _focusMax = double.TryParse(field?.GetAttribute("data-max"), out var mx) ? mx : null;
-        if (key is not null) _caret = (BindingEngine.Resolve(_model, key)?.ToString())?.Length ?? 0;
+        _editBuffer = key is null ? null : BindingEngine.Resolve(_model, key)?.ToString() ?? "";
+        _caret = _editBuffer?.Length ?? 0;
         return true;
     }
 
@@ -283,7 +296,9 @@ public sealed class CupriDocument : IDisposable
     public bool DispatchKey(string? text, EditKey key)
     {
         if (_focusKey is null || _model is null) return false;
-        var value = BindingEngine.Resolve(_model, _focusKey)?.ToString() ?? "";
+        // Edit a permissive buffer (may hold an invalid value while typing); it shows a red
+        // border and is validated/clamped on blur — never block the user mid-edit.
+        var value = _editBuffer ?? BindingEngine.Resolve(_model, _focusKey)?.ToString() ?? "";
         var caret = Math.Clamp(_caret, 0, value.Length);
         var edited = false;
 
@@ -295,22 +310,20 @@ public sealed class CupriDocument : IDisposable
             case EditKey.Right: caret = Math.Min(value.Length, caret + 1); break;
             case EditKey.Home: caret = 0; break;
             case EditKey.End: caret = value.Length; break;
-            case EditKey.Enter: _focusKey = null; Refresh(); return true; // commit + blur
+            case EditKey.Enter: CommitBuffer(); _focusKey = null; Refresh(); return true; // validate + commit + blur
             default:
-                if (!string.IsNullOrEmpty(text))
-                {
-                    var candidate = value.Insert(caret, text);
-                    if (_focusNumeric && !IsNumericValue(candidate)) break; // reject non-numeric keystrokes
-                    // Reject a keystroke that would exceed max (min is enforced on blur/step, not
-                    // mid-type — a partial "1" toward "15" is below a min of 5 but still valid).
-                    if (_focusNumeric && _focusMax is { } max && double.TryParse(candidate, out var n) && n > max) break;
-                    value = candidate; caret += text.Length; edited = true;
-                }
+                if (!string.IsNullOrEmpty(text)) { value = value.Insert(caret, text); caret += text.Length; edited = true; }
                 break;
         }
 
         _caret = caret;
-        if (edited) BindingEngine.TrySet(_model, _focusKey, value);
+        if (edited)
+        {
+            _editBuffer = value;
+            // Live-commit only when the buffer is currently valid, so other bindings track it;
+            // invalid text stays in the buffer (red border) and the model keeps its last good value.
+            if (BufferValid(value)) BindingEngine.TrySet(_model, _focusKey, value);
+        }
         Refresh();
         return true;
     }
@@ -356,6 +369,7 @@ public sealed class CupriDocument : IDisposable
         for (var n = node; n is not null; n = n.Parent)
         {
             if (n.Element?.GetAttribute("data-bind-value") is not { Length: > 0 } path) continue;
+            if (_focusKey == path) CommitBuffer(); // flush any in-progress edit before stepping
             var cur = BindingEngine.Resolve(_model, path) is { } v && double.TryParse(v.ToString(), out var d) ? d : 0;
             var step = double.TryParse(n.Element.GetAttribute("data-step"), out var s) ? s : 1;
             var next = cur + dir * step;
@@ -363,15 +377,43 @@ public sealed class CupriDocument : IDisposable
             if (double.TryParse(n.Element.GetAttribute("data-max"), out var max)) next = Math.Min(max, next);
             // Keep integers integral so a bound int round-trips cleanly.
             var text = next == Math.Floor(next) ? ((long)next).ToString() : next.ToString();
-            UpdateFocus(n.Element); // focus the field being stepped
-            return BindingEngine.TrySet(_model, path, text);
+            var ok = BindingEngine.TrySet(_model, path, text);
+            if (_focusKey == path) { _editBuffer = text; _caret = text.Length; } // keep the buffer in sync with the step
+            return ok;
         }
         return false;
     }
 
-    // True if the string is a valid (possibly partial) numeric entry: optional sign, digits, one dot.
-    private static bool IsNumericValue(string s) =>
-        s.Length == 0 || System.Text.RegularExpressions.Regex.IsMatch(s, @"^-?\d*\.?\d*$");
+    // ---- field validation: permissive typing, validate on commit (blur/Enter) --------------
+    // The philosophy across all fields: let the user type freely (invalid states show a red
+    // border), and only validate/clamp when the field loses focus — so text stays editable.
+
+    // Is the buffer currently valid for its field? Plain text: always. Numeric: parseable + in range.
+    private bool BufferValid(string buf)
+    {
+        if (!_focusNumeric) return true;
+        if (!double.TryParse(buf, out var n)) return false;
+        return !(_focusMin is { } mn && n < mn) && !(_focusMax is { } mx && n > mx);
+    }
+
+    // The value to write on commit, or null to leave the model unchanged (revert an unparseable buffer).
+    private string? BufferCommit(string buf)
+    {
+        if (!_focusNumeric) return buf;
+        if (!double.TryParse(buf, out var n)) return null; // e.g. "" or "abc" — keep the last good value
+        if (_focusMin is { } mn) n = Math.Max(mn, n);
+        if (_focusMax is { } mx) n = Math.Min(mx, n);
+        return n == Math.Floor(n) ? ((long)n).ToString() : n.ToString();
+    }
+
+    // Validate and commit the current edit buffer to the model, then clear it (blur).
+    private void CommitBuffer()
+    {
+        if (_focusKey is not null && _editBuffer is not null && _model is not null
+            && BufferCommit(_editBuffer) is { } committed)
+            BindingEngine.TrySet(_model, _focusKey, committed);
+        _editBuffer = null;
+    }
 
     // Begin a slider interaction: cache its geometry so drag-moves don't need the node.
     private bool StartSliderDrag(RenderNode node, IElement el, float x)
