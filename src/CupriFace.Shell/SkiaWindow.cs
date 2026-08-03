@@ -35,6 +35,7 @@ public sealed class SkiaWindow : IDisposable
     public event Action<float, float>? PointerDown;
     public event Action<float, float>? PointerMove;
     public event Action<float, float>? PointerUp;
+    public event Action<float, float, float>? PointerWheel; // x, y, deltaY (notches)
 
     /// <summary>
     /// Optional per-frame predicate to request window close (used by the headless
@@ -86,6 +87,7 @@ public sealed class SkiaWindow : IDisposable
             mouse.MouseDown += (m, btn) => { if (btn == MouseButton.Left) PointerDown?.Invoke(m.Position.X, m.Position.Y); };
             mouse.MouseUp += (m, btn) => { if (btn == MouseButton.Left) PointerUp?.Invoke(m.Position.X, m.Position.Y); };
             mouse.MouseMove += (m, pos) => PointerMove?.Invoke(pos.X, pos.Y);
+            mouse.Scroll += (m, wheel) => PointerWheel?.Invoke(m.Position.X, m.Position.Y, wheel.Y);
         }
     }
 

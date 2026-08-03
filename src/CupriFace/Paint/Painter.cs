@@ -1,5 +1,6 @@
 using CupriFace.Dom;
 using CupriFace.Style;
+using SkiaSharp;
 
 namespace CupriFace.Paint;
 
@@ -76,13 +77,32 @@ public sealed class Painter
                 node.Width - node.BorderLeftW - node.BorderRightW,
                 node.Height - node.BorderTopW - node.BorderBottomW, s.BorderRadius));
 
+        // Scroll: shift children up by the (clamped) offset.
+        var scrollY = 0f;
+        if (node.IsScrollable)
+        {
+            scrollY = Math.Clamp(node.ScrollY, 0, node.MaxScrollY);
+            node.ScrollY = scrollY;
+        }
+
         foreach (var child in node.Children)
         {
             if (child.Style.Display == DisplayType.None) continue;
-            PaintNode(list, child, absX, absY, topLayer, inTopLayer);
+            PaintNode(list, child, absX, absY - scrollY, topLayer, inTopLayer);
         }
 
         if (clip) list.Add(new PopClip());
+
+        // Scrollbar thumb (on top of content, inside the padding box).
+        if (node.IsScrollable)
+        {
+            var boxH = node.ContentBoxHeight;
+            var thumbH = MathF.Max(28f, boxH * boxH / node.ScrollContentHeight);
+            var thumbY = absY + node.ContentTopInset + scrollY / node.MaxScrollY * (boxH - thumbH);
+            var thumbX = absX + node.Width - node.BorderRightW - 8f;
+            list.Add(new FillRect(thumbX, thumbY, 5f, thumbH, 2.5f, new SKColor(0x60, 0x6a, 0x7a, 0xB0)));
+        }
+
         if (transformed) list.Add(new PopTransform());
     }
 

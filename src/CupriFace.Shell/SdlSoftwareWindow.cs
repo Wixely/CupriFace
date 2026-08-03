@@ -34,7 +34,10 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     public event Action<float, float>? PointerDown;
     public event Action<float, float>? PointerMove;
     public event Action<float, float>? PointerUp;
+    public event Action<float, float, float>? PointerWheel; // x, y, deltaY (notches)
     public FrameStats Stats => _stats;
+
+    private float _lastX, _lastY; // wheel events carry no position — use the last move
 
     public SdlSoftwareWindow(string title = "CupriFace", int width = 1024, int height = 768)
     {
@@ -80,7 +83,11 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                         PointerUp?.Invoke(e.Button.X, e.Button.Y);
                         break;
                     case EventType.Mousemotion:
+                        _lastX = e.Motion.X; _lastY = e.Motion.Y;
                         PointerMove?.Invoke(e.Motion.X, e.Motion.Y);
+                        break;
+                    case EventType.Mousewheel:
+                        PointerWheel?.Invoke(_lastX, _lastY, e.Wheel.Y);
                         break;
                     case EventType.Windowevent when (WindowEventID)e.Window.Event == WindowEventID.SizeChanged:
                         EnsureSurface(e.Window.Data1, e.Window.Data2);

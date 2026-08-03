@@ -161,6 +161,9 @@ public sealed class LayoutEngine
         node.Width = contentW + node.HorizontalInsets;
         node.Height = contentH + node.VerticalInsets;
 
+        // Scroll: remember the full children extent (ScrollY is preserved across layouts).
+        node.ScrollContentHeight = !node.IsText && s.Overflow == OverflowMode.Scroll ? usedH : 0f;
+
         // Absolutely-positioned children are placed against this node's content box.
         if (!node.IsText)
             LayoutAbsoluteChildren(node, contentW, contentH);

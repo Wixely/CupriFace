@@ -429,7 +429,9 @@ own. Each is accessible + themed + bindable out of the box.
    z-index + top-layer paint/hit-test; anchor placement with flip + shrink-to-fit).
    Remaining overlay controls (select/dropdown, popover, context menu, drawer) are now
    thin additions on this foundation.
-3. **Scrolling** (viewport + wheel + scrollbar) → list, table, long content.
+3. ~~**Scrolling**~~ → **DONE** (overflow:scroll/auto → clipped scroll offset + mouse
+   wheel + scrollbar thumb; hit-testing accounts for the offset). `samples/Scroll`.
+   Remaining: scrollbar drag, horizontal scroll, and persisting offset across a rebuild.
 4. **Focus + tab order + keyboard nav** → a11y parity for every interactive control.
 5. ~~**Icon rendering (SVG paths)**~~ → **DONE** (`<cupri-icon>`).
 6. **Virtualisation** → data grid, large lists/trees.

@@ -35,6 +35,14 @@ public sealed class RenderNode
     // with X/Y already in absolute viewport coordinates.
     public bool IsTopLayer;
 
+    // Scrolling (overflow:scroll/auto): full content extent + current offset. ScrollY is
+    // interaction state — layout recomputes ScrollContentHeight but preserves ScrollY.
+    public float ScrollContentHeight;
+    public float ScrollY;
+    public float ContentBoxHeight => Height - VerticalInsets;
+    public float MaxScrollY => MathF.Max(0, ScrollContentHeight - ContentBoxHeight);
+    public bool IsScrollable => MaxScrollY > 0.5f;
+
     public bool IsText => Text is not null;
 
     public float ContentLeftInset => BorderLeftW + PadLeft;

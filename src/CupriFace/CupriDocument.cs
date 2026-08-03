@@ -283,6 +283,20 @@ public sealed class CupriDocument : IDisposable
     /// <summary>Pointer up: end any slider drag.</summary>
     public void DispatchPointerUp(float x, float y) => _dragging = false;
 
+    /// <summary>Scroll wheel: scroll the nearest scrollable element under the pointer by pixels.</summary>
+    public bool DispatchWheel(float x, float y, float pixelDelta)
+    {
+        var hit = HitTesting.HitTest(_root, x, y);
+        for (var n = hit; n is not null; n = n.Parent)
+        {
+            if (!n.IsScrollable) continue;
+            var before = n.ScrollY;
+            n.ScrollY = Math.Clamp(n.ScrollY + pixelDelta, 0, n.MaxScrollY);
+            return Math.Abs(n.ScrollY - before) > 0.01f;
+        }
+        return false;
+    }
+
     // Toggle data-hover on the hovered element + ancestors, then re-resolve styles (no full rebuild).
     private bool UpdateHover(float x, float y)
     {

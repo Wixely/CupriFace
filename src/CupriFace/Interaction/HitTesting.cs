@@ -43,9 +43,11 @@ public static class HitTesting
         var inside = x >= ax && x < ax + node.Width && y >= ay && y < ay + node.Height;
 
         RenderNode? best = inside && !node.IsText ? node : null;
+        // Children of a scrolled element are shifted up by the scroll offset.
+        var childOy = ay - (node.IsScrollable ? Math.Clamp(node.ScrollY, 0, node.MaxScrollY) : 0f);
         foreach (var child in node.Children)
         {
-            var hit = Hit(child, ax, ay, x, y, inTopLayer);
+            var hit = Hit(child, ax, childOy, x, y, inTopLayer);
             if (hit is not null) best = hit;
         }
         return best;
