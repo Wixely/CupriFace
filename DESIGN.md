@@ -415,12 +415,15 @@ own. Each is accessible + themed + bindable out of the box.
 
 **Shipped (buildable on today's engine):** `<cupri-icon>` (SVG icon set),
 `<cupri-button>`, `<cupri-icon-button>`, `<cupri-checkbox>`, `<cupri-radio>`,
-`<cupri-switch>`, `<cupri-slider>`, `<cupri-textfield>`, `<cupri-number>`, `<cupri-badge>`, `<cupri-chip>`, `<cupri-avatar>`,
+`<cupri-switch>`, `<cupri-slider>`, `<cupri-textfield>`, `<cupri-number>`, `<cupri-textarea>`,
+`<cupri-select>`/`<cupri-option>`, `<cupri-badge>`, `<cupri-chip>`, `<cupri-avatar>`,
 `<cupri-card>`, `<cupri-divider>`, `<cupri-stat>`, `<cupri-progress>`,
-`<cupri-spinner>`, `<cupri-skeleton>`, `<cupri-alert>` (`samples/Controls`), plus the
-**overlays** `<cupri-dialog>`, `<cupri-toast>`, `<cupri-menu>`/`<cupri-menu-item>`,
-`<cupri-tooltip>` — modal + anchored, top-layer, with open/close interaction
-(`samples/Overlays`).
+`<cupri-spinner>`, `<cupri-skeleton>`, `<cupri-alert>` (`samples/Controls`); the
+**navigation/disclosure** set `<cupri-tabs>`/`<cupri-tab>`, `<cupri-accordion>`/`<cupri-accordion-item>`,
+`<cupri-tree>`/`<cupri-tree-item>`, and the **data** control `<cupri-table>`/`<cupri-row>`/`<cupri-cell>`
+(`samples/NativeControls`); plus the **overlays** `<cupri-dialog>`, `<cupri-drawer>`, `<cupri-toast>`,
+`<cupri-menu>`/`<cupri-menu-item>`, `<cupri-popover>`, `<cupri-tooltip>` — modal + anchored,
+top-layer, with open/close interaction (`samples/Overlays`).
 
 **Gating engine capabilities — each unlocks a whole tier:**
 1. ~~**Text input**~~ → **DONE (v1)**: focus (click, `:focus`), caret (positioned by
@@ -438,10 +441,11 @@ own. Each is accessible + themed + bindable out of the box.
 5. ~~**Icon rendering (SVG paths)**~~ → **DONE** (`<cupri-icon>`).
 6. **Virtualisation** → data grid, large lists/trees.
 
-**Next controls (mostly on shipped foundations):** `<cupri-select>`/`<cupri-combobox>`
-(menu + anchor), `<cupri-popover>`, `<cupri-drawer>`, `<cupri-tabs>`, `<cupri-accordion>`.
-**Needs text input (#1):** `<cupri-textfield>`, `<cupri-textarea>`.
-**Needs scroll (#3) + virtualisation (#6):** `<cupri-table>`/data grid, `<cupri-tree>`.
+**Shipped since:** `<cupri-select>` (menu + anchor + generic `data-set-*` write-back),
+`<cupri-popover>`, `<cupri-drawer>`, `<cupri-tabs>`, `<cupri-accordion>`, `<cupri-textarea>`
+(multi-line edit + per-line caret), `<cupri-table>`, `<cupri-tree>` — all in `samples/NativeControls`.
+**Remaining refinements:** `<cupri-combobox>` (select + type-to-filter), table **virtualisation**
+(#6) for very large row counts, and keyboard nav (#4) across all of them.
 
 > Naming convention: **hyphenated** custom-element names (`<cupri-slider>`) follow
 > the HTML custom-elements rule (a hyphen distinguishes them from current/future

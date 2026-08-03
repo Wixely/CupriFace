@@ -53,6 +53,8 @@ public sealed class ComponentRegistry
         .Register(new RadioComponent())
         .Register(new TextFieldComponent())
         .Register(new NumberFieldComponent())
+        .Register(new TextAreaComponent())
+        .Register(new SelectComponent())
         // Content
         .Register(new IconComponent())
         .Register(new BadgeComponent())
@@ -61,6 +63,16 @@ public sealed class ComponentRegistry
         .Register(new CardComponent())
         .Register(new DividerComponent())
         .Register(new StatComponent())
+        // Navigation & disclosure
+        .Register(new TabsComponent())
+        .Register(new AccordionComponent())
+        .Register(new AccordionItemComponent())
+        .Register(new TreeComponent())
+        .Register(new TreeItemComponent())
+        // Data
+        .Register(new TableComponent())
+        .Register(new TableRowComponent())
+        .Register(new TableCellComponent())
         // Feedback
         .Register(new AlertComponent())
         .Register(new SpinnerComponent())
@@ -70,5 +82,7 @@ public sealed class ComponentRegistry
         .Register(new ToastComponent())
         .Register(new MenuComponent())
         .Register(new MenuItemComponent())
-        .Register(new TooltipComponent());
+        .Register(new TooltipComponent())
+        .Register(new PopoverComponent())
+        .Register(new DrawerComponent());
 }

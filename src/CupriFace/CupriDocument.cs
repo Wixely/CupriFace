@@ -40,6 +40,7 @@ public sealed partial class CupriDocument : IDisposable
     private readonly List<IElement> _hoverChain = new();
     private string? _focusKey;  // the focused field's bound path (survives rebuilds)
     private bool _focusNumeric; // focused field is validated as a number
+    private bool _focusMultiline; // focused field is a textarea (Enter inserts a newline)
     private double? _focusMin, _focusMax; // numeric field bounds (for validation/clamping)
     private string? _editBuffer; // raw text being edited (permissive); validated/committed on blur
     private int _caret;
@@ -112,7 +113,13 @@ public sealed partial class CupriDocument : IDisposable
                 // read as a pill). An empty buffer keeps the component's own content — e.g. the
                 // placeholder for a text field stays visible until the user types.
                 if (_editBuffer.Length > 0)
-                    (focusEl.QuerySelector("[data-caret-anchor]") ?? focusEl).TextContent = _editBuffer;
+                {
+                    var anchor = focusEl.QuerySelector("[data-caret-anchor]") ?? focusEl;
+                    if (focusEl.HasAttribute("data-multiline"))
+                        anchor.InnerHtml = Components.Controls.TextAreaComponent.RenderLines(_editBuffer);
+                    else
+                        anchor.TextContent = _editBuffer;
+                }
                 if (!BufferValid(_editBuffer)) focusEl.SetAttribute("data-invalid", "");
             }
         }
@@ -180,11 +187,22 @@ public sealed partial class CupriDocument : IDisposable
         var value = _editBuffer ?? BindingEngine.Resolve(_model, _focusKey)?.ToString() ?? "";
         var caret = Math.Clamp(_caret, 0, value.Length);
         var box = HitTesting.AbsoluteBox(anchor);
-        var textW = _fonts.MeasureText(anchor.Style, value[..caret]);
         var lh = FontService.LineHeightPx(anchor.Style);
         var ch = anchor.Style.FontSize * 1.1f;
-        var cx = box.X + anchor.ContentLeftInset + textW;
-        var cy = box.Y + anchor.ContentTopInset + (lh - ch) / 2f;
+
+        // Multi-line (textarea): the caret's line is the count of newlines before it, and its
+        // column is the text since the last newline. Single-line fields have one line at index 0.
+        var upto = value[..caret];
+        var lineIndex = 0;
+        var col = upto;
+        if (field.Element?.HasAttribute("data-multiline") == true)
+        {
+            var nl = upto.LastIndexOf('\n');
+            lineIndex = upto.Count(c => c == '\n');
+            col = nl >= 0 ? upto[(nl + 1)..] : upto;
+        }
+        var cx = box.X + anchor.ContentLeftInset + _fonts.MeasureText(anchor.Style, col);
+        var cy = box.Y + anchor.ContentTopInset + lineIndex * lh + (lh - ch) / 2f;
         list.Add(new FillRect(cx, cy, 2f, ch, 0f, anchor.Style.Color));
     }
 
@@ -252,6 +270,15 @@ public sealed partial class CupriDocument : IDisposable
             // Number stepper: +/- button adjusts the nearest numeric field's bound value.
             if (el.GetAttribute("data-cupri-step") is { Length: > 0 } stepRaw) { handled = StepNumber(node, stepRaw); break; }
 
+            // Generic "set a bound value" click (tabs, select options, tree selection). Also
+            // closes any containing overlay so picking an option dismisses its dropdown.
+            if (el.GetAttribute("data-set-path") is { Length: > 0 } setPath && _model is not null)
+            {
+                handled = BindingEngine.TrySet(_model, setPath, el.GetAttribute("data-set-value") ?? "");
+                SetNearestOpen(node, false);
+                break;
+            }
+
             // Overlay open/close: dismiss (backdrop/outside) and trigger toggle.
             if (el.HasAttribute("data-cupri-dismiss")) { handled = SetNearestOpen(node, false); break; }
             if (el.HasAttribute("data-cupri-toggle")) { handled = ToggleNearestOpen(node); break; }
@@ -287,6 +314,7 @@ public sealed partial class CupriDocument : IDisposable
         CommitBuffer(); // blur the previous field: validate + commit (or revert) its edit buffer
         _focusKey = key;
         _focusNumeric = field?.HasAttribute("data-numeric") == true;
+        _focusMultiline = field?.HasAttribute("data-multiline") == true;
         _focusMin = double.TryParse(field?.GetAttribute("data-min"), out var mn) ? mn : null;
         _focusMax = double.TryParse(field?.GetAttribute("data-max"), out var mx) ? mx : null;
         _editBuffer = key is null ? null : BindingEngine.Resolve(_model, key)?.ToString() ?? "";
@@ -315,7 +343,9 @@ public sealed partial class CupriDocument : IDisposable
             case EditKey.Right: caret = Math.Min(value.Length, caret + 1); break;
             case EditKey.Home: caret = 0; break;
             case EditKey.End: caret = value.Length; break;
-            case EditKey.Enter: CommitBuffer(); _focusKey = null; Refresh(); return true; // validate + commit + blur
+            case EditKey.Enter:
+                if (_focusMultiline) { value = value.Insert(caret, "\n"); caret++; edited = true; break; } // newline
+                CommitBuffer(); _focusKey = null; Refresh(); return true; // validate + commit + blur
             default:
                 if (!string.IsNullOrEmpty(text)) { value = value.Insert(caret, text); caret += text.Length; edited = true; }
                 break;
