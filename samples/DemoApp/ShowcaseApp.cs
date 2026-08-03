@@ -18,6 +18,7 @@ public sealed class ShowcaseApp : CupriApp
     public override int Height => 720;
     public override SKColor Background => _model.DarkMode ? new SKColor(0x0f, 0x14, 0x20) : new SKColor(0xf4, 0xf5, 0xf7);
     public override object Model => _model;
+    public override double RefreshIntervalSeconds => 1.0; // tick the Diagnostics readout live
 
     public override void Configure(CupriDocument doc)
     {
@@ -25,6 +26,7 @@ public sealed class ShowcaseApp : CupriApp
         doc.OnClick(".act-dialog", _ => _model.DialogOpen = true);
         doc.OnClick(".act-drawer", _ => _model.DrawerOpen = true);
         doc.OnClick(".act-toast", _ => _model.ShowToast = !_model.ShowToast);
+        doc.OnClick(".act-gc", _ => GC.Collect());
         // Zoom via buttons — a slider would fight the live re-scale it triggers.
         doc.OnClick(".zoom-dec", _ => _model.ZoomPct = Math.Clamp(_model.ZoomPct - 10, 80, 200));
         doc.OnClick(".zoom-inc", _ => _model.ZoomPct = Math.Clamp(_model.ZoomPct + 10, 80, 200));
@@ -41,6 +43,7 @@ public sealed class ShowcaseApp : CupriApp
           <div class="nav {{NavLayout}}" data-section="layout">Layout</div>
           <div class="nav {{NavMotion}}" data-section="motion">Motion</div>
           <div class="nav {{NavSettings}}" data-section="settings">Settings</div>
+          <div class="nav {{NavDiag}}" data-section="diag">Diagnostics</div>
           <div class="tip">Resize the window to see scaling</div>
         </div>
 
@@ -208,6 +211,23 @@ public sealed class ShowcaseApp : CupriApp
               <div class="box spin">spin</div>
             </div>
           </div>
+
+          <!-- DIAGNOSTICS -->
+          <div class="section" style="display:{{SecDiag}}">
+            <div class="title">Diagnostics</div>
+            <p class="sub">Live process metrics — refreshed once per second.</p>
+            <div class="row">
+              <cupri-card style="width:180px"><cupri-stat label="RAM · working set" value="{{WorkingSetMb}} MB"></cupri-stat></cupri-card>
+              <cupri-card style="width:180px"><cupri-stat label="Private bytes" value="{{PrivateMb}} MB"></cupri-stat></cupri-card>
+              <cupri-card style="width:180px"><cupri-stat label="Managed heap (GC)" value="{{ManagedHeapMb}} MB"></cupri-stat></cupri-card>
+            </div>
+            <div class="row">
+              <cupri-card style="width:180px"><cupri-stat label="GC collections 0/1/2" value="{{GcCounts}}"></cupri-stat></cupri-card>
+              <cupri-card style="width:180px"><cupri-stat label="Threads" value="{{ThreadCount}}"></cupri-stat></cupri-card>
+              <cupri-card style="width:180px"><cupri-stat label="Uptime" value="{{Uptime}}"></cupri-stat></cupri-card>
+            </div>
+            <cupri-button variant="ghost" class="act-gc">Force GC</cupri-button>
+          </div>
         </div>
       </div>
 
@@ -298,12 +318,14 @@ public sealed partial class ShowcaseModel
     public string SecLayout => Section == "layout" ? "block" : "none";
     public string SecMotion => Section == "motion" ? "block" : "none";
     public string SecSettings => Section == "settings" ? "block" : "none";
+    public string SecDiag => Section == "diag" ? "block" : "none";
     public string NavControls => Section == "controls" ? "active" : "";
     public string NavComponents => Section == "components" ? "active" : "";
     public string NavOverlays => Section == "overlays" ? "active" : "";
     public string NavLayout => Section == "layout" ? "active" : "";
     public string NavMotion => Section == "motion" ? "active" : "";
     public string NavSettings => Section == "settings" ? "active" : "";
+    public string NavDiag => Section == "diag" ? "active" : "";
 
     public string Scaling { get; set; } = "none";
     public int ZoomPct { get; set; } = 100;
@@ -329,4 +351,14 @@ public sealed partial class ShowcaseModel
     public bool Acc2 { get; set; }
     public bool TreeOpen { get; set; } = true;
     public bool PopOpen { get; set; }
+
+    // Diagnostics — live process metrics (read fresh each re-bind; host ticks once per second).
+    private static readonly System.Diagnostics.Stopwatch _up = System.Diagnostics.Stopwatch.StartNew();
+    private static string Mb(long bytes) => (bytes / (1024.0 * 1024)).ToString("0.0");
+    public string WorkingSetMb => Mb(System.Diagnostics.Process.GetCurrentProcess().WorkingSet64);
+    public string PrivateMb => Mb(System.Diagnostics.Process.GetCurrentProcess().PrivateMemorySize64);
+    public string ManagedHeapMb => Mb(GC.GetTotalMemory(false));
+    public string GcCounts => $"{GC.CollectionCount(0)} / {GC.CollectionCount(1)} / {GC.CollectionCount(2)}";
+    public int ThreadCount => System.Diagnostics.Process.GetCurrentProcess().Threads.Count;
+    public string Uptime => $"{(int)_up.Elapsed.TotalMinutes}m {_up.Elapsed.Seconds:00}s";
 }

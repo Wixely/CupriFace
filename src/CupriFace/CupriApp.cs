@@ -32,6 +32,13 @@ public abstract class CupriApp
     public virtual void Configure(CupriDocument document) { }
 
     /// <summary>
+    /// If &gt; 0, the host re-binds the model (<c>doc.Refresh()</c>) at this cadence in seconds,
+    /// so computed values that drift over time — e.g. live diagnostics like RAM usage — update
+    /// without user interaction. Default 0 = never (re-binds only on interaction).
+    /// </summary>
+    public virtual double RefreshIntervalSeconds => 0;
+
+    /// <summary>
     /// Given the window size, return the logical viewport the document is laid out at and a
     /// scale factor the host applies. Default = responsive (lay out at the window, scale 1).
     /// Override for zoom/hybrid/fixed scaling.

@@ -15,11 +15,20 @@ public static class DesktopHost
         var doc = app.CreateDocument();
         var clock = Stopwatch.StartNew();
         var scale = 1f; // current present scale, for transforming pointer coordinates
+        var lastRefresh = 0.0;
 
         void Draw(RenderContext ctx)
         {
             var p = app.Present(ctx.Width, ctx.Height);
             scale = p.Scale <= 0 ? 1f : p.Scale;
+
+            // Periodic re-bind so live computed values (e.g. diagnostics) update on their own.
+            if (app.RefreshIntervalSeconds > 0 &&
+                clock.Elapsed.TotalSeconds - lastRefresh >= app.RefreshIntervalSeconds)
+            {
+                lastRefresh = clock.Elapsed.TotalSeconds;
+                doc.Refresh();
+            }
 
             ctx.Canvas.Clear(app.Background);
             if (doc.HasAnimations) doc.Animate(clock.Elapsed.TotalSeconds); // drive @keyframes (spinner, etc.)
