@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>CupriFace.Web</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CupriFace\CupriFace.csproj" />
+    <!-- The same portable app the desktop Viewer runs. -->
+    <ProjectReference Include="..\DemoApp\DemoApp.csproj" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.10" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.10" PrivateAssets="all" />
+    <!-- Skia-on-canvas for Blazor WASM: provides the <SKCanvasView> + the thin JS glue (§9.1). -->
+    <PackageReference Include="SkiaSharp.Views.Blazor" Version="3.116.1" />
+  </ItemGroup>
+
+</Project>

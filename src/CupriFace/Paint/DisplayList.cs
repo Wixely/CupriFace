@@ -1,0 +1,45 @@
+using CupriFace.Style;
+using SkiaSharp;
+
+namespace CupriFace.Paint;
+
+/// <summary>
+/// An immutable list of absolute-positioned paint commands — the commit-snapshot
+/// boundary from DESIGN.md §7.2. The UI thread *builds* a DisplayList from the laid-out
+/// render tree; a render thread *rasterises* it, never touching live tree state. For M0
+/// the two run on one thread, but the seam is the immutable snapshot below.
+/// </summary>
+public sealed class DisplayList
+{
+    private readonly List<PaintCommand> _commands = new();
+    public IReadOnlyList<PaintCommand> Commands => _commands;
+    internal void Add(PaintCommand cmd) => _commands.Add(cmd);
+    public int Count => _commands.Count;
+}
+
+public abstract record PaintCommand;
+
+public sealed record FillRect(float X, float Y, float W, float H, float Radius, SKColor Color) : PaintCommand;
+
+public sealed record BorderRect(
+    float X, float Y, float W, float H, float Radius,
+    float Top, float Right, float Bottom, float Left, SKColor Color) : PaintCommand;
+
+public sealed record TextRun(
+    float X, float Y, float ContainerWidth, float LineWidth, float LineHeight,
+    string Text, string Family, int Weight, float Size, SKColor Color, TextAlign Align) : PaintCommand;
+
+public sealed record PushClip(float X, float Y, float W, float H, float Radius) : PaintCommand;
+
+public sealed record PopClip : PaintCommand;
+
+/// <summary>Push a 2D transform applied around (CenterX, CenterY).</summary>
+public sealed record PushTransform(
+    float CenterX, float CenterY, float TranslateX, float TranslateY,
+    float ScaleX, float ScaleY, float RotateDeg) : PaintCommand;
+
+public sealed record PopTransform : PaintCommand;
+
+/// <summary>Fill an SVG path (authored in a <paramref name="ViewBox"/>-square) scaled into the box.</summary>
+public sealed record FillPath(
+    float X, float Y, float Width, float Height, float ViewBox, string PathData, SKColor Color) : PaintCommand;

@@ -1,0 +1,58 @@
+using AngleSharp.Dom;
+using CupriFace.Style;
+
+namespace CupriFace.Dom;
+
+/// <summary>
+/// A node in the render tree (mirrors the relevant DOM subtree). Carries computed
+/// style and, after layout, its border-box geometry relative to the parent's content
+/// box. Text nodes have <see cref="Text"/> set and no <see cref="Element"/>.
+/// </summary>
+public sealed class RenderNode
+{
+    public string Tag = "";
+    public IElement? Element;
+    public string? Text;              // non-null for text nodes
+    public ComputedStyle Style = new();
+    public RenderNode? Parent;
+    public readonly List<RenderNode> Children = new();
+
+    // ---- Layout results (border-box, in parent content coordinates) ----
+    public float X, Y, Width, Height;
+
+    // Resolved box metrics (px)
+    public float MarginTop, MarginRight, MarginBottom, MarginLeft;
+    public float PadTop, PadRight, PadBottom, PadLeft;
+    public float BorderTopW, BorderRightW, BorderBottomW, BorderLeftW;
+
+    // For text nodes: laid-out lines (set by the text layout pass in M2).
+    public List<TextLine>? Lines;
+
+    // For icon nodes: an SVG path (24×24 viewBox) filled with the computed color.
+    public string? IconPath;
+
+    // Overlays: position:fixed nodes are lifted to the top layer and painted last,
+    // with X/Y already in absolute viewport coordinates.
+    public bool IsTopLayer;
+
+    public bool IsText => Text is not null;
+
+    public float ContentLeftInset => BorderLeftW + PadLeft;
+    public float ContentTopInset => BorderTopW + PadTop;
+    public float HorizontalInsets => BorderLeftW + PadLeft + PadRight + BorderRightW;
+    public float VerticalInsets => BorderTopW + PadTop + PadBottom + BorderBottomW;
+
+    public void AddChild(RenderNode child)
+    {
+        child.Parent = this;
+        Children.Add(child);
+    }
+}
+
+/// <summary>A single laid-out line of text produced by the text layout pass.</summary>
+public sealed class TextLine
+{
+    public required string Text;
+    public float X, Y;      // baseline-independent top-left, relative to node content box
+    public float Width, Height;
+}

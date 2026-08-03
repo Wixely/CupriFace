@@ -1,0 +1,26 @@
+<Solution>
+  <Folder Name="/samples/">
+    <Project Path="samples/BidiText/BidiText.csproj" />
+    <Project Path="samples/Controls/Controls.csproj" />
+    <Project Path="samples/ControlsGallery/ControlsGallery.csproj" />
+    <Project Path="samples/DataBinding/DataBinding.csproj" />
+    <Project Path="samples/DemoApp/DemoApp.csproj" />
+    <Project Path="samples/GridAdvanced/GridAdvanced.csproj" />
+    <Project Path="samples/GridDemo/GridDemo.csproj" />
+    <Project Path="samples/HelloBox/HelloBox.csproj" />
+    <Project Path="samples/HtmlView/HtmlView.csproj" />
+    <Project Path="samples/Interactive/Interactive.csproj" />
+    <Project Path="samples/Motion/Motion.csproj" />
+    <Project Path="samples/Overlays/Overlays.csproj" />
+    <Project Path="samples/Responsive/Responsive.csproj" />
+    <Project Path="samples/ThreadedRender/ThreadedRender.csproj" />
+    <Project Path="samples/Viewer/Viewer.csproj" />
+    <Project Path="samples/Web/Web.csproj" />
+    <Project Path="samples/WebWasm/WebWasm.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/CupriFace.Binding.Gen/CupriFace.Binding.Gen.csproj" />
+    <Project Path="src/CupriFace.Shell/CupriFace.Shell.csproj" />
+    <Project Path="src/CupriFace/CupriFace.csproj" />
+  </Folder>
+</Solution>

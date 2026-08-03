@@ -1,0 +1,149 @@
+using Silk.NET.Input;
+using Silk.NET.Maths;
+using Silk.NET.Windowing;
+using SkiaSharp;
+
+namespace CupriFace.Shell;
+
+/// <summary>
+/// M0 shell (DESIGN.md Layer 0 + Layer 4 bootstrap). Owns an OS window (Silk.NET),
+/// an OpenGL context, and a Skia GPU surface bound to the default framebuffer.
+/// Raises <see cref="Render"/> once per vsync'd frame with a ready-to-draw
+/// <see cref="RenderContext"/>.
+///
+/// SCOPE NOTE: this is the single-threaded foundation. The render-thread /
+/// commit-snapshot split (DESIGN.md §7.2) is the next increment of M0 and layers
+/// on top of this without changing the public draw contract.
+/// </summary>
+public sealed class SkiaWindow : IDisposable
+{
+    private readonly WindowOptions _options;
+    private readonly FrameStats _stats = new();
+
+    private IWindow? _window;
+    private IInputContext? _input;
+    private GRGlInterface? _glInterface;
+    private GRContext? _grContext;
+    private GRBackendRenderTarget? _renderTarget;
+    private SKSurface? _surface;
+    private Vector2D<int> _fbSize;
+
+    /// <summary>Raised each frame after the surface is ready. Draw here.</summary>
+    public event Action<RenderContext>? Render;
+
+    /// <summary>Raised on left-button press with client-area coordinates.</summary>
+    public event Action<float, float>? PointerDown;
+    public event Action<float, float>? PointerMove;
+    public event Action<float, float>? PointerUp;
+
+    /// <summary>
+    /// Optional per-frame predicate to request window close (used by the headless
+    /// smoke test so a run terminates instead of blocking on the render loop).
+    /// </summary>
+    public Func<FrameStats, bool>? ShouldClose { get; set; }
+
+    public FrameStats Stats => _stats;
+
+    public SkiaWindow(string title = "CupriFace", int width = 1024, int height = 768)
+    {
+        _options = WindowOptions.Default with
+        {
+            Title = title,
+            Size = new Vector2D<int>(width, height),
+            VSync = true,               // pace to the display (§7.1 target)
+            API = GraphicsAPI.Default,  // OpenGL, double-buffered
+        };
+    }
+
+    public void Run()
+    {
+        _window = Window.Create(_options);
+        _window.Load += OnLoad;
+        _window.FramebufferResize += OnFramebufferResize;
+        _window.Render += OnRender;
+        _window.Closing += DisposeGpu;
+        _window.Run();
+    }
+
+    private void OnLoad()
+    {
+        var ctx = _window!.GLContext
+            ?? throw new InvalidOperationException("Window was created without a GL context.");
+
+        // Feed Skia the window's GL loader so it resolves the same context.
+        _glInterface = GRGlInterface.Create(name =>
+            ctx.TryGetProcAddress(name, out var addr) ? addr : IntPtr.Zero)
+            ?? throw new InvalidOperationException("Failed to assemble Skia GL interface.");
+
+        _grContext = GRContext.CreateGl(_glInterface)
+            ?? throw new InvalidOperationException("Failed to create Skia GL context.");
+
+        _fbSize = _window.FramebufferSize;
+
+        _input = _window.CreateInput();
+        foreach (var mouse in _input.Mice)
+        {
+            mouse.MouseDown += (m, btn) => { if (btn == MouseButton.Left) PointerDown?.Invoke(m.Position.X, m.Position.Y); };
+            mouse.MouseUp += (m, btn) => { if (btn == MouseButton.Left) PointerUp?.Invoke(m.Position.X, m.Position.Y); };
+            mouse.MouseMove += (m, pos) => PointerMove?.Invoke(pos.X, pos.Y);
+        }
+    }
+
+    private void OnFramebufferResize(Vector2D<int> size)
+    {
+        _fbSize = size;
+        // Surface is recreated lazily on the next frame at the new size.
+        _surface?.Dispose(); _surface = null;
+        _renderTarget?.Dispose(); _renderTarget = null;
+    }
+
+    private void EnsureSurface()
+    {
+        if (_surface is not null || _grContext is null) return;
+        if (_fbSize.X <= 0 || _fbSize.Y <= 0) return;
+
+        const uint GL_RGBA8 = 0x8058;
+        var fbInfo = new GRGlFramebufferInfo(fboId: 0, format: GL_RGBA8);
+        _renderTarget = new GRBackendRenderTarget(
+            _fbSize.X, _fbSize.Y, sampleCount: 0, stencilBits: 8, fbInfo);
+        _surface = SKSurface.Create(
+            _grContext, _renderTarget, GRSurfaceOrigin.BottomLeft, SKColorType.Rgba8888);
+    }
+
+    private void OnRender(double deltaSeconds)
+    {
+        EnsureSurface();
+        if (_surface is null) return;
+
+        _stats.BeginFrame(deltaSeconds);
+
+        Render?.Invoke(new RenderContext(_surface.Canvas, _fbSize.X, _fbSize.Y, _stats));
+
+        _grContext!.Flush(); // push the recorded draws to the GL framebuffer before swap
+
+        _stats.EndFrame();
+
+        if (ShouldClose?.Invoke(_stats) == true)
+            _window!.Close();
+    }
+
+    private void DisposeGpu()
+    {
+        _surface?.Dispose(); _surface = null;
+        _renderTarget?.Dispose(); _renderTarget = null;
+        _grContext?.Dispose(); _grContext = null;
+        _glInterface?.Dispose(); _glInterface = null;
+    }
+
+    public void Dispose()
+    {
+        DisposeGpu();
+        _input?.Dispose();
+        _input = null;
+        _window?.Dispose();
+        _window = null;
+    }
+}
+
+/// <summary>Everything a frame draw callback needs for one frame.</summary>
+public readonly record struct RenderContext(SKCanvas Canvas, int Width, int Height, FrameStats Stats);

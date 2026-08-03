@@ -1,0 +1,69 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build",
+      "command": "dotnet",
+      "type": "process",
+      "args": [
+        "build",
+        "${workspaceFolder}/CupriFace.slnx",
+        "-c",
+        "Debug"
+      ],
+      "problemMatcher": "$msCompile",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "run-web-blazor",
+      "detail": "Serve the Blazor WASM host (samples/Web).",
+      "command": "dotnet",
+      "type": "process",
+      "args": ["run", "--project", "${workspaceFolder}/samples/Web/Web.csproj"],
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": { "regexp": "^\\s*$" },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "Building\\.\\.\\.",
+          "endsPattern": "Now listening on:"
+        }
+      }
+    },
+    {
+      "label": "run-web-raw",
+      "detail": "Serve the raw .NET-WASM host (samples/WebWasm) — no Blazor.",
+      "command": "dotnet",
+      "type": "process",
+      "args": ["run", "--project", "${workspaceFolder}/samples/WebWasm/WebWasm.csproj", "-c", "Release"],
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": { "regexp": "^\\s*$" },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "Building\\.\\.\\.",
+          "endsPattern": "App url:"
+        }
+      }
+    },
+    {
+      "label": "serve-webwasm-debug",
+      "detail": "Serve the raw .NET-WASM host (Debug, with symbols) for the browser debugger.",
+      "command": "dotnet",
+      "type": "process",
+      "args": ["run", "--project", "${workspaceFolder}/samples/WebWasm/WebWasm.csproj"],
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": { "regexp": "^\\s*$" },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "Building\\.\\.\\.",
+          "endsPattern": "App url:"
+        }
+      }
+    }
+  ]
+}

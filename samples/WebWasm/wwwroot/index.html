@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>CupriFace — Raw WASM (no Blazor)</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="preload" id="webassembly" />
+  <script type="importmap"></script>
+  <script type='module' src="main#[.{fingerprint}].js"></script>
+  <style>
+    html, body { margin: 0; height: 100%; background: #e7eaf0; }
+    #cupri { width: 100vw; height: 100vh; display: block; }
+  </style>
+</head>
+
+<body>
+  <!-- The engine draws here. No HTML widgets, no Blazor — just a canvas. -->
+  <canvas id="cupri"></canvas>
+</body>
+
+</html>

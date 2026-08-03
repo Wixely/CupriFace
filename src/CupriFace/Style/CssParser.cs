@@ -1,0 +1,139 @@
+using System.Text.RegularExpressions;
+
+namespace CupriFace.Style;
+
+/// <summary>A media condition (min/max width). Null width bounds are unconstrained.</summary>
+public readonly struct MediaCondition
+{
+    public readonly float? MinWidth, MaxWidth;
+    public MediaCondition(float? min, float? max) { MinWidth = min; MaxWidth = max; }
+    public bool Matches(float width) =>
+        (MinWidth is not { } mn || width >= mn) && (MaxWidth is not { } mx || width <= mx);
+}
+
+/// <summary>One parsed CSS rule: a single selector plus its declarations.</summary>
+public sealed class CssRule
+{
+    public required string Selector { get; init; }
+    public required int Specificity { get; init; }
+    public int Order { get; set; }
+    public required Dictionary<string, string> Declarations { get; init; }
+    public MediaCondition? Media { get; init; }
+}
+
+/// <summary>
+/// Minimal CSS parser. Splits a stylesheet into <see cref="CssRule"/>s; selector
+/// *matching* is delegated to AngleSharp's selector engine at resolve time. Handles
+/// comments, comma-grouped selectors, and <c>prop: value;</c> declarations.
+/// </summary>
+public static partial class CssParser
+{
+    [GeneratedRegex(@"/\*.*?\*/", RegexOptions.Singleline)]
+    private static partial Regex CommentRegex();
+
+    public static List<CssRule> Parse(string? css)
+    {
+        var rules = new List<CssRule>();
+        if (string.IsNullOrWhiteSpace(css)) return rules;
+        ParseInto(CommentRegex().Replace(css, string.Empty), rules, media: null);
+        return rules;
+    }
+
+    private static void ParseInto(string css, List<CssRule> rules, MediaCondition? media)
+    {
+        var i = 0;
+        while (i < css.Length)
+        {
+            var open = css.IndexOf('{', i);
+            if (open < 0) break;
+            var close = MatchBrace(css, open);
+            if (close < 0) break;
+
+            var header = css[i..open].Trim();
+            var body = css[(open + 1)..close];
+            i = close + 1;
+
+            if (header.StartsWith("@media", StringComparison.OrdinalIgnoreCase))
+            {
+                ParseInto(body, rules, ParseMedia(header)); // nested rules inherit the condition
+                continue;
+            }
+            if (header.Length == 0 || header.StartsWith('@'))
+                continue; // @keyframes handled elsewhere; skip other at-rules
+
+            var decls = ParseDeclarations(body);
+            if (decls.Count == 0) continue;
+
+            foreach (var selRaw in header.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+            {
+                // Interaction pseudo-classes are matched via marker attributes toggled at runtime.
+                var sel = selRaw.Replace(":hover", "[data-hover]").Replace(":active", "[data-active]");
+                rules.Add(new CssRule
+                {
+                    Selector = sel,
+                    Specificity = Specificity(sel),
+                    Order = rules.Count,
+                    Declarations = decls,
+                    Media = media,
+                });
+            }
+        }
+    }
+
+    private static int MatchBrace(string s, int open)
+    {
+        var depth = 0;
+        for (var i = open; i < s.Length; i++)
+        {
+            if (s[i] == '{') depth++;
+            else if (s[i] == '}' && --depth == 0) return i;
+        }
+        return -1;
+    }
+
+    private static MediaCondition ParseMedia(string header)
+    {
+        float? min = null, max = null;
+        var mn = Regex.Match(header, @"min-width\s*:\s*([\d.]+)px", RegexOptions.IgnoreCase);
+        var mx = Regex.Match(header, @"max-width\s*:\s*([\d.]+)px", RegexOptions.IgnoreCase);
+        if (mn.Success) min = float.Parse(mn.Groups[1].Value);
+        if (mx.Success) max = float.Parse(mx.Groups[1].Value);
+        return new MediaCondition(min, max);
+    }
+
+    public static Dictionary<string, string> ParseDeclarations(string body)
+    {
+        var decls = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var part in body.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            var colon = part.IndexOf(':');
+            if (colon <= 0) continue;
+            var prop = part[..colon].Trim();
+            var val = part[(colon + 1)..].Trim();
+            if (prop.Length > 0 && val.Length > 0)
+                decls[prop] = val;
+        }
+        return decls;
+    }
+
+    /// <summary>Rough CSS specificity: (#id, .class/[attr]/:pseudo, type) packed into one int.</summary>
+    private static int Specificity(string selector)
+    {
+        int ids = 0, classes = 0, types = 0;
+        foreach (var token in selector.Split(new[] { ' ', '>', '+', '~' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var t = token;
+            for (var k = 0; k < t.Length; k++)
+            {
+                switch (t[k])
+                {
+                    case '#': ids++; break;
+                    case '.' or '[' or ':': classes++; break;
+                }
+            }
+            // a leading letter (not . # [ : * ) means a type selector
+            if (char.IsLetter(t[0])) types++;
+        }
+        return ids * 10000 + classes * 100 + types;
+    }
+}

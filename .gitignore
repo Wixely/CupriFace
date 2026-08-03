@@ -1,0 +1,58 @@
+# .NET build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+artifacts/
+
+# Rider / VS
+.vs/
+.idea/
+*.user
+*.suo
+
+# Test results
+[Tt]est[Rr]esults/
+*.trx
+
+# NuGet
+*.nupkg
+.nuget/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated sample snapshots (regenerate by running the samples)
+m0-headless.png
+m1-html.png
+m4-bind-a.png
+m4-bind-b.png
+m5-controls.png
+grid.png
+viewer.png
+
+# AOT publish output
+out-aot/
+interactive-before.png
+interactive-after.png
+motion-t0.png
+motion-t1.png
+motion-t2.png
+interactive.png
+responsive-wide.png
+responsive-narrow.png
+grid-advanced.png
+bidi.png
+threaded.png
+controls.png
+overlays.png
+popups.png
+showcase-controls.png
+showcase-layout.png
+showcase-overlays.png
+zoom.png
+hover-before.png
+hover-after.png

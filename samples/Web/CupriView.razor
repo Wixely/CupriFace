@@ -1,0 +1,32 @@
+@namespace CupriFace.Web
+@using SkiaSharp
+@using SkiaSharp.Views.Blazor
+@using CupriFace
+
+@* Web host for any CupriApp: renders it into a <canvas> (Skia/WASM) and routes clicks
+   through the same hit-test/dispatch the desktop host uses. *@
+<div class="host" @onclick="OnClick" style="width:100%;height:100%">
+    <SKCanvasView @ref="_view" OnPaintSurface="OnPaint" IgnorePixelScaling="true"
+                  style="width:100%;height:100%;display:block" />
+</div>
+
+@code {
+    [Parameter, EditorRequired] public CupriApp App { get; set; } = default!;
+
+    private SKCanvasView? _view;
+    private CupriDocument? _doc;
+
+    protected override void OnInitialized() => _doc = App.CreateDocument();
+
+    private void OnPaint(SKPaintSurfaceEventArgs e)
+    {
+        e.Surface.Canvas.Clear(App.Background);
+        _doc!.Render(e.Surface.Canvas, e.Info.Width, e.Info.Height);
+    }
+
+    private void OnClick(MouseEventArgs e)
+    {
+        if (_doc!.DispatchClick((float)e.OffsetX, (float)e.OffsetY))
+            _view?.Invalidate();
+    }
+}

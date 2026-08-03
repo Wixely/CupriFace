@@ -1,0 +1,10 @@
+@namespace CupriFace.Web
+@using CupriFace
+
+@* Exporting the desktop app as a website: the SAME SettingsApp class from samples/DemoApp,
+   rendered to a browser <canvas>. No app rewrite — only the host changes. *@
+<CupriView App="_app" />
+
+@code {
+    private readonly CupriApp _app = new CupriFace.Demo.SettingsApp();
+}

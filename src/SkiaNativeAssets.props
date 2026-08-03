@@ -1,0 +1,19 @@
+<Project>
+  <!--
+    Portable native Skia + HarfBuzz binaries for all desktop RIDs. Referencing all three
+    (win/linux/osx) makes a single build run on any desktop OS and lets you cross-publish;
+    `dotnet publish -r <rid>` copies only the matching native. WebAssembly natives are
+    provided separately by SkiaSharp.Views.Blazor in the web host, so they are NOT here.
+
+    Imported by CupriFace (engine) and CupriFace.Shell. Keep versions in sync with the
+    managed SkiaSharp / SkiaSharp.HarfBuzz packages.
+  -->
+  <ItemGroup>
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.116.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.116.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.macOS" Version="3.116.1" />
+    <PackageReference Include="HarfBuzzSharp.NativeAssets.Win32" Version="8.3.0.1" />
+    <PackageReference Include="HarfBuzzSharp.NativeAssets.Linux" Version="8.3.0.1" />
+    <PackageReference Include="HarfBuzzSharp.NativeAssets.macOS" Version="8.3.0.1" />
+  </ItemGroup>
+</Project>

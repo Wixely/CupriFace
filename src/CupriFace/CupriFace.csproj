@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>CupriFace</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Source generator: reflection-free binding accessors (AOT-clean) -->
+    <ProjectReference Include="..\CupriFace.Binding.Gen\CupriFace.Binding.Gen.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <!-- Portable native Skia + HarfBuzz for win/linux/osx (shared with the shell). -->
+  <Import Project="..\SkiaNativeAssets.props" />
+
+  <ItemGroup>
+    <!-- Layer 1: HTML DOM + CSS selector engine (pure managed) -->
+    <PackageReference Include="AngleSharp" Version="1.7.0" />
+    <!-- Layer 4: paint + text shaping (managed; native binaries via the import above) -->
+    <PackageReference Include="SkiaSharp" Version="3.116.1" />
+    <PackageReference Include="SkiaSharp.HarfBuzz" Version="3.116.1" />
+  </ItemGroup>
+
+</Project>
