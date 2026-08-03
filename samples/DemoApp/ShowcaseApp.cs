@@ -74,6 +74,10 @@ public sealed class ShowcaseApp : CupriApp
               <span class="val">{{Volume}}</span>
             </div>
             <div class="row">
+              <span class="lbl">Name</span>
+              <cupri-textfield value="{{Name}}" placeholder="Type your name…"></cupri-textfield>
+            </div>
+            <div class="row">
               <cupri-chip>Design</cupri-chip><cupri-chip closable="true">Removable</cupri-chip>
               <cupri-avatar initials="AM"></cupri-avatar><cupri-badge>NEW</cupri-badge>
               <cupri-spinner></cupri-spinner>
@@ -255,6 +259,7 @@ public sealed partial class ShowcaseModel
     public string ThemeClass => DarkMode ? "dark" : "";
 
     public int Volume { get; set; } = 60;
+    public string Name { get; set; } = "";
     public bool Notifications { get; set; } = true;
     public bool DarkMode { get; set; }
     public string Size { get; set; } = "medium";

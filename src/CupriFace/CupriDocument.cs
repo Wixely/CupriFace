@@ -36,8 +36,10 @@ public sealed class CupriDocument : IDisposable
     private float _viewportWidth = 1024f;
     private bool _hasMedia;
 
-    // Hover + drag state
+    // Hover + drag + text-focus state
     private readonly List<IElement> _hoverChain = new();
+    private string? _focusKey;  // the focused field's bound path (survives rebuilds)
+    private int _caret;
     private bool _dragging;
     private float _dragX0, _dragInnerW, _dragPad;
     private double _dragMin, _dragMax;
@@ -93,6 +95,10 @@ public sealed class CupriDocument : IDisposable
         // Expand custom elements after binding so components see concrete attribute values.
         _components?.Expand(dom);
 
+        // Re-apply text focus across the rebuild (typing rebuilds the DOM each keystroke).
+        if (_focusKey is not null)
+            dom.QuerySelector($"[data-bind-value=\"{_focusKey}\"]")?.SetAttribute("data-focus", "");
+
         // Component defaults first (low priority), then author CSS, then <style> tags.
         var rules = new List<CssRule>();
         if (_components is not null) rules.AddRange(CssParser.Parse(_components.AggregatedCss));
@@ -137,7 +143,34 @@ public sealed class CupriDocument : IDisposable
             Rebuild();
         }
         _layout.Layout(_root, width, height);
-        _rasterizer.Paint(canvas, _painter.Build(_root));
+        var list = _painter.Build(_root);
+        AppendCaret(list);
+        _rasterizer.Paint(canvas, list);
+    }
+
+    // Draw the text caret for the focused field, after the field's own text.
+    private void AppendCaret(DisplayList list)
+    {
+        if (_focusKey is null) return;
+        var field = FindFocused(_root);
+        if (field is null) return;
+
+        var value = BindingEngine.Resolve(_model, _focusKey) as string ?? "";
+        var caret = Math.Clamp(_caret, 0, value.Length);
+        var box = HitTesting.AbsoluteBox(field);
+        var textW = _fonts.MeasureText(field.Style, value[..caret]);
+        var lh = FontService.LineHeightPx(field.Style);
+        var ch = field.Style.FontSize * 1.1f;
+        var cx = box.X + field.ContentLeftInset + textW;
+        var cy = box.Y + field.ContentTopInset + (lh - ch) / 2f;
+        list.Add(new FillRect(cx, cy, 2f, ch, 0f, field.Style.Color));
+    }
+
+    private static RenderNode? FindFocused(RenderNode n)
+    {
+        if (n.Element?.HasAttribute("data-focus") == true) return n;
+        foreach (var c in n.Children) { var f = FindFocused(c); if (f is not null) return f; }
+        return null;
     }
 
     /// <summary>Build the committed display-list snapshot without rasterising (the seam).</summary>
@@ -174,7 +207,12 @@ public sealed class CupriDocument : IDisposable
     public bool DispatchClick(float x, float y)
     {
         var hit = HitTesting.HitTest(_root, x, y);
-        if (hit is null) return false;
+        if (hit is null) return UpdateFocus(null); // click on empty space blurs
+
+        // Focus: a click inside a textbox focuses it (caret at end); elsewhere blurs.
+        RenderNode? field = hit;
+        while (field is not null && field.Element?.GetAttribute("role") != "textbox") field = field.Parent;
+        var focusChanged = UpdateFocus(field?.Element);
 
         var handled = false;
         for (var node = hit; node is not null && !handled; node = node.Parent)
@@ -205,8 +243,48 @@ public sealed class CupriDocument : IDisposable
             }
         }
 
-        if (handled) Refresh();
-        return handled;
+        if (handled || focusChanged) Refresh();
+        return handled || focusChanged;
+    }
+
+    private bool UpdateFocus(IElement? field)
+    {
+        var key = field?.GetAttribute("data-bind-value") ?? field?.GetAttribute("id");
+        if (key == _focusKey) return false;
+        _focusKey = key;
+        if (key is not null) _caret = (BindingEngine.Resolve(_model, key) as string)?.Length ?? 0;
+        return true;
+    }
+
+    /// <summary>
+    /// Feed a keystroke to the focused text field: printable text via <paramref name="text"/>,
+    /// or an editing key (backspace/arrows/…). Edits the bound string and refreshes.
+    /// </summary>
+    public bool DispatchKey(string? text, EditKey key)
+    {
+        if (_focusKey is null || _model is null) return false;
+        var value = BindingEngine.Resolve(_model, _focusKey) as string ?? "";
+        var caret = Math.Clamp(_caret, 0, value.Length);
+        var edited = false;
+
+        switch (key)
+        {
+            case EditKey.Backspace: if (caret > 0) { value = value.Remove(caret - 1, 1); caret--; edited = true; } break;
+            case EditKey.Delete: if (caret < value.Length) { value = value.Remove(caret, 1); edited = true; } break;
+            case EditKey.Left: caret = Math.Max(0, caret - 1); break;
+            case EditKey.Right: caret = Math.Min(value.Length, caret + 1); break;
+            case EditKey.Home: caret = 0; break;
+            case EditKey.End: caret = value.Length; break;
+            case EditKey.Enter: _focusKey = null; Refresh(); return true; // commit + blur
+            default:
+                if (!string.IsNullOrEmpty(text)) { value = value.Insert(caret, text); caret += text.Length; edited = true; }
+                break;
+        }
+
+        _caret = caret;
+        if (edited) BindingEngine.TrySet(_model, _focusKey, value);
+        Refresh();
+        return true;
     }
 
     private bool ToggleSwitch(IElement el)

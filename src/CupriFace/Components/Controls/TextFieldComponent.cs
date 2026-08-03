@@ -1,0 +1,34 @@
+using AngleSharp.Dom;
+
+namespace CupriFace.Components.Controls;
+
+/// <summary>
+/// <c>&lt;cupri-textfield value="{{Name}}" placeholder="…"&gt;</c> — an editable single-line
+/// text field. role=textbox; two-way binds its value; focus/caret/typing are driven by the
+/// document's key dispatch.
+/// </summary>
+public sealed class TextFieldComponent : ComponentBase
+{
+    public override string Tag => "cupri-textfield";
+    public override string DefaultCss => """
+        .cupri-textfield { display:inline-block; min-width:220px; background:var(--cupri-surface, white);
+                           border:2px var(--cupri-border, #cbd2dc); border-radius:8px; padding:9px 12px; font-size:15px; }
+        .cupri-textfield[data-hover] { border:2px #98a2b3; }
+        .cupri-textfield:focus { border:2px #B87333; }
+        .cupri-tf-text { color:var(--cupri-text, #1e2430); }
+        .cupri-tf-ph { color:#98a2b3; }
+        """;
+
+    public override void Expand(IElement el)
+    {
+        var value = Str(el, "value");
+        el.SetAttribute("role", "textbox");
+        el.ClassList.Add("cupri-textfield");
+        el.InnerHtml = value.Length > 0
+            ? $"<span class='cupri-tf-text'>{Escape(value)}</span>"
+            : $"<span class='cupri-tf-ph'>{Escape(Str(el, "placeholder"))}</span>";
+    }
+
+    private static string Escape(string s) =>
+        s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
+}

@@ -1,3 +1,4 @@
+using CupriFace.Interaction;
 using Silk.NET.Input;
 using Silk.NET.Maths;
 using Silk.NET.Windowing;
@@ -36,6 +37,8 @@ public sealed class SkiaWindow : IDisposable
     public event Action<float, float>? PointerMove;
     public event Action<float, float>? PointerUp;
     public event Action<float, float, float>? PointerWheel; // x, y, deltaY (notches)
+    public event Action<string>? TextEntered;
+    public event Action<EditKey>? EditKeyPressed;
 
     /// <summary>
     /// Optional per-frame predicate to request window close (used by the headless
@@ -88,6 +91,25 @@ public sealed class SkiaWindow : IDisposable
             mouse.MouseUp += (m, btn) => { if (btn == MouseButton.Left) PointerUp?.Invoke(m.Position.X, m.Position.Y); };
             mouse.MouseMove += (m, pos) => PointerMove?.Invoke(pos.X, pos.Y);
             mouse.Scroll += (m, wheel) => PointerWheel?.Invoke(m.Position.X, m.Position.Y, wheel.Y);
+        }
+        foreach (var kb in _input.Keyboards)
+        {
+            kb.KeyChar += (_, ch) => TextEntered?.Invoke(ch.ToString());
+            kb.KeyDown += (_, key, _) =>
+            {
+                var ek = key switch
+                {
+                    Key.Backspace => EditKey.Backspace,
+                    Key.Delete => EditKey.Delete,
+                    Key.Left => EditKey.Left,
+                    Key.Right => EditKey.Right,
+                    Key.Home => EditKey.Home,
+                    Key.End => EditKey.End,
+                    Key.Enter or Key.KeypadEnter => EditKey.Enter,
+                    _ => EditKey.None,
+                };
+                if (ek != EditKey.None) EditKeyPressed?.Invoke(ek);
+            };
         }
     }
 

@@ -38,6 +38,8 @@ public static class DesktopHost
             window.PointerMove += (x, y) => doc.DispatchPointerMove(x / scale, y / scale);
             window.PointerUp += (x, y) => doc.DispatchPointerUp(x / scale, y / scale);
             window.PointerWheel += (x, y, dy) => doc.DispatchWheel(x / scale, y / scale, -dy * 50f); // wheel up → scroll up
+            window.TextEntered += t => doc.DispatchKey(t, CupriFace.Interaction.EditKey.None);
+            window.EditKeyPressed += k => doc.DispatchKey(null, k);
             window.Run();
         }
         catch (Exception ex)
@@ -49,6 +51,8 @@ public static class DesktopHost
             window.PointerMove += (x, y) => doc.DispatchPointerMove(x / scale, y / scale);
             window.PointerUp += (x, y) => doc.DispatchPointerUp(x / scale, y / scale);
             window.PointerWheel += (x, y, dy) => doc.DispatchWheel(x / scale, y / scale, -dy * 50f); // wheel up → scroll up
+            window.TextEntered += t => doc.DispatchKey(t, CupriFace.Interaction.EditKey.None);
+            window.EditKeyPressed += k => doc.DispatchKey(null, k);
             window.Run();
         }
     }

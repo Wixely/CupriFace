@@ -415,7 +415,7 @@ own. Each is accessible + themed + bindable out of the box.
 
 **Shipped (buildable on today's engine):** `<cupri-icon>` (SVG icon set),
 `<cupri-button>`, `<cupri-icon-button>`, `<cupri-checkbox>`, `<cupri-radio>`,
-`<cupri-switch>`, `<cupri-slider>`, `<cupri-badge>`, `<cupri-chip>`, `<cupri-avatar>`,
+`<cupri-switch>`, `<cupri-slider>`, `<cupri-textfield>`, `<cupri-badge>`, `<cupri-chip>`, `<cupri-avatar>`,
 `<cupri-card>`, `<cupri-divider>`, `<cupri-stat>`, `<cupri-progress>`,
 `<cupri-spinner>`, `<cupri-skeleton>`, `<cupri-alert>` (`samples/Controls`), plus the
 **overlays** `<cupri-dialog>`, `<cupri-toast>`, `<cupri-menu>`/`<cupri-menu-item>`,
@@ -423,8 +423,10 @@ own. Each is accessible + themed + bindable out of the box.
 (`samples/Overlays`).
 
 **Gating engine capabilities — each unlocks a whole tier:**
-1. **Text input** (keyboard + caret + selection + IME) → textfield, textarea, editable
-   combobox/number/date.
+1. ~~**Text input**~~ → **DONE (v1)**: focus (click, `:focus`), caret (positioned by
+   measured text), keyboard editing (type/backspace/delete/arrows/home/end), two-way
+   bound `<cupri-textfield>`; SDL `TextInput` (IME-aware) + GL key events. `samples/TextInput`.
+   Remaining: text selection, multi-line textarea, caret blink, click-to-place-caret.
 2. ~~**Overlay/top-layer + anchored positioning**~~ → **DONE** (position:fixed +
    z-index + top-layer paint/hit-test; anchor placement with flip + shrink-to-fit).
    Remaining overlay controls (select/dropdown, popover, context menu, drawer) are now

@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
+using CupriFace.Interaction;
 using Silk.NET.SDL;
 using SkiaSharp;
 
@@ -35,6 +37,8 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     public event Action<float, float>? PointerMove;
     public event Action<float, float>? PointerUp;
     public event Action<float, float, float>? PointerWheel; // x, y, deltaY (notches)
+    public event Action<string>? TextEntered;               // printable text (IME-aware)
+    public event Action<EditKey>? EditKeyPressed;           // backspace/arrows/…
     public FrameStats Stats => _stats;
 
     private float _lastX, _lastY; // wheel events carry no position — use the last move
@@ -59,6 +63,7 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         if (_renderer is null) throw new InvalidOperationException($"SDL_CreateRenderer failed: {_sdl.GetErrorS()}");
 
         EnsureSurface(_width, _height);
+        _sdl.StartTextInput(); // deliver Textinput events (handles IME composition)
 
         // Repaint DURING resize: Windows/macOS run a modal loop that blocks the main loop,
         // but SDL still dispatches size events to an event watch — so we render from there.
@@ -89,6 +94,28 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                     case EventType.Mousewheel:
                         PointerWheel?.Invoke(_lastX, _lastY, e.Wheel.Y);
                         break;
+                    case EventType.Textinput:
+                    {
+                        var text = Marshal.PtrToStringUTF8((IntPtr)e.Text.Text);
+                        if (!string.IsNullOrEmpty(text)) TextEntered?.Invoke(text);
+                        break;
+                    }
+                    case EventType.Keydown:
+                    {
+                        var ek = e.Key.Keysym.Scancode switch
+                        {
+                            Scancode.ScancodeBackspace => EditKey.Backspace,
+                            Scancode.ScancodeDelete => EditKey.Delete,
+                            Scancode.ScancodeLeft => EditKey.Left,
+                            Scancode.ScancodeRight => EditKey.Right,
+                            Scancode.ScancodeHome => EditKey.Home,
+                            Scancode.ScancodeEnd => EditKey.End,
+                            Scancode.ScancodeReturn or Scancode.ScancodeReturn2 => EditKey.Enter,
+                            _ => EditKey.None,
+                        };
+                        if (ek != EditKey.None) EditKeyPressed?.Invoke(ek);
+                        break;
+                    }
                     case EventType.Windowevent when (WindowEventID)e.Window.Event == WindowEventID.SizeChanged:
                         EnsureSurface(e.Window.Data1, e.Window.Data2);
                         break;

@@ -16,6 +16,7 @@
     <Project Path="samples/Responsive/Responsive.csproj" />
     <Project Path="samples/Scaling/Scaling.csproj" />
     <Project Path="samples/Scroll/Scroll.csproj" />
+    <Project Path="samples/TextInput/TextInput.csproj" />
     <Project Path="samples/ThreadedRender/ThreadedRender.csproj" />
     <Project Path="samples/Viewer/Viewer.csproj" />
     <Project Path="samples/Web/Web.csproj" />

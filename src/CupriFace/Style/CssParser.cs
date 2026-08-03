@@ -67,7 +67,8 @@ public static partial class CssParser
             foreach (var selRaw in header.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
             {
                 // Interaction pseudo-classes are matched via marker attributes toggled at runtime.
-                var sel = selRaw.Replace(":hover", "[data-hover]").Replace(":active", "[data-active]");
+                var sel = selRaw.Replace(":hover", "[data-hover]").Replace(":active", "[data-active]")
+                                .Replace(":focus", "[data-focus]");
                 rules.Add(new CssRule
                 {
                     Selector = sel,
