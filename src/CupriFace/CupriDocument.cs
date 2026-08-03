@@ -40,6 +40,7 @@ public sealed class CupriDocument : IDisposable
     private readonly List<IElement> _hoverChain = new();
     private string? _focusKey;  // the focused field's bound path (survives rebuilds)
     private bool _focusNumeric; // focused field only accepts numeric input
+    private double? _focusMin, _focusMax; // numeric field bounds (for clamping typed entry)
     private int _caret;
     private bool _dragging;
     private float _dragX0, _dragInnerW, _dragPad;
@@ -156,21 +157,33 @@ public sealed class CupriDocument : IDisposable
         var field = FindFocused(_root);
         if (field is null) return;
 
+        // Anchor the caret to the node that actually paints the value text (a component may
+        // nest it in a padded span — e.g. cupri-number puts its padding on the text span, not
+        // the field), so the caret lines up regardless of where the padding lives.
+        var anchor = FindCaretAnchor(field) ?? field;
         var value = BindingEngine.Resolve(_model, _focusKey)?.ToString() ?? "";
         var caret = Math.Clamp(_caret, 0, value.Length);
-        var box = HitTesting.AbsoluteBox(field);
-        var textW = _fonts.MeasureText(field.Style, value[..caret]);
-        var lh = FontService.LineHeightPx(field.Style);
-        var ch = field.Style.FontSize * 1.1f;
-        var cx = box.X + field.ContentLeftInset + textW;
-        var cy = box.Y + field.ContentTopInset + (lh - ch) / 2f;
-        list.Add(new FillRect(cx, cy, 2f, ch, 0f, field.Style.Color));
+        var box = HitTesting.AbsoluteBox(anchor);
+        var textW = _fonts.MeasureText(anchor.Style, value[..caret]);
+        var lh = FontService.LineHeightPx(anchor.Style);
+        var ch = anchor.Style.FontSize * 1.1f;
+        var cx = box.X + anchor.ContentLeftInset + textW;
+        var cy = box.Y + anchor.ContentTopInset + (lh - ch) / 2f;
+        list.Add(new FillRect(cx, cy, 2f, ch, 0f, anchor.Style.Color));
     }
 
     private static RenderNode? FindFocused(RenderNode n)
     {
         if (n.Element?.HasAttribute("data-focus") == true) return n;
         foreach (var c in n.Children) { var f = FindFocused(c); if (f is not null) return f; }
+        return null;
+    }
+
+    // The descendant a component marks as the value-text node (data-caret-anchor); null → use the field itself.
+    private static RenderNode? FindCaretAnchor(RenderNode n)
+    {
+        if (n.Element?.HasAttribute("data-caret-anchor") == true) return n;
+        foreach (var c in n.Children) { var f = FindCaretAnchor(c); if (f is not null) return f; }
         return null;
     }
 
@@ -257,6 +270,8 @@ public sealed class CupriDocument : IDisposable
         if (key == _focusKey) return false;
         _focusKey = key;
         _focusNumeric = field?.HasAttribute("data-numeric") == true;
+        _focusMin = double.TryParse(field?.GetAttribute("data-min"), out var mn) ? mn : null;
+        _focusMax = double.TryParse(field?.GetAttribute("data-max"), out var mx) ? mx : null;
         if (key is not null) _caret = (BindingEngine.Resolve(_model, key)?.ToString())?.Length ?? 0;
         return true;
     }
@@ -286,6 +301,9 @@ public sealed class CupriDocument : IDisposable
                 {
                     var candidate = value.Insert(caret, text);
                     if (_focusNumeric && !IsNumericValue(candidate)) break; // reject non-numeric keystrokes
+                    // Reject a keystroke that would exceed max (min is enforced on blur/step, not
+                    // mid-type — a partial "1" toward "15" is below a min of 5 but still valid).
+                    if (_focusNumeric && _focusMax is { } max && double.TryParse(candidate, out var n) && n > max) break;
                     value = candidate; caret += text.Length; edited = true;
                 }
                 break;

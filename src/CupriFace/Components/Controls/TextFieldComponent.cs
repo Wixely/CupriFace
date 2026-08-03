@@ -25,8 +25,8 @@ public sealed class TextFieldComponent : ComponentBase
         el.SetAttribute("role", "textbox");
         el.ClassList.Add("cupri-textfield");
         el.InnerHtml = value.Length > 0
-            ? $"<span class='cupri-tf-text'>{Escape(value)}</span>"
-            : $"<span class='cupri-tf-ph'>{Escape(Str(el, "placeholder"))}</span>";
+            ? $"<span class='cupri-tf-text' data-caret-anchor>{Escape(value)}</span>"
+            : $"<span class='cupri-tf-ph' data-caret-anchor>{Escape(Str(el, "placeholder"))}</span>";
     }
 
     private static string Escape(string s) =>

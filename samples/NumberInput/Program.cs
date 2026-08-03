@@ -40,17 +40,22 @@ var afterDown = form.Count;                          // expect 5
 for (var i = 0; i < 12; i++) ClickStep("1");
 var clamped = form.Count;                            // expect 10
 
-// Typed entry: focus the field (value "10"), caret to start, edit the number string.
+// Typed entry: focus the field (value "10"), then edit the number string.
 ClickField();
-doc.DispatchKey(null, EditKey.Home);                // caret before "10"
-doc.DispatchKey("x", EditKey.None);                 // non-numeric → rejected (no change)
-var afterReject = form.Count;                        // still 10
-doc.DispatchKey("9", EditKey.None);                 // "10" -> "910"
-var typed = form.Count;                             // expect 910 (typed entry is unclamped)
+doc.DispatchKey(null, EditKey.End);                 // caret after "10"
+doc.DispatchKey("x", EditKey.None);                 // non-numeric → rejected
+doc.DispatchKey("5", EditKey.None);                 // "105" > max 10 → rejected
+var overMax = form.Count;                           // still 10
+doc.DispatchKey(null, EditKey.Backspace);           // "10" -> "1"
+var edited1 = form.Count;                           // expect 1
+doc.DispatchKey("0", EditKey.None);                 // "1" -> "10" (== max, allowed)
+var edited2 = form.Count;                           // expect 10
 Snap("num-typed.png");
+doc.DispatchKey(null, EditKey.Home);                // caret before "10" — should sit at text start
+Snap("num-caret-home.png");
 
-Console.WriteLine($"[CupriFace] up={afterUp} down={afterDown} clamped={clamped} reject={afterReject} typed={typed}");
-var pass = afterUp == 6 && afterDown == 5 && clamped == 10 && afterReject == 10 && typed == 910;
+Console.WriteLine($"[CupriFace] up={afterUp} down={afterDown} clamped={clamped} overMax={overMax} edited1={edited1} edited2={edited2}");
+var pass = afterUp == 6 && afterDown == 5 && clamped == 10 && overMax == 10 && edited1 == 1 && edited2 == 10;
 Console.WriteLine(pass
     ? "[CupriFace] PASS: steppers nudge + clamp, typed digits filter, two-way bound int."
     : "[CupriFace] FAIL");

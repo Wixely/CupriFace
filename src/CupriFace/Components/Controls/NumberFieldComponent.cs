@@ -35,7 +35,7 @@ public sealed class NumberFieldComponent : ComponentBase
         if (el.GetAttribute("step") is { Length: > 0 } step) el.SetAttribute("data-step", step);
         el.ClassList.Add("cupri-number");
         el.InnerHtml =
-            $"<span class='cupri-num-text'>{Escape(value)}</span>" +
+            $"<span class='cupri-num-text' data-caret-anchor>{Escape(value)}</span>" +
             "<div class='cupri-num-steps'>" +
                 $"<div class='cupri-num-step' data-cupri-step='1'>{IconMarkup("chevron-up", 14, "cupri-num-icon")}</div>" +
                 $"<div class='cupri-num-step' data-cupri-step='-1'>{IconMarkup("chevron-down", 14, "cupri-num-icon")}</div>" +
