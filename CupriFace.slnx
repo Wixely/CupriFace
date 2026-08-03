@@ -13,6 +13,7 @@
     <Project Path="samples/HtmlView/HtmlView.csproj" />
     <Project Path="samples/Interactive/Interactive.csproj" />
     <Project Path="samples/Keyboard/Keyboard.csproj" />
+    <Project Path="samples/KeyboardNav/KeyboardNav.csproj" />
     <Project Path="samples/Motion/Motion.csproj" />
     <Project Path="samples/NativeControls/NativeControls.csproj" />
     <Project Path="samples/NumberInput/NumberInput.csproj" />

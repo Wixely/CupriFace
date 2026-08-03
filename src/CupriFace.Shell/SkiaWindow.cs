@@ -107,7 +107,10 @@ public sealed class SkiaWindow : IDisposable
                     Key.Home => EditKey.Home,
                     Key.End => EditKey.End,
                     Key.Enter or Key.KeypadEnter => EditKey.Enter,
+                    Key.Up => EditKey.Up,
+                    Key.Down => EditKey.Down,
                     Key.Tab => shift ? EditKey.ShiftTab : EditKey.Tab,
+                    Key.Escape => EditKey.Escape,
                     _ => EditKey.None,
                 };
                 if (ek != EditKey.None) EditKeyPressed?.Invoke(ek);

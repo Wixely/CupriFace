@@ -30,7 +30,7 @@ public sealed class PopoverComponent : ComponentBase
         var trigger = $"<div class='cupri-pop-trigger' id='{id}' data-cupri-toggle=\"{id}\">{Str(el, "label", "More")}"
                       + IconMarkup("chevron-down", 16) + "</div>";
         var panel = open
-            ? $"<div class='cupri-pop-panel' role='dialog' data-cupri-anchor='{id}' data-cupri-placement='bottom'>{content}</div>"
+            ? $"<div class='cupri-pop-panel' role='dialog' data-focus-scope data-cupri-anchor='{id}' data-cupri-placement='bottom'>{content}</div>"
             : "";
         el.InnerHtml = trigger + panel;
     }
@@ -60,7 +60,7 @@ public sealed class DrawerComponent : ComponentBase
         var content = el.InnerHtml;
         el.InnerHtml =
             "<div class='cupri-backdrop' data-cupri-dismiss=\"true\"></div>" +
-            $"<div class='cupri-drawer-panel' style='{side}'>{content}</div>";
+            $"<div class='cupri-drawer-panel' style='{side}' data-focus-scope>{content}</div>";
     }
 }
 
@@ -102,7 +102,7 @@ public sealed class SelectComponent : ComponentBase
         var list = new StringBuilder();
         if (open)
         {
-            list.Append($"<div class='cupri-select-list' role='listbox' data-cupri-anchor='{id}' data-cupri-placement='bottom'>");
+            list.Append($"<div class='cupri-select-list' role='listbox' data-focus-scope data-cupri-anchor='{id}' data-cupri-placement='bottom'>");
             foreach (var (ov, ol) in options)
             {
                 var isSel = ov == value;

@@ -112,7 +112,10 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                             Scancode.ScancodeHome => EditKey.Home,
                             Scancode.ScancodeEnd => EditKey.End,
                             Scancode.ScancodeReturn or Scancode.ScancodeReturn2 => EditKey.Enter,
+                            Scancode.ScancodeUp => EditKey.Up,
+                            Scancode.ScancodeDown => EditKey.Down,
                             Scancode.ScancodeTab => shift ? EditKey.ShiftTab : EditKey.Tab,
+                            Scancode.ScancodeEscape => EditKey.Escape,
                             _ => EditKey.None,
                         };
                         if (ek != EditKey.None) EditKeyPressed?.Invoke(ek);

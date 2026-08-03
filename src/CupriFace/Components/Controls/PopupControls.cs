@@ -28,7 +28,7 @@ public sealed class MenuComponent : ComponentBase
         var trigger = $"<div class='cupri-menu-trigger' id='{id}' data-cupri-toggle=\"{id}\">{label}" +
                       IconMarkup("chevron-down", 16) + "</div>";
         var popup = open
-            ? $"<div class='cupri-menu-popup' role='menu' data-cupri-anchor='{id}' data-cupri-placement='bottom'>{items}</div>"
+            ? $"<div class='cupri-menu-popup' role='menu' data-focus-scope data-cupri-anchor='{id}' data-cupri-placement='bottom'>{items}</div>"
             : "";
         el.InnerHtml = trigger + popup;
     }

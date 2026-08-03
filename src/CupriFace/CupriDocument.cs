@@ -288,6 +288,7 @@ public sealed partial class CupriDocument : IDisposable
 
         var handled = ActivateFrom(hit, x, y);
         if (handled || focusChanged) Refresh();
+        ReconcileScope(); // a click may have opened/closed an overlay → update the focus scope
         return handled || focusChanged;
     }
 
@@ -352,17 +353,48 @@ public sealed partial class CupriDocument : IDisposable
         IsFocusableRole(el) || _clickHandlers.Exists(h => Matches(el, h.Selector));
 
     // Focusable render nodes in DOM (pre-order) order; skips a matched node's subtree so a
-    // control counts once. display:none subtrees are already absent from the render tree.
+    // control counts once. display:none subtrees are already absent from the render tree. When
+    // an overlay is open its panel is a focus scope — Tab is trapped within it (a11y).
     private List<RenderNode> Focusables()
     {
+        var scope = FocusScope() ?? _root;
         var list = new List<RenderNode>();
         void Walk(RenderNode n)
         {
             if (n.Element is { } el && IsFocusable(el)) { list.Add(n); return; }
             foreach (var c in n.Children) Walk(c);
         }
-        foreach (var c in _root.Children) Walk(c);
+        foreach (var c in scope.Children) Walk(c);
         return list;
+    }
+
+    // The top-most open overlay panel (marked data-focus-scope), or null when none is open.
+    private RenderNode? FocusScope()
+    {
+        RenderNode? scope = null;
+        void Walk(RenderNode n)
+        {
+            if (n.Element?.HasAttribute("data-focus-scope") == true) scope = n; // last wins → topmost
+            foreach (var c in n.Children) Walk(c);
+        }
+        Walk(_root);
+        return scope;
+    }
+
+    // Keep keyboard focus consistent as overlays open/close: entering a scope focuses its first
+    // control; leaving clears focus. Called after any state change that may open/close an overlay.
+    private bool _overlayFocused;
+    private void ReconcileScope()
+    {
+        var scoped = FocusScope() is not null;
+        if (scoped != _overlayFocused) _kbIndex = scoped ? 0 : -1;
+        _overlayFocused = scoped;
+    }
+
+    private RenderNode? CurrentFocusNode()
+    {
+        var f = Focusables();
+        return _kbIndex >= 0 && _kbIndex < f.Count ? f[_kbIndex] : null;
     }
 
     private int IndexOfFocusable(RenderNode hit)
@@ -401,8 +433,75 @@ public sealed partial class CupriDocument : IDisposable
         if (_kbIndex < 0 || _kbIndex >= f.Count) return false;
         var (bx, by, bw, bh) = HitTesting.AbsoluteBox(f[_kbIndex]);
         var handled = ActivateFrom(f[_kbIndex], bx + bw / 2, by + bh / 2);
-        if (handled) Refresh();
+        if (handled) { Refresh(); ReconcileScope(); }
         return handled;
+    }
+
+    // Arrow-key nav within a group: radios move+select among their group; everything else
+    // (menu items, list options, general) moves focus to the previous/next focusable. Sliders
+    // are handled separately (they nudge their value) before this is called.
+    private bool ArrowMove(int dir)
+    {
+        if (CurrentFocusNode() is { } cur && cur.Element?.GetAttribute("role") == "radio")
+            return RadioArrow(cur, dir);
+        return MoveFocus(dir);
+    }
+
+    // Move to the previous/next radio in the same group and select it (ARIA radio pattern).
+    private bool RadioArrow(RenderNode cur, int dir)
+    {
+        var group = cur.Element!.GetAttribute("data-bind-group");
+        var f = Focusables();
+        var radios = f.Where(n => n.Element?.GetAttribute("role") == "radio"
+                                  && n.Element.GetAttribute("data-bind-group") == group).ToList();
+        if (radios.Count < 2) return false;
+        var pos = radios.FindIndex(n => ReferenceEquals(n, cur));
+        var next = radios[(pos + dir + radios.Count) % radios.Count];
+        _kbIndex = f.FindIndex(n => ReferenceEquals(n, next));
+        _focusVisible = true;
+        var ok = group is { Length: > 0 } && _model is not null
+            && BindingEngine.TrySet(_model, group, next.Element!.GetAttribute("value"));
+        Refresh();
+        return ok;
+    }
+
+    // Arrow-nudge a focused slider by its step (or 1/20th of range), clamped to min/max.
+    private bool NudgeSlider(RenderNode node, int dir)
+    {
+        var el = node.Element!;
+        if (el.GetAttribute("data-bind-value") is not { Length: > 0 } path || _model is null) return false;
+        var min = double.TryParse(el.GetAttribute("min"), out var mn) ? mn : 0;
+        var max = double.TryParse(el.GetAttribute("max"), out var mx) ? mx : 100;
+        var step = double.TryParse(el.GetAttribute("step"), out var s) && s > 0 ? s : Math.Max(1, (max - min) / 20);
+        var cur = BindingEngine.Resolve(_model, path) is { } v && double.TryParse(v.ToString(), out var d) ? d : min;
+        var next = Math.Clamp(cur + dir * step, min, max);
+        var text = next == Math.Floor(next) ? ((long)next).ToString() : next.ToString();
+        _focusVisible = true;
+        var ok = BindingEngine.TrySet(_model, path, text);
+        Refresh();
+        return ok;
+    }
+
+    // Escape: close the top-most open overlay if any; otherwise blur a focused text field.
+    private bool HandleEscape()
+    {
+        RenderNode? target = null;
+        void Walk(RenderNode n)
+        {
+            if (n.Element?.GetAttribute("data-bind-open") is { Length: > 0 } p
+                && _model is not null && BindingEngine.Resolve(_model, p) as bool? == true) target = n;
+            foreach (var c in n.Children) Walk(c);
+        }
+        Walk(_root);
+        if (target?.Element?.GetAttribute("data-bind-open") is { Length: > 0 } path && _model is not null)
+        {
+            BindingEngine.TrySet(_model, path, false);
+            _overlayFocused = false; _kbIndex = -1;
+            Refresh();
+            return true;
+        }
+        if (_focusKey is not null) { UpdateFocus(null); Refresh(); return true; }
+        return false;
     }
 
     private bool UpdateFocus(IElement? field)
@@ -426,14 +525,28 @@ public sealed partial class CupriDocument : IDisposable
     /// </summary>
     public bool DispatchKey(string? text, EditKey key)
     {
-        // Tab moves keyboard focus regardless of edit state (it also commits/blurs a text field).
+        ReconcileScope(); // reflect any overlay that opened/closed since the last event
+
+        if (key == EditKey.Escape) return HandleEscape();
+        // Tab moves keyboard focus regardless of edit state (trapped within an open overlay).
         if (key == EditKey.Tab) return MoveFocus(+1);
         if (key == EditKey.ShiftTab) return MoveFocus(-1);
 
-        // With no text field focused, Enter/Space activate the keyboard-focused control.
+        // With no text field focused, Enter/Space activate and arrows navigate groups/sliders.
         // (Hosts deliver space as either EditKey.Space or a " " character.)
         if (_focusKey is null)
-            return (key is EditKey.Enter or EditKey.Space || text == " ") && ActivateFocused();
+        {
+            var role = CurrentFocusNode()?.Element?.GetAttribute("role");
+            switch (key)
+            {
+                case EditKey.Enter or EditKey.Space: return ActivateFocused();
+                case EditKey.Up: return role == "slider" ? NudgeSlider(CurrentFocusNode()!, +1) : ArrowMove(-1);
+                case EditKey.Down: return role == "slider" ? NudgeSlider(CurrentFocusNode()!, -1) : ArrowMove(+1);
+                case EditKey.Left: return role == "slider" ? NudgeSlider(CurrentFocusNode()!, -1) : ArrowMove(-1);
+                case EditKey.Right: return role == "slider" ? NudgeSlider(CurrentFocusNode()!, +1) : ArrowMove(+1);
+            }
+            return text == " " && ActivateFocused();
+        }
 
         if (_model is null) return false;
         // Edit a permissive buffer (may hold an invalid value while typing); it shows a red

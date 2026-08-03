@@ -441,8 +441,11 @@ top-layer, with open/close interaction (`samples/Overlays`).
    focus across the focusable controls (innermost interactive element, DOM order), Enter/Space
    activate the focused control (routed through the shared click path), typing reaches a
    focused text field, and a **focus-visible** ring is painted only after Tab (not on mouse
-   click). `samples/Keyboard`; SDL + GL hosts map Tab/Shift-Tab. Remaining: arrow-key nav
-   within a radio group / menu / listbox, and focus trapping inside open overlays.
+   click). `samples/Keyboard`; SDL + GL hosts map Tab/Shift-Tab. Refinements **DONE**
+   (`samples/KeyboardNav`): arrow-key nav within a radio group (moves + selects), arrow-nudge a
+   focused slider, **focus trapping** inside an open overlay (Tab scoped to the panel marked
+   `data-focus-scope`; focus enters on open) and **Escape** to close the top-most overlay (or
+   blur a field). Remaining: OS screen-reader bridge (needs native interop), Home/End within lists.
 5. ~~**Icon rendering (SVG paths)**~~ → **DONE** (`<cupri-icon>`).
 6. **Virtualisation** → data grid, large lists/trees.
 

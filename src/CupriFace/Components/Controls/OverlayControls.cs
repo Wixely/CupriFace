@@ -26,7 +26,7 @@ public sealed class DialogComponent : ComponentBase
         var content = el.InnerHtml;
         el.InnerHtml =
             "<div class='cupri-backdrop' data-cupri-dismiss=\"true\"></div>" +
-            $"<div class='cupri-dialog-panel'>{content}</div>";
+            $"<div class='cupri-dialog-panel' data-focus-scope>{content}</div>";
     }
 }
 
