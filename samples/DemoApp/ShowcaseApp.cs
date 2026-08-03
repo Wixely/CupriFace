@@ -18,7 +18,9 @@ public sealed class ShowcaseApp : CupriApp
     public override int Height => 720;
     public override SKColor Background => _model.DarkMode ? new SKColor(0x0f, 0x14, 0x20) : new SKColor(0xf4, 0xf5, 0xf7);
     public override object Model => _model;
-    public override double RefreshIntervalSeconds => 1.0; // tick the Diagnostics readout live
+    // Only re-bind live while the Diagnostics readout is visible — a full rebuild every second
+    // on every tab is wasted work (and a visible hitch on the CPU-rendered web host).
+    public override double RefreshIntervalSeconds => _model.Section == "diag" ? 1.0 : 0;
 
     public override void Configure(CupriDocument doc)
     {

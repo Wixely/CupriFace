@@ -147,6 +147,7 @@ public sealed partial class CupriDocument : IDisposable
         _rules = rules;
         _hoverChain.Clear();
         _root = new StyleResolver(rules, _viewportWidth).BuildTree(dom);
+        _hasActiveAnim = _keyframes.Count > 0 && AnyAnimated(_root);
         _dom = dom;
     }
 
@@ -159,6 +160,20 @@ public sealed partial class CupriDocument : IDisposable
     }
 
     public bool HasAnimations => _keyframes.Count > 0;
+
+    /// <summary>True only if a *visible* node is currently animating (display:none subtrees are
+    /// absent from the render tree). Lets a host render continuously only when it must, instead
+    /// of every frame — critical for the CPU-rendered web host. Cached per rebuild (the animated
+    /// set only changes when the tree does), so a host may poll it every frame for free.</summary>
+    public bool HasActiveAnimations => _hasActiveAnim;
+    private bool _hasActiveAnim;
+
+    private static bool AnyAnimated(RenderNode n)
+    {
+        if (n.Style.AnimationName is not null && n.Style.AnimationDuration > 0) return true;
+        foreach (var c in n.Children) if (AnyAnimated(c)) return true;
+        return false;
+    }
 
     /// <summary>Lay out at the given viewport size and paint onto <paramref name="canvas"/>.</summary>
     public void Render(SKCanvas canvas, float width, float height)

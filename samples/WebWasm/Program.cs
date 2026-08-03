@@ -19,7 +19,8 @@ public partial class Interop
     private static float _scale = 1f;           // Present scale, for un-scaling pointer coords
     private static SKBitmap? _bitmap;
     private static readonly Stopwatch _clock = Stopwatch.StartNew();
-    private static double _lastRefresh;
+    private static double _lastRefresh, _lastAnimMs;
+    private static bool _dirty = true;          // render-on-demand: paint only when something changed
 
     /// <summary>Create the shared app's document once.</summary>
     [JSExport]
@@ -30,22 +31,36 @@ public partial class Interop
         _bg = _app.Background;
     }
 
-    /// <summary>Render one frame (Present scale + animations + periodic re-bind) and hand the
-    /// RGBA pixels to JS for <c>putImageData</c>. Mirrors the desktop host's draw loop.</summary>
+    /// <summary>Called every animation frame by JS. Renders ONLY when needed — after input, on
+    /// the app's periodic re-bind, or (throttled) while a visible element is animating — so an
+    /// idle page costs nothing. Returns true if it painted this frame.</summary>
     [JSExport]
-    internal static void RenderFrame(int width, int height)
+    internal static bool Tick(int width, int height, double nowMs)
     {
-        if (_doc is null || width <= 0 || height <= 0) return;
+        if (_doc is null || width <= 0 || height <= 0) return false;
 
-        var p = _app.Present(width, height);
-        _scale = p.Scale <= 0 ? 1f : p.Scale;
-
-        // Live values (e.g. the Diagnostics RAM readout) re-read on the app's cadence.
+        // Live re-bind (e.g. the Diagnostics readout) on the app's cadence.
         if (_app.RefreshIntervalSeconds > 0 && _clock.Elapsed.TotalSeconds - _lastRefresh >= _app.RefreshIntervalSeconds)
         {
             _lastRefresh = _clock.Elapsed.TotalSeconds;
             _doc.Refresh();
+            _dirty = true;
         }
+
+        // Continuous repaint only while something is actually animating, capped at ~30 fps.
+        var animating = _doc.HasActiveAnimations;
+        if (animating && nowMs - _lastAnimMs >= 33) { _lastAnimMs = nowMs; _dirty = true; }
+
+        if (!_dirty) return false;
+        _dirty = false;
+        Paint(width, height, animating);
+        return true;
+    }
+
+    private static void Paint(int width, int height, bool animating)
+    {
+        var p = _app.Present(width, height);
+        _scale = p.Scale <= 0 ? 1f : p.Scale;
 
         if (_bitmap is null || _bitmap.Width != width || _bitmap.Height != height)
         {
@@ -53,28 +68,36 @@ public partial class Interop
             _bitmap = new SKBitmap(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul));
         }
 
-        using var canvas = new SKCanvas(_bitmap);
-        canvas.Clear(_bg);
-        if (_doc.HasAnimations) _doc.Animate(_clock.Elapsed.TotalSeconds); // @keyframes (spinner)
-        canvas.Save();
-        if (_scale != 1f) canvas.Scale(_scale);
-        _doc.Render(canvas, p.LogicalWidth, p.LogicalHeight);
-        canvas.Restore();
-        canvas.Flush();
+        using (var canvas = new SKCanvas(_bitmap))
+        {
+            canvas.Clear(_bg);
+            if (animating) _doc.Animate(_clock.Elapsed.TotalSeconds); // @keyframes (spinner)
+            canvas.Save();
+            if (_scale != 1f) canvas.Scale(_scale);
+            _doc.Render(canvas, p.LogicalWidth, p.LogicalHeight);
+            canvas.Restore();
+            canvas.Flush();
+        }
 
-        Present(_bitmap.Bytes, width, height);
+        // Zero-copy: hand JS a view over the bitmap's pixels in WASM memory (no per-frame
+        // allocation or managed→JS copy — bitmap.Bytes would allocate + copy 2.7 MB each frame).
+        unsafe
+        {
+            var span = new Span<byte>((void*)_bitmap.GetPixels(), _bitmap.ByteCount);
+            Present(span, width, height);
+        }
     }
 
-    // Pointer + wheel + keyboard route through the SAME dispatch the desktop hosts use; the
-    // rAF loop repaints the next frame, so these don't render directly.
-    [JSExport] internal static void PointerDown(double x, double y) => _doc?.DispatchClick((float)(x / _scale), (float)(y / _scale));
-    [JSExport] internal static void PointerMove(double x, double y) => _doc?.DispatchPointerMove((float)(x / _scale), (float)(y / _scale));
-    [JSExport] internal static void PointerUp(double x, double y) => _doc?.DispatchPointerUp((float)(x / _scale), (float)(y / _scale));
-    [JSExport] internal static void Wheel(double x, double y, double dy) => _doc?.DispatchWheel((float)(x / _scale), (float)(y / _scale), (float)-dy);
-    [JSExport] internal static void KeyChar(string text) => _doc?.DispatchKey(text, EditKey.None);
-    [JSExport] internal static void EditKeyPress(int code) => _doc?.DispatchKey(null, (EditKey)code);
+    // Pointer + wheel + keyboard route through the SAME dispatch the desktop hosts use, and just
+    // mark the document dirty; the rAF Tick paints the next frame.
+    [JSExport] internal static void PointerDown(double x, double y) { _doc?.DispatchClick((float)(x / _scale), (float)(y / _scale)); _dirty = true; }
+    [JSExport] internal static void PointerMove(double x, double y) { _doc?.DispatchPointerMove((float)(x / _scale), (float)(y / _scale)); _dirty = true; }
+    [JSExport] internal static void PointerUp(double x, double y) { _doc?.DispatchPointerUp((float)(x / _scale), (float)(y / _scale)); _dirty = true; }
+    [JSExport] internal static void Wheel(double x, double y, double dy) { _doc?.DispatchWheel((float)(x / _scale), (float)(y / _scale), (float)-dy); _dirty = true; }
+    [JSExport] internal static void KeyChar(string text) { _doc?.DispatchKey(text, EditKey.None); _dirty = true; }
+    [JSExport] internal static void EditKeyPress(int code) { _doc?.DispatchKey(null, (EditKey)code); _dirty = true; }
 
-    // JS side (module "cupri") copies the pixels into the 2D canvas.
+    // JS side (module "cupri") copies the pixels into the 2D canvas via putImageData.
     [JSImport("present", "cupri")]
-    internal static partial void Present(byte[] rgba, int width, int height);
+    internal static partial void Present([JSMarshalAs<JSType.MemoryView>] Span<byte> rgba, int width, int height);
 }

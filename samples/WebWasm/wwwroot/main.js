@@ -22,11 +22,15 @@ try {
         .withDiagnosticTracing(false)
         .create();
 
-    // C# → JS: copy the RGBA pixels the engine rendered into the 2D canvas.
+    // C# → JS: `rgba` is a MemoryView over the engine's bitmap in WASM memory. `.slice()` reads
+    // it into a Uint8Array in a single WASM→JS copy (no managed allocation on the .NET side —
+    // bitmap.Bytes would allocate + copy 2.7 MB every frame). We reuse one ImageData per size.
+    let img = null;
     setModuleImports('cupri', {
         present: (rgba, w, h) => {
-            const clamped = rgba instanceof Uint8ClampedArray ? rgba : new Uint8ClampedArray(rgba);
-            ctx.putImageData(new ImageData(clamped, w, h), 0, 0);
+            if (!img || img.width !== w || img.height !== h) img = ctx.createImageData(w, h);
+            img.data.set(rgba.slice());
+            ctx.putImageData(img, 0, 0);
         }
     });
 
@@ -62,11 +66,11 @@ try {
     canvas.tabIndex = 0;
     canvas.focus();
 
-    // Continuous render loop: drives @keyframes (spinner) and the live Diagnostics readout, and
-    // reflects any input from the previous frame. Stops (and reports) if a frame ever throws.
-    function frame() {
-        try { I.RenderFrame(canvas.width, canvas.height); }
-        catch (err) { showError('RenderFrame', err); return; }
+    // Frame loop: Tick decides whether to paint (render-on-demand) — after input, on the app's
+    // periodic re-bind, or throttled while something animates. An idle page costs ~nothing.
+    function frame(now) {
+        try { I.Tick(canvas.width, canvas.height, now); }
+        catch (err) { showError('Tick', err); return; }
         requestAnimationFrame(frame);
     }
     requestAnimationFrame(frame);
