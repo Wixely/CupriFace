@@ -102,6 +102,7 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                     }
                     case EventType.Keydown:
                     {
+                        var shift = (e.Key.Keysym.Mod & (ushort)Keymod.Shift) != 0;
                         var ek = e.Key.Keysym.Scancode switch
                         {
                             Scancode.ScancodeBackspace => EditKey.Backspace,
@@ -111,6 +112,7 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                             Scancode.ScancodeHome => EditKey.Home,
                             Scancode.ScancodeEnd => EditKey.End,
                             Scancode.ScancodeReturn or Scancode.ScancodeReturn2 => EditKey.Enter,
+                            Scancode.ScancodeTab => shift ? EditKey.ShiftTab : EditKey.Tab,
                             _ => EditKey.None,
                         };
                         if (ek != EditKey.None) EditKeyPressed?.Invoke(ek);

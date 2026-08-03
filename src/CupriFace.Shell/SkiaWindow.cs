@@ -95,8 +95,9 @@ public sealed class SkiaWindow : IDisposable
         foreach (var kb in _input.Keyboards)
         {
             kb.KeyChar += (_, ch) => TextEntered?.Invoke(ch.ToString());
-            kb.KeyDown += (_, key, _) =>
+            kb.KeyDown += (k, key, _) =>
             {
+                var shift = k.IsKeyPressed(Key.ShiftLeft) || k.IsKeyPressed(Key.ShiftRight);
                 var ek = key switch
                 {
                     Key.Backspace => EditKey.Backspace,
@@ -106,6 +107,7 @@ public sealed class SkiaWindow : IDisposable
                     Key.Home => EditKey.Home,
                     Key.End => EditKey.End,
                     Key.Enter or Key.KeypadEnter => EditKey.Enter,
+                    Key.Tab => shift ? EditKey.ShiftTab : EditKey.Tab,
                     _ => EditKey.None,
                 };
                 if (ek != EditKey.None) EditKeyPressed?.Invoke(ek);

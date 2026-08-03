@@ -44,6 +44,8 @@ public sealed partial class CupriDocument : IDisposable
     private double? _focusMin, _focusMax; // numeric field bounds (for validation/clamping)
     private string? _editBuffer; // raw text being edited (permissive); validated/committed on blur
     private int _caret;
+    private int _kbIndex = -1;      // keyboard focus: index into the focusable list (-1 = none)
+    private bool _focusVisible;     // show the focus ring? true after Tab, false after a mouse click
     private bool _dragging;
     private float _dragX0, _dragInnerW, _dragPad;
     private double _dragMin, _dragMax;
@@ -170,6 +172,7 @@ public sealed partial class CupriDocument : IDisposable
         _layout.Layout(_root, width, height);
         var list = _painter.Build(_root);
         AppendCaret(list);
+        AppendFocusRing(list);
         _rasterizer.Paint(canvas, list);
     }
 
@@ -204,6 +207,22 @@ public sealed partial class CupriDocument : IDisposable
         var cx = box.X + anchor.ContentLeftInset + _fonts.MeasureText(anchor.Style, col);
         var cy = box.Y + anchor.ContentTopInset + lineIndex * lh + (lh - ch) / 2f;
         list.Add(new FillRect(cx, cy, 2f, ch, 0f, anchor.Style.Color));
+    }
+
+    // Draw a keyboard focus ring around the focused control (only after Tab — "focus-visible").
+    private void AppendFocusRing(DisplayList list)
+    {
+        if (!_focusVisible || _kbIndex < 0) return;
+        var f = Focusables();
+        if (_kbIndex >= f.Count) return;
+        var (x, y, w, h) = HitTesting.AbsoluteBox(f[_kbIndex]);
+        const float t = 2f, pad = 2f;                 // ring thickness + gap outside the border box
+        var (rx, ry, rw, rh) = (x - pad, y - pad, w + 2 * pad, h + 2 * pad);
+        var c = new SKColor(0x2F, 0x6F, 0xED);        // accessible focus blue
+        list.Add(new FillRect(rx, ry, rw, t, 0f, c));           // top
+        list.Add(new FillRect(rx, ry + rh - t, rw, t, 0f, c));  // bottom
+        list.Add(new FillRect(rx, ry, t, rh, 0f, c));           // left
+        list.Add(new FillRect(rx + rw - t, ry, t, rh, 0f, c));  // right
     }
 
     private static RenderNode? FindFocused(RenderNode n)
@@ -255,56 +274,135 @@ public sealed partial class CupriDocument : IDisposable
     public bool DispatchClick(float x, float y)
     {
         var hit = HitTesting.HitTest(_root, x, y);
-        if (hit is null) return UpdateFocus(null); // click on empty space blurs
+        if (hit is null) { _kbIndex = -1; return UpdateFocus(null); } // click on empty space blurs
 
         // Focus: a click inside a text/number field focuses it (caret at end); elsewhere blurs.
         RenderNode? field = hit;
         while (field is not null && field.Element?.GetAttribute("role") is not ("textbox" or "spinbutton")) field = field.Parent;
         var focusChanged = UpdateFocus(field?.Element);
 
-        var handled = false;
-        for (var node = hit; node is not null && !handled; node = node.Parent)
+        // Sync keyboard focus to the clicked control (so Tab continues from here), but don't
+        // show the focus ring for a mouse click — it appears on Tab/Shift-Tab (focus-visible).
+        _kbIndex = IndexOfFocusable(hit);
+        _focusVisible = false;
+
+        var handled = ActivateFrom(hit, x, y);
+        if (handled || focusChanged) Refresh();
+        return handled || focusChanged;
+    }
+
+    // Walk from a node up the ancestor chain, applying the first built-in control behaviour or
+    // user click handler. Shared by mouse clicks and keyboard activation (Enter/Space).
+    private bool ActivateFrom(RenderNode start, float x, float y)
+    {
+        for (var node = start; node is not null; node = node.Parent)
         {
             if (node.Element is not { } el) continue;
 
             // Number stepper: +/- button adjusts the nearest numeric field's bound value.
-            if (el.GetAttribute("data-cupri-step") is { Length: > 0 } stepRaw) { handled = StepNumber(node, stepRaw); break; }
+            if (el.GetAttribute("data-cupri-step") is { Length: > 0 } stepRaw) return StepNumber(node, stepRaw);
 
             // Generic "set a bound value" click (tabs, select options, tree selection). Also
             // closes any containing overlay so picking an option dismisses its dropdown.
             if (el.GetAttribute("data-set-path") is { Length: > 0 } setPath && _model is not null)
             {
-                handled = BindingEngine.TrySet(_model, setPath, el.GetAttribute("data-set-value") ?? "");
+                var ok = BindingEngine.TrySet(_model, setPath, el.GetAttribute("data-set-value") ?? "");
                 SetNearestOpen(node, false);
-                break;
+                return ok;
             }
 
             // Overlay open/close: dismiss (backdrop/outside) and trigger toggle.
-            if (el.HasAttribute("data-cupri-dismiss")) { handled = SetNearestOpen(node, false); break; }
-            if (el.HasAttribute("data-cupri-toggle")) { handled = ToggleNearestOpen(node); break; }
+            if (el.HasAttribute("data-cupri-dismiss")) return SetNearestOpen(node, false);
+            if (el.HasAttribute("data-cupri-toggle")) return ToggleNearestOpen(node);
 
             switch (el.GetAttribute("role"))
             {
-                case "switch" or "checkbox": handled = ToggleSwitch(el); break;
+                case "switch" or "checkbox": return ToggleSwitch(el);
                 case "radio":
-                    handled = el.GetAttribute("data-bind-group") is { Length: > 0 } gp && _model is not null
+                    return el.GetAttribute("data-bind-group") is { Length: > 0 } gp && _model is not null
                         ? BindingEngine.TrySet(_model, gp, el.GetAttribute("value"))
                         : SetChecked(el, true);
-                    break;
-                case "slider": handled = StartSliderDrag(node, el, x); break;
+                case "slider": return StartSliderDrag(node, el, x);
                 default:
+                    var any = false;
                     foreach (var (selector, handler) in _clickHandlers)
                     {
                         if (!Matches(el, selector)) continue;
                         handler(new CupriPointerEvent(x, y, node, el));
-                        handled = true;
+                        any = true;
                     }
+                    if (any) return true;
                     break;
             }
         }
+        return false;
+    }
 
-        if (handled || focusChanged) Refresh();
-        return handled || focusChanged;
+    // ---- keyboard focus + tab order (a11y capability #4) ---------------------
+    // The interactive roles/attributes Tab stops on; an element is focusable if it is one of
+    // these AND has no focusable descendant (so we land on the actual control, not a wrapper).
+    private static bool IsFocusableRole(IElement el) =>
+        el.GetAttribute("role") is "switch" or "checkbox" or "radio" or "slider"
+                                or "textbox" or "spinbutton" or "button"
+        || el.HasAttribute("data-cupri-toggle")
+        || el.HasAttribute("data-set-path")
+        || el.HasAttribute("data-cupri-step");
+
+    private bool IsFocusable(IElement el) =>
+        IsFocusableRole(el) || _clickHandlers.Exists(h => Matches(el, h.Selector));
+
+    // Focusable render nodes in DOM (pre-order) order; skips a matched node's subtree so a
+    // control counts once. display:none subtrees are already absent from the render tree.
+    private List<RenderNode> Focusables()
+    {
+        var list = new List<RenderNode>();
+        void Walk(RenderNode n)
+        {
+            if (n.Element is { } el && IsFocusable(el)) { list.Add(n); return; }
+            foreach (var c in n.Children) Walk(c);
+        }
+        foreach (var c in _root.Children) Walk(c);
+        return list;
+    }
+
+    private int IndexOfFocusable(RenderNode hit)
+    {
+        // The focusable ancestor of the hit node (or itself), matched against the current list.
+        for (var n = hit; n is not null; n = n.Parent)
+            if (n.Element is { } el && IsFocusable(el))
+            {
+                var f = Focusables();
+                for (var i = 0; i < f.Count; i++) if (ReferenceEquals(f[i], n)) return i;
+                return -1;
+            }
+        return -1;
+    }
+
+    /// <summary>Move keyboard focus to the next (dir=+1) or previous (dir=-1) control, wrapping.</summary>
+    private bool MoveFocus(int dir)
+    {
+        var f = Focusables();
+        if (f.Count == 0) return false;
+        _kbIndex = _kbIndex < 0 || _kbIndex >= f.Count
+            ? (dir > 0 ? 0 : f.Count - 1)
+            : (_kbIndex + dir + f.Count) % f.Count;
+        _focusVisible = true;
+        // If the newly focused control is a text field, start editing it; otherwise blur text.
+        var el = f[_kbIndex].Element;
+        UpdateFocus(el?.GetAttribute("role") is "textbox" or "spinbutton" ? el : null);
+        Refresh();
+        return true;
+    }
+
+    // Activate the keyboard-focused control (Enter/Space) as if clicked at its centre.
+    private bool ActivateFocused()
+    {
+        var f = Focusables();
+        if (_kbIndex < 0 || _kbIndex >= f.Count) return false;
+        var (bx, by, bw, bh) = HitTesting.AbsoluteBox(f[_kbIndex]);
+        var handled = ActivateFrom(f[_kbIndex], bx + bw / 2, by + bh / 2);
+        if (handled) Refresh();
+        return handled;
     }
 
     private bool UpdateFocus(IElement? field)
@@ -328,7 +426,16 @@ public sealed partial class CupriDocument : IDisposable
     /// </summary>
     public bool DispatchKey(string? text, EditKey key)
     {
-        if (_focusKey is null || _model is null) return false;
+        // Tab moves keyboard focus regardless of edit state (it also commits/blurs a text field).
+        if (key == EditKey.Tab) return MoveFocus(+1);
+        if (key == EditKey.ShiftTab) return MoveFocus(-1);
+
+        // With no text field focused, Enter/Space activate the keyboard-focused control.
+        // (Hosts deliver space as either EditKey.Space or a " " character.)
+        if (_focusKey is null)
+            return (key is EditKey.Enter or EditKey.Space || text == " ") && ActivateFocused();
+
+        if (_model is null) return false;
         // Edit a permissive buffer (may hold an invalid value while typing); it shows a red
         // border and is validated/clamped on blur — never block the user mid-edit.
         var value = _editBuffer ?? BindingEngine.Resolve(_model, _focusKey)?.ToString() ?? "";

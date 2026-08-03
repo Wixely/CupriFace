@@ -437,7 +437,12 @@ top-layer, with open/close interaction (`samples/Overlays`).
 3. ~~**Scrolling**~~ → **DONE** (overflow:scroll/auto → clipped scroll offset + mouse
    wheel + scrollbar thumb; hit-testing accounts for the offset). `samples/Scroll`.
    Remaining: scrollbar drag, horizontal scroll, and persisting offset across a rebuild.
-4. **Focus + tab order + keyboard nav** → a11y parity for every interactive control.
+4. ~~**Focus + tab order + keyboard nav**~~ → **DONE (v1)**: Tab/Shift-Tab move keyboard
+   focus across the focusable controls (innermost interactive element, DOM order), Enter/Space
+   activate the focused control (routed through the shared click path), typing reaches a
+   focused text field, and a **focus-visible** ring is painted only after Tab (not on mouse
+   click). `samples/Keyboard`; SDL + GL hosts map Tab/Shift-Tab. Remaining: arrow-key nav
+   within a radio group / menu / listbox, and focus trapping inside open overlays.
 5. ~~**Icon rendering (SVG paths)**~~ → **DONE** (`<cupri-icon>`).
 6. **Virtualisation** → data grid, large lists/trees.
 
