@@ -408,6 +408,13 @@ public sealed partial class CupriDocument : IDisposable
         // Built-in behaviour first (steppers, toggles, buttons, user handlers).
         var handled = ActivateFrom(hit, x, y);
 
+        // Clicking a checkbox/radio/switch's text label toggles the control (like <label>).
+        if (!handled && ActivateLabel(hit) is { } labelled)
+        {
+            _kbIndex = FocusableIndexOf(labelled); // continue Tab order from the toggled control
+            handled = true;
+        }
+
         // If the click landed in a focused text field and nothing else consumed it, position the
         // caret / select a word (double-click) or line (triple-click), and arm a drag-select.
         if (!handled && field is not null && _focusKey is not null)
@@ -453,11 +460,7 @@ public sealed partial class CupriDocument : IDisposable
 
             switch (el.GetAttribute("role"))
             {
-                case "switch" or "checkbox": return ToggleSwitch(el);
-                case "radio":
-                    return el.GetAttribute("data-bind-group") is { Length: > 0 } gp && _model is not null
-                        ? BindingEngine.TrySet(_model, gp, el.GetAttribute("value"))
-                        : SetChecked(el, true);
+                case "switch" or "checkbox" or "radio": return ActivateControl(el);
                 case "slider": return StartSliderDrag(node, el, x);
                 default:
                     var any = false;
@@ -542,6 +545,14 @@ public sealed partial class CupriDocument : IDisposable
                 for (var i = 0; i < f.Count; i++) if (ReferenceEquals(f[i], n)) return i;
                 return -1;
             }
+        return -1;
+    }
+
+    // Index of the focusable whose element is `el` (for syncing Tab order after a label click).
+    private int FocusableIndexOf(IElement el)
+    {
+        var f = Focusables();
+        for (var i = 0; i < f.Count; i++) if (ReferenceEquals(f[i].Element, el)) return i;
         return -1;
     }
 
@@ -823,6 +834,51 @@ public sealed partial class CupriDocument : IDisposable
         while (b < s.Length && s[b] != '\n') b++;
         return (a, b);
     }
+
+    // Toggle/select a checkbox, switch, or radio from its element alone (no RenderNode needed) —
+    // shared by a direct click on the control and a click on its adjacent text label.
+    private bool ActivateControl(IElement el) => el.GetAttribute("role") switch
+    {
+        "switch" or "checkbox" => ToggleSwitch(el),
+        "radio" => el.GetAttribute("data-bind-group") is { Length: > 0 } gp && _model is not null
+            ? BindingEngine.TrySet(_model, gp, el.GetAttribute("value"))
+            : SetChecked(el, true),
+        _ => false,
+    };
+
+    private static bool IsLabelableControl(IElement? el) =>
+        el?.GetAttribute("role") is "switch" or "checkbox" or "radio";
+
+    /// <summary>
+    /// A click that hit no control but landed on a checkbox/radio/switch's text label activates
+    /// that control (HTML <c>&lt;label&gt;</c> behaviour). Labels are authored as siblings of the
+    /// control, so we look outward from the clicked node: the immediately-adjacent control,
+    /// preferring the one BEFORE the label (the "[box] Label" pattern) then the one AFTER it
+    /// (the "Label [switch]" pattern). A following control is only bound when it has no trailing
+    /// label of its own, so a group heading like "Size" that precedes the first radio doesn't
+    /// hijack it. Returns the activated control, or null.
+    /// </summary>
+    private IElement? ActivateLabel(RenderNode hit)
+    {
+        // The whole ancestor chain of `hit` is non-interactive here (ActivateFrom already ran and
+        // found no control above the hit), so walking out to adjacent siblings stays on inert text.
+        RenderNode? node = hit;
+        for (var hops = 0; node is not null && hops < 5; node = node.Parent, hops++)
+        {
+            if (node.Element is not { } el) continue;
+            if (el.PreviousElementSibling is { } prev && IsLabelableControl(prev) && ActivateControl(prev))
+                return prev;
+            if (el.NextElementSibling is { } next && IsLabelableControl(next)
+                && !HasTrailingLabel(next) && ActivateControl(next))
+                return next;
+        }
+        return null;
+    }
+
+    // True when a control already owns a text label on its far side — i.e. its next sibling is a
+    // non-control element — so an element before it is a heading, not its label.
+    private static bool HasTrailingLabel(IElement control) =>
+        control.NextElementSibling is { } sib && !IsLabelableControl(sib);
 
     private bool ToggleSwitch(IElement el)
     {
