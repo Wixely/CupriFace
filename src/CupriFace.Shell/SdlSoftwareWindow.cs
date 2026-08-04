@@ -42,11 +42,25 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     public event Action<char, KeyMods>? Shortcut;           // Ctrl/Cmd + letter (a/c/x/v …)
     public FrameStats Stats => _stats;
 
-    /// <summary>OS clipboard text, for copy/cut/paste (SDL, via managed Silk bindings).</summary>
+    /// <summary>OS clipboard text, for copy/cut/paste (SDL, via managed Silk bindings). SDL clipboard
+    /// strings are UTF-8; marshal them explicitly (Silk's convenience *S/string overloads assume
+    /// ANSI, which mangles non-ASCII like “—” into mojibake).</summary>
     public string? ClipboardText
     {
-        get => _sdl.GetClipboardTextS();
-        set { if (value is not null) _sdl.SetClipboardText(value); }
+        get
+        {
+            var ptr = _sdl.GetClipboardText();               // UTF-8; caller must SDL_free it
+            if (ptr is null) return null;
+            var text = Marshal.PtrToStringUTF8((IntPtr)ptr);
+            _sdl.Free(ptr);
+            return text;
+        }
+        set
+        {
+            if (value is null) return;
+            var utf8 = System.Text.Encoding.UTF8.GetBytes(value + '\0'); // null-terminated UTF-8
+            fixed (byte* p = utf8) _sdl.SetClipboardText(p);
+        }
     }
 
     private float _lastX, _lastY; // wheel events carry no position — use the last move
