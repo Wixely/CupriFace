@@ -40,6 +40,11 @@ public sealed record PushTransform(
 
 public sealed record PopTransform : PaintCommand;
 
+/// <summary>Composite the wrapped subtree as a group at <paramref name="Alpha"/> (0..1).</summary>
+public sealed record PushOpacity(float Alpha) : PaintCommand;
+
+public sealed record PopOpacity : PaintCommand;
+
 /// <summary>Fill an SVG path (authored in a <paramref name="ViewBox"/>-square) scaled into the box.</summary>
 public sealed record FillPath(
     float X, float Y, float Width, float Height, float ViewBox, string PathData, SKColor Color) : PaintCommand;

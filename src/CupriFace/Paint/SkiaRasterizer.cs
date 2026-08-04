@@ -63,6 +63,16 @@ public sealed class SkiaRasterizer
                     canvas.Restore();
                     break;
 
+                case PushOpacity o:
+                    // SaveLayer with an alpha-only paint composites the whole subtree as a group.
+                    using (var layer = new SKPaint { Color = new SKColor(0, 0, 0, (byte)(o.Alpha * 255f)) })
+                        canvas.SaveLayer(layer);
+                    break;
+
+                case PopOpacity:
+                    canvas.Restore();
+                    break;
+
                 case FillPath p:
                     using (var path = SKPath.ParseSvgPathData(p.PathData))
                     {

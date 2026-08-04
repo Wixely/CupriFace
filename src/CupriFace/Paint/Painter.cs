@@ -44,6 +44,10 @@ public sealed class Painter
             return;
         }
 
+        // Opacity composites the whole subtree as a group (outermost, wrapping any transform).
+        var faded = s.Opacity < 1f;
+        if (faded) list.Add(new PushOpacity(Math.Clamp(s.Opacity, 0f, 1f)));
+
         // Transform wraps the node's whole subtree, applied around its centre.
         var transformed = s.HasTransform;
         if (transformed)
@@ -104,6 +108,7 @@ public sealed class Painter
         }
 
         if (transformed) list.Add(new PopTransform());
+        if (faded) list.Add(new PopOpacity());
     }
 
     private static void PaintText(DisplayList list, RenderNode node, float absX, float absY)
