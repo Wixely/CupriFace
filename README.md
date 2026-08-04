@@ -4,9 +4,9 @@ A native, cross-platform desktop UI runtime that renders **HTML + CSS** to a GPU
 canvas and binds elements to backend C# objects — an Electron alternative that does
 **not** embed a web browser or a JavaScript engine.
 
-See **[DESIGN.md](DESIGN.md)** for the full architecture, goals, and roadmap, and
-**[TOOLBOX.md](TOOLBOX.md)** for the developer guide to the `cupri-*` elements — how to bind them to
-a C# model, style them, and add your own.
+See **[DESIGN.md](DESIGN.md)** for the full architecture and goals, **[TOOLBOX.md](TOOLBOX.md)** for
+the developer guide to the `cupri-*` elements (bind them to a C# model, style them, add your own),
+and **[ROADMAP.md](ROADMAP.md)** for what's considered but not yet built.
 
 ## What works today (.NET 10)
 
