@@ -1,0 +1,37 @@
+<Project>
+
+  <!--
+    CupriFace resource pipeline. Import this into an app project:
+
+        <Import Project="..\..\src\CupriFace.Resources.targets" />
+
+    Author markup / styles / media as real files under an "Assets" folder (editable in the IDE with
+    normal HTML/CSS tooling). At build they are:
+      * embedded into the assembly manifest under a STABLE logical name ("Assets/<relative/path>"),
+        so CupriSource.Embedded(...) resolves the same on desktop and WASM; and
+      * surfaced to the CupriFace.Resources.Gen source generator (via AdditionalFiles + the
+        CupriLogicalName metadata) so it can emit the typed `Assets` accessor class.
+  -->
+
+  <ItemGroup>
+    <CupriAsset Include="$(MSBuildProjectDirectory)\Assets\**\*" />
+
+    <!-- Don't also carry them as loose content. -->
+    <None Remove="$(MSBuildProjectDirectory)\Assets\**\*" />
+
+    <!-- Embed with a forward-slashed, RootNamespace-independent logical name. -->
+    <EmbeddedResource Include="@(CupriAsset)">
+      <LogicalName>Assets/$([System.String]::Copy('%(RecursiveDir)').Replace('\','/'))%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+
+    <!-- Hand the same files (and their logical name) to the source generator. -->
+    <AdditionalFiles Include="@(CupriAsset)">
+      <CupriLogicalName>Assets/$([System.String]::Copy('%(RecursiveDir)').Replace('\','/'))%(Filename)%(Extension)</CupriLogicalName>
+    </AdditionalFiles>
+  </ItemGroup>
+
+  <ItemGroup>
+    <CompilerVisibleItemMetadata Include="AdditionalFiles" MetadataName="CupriLogicalName" />
+  </ItemGroup>
+
+</Project>

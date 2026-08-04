@@ -1,0 +1,20 @@
+<body>
+  <div class="panel">
+    <div class="titlebar"><span class="title">Settings</span>
+      <cupri-badge>one app · desktop + web</cupri-badge></div>
+    <div class="field"><span class="label">Volume</span>
+      <cupri-slider min="0" max="100" value="{{Volume}}"></cupri-slider><span class="val">{{Volume}}</span></div>
+    <div class="field"><span class="label">Brightness</span>
+      <cupri-slider min="0" max="100" value="{{Brightness}}"></cupri-slider><span class="val">{{Brightness}}</span></div>
+    <div class="row"><span class="label">Notifications</span>
+      <cupri-switch checked="{{Notifications}}"></cupri-switch></div>
+    <div class="row"><span class="label">Dark mode</span>
+      <cupri-switch checked="{{DarkMode}}"></cupri-switch></div>
+    <div class="field"><span class="label">Downloading</span>
+      <cupri-progress value="{{Download}}" max="100"></cupri-progress></div>
+    <div class="actions">
+      <cupri-button variant="ghost">Cancel</cupri-button>
+      <cupri-button class="save">Save changes</cupri-button>
+    </div>
+  </div>
+</body>

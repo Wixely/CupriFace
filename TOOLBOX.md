@@ -120,6 +120,56 @@ and forwards input. "Exporting to a website" is just recompiling the app against
 
 ---
 
+## 2.1 Loading markup, styles & assets
+
+Inline strings are fine for a snippet, but real apps author markup/styles (and later images/media)
+as **files** and load them through a `CupriSource`, which carries a `ResourceTrust`. There are three
+origins:
+
+| Source | Trust | Use it for |
+|--------|-------|-----------|
+| `CupriSource.Embedded(assembly, "Assets/App.html")` / `Embedded<T>(…)` | **Embedded** — **preferred** | Anything you ship. Compiled into the binary: no IO, no network, tamper‑resistant, resolves identically on desktop and WASM. |
+| `CupriSource.File(path)` | **LocalFile** | Loading from disk at runtime (dev, plugins). Reads whatever is at `path` — validate it if the path is untrusted (traversal/TOCTOU). |
+| `CupriSource.Url(uri, options?)` | **Remote** | Remote‑hosted UI. The **most dangerous** — see below. |
+| `CupriSource.Text(literal)` | Embedded | An in‑memory string escape hatch. |
+
+CupriFace runs **no JavaScript**, so even untrusted markup can't execute code — but it can still drive
+bindings, pull sub‑resources (future `url()`), and exhaust memory, so non‑embedded origins surface
+their risk. `CupriSource.Url` defaults are strict and loosening them is explicit:
+`RequireHttps=true`, `MaxBytes` cap, `Timeout`, `FollowRedirects=false`, optional `AllowedHosts`;
+a tripped guard throws `CupriResourceException`.
+
+### The recommended pattern — embedded, but editable
+
+Author files under an **`Assets/`** folder (real `.html`/`.css`, full IDE tooling). Import the
+resource pipeline and the generator in your `.csproj`:
+
+```xml
+<ItemGroup>
+  <ProjectReference Include="…/src/CupriFace.Resources.Gen/CupriFace.Resources.Gen.csproj"
+                    OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+</ItemGroup>
+<Import Project="…/src/CupriFace.Resources.targets" />   <!-- embeds Assets/** at compile time -->
+```
+
+The generator emits a **strongly‑typed `Assets` class** from those files, so a rename or a typo is a
+**compile error**, not a runtime surprise. Your app just points its sources at them:
+
+```csharp
+public sealed class MyApp : CupriApp
+{
+    protected override CupriSource MarkupSource => Assets.MyApp.Html;   // Assets/MyApp.html
+    protected override CupriSource StyleSource  => Assets.MyApp.Css;    // Assets/MyApp.css
+}
+```
+
+`CupriApp.Html`/`Css` default to reading these sources (override either the sources or the strings).
+For a one‑off you can skip the generator with the `EmbeddedAsset("Assets/MyApp.html")` helper. This
+same `CupriSource` (via `ReadBytes()`) is how images/fonts/media will load — see
+[ROADMAP.md](ROADMAP.md). `samples/DemoApp` is the worked example.
+
+---
+
 ## 3. Data binding
 
 ### Interpolation vs. two‑way

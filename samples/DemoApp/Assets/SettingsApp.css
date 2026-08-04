@@ -1,0 +1,11 @@
+body { background:#e7eaf0; }
+.panel { width:520px; background:white; border-radius:16px; padding:26px; font-family:sans-serif; margin:24px; }
+.titlebar { display:flex; align-items:center; justify-content:space-between; margin-bottom:22px; }
+.title { font-size:23px; font-weight:bold; color:#1e2430; }
+.field { display:flex; align-items:center; margin-bottom:16px; }
+.row { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
+.label { width:150px; color:#48505c; font-size:15px; }
+.val { width:40px; text-align:right; color:#1e2430; font-weight:bold; font-size:15px; }
+cupri-slider { flex:1; }
+cupri-progress { flex:1; }
+.actions { display:flex; justify-content:flex-end; gap:12px; margin-top:6px; }

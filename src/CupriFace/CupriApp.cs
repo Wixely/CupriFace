@@ -1,4 +1,5 @@
 using CupriFace.Components;
+using CupriFace.Resources;
 using SkiaSharp;
 
 namespace CupriFace;
@@ -14,8 +15,23 @@ public readonly record struct PresentInfo(float LogicalWidth, float LogicalHeigh
 /// </summary>
 public abstract class CupriApp
 {
-    public abstract string Html { get; }
-    public abstract string Css { get; }
+    /// <summary>Where the markup is loaded from (embedded resource, file, or URL). Preferred over
+    /// overriding <see cref="Html"/> directly — see <see cref="EmbeddedAsset"/>.</summary>
+    protected virtual CupriSource? MarkupSource => null;
+
+    /// <summary>Where the stylesheet is loaded from. Optional (an app may inline all CSS in its markup).</summary>
+    protected virtual CupriSource? StyleSource => null;
+
+    /// <summary>The document markup. Defaults to reading <see cref="MarkupSource"/>; override either.</summary>
+    public virtual string Html => MarkupSource?.ReadText()
+        ?? throw new InvalidOperationException($"{GetType().Name} must override Html or MarkupSource.");
+
+    /// <summary>The stylesheet. Defaults to reading <see cref="StyleSource"/> (empty if none).</summary>
+    public virtual string Css => StyleSource?.ReadText() ?? "";
+
+    /// <summary>Convenience: an embedded resource in this app's own assembly, e.g.
+    /// <c>EmbeddedAsset("Assets/App.html")</c>. The generated <c>Assets</c> class is the typed way.</summary>
+    protected CupriSource EmbeddedAsset(string logicalName) => CupriSource.Embedded(GetType().Assembly, logicalName);
 
     public virtual string Title => "CupriFace App";
     public virtual int Width => 800;
