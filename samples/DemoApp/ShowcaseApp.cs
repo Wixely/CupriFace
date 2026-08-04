@@ -329,7 +329,7 @@ public sealed partial class ShowcaseModel
     public string NavSettings => Section == "settings" ? "active" : "";
     public string NavDiag => Section == "diag" ? "active" : "";
 
-    public string Scaling { get; set; } = "none";
+    public string Scaling { get; set; } = "hybrid";
     public int ZoomPct { get; set; } = 100;
     public string ThemeClass => DarkMode ? "dark" : "";
 

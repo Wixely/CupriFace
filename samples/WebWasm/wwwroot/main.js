@@ -59,8 +59,12 @@ try {
     const I = exports.Interop;
     logBoot('exports ok');
 
-    canvas.width = canvas.clientWidth || 940;
-    canvas.height = canvas.clientHeight || 720;
+    // Size the canvas backing store to its CSS box (the full window), and keep it in sync on
+    // resize so Hybrid-Zoom scaling reflows to the viewport. Tick notices the size change and
+    // repaints (render-on-demand).
+    const sizeCanvas = () => { canvas.width = canvas.clientWidth || 940; canvas.height = canvas.clientHeight || 720; };
+    sizeCanvas();
+    window.addEventListener('resize', sizeCanvas);
     const at = e => { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
 
     // JS → C#: pointer + wheel (same hit-test/dispatch as desktop). Registered now; they only

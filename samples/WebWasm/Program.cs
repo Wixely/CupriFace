@@ -20,6 +20,7 @@ public partial class Interop
     private static SKBitmap? _bitmap;
     private static readonly Stopwatch _clock = Stopwatch.StartNew();
     private static double _lastRefresh, _lastAnimMs;
+    private static int _lastW, _lastH;          // last canvas size, to repaint on resize
     private static bool _dirty = true;          // render-on-demand: paint only when something changed
 
     /// <summary>Create the shared app's document once.</summary>
@@ -38,6 +39,9 @@ public partial class Interop
     internal static bool Tick(int width, int height, double nowMs)
     {
         if (_doc is null || width <= 0 || height <= 0) return false;
+
+        // Canvas resized (window resize) → repaint so scaling reflows to the new viewport.
+        if (width != _lastW || height != _lastH) { _lastW = width; _lastH = height; _dirty = true; }
 
         // Live re-bind (e.g. the Diagnostics readout) on the app's cadence.
         if (_app.RefreshIntervalSeconds > 0 && _clock.Elapsed.TotalSeconds - _lastRefresh >= _app.RefreshIntervalSeconds)
