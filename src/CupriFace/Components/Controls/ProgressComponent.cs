@@ -9,9 +9,11 @@ public sealed class ProgressComponent : ComponentBase
 {
     public override string Tag => "cupri-progress";
 
+    // Fill width reads the live position from the custom property `--cupri-fill`, so the fill stays
+    // fully styleable via a stylesheet while the value itself stays data-driven.
     public override string DefaultCss => """
         .cupri-progress { display:block; height:12px; background:#e2e6ec; border-radius:6px; }
-        .cupri-progress-fill { height:12px; background:#B87333; border-radius:6px; }
+        .cupri-progress-fill { height:12px; background:#B87333; border-radius:6px; width:var(--cupri-fill, 0%); }
         """;
 
     public override void Expand(IElement el)
@@ -26,6 +28,6 @@ public sealed class ProgressComponent : ComponentBase
         el.SetAttribute("aria-valuenow", F(value));
         el.ClassList.Add("cupri-progress");
 
-        el.InnerHtml = $"<div class='cupri-progress-fill' style='width:{F(pct)}%'></div>";
+        el.InnerHtml = $"<div class='cupri-progress-fill' style='--cupri-fill:{F(pct)}%'></div>";
     }
 }

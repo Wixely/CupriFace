@@ -47,6 +47,8 @@ public sealed class DrawerComponent : ComponentBase
         .cupri-drawer { display:block; }
         .cupri-drawer-panel { position:fixed; top:0; height:100%; width:300px; background:var(--cupri-surface, white);
                               padding:22px; z-index:15; color:var(--cupri-text, #1e2430); }
+        .cupri-drawer-panel.right { right:0; }
+        .cupri-drawer-panel.left  { left:0; }
         """;
 
     public override void Expand(IElement el)
@@ -56,11 +58,12 @@ public sealed class DrawerComponent : ComponentBase
 
         el.SetAttribute("role", "dialog");
         el.SetAttribute("aria-modal", "true");
-        var side = Str(el, "side", "right") == "left" ? "left:0" : "right:0";
+        // Edge is a `left`/`right` state class (see DefaultCss) so it stays overridable.
+        var side = Str(el, "side", "right") == "left" ? "left" : "right";
         var content = el.InnerHtml;
         el.InnerHtml =
             "<div class='cupri-backdrop' data-cupri-dismiss=\"true\"></div>" +
-            $"<div class='cupri-drawer-panel' style='{side}' data-focus-scope>{content}</div>";
+            $"<div class='cupri-drawer-panel {side}' data-focus-scope>{content}</div>";
     }
 }
 

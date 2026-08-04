@@ -13,8 +13,9 @@ public sealed class SwitchComponent : ComponentBase
         .cupri-switch { display:block; position:relative; width:46px; height:26px;
                         background:#cbd2dc; border-radius:13px; }
         .cupri-switch.on { background:#B87333; }
-        .cupri-switch-knob { position:absolute; top:3px; width:20px; height:20px;
+        .cupri-switch-knob { position:absolute; top:3px; left:3px; width:20px; height:20px;
                              background:white; border-radius:10px; }
+        .cupri-switch.on .cupri-switch-knob { left:23px; }
         """;
 
     public override void Expand(IElement el)
@@ -26,7 +27,7 @@ public sealed class SwitchComponent : ComponentBase
         el.ClassList.Add("cupri-switch");
         if (on) el.ClassList.Add("on");
 
-        var knobLeft = on ? 23 : 3;
-        el.InnerHtml = $"<div class='cupri-switch-knob' style='left:{knobLeft}px'></div>";
+        // Knob position is driven by the `.on` state class (see DefaultCss) so it stays overridable.
+        el.InnerHtml = "<div class='cupri-switch-knob'></div>";
     }
 }

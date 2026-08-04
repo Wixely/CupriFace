@@ -179,6 +179,15 @@ controls handle their own state.
 - **State selectors:** `[data-hover]` (pointer over), `:focus`, `[data-invalid]` (bad field value),
   and variant/state classes like `.on` (checked switch/checkbox/radio) and `.ghost` (button variant),
   `.active` (current tab), `.selected` (chosen option).
+- **Positioned parts are overridable too.** Nothing visual is locked behind computed inline styles:
+  discrete positions are driven by state classes (e.g. `.cupri-switch.on .cupri-switch-knob { left:23px }`),
+  and data-driven positions are published as the custom property `--cupri-fill` (a percentage) that
+  the fill/thumb read in CSS — so you can restyle them freely:
+  ```css
+  .cupri-slider-fill  { width: var(--cupri-fill); background: #10b981; }
+  .cupri-slider-thumb { left: calc(var(--cupri-fill) - 9px); border-radius: 4px; }
+  .cupri-switch.on .cupri-switch-knob { left: 26px; }
+  ```
 - **Theme via CSS variables.** Many components read these with sensible fallbacks, so define them
   once (e.g. on `body`) to retheme surfaces/text/borders:
   `--cupri-text`, `--cupri-muted`, `--cupri-surface`, `--cupri-border`, `--cupri-hover`.
