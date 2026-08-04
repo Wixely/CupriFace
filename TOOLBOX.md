@@ -271,7 +271,7 @@ static config unless noted.
 | `<cupri-icon-button>` | Icon‑only button | `icon` | — | — | `button` |
 | `<cupri-textfield>` | Single‑line text input | `value`, `placeholder` | `value` | — | `textbox` |
 | `<cupri-number>` | Numeric field + `−/+` steppers | `value`, `min`, `max`, `step` | `value` | — | `spinbutton` |
-| `<cupri-textarea>` | Multi‑line text input | `value`, `placeholder` | `value` | — | `textbox` (`aria-multiline`) |
+| `<cupri-textarea>` | Multi‑line text input | `value`, `placeholder`, `follow-tail` | `value` | — | `textbox` (`aria-multiline`) |
 | `<cupri-select>` | Dropdown picker | `value`, `open` | `value` (and `open`) | `<cupri-option value="…">Label</cupri-option>` | `combobox` |
 
 ```html
@@ -283,6 +283,14 @@ static config unless noted.
   <cupri-option value="ie">Ireland</cupri-option>
   <cupri-option value="uk">United Kingdom</cupri-option>
 </cupri-select>
+```
+
+**Scrolling text fields.** Give a `cupri-textarea` a bounded height (`max-height` / `height`) and it
+scrolls when the content overflows — mouse wheel, a draggable scrollbar thumb, and caret‑into‑view
+while typing all work, and the scroll position survives edits. Add **`follow-tail`** to keep it pinned
+to the bottom as new lines arrive (logging), *unless* the user has scrolled up:
+```html
+<cupri-textarea value="{{Log}}" follow-tail style="max-height:160px"></cupri-textarea>
 ```
 
 ### Content

@@ -13,7 +13,8 @@ public sealed class TextAreaComponent : ComponentBase
 {
     public override string Tag => "cupri-textarea";
     public override string DefaultCss => """
-        .cupri-textarea { display:block; min-width:260px; min-height:78px; background:var(--cupri-surface, white);
+        .cupri-textarea { display:block; min-width:260px; min-height:78px; overflow:auto;
+                          background:var(--cupri-surface, white);
                           border:2px var(--cupri-border, #cbd2dc); border-radius:8px; padding:10px 12px; font-size:15px; }
         .cupri-textarea[data-hover] { border:2px #98a2b3; }
         .cupri-textarea:focus { border:2px #B87333; }
@@ -29,6 +30,9 @@ public sealed class TextAreaComponent : ComponentBase
         el.SetAttribute("role", "textbox");
         el.SetAttribute("aria-multiline", "true");
         el.SetAttribute("data-multiline", "");
+        // Opt-in "follow the tail": when already scrolled to the bottom, new content keeps it pinned
+        // there (logging). The engine reads data-follow-tail on rebuild (see CupriDocument.Rebuild).
+        if (Flag(el, "follow-tail")) el.SetAttribute("data-follow-tail", "");
         el.ClassList.Add("cupri-textarea");
         var inner = value.Length > 0
             ? RenderLines(value)

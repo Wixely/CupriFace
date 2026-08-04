@@ -16,6 +16,7 @@ body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; -
 .lbl { color:var(--cupri-muted); font-size:14px; }
 .val { color:var(--cupri-text); font-weight:bold; font-size:14px; width:34px; }
 cupri-alert { margin-bottom:10px; }
+cupri-textarea { max-height:150px; } /* bounded → scrolls (wheel, thumb) instead of running off-screen */
 
 .flexdemo { display:flex; gap:12px; margin-bottom:18px; }
 .fb { padding:20px; border-radius:10px; color:white; font-weight:bold; text-align:center; }

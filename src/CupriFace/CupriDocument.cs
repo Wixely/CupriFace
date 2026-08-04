@@ -54,6 +54,9 @@ public sealed partial class CupriDocument : IDisposable
     private float _dragX0, _dragInnerW, _dragPad;
     private double _dragMin, _dragMax;
     private string? _dragPath;
+    private bool _caretMoved;           // caret changed since last render → scroll it into view once
+    private RenderNode? _scrollDrag;    // scrollable node whose scrollbar thumb is being dragged
+    private float _scrollDragY0, _scrollDragScroll0;
 
     private CupriDocument(string html, string? css)
     {
@@ -110,6 +113,10 @@ public sealed partial class CupriDocument : IDisposable
             prof(phase, System.Diagnostics.Stopwatch.GetElapsedTime(t, now).TotalMilliseconds);
             t = now;
         }
+
+        // A rebuild re-parses the DOM, so scroll offsets on the fresh tree would reset — carry them
+        // over (keyed by structural path, since element identity isn't stable across re-parse).
+        var scroll = CaptureScroll();
 
         _dom?.Dispose();
         var dom = new HtmlParser().ParseDocument(_templateHtml);
@@ -178,9 +185,47 @@ public sealed partial class CupriDocument : IDisposable
 
         _hoverChain.Clear();
         _root = new StyleResolver(_rules, _viewportWidth).BuildTree(dom);
+        RestoreScroll(scroll);
         Mark("style+tree");
         _hasActiveAnim = _keyframes.Count > 0 && AnyAnimated(_root);
         _dom = dom;
+    }
+
+    // Scroll-offset preservation across a rebuild, keyed by structural path (child-index chain from
+    // root) since the DOM — and thus element identity — is re-parsed each rebuild.
+    private Dictionary<string, (float ScrollY, bool AtBottom, bool FollowTail)>? CaptureScroll()
+    {
+        if (_root is null) return null;
+        Dictionary<string, (float, bool, bool)>? map = null;
+        void Walk(RenderNode n)
+        {
+            var tail = n.Element?.HasAttribute("data-follow-tail") == true;
+            if (n.Style.Overflow == OverflowMode.Scroll && (n.ScrollY > 0.01f || tail))
+                (map ??= new())[PathOf(n)] = (n.ScrollY, n.ScrollY >= n.MaxScrollY - 1f, tail);
+            foreach (var c in n.Children) Walk(c);
+        }
+        Walk(_root);
+        return map;
+    }
+
+    private void RestoreScroll(Dictionary<string, (float ScrollY, bool AtBottom, bool FollowTail)>? map)
+    {
+        if (map is null) return;
+        void Walk(RenderNode n)
+        {
+            if (n.Style.Overflow == OverflowMode.Scroll && map.TryGetValue(PathOf(n), out var s))
+                // float.MaxValue clamps to the NEW bottom at paint time → tail-follow.
+                n.ScrollY = s.FollowTail && s.AtBottom ? float.MaxValue : s.ScrollY;
+            foreach (var c in n.Children) Walk(c);
+        }
+        Walk(_root);
+    }
+
+    private static string PathOf(RenderNode n)
+    {
+        var sb = new System.Text.StringBuilder();
+        for (var cur = n; cur.Parent is { } p; cur = p) sb.Insert(0, "/" + p.Children.IndexOf(cur));
+        return sb.ToString();
     }
 
     /// <summary>Advance @keyframes animations to the given elapsed time (paint-only).</summary>
@@ -217,11 +262,66 @@ public sealed partial class CupriDocument : IDisposable
             Rebuild();
         }
         _layout.Layout(_root, width, height);
+        ScrollCaretIntoView(); // after layout, before paint: keep the caret visible in a scrolled field
+
         var list = _painter.Build(_root);
+        // Caret + selection are drawn outside the scrolled subtree, so clip them to the focused
+        // field's scroll box — otherwise they'd draw over neighbours when the field is scrolled.
+        var clip = CaretClipRect();
+        if (clip is { } c) list.Add(new PushClip(c.X, c.Y, c.W, c.H, c.Radius));
         AppendSelection(list);
         AppendCaret(list);
+        if (clip is not null) list.Add(new PopClip());
         AppendFocusRing(list);
         _rasterizer.Paint(canvas, list);
+    }
+
+    // If the caret moved (typing/nav, not wheel) and its field scrolls, nudge that container's
+    // ScrollY so the caret's row sits inside the visible band.
+    private void ScrollCaretIntoView()
+    {
+        if (!_caretMoved || _focusKey is null) return;
+        _caretMoved = false;
+        var field = FindFocused(_root);
+        if (field is null) return;
+        var sc = ScrollableContainer(field);
+        if (sc is null) return;
+
+        var anchor = FindCaretAnchor(field) ?? field;
+        var value = _editBuffer ?? BindingEngine.Resolve(_model, _focusKey)?.ToString() ?? "";
+        var caret = Math.Clamp(_caret, 0, value.Length);
+        float rowY, rowH;
+        if (field.Element?.HasAttribute("data-multiline") == true)
+        {
+            var rows = BuildTextRows(anchor, value);
+            var t = rows[^1];
+            foreach (var r in rows) if (caret >= r.Start && caret <= r.Start + r.Text.Length) t = r;
+            rowY = t.Y; rowH = t.Height;
+        }
+        else
+        {
+            var (_, py) = PaintedTopLeft(anchor);
+            rowY = py + anchor.ContentTopInset; rowH = FontService.LineHeightPx(anchor.Style);
+        }
+
+        var (_, scY) = PaintedTopLeft(sc);
+        var bandTop = scY + sc.ContentTopInset;
+        var bandBottom = bandTop + sc.ContentBoxHeight;
+        var newScroll = sc.ScrollY;
+        if (rowY < bandTop) newScroll = sc.ScrollY + (rowY - bandTop);              // scroll up to reveal
+        else if (rowY + rowH > bandBottom) newScroll = sc.ScrollY + (rowY + rowH - bandBottom); // down
+        sc.ScrollY = Math.Clamp(newScroll, 0, sc.MaxScrollY);
+    }
+
+    // The focused field's scroll-container content box (painted), for clipping caret/selection; null if none.
+    private (float X, float Y, float W, float H, float Radius)? CaretClipRect()
+    {
+        if (_focusKey is null) return null;
+        var sc = ScrollableContainer(FindFocused(_root));
+        if (sc is null) return null;
+        var (sx, sy) = PaintedTopLeft(sc);
+        return (sx + sc.ContentLeftInset, sy + sc.ContentTopInset,
+                sc.Width - sc.HorizontalInsets, sc.Height - sc.VerticalInsets, 0f);
     }
 
     // Draw the text caret for the focused field, after the field's own text.
@@ -237,7 +337,7 @@ public sealed partial class CupriDocument : IDisposable
         var anchor = FindCaretAnchor(field) ?? field;
         var value = _editBuffer ?? BindingEngine.Resolve(_model, _focusKey)?.ToString() ?? "";
         var caret = Math.Clamp(_caret, 0, value.Length);
-        var box = HitTesting.AbsoluteBox(anchor);
+        var (px, py) = PaintedTopLeft(anchor);
         var lh = FontService.LineHeightPx(anchor.Style);
         var ch = anchor.Style.FontSize * 1.1f;
 
@@ -256,8 +356,8 @@ public sealed partial class CupriDocument : IDisposable
         }
         else
         {
-            cx = box.X + anchor.ContentLeftInset + _fonts.MeasureText(anchor.Style, value[..caret]);
-            cy = box.Y + anchor.ContentTopInset + (lh - ch) / 2f;
+            cx = px + anchor.ContentLeftInset + _fonts.MeasureText(anchor.Style, value[..caret]);
+            cy = py + anchor.ContentTopInset + (lh - ch) / 2f;
         }
         list.Add(new FillRect(cx, cy, 2f, ch, 0f, anchor.Style.Color));
     }
@@ -274,11 +374,11 @@ public sealed partial class CupriDocument : IDisposable
         int e = Math.Clamp(Math.Max(_selAnchor, _caret), 0, value.Length);
         if (s == e) return;
 
-        var box = HitTesting.AbsoluteBox(anchor);
+        var (px, py) = PaintedTopLeft(anchor);
         var lh = FontService.LineHeightPx(anchor.Style);
         var ch = anchor.Style.FontSize * 1.1f;
-        var left0 = box.X + anchor.ContentLeftInset;
-        var top0 = box.Y + anchor.ContentTopInset;
+        var left0 = px + anchor.ContentLeftInset;
+        var top0 = py + anchor.ContentTopInset;
         var sel = new SKColor(0x2F, 0x6F, 0xED, 0x40); // translucent selection blue
 
         if (field.Element?.HasAttribute("data-multiline") != true)
@@ -325,7 +425,7 @@ public sealed partial class CupriDocument : IDisposable
 
             if (lineText.Length > 0 && textNode?.Lines is { Count: > 0 } lines)
             {
-                var (tx, ty, _, _) = HitTesting.AbsoluteBox(textNode);
+                var (tx, ty) = PaintedTopLeft(textNode);
                 var cursor = 0;
                 for (var r = 0; r < lines.Count; r++)
                 {
@@ -341,7 +441,7 @@ public sealed partial class CupriDocument : IDisposable
             else
             {
                 // Empty logical line (or no laid-out text): a zero-width row at the line box.
-                var (dx, dy, _, _) = div is not null ? HitTesting.AbsoluteBox(div) : HitTesting.AbsoluteBox(anchor);
+                var (dx, dy) = PaintedTopLeft(div ?? anchor);
                 rows.Add(new TextRow(offset, "",
                     dx + (div?.ContentLeftInset ?? 0f), dy + (div?.ContentTopInset ?? 0f), lh, newlineAfter));
             }
@@ -370,8 +470,42 @@ public sealed partial class CupriDocument : IDisposable
             return row.Start + NearestColumn(anchorNode.Style, row.Text, x - row.X);
         }
 
-        var box = HitTesting.AbsoluteBox(anchorNode);
-        return NearestColumn(anchorNode.Style, value, x - (box.X + anchorNode.ContentLeftInset));
+        var (bx, _) = PaintedTopLeft(anchorNode);
+        return NearestColumn(anchorNode.Style, value, x - (bx + anchorNode.ContentLeftInset));
+    }
+
+    // Painted top-left of a node: like HitTesting.AbsoluteBox but subtracts each scrollable ancestor's
+    // clamped scroll offset, so caret/selection line up with where the Painter actually draws the text
+    // (the Painter shifts a scrollable node's children up by its ScrollY).
+    private static (float X, float Y) PaintedTopLeft(RenderNode node)
+    {
+        float x = 0, y = 0;
+        for (var n = node; n is not null; n = n.Parent)
+        {
+            x += n.X; y += n.Y;
+            if (n.Parent is { IsScrollable: true } p) y -= Math.Clamp(p.ScrollY, 0, p.MaxScrollY);
+            if (n.IsTopLayer) break;
+        }
+        return (x, y);
+    }
+
+    // The nearest scrollable ancestor of a node (or the node itself), for clipping/scrolling; null if none.
+    private static RenderNode? ScrollableContainer(RenderNode? node)
+    {
+        for (var n = node; n is not null; n = n.Parent) if (n.IsScrollable) return n;
+        return null;
+    }
+
+    // The scrollbar thumb rect (painted), mirroring the Painter; null if not scrollable.
+    private (float X, float Y, float W, float H)? ThumbRect(RenderNode n)
+    {
+        if (!n.IsScrollable) return null;
+        var (ax, ay) = PaintedTopLeft(n);
+        var boxH = n.ContentBoxHeight;
+        var thumbH = MathF.Max(28f, boxH * boxH / n.ScrollContentHeight);
+        var thumbY = ay + n.ContentTopInset + Math.Clamp(n.ScrollY, 0, n.MaxScrollY) / n.MaxScrollY * (boxH - thumbH);
+        var thumbX = ax + n.Width - n.BorderRightW - 8f;
+        return (thumbX, thumbY, 5f, thumbH);
     }
 
     // The column in <paramref name="text"/> whose x-offset is nearest <paramref name="localX"/>.
@@ -455,6 +589,14 @@ public sealed partial class CupriDocument : IDisposable
         var hit = HitTesting.HitTest(_root, x, y);
         if (hit is null) { _kbIndex = -1; return UpdateFocus(null); } // click on empty space blurs
 
+        // Grabbing a scrollbar thumb starts a scroll-drag (takes priority; doesn't focus/blur).
+        for (var n = hit; n is not null; n = n.Parent)
+            if (ThumbRect(n) is { } tr && x >= tr.X - 6 && x <= tr.X + tr.W + 8 && y >= tr.Y && y <= tr.Y + tr.H)
+            {
+                _scrollDrag = n; _scrollDragY0 = y; _scrollDragScroll0 = Math.Clamp(n.ScrollY, 0, n.MaxScrollY);
+                return true;
+            }
+
         // Focus: a click inside a text/number field focuses it; elsewhere blurs.
         RenderNode? field = hit;
         while (field is not null && field.Element?.GetAttribute("role") is not ("textbox" or "spinbutton")) field = field.Parent;
@@ -484,6 +626,7 @@ public sealed partial class CupriDocument : IDisposable
             if (clickCount >= 3) { var (a, b) = LineAt(buf, pos); _selAnchor = a; _caret = b; }
             else if (clickCount == 2) { var (a, b) = WordAt(buf, pos); _selAnchor = a; _caret = b; }
             else { _caret = pos; _selAnchor = pos; _textDrag = true; }
+            _caretMoved = true;
             if (focusChanged) Refresh(); // new field → rebuild; caret/selection alone just repaints
             ReconcileScope();
             return true;
@@ -723,6 +866,7 @@ public sealed partial class CupriDocument : IDisposable
         _editBuffer = key is null ? null : BindingEngine.Resolve(_model, key)?.ToString() ?? "";
         _caret = _editBuffer?.Length ?? 0;
         _selAnchor = _caret;
+        _caretMoved = true;
         return true;
     }
 
@@ -816,6 +960,7 @@ public sealed partial class CupriDocument : IDisposable
 
         _caret = caret;
         _selAnchor = anchor;
+        _caretMoved = true;
         if (edited)
         {
             _editBuffer = value;
@@ -1055,6 +1200,15 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>Pointer move: drag a slider, or update :hover. Returns true if a repaint is needed.</summary>
     public bool DispatchPointerMove(float x, float y)
     {
+        if (_scrollDrag is { } sd)
+        {
+            var boxH = sd.ContentBoxHeight;
+            var thumbH = MathF.Max(28f, boxH * boxH / sd.ScrollContentHeight);
+            var travel = boxH - thumbH;
+            if (travel > 0.5f)
+                sd.ScrollY = Math.Clamp(_scrollDragScroll0 + (y - _scrollDragY0) / travel * sd.MaxScrollY, 0, sd.MaxScrollY);
+            return true; // scroll is paint-time → repaint, no rebuild
+        }
         if (_dragging)
         {
             if (!ApplySliderValue(x)) return false;
@@ -1065,13 +1219,14 @@ public sealed partial class CupriDocument : IDisposable
         if (_textDrag && _focusKey is not null && FindFocused(_root) is { } field)
         {
             _caret = CaretFromPoint(field, FindCaretAnchor(field) ?? field, x, y);
+            _caretMoved = true; // auto-scroll if the drag runs past the visible edge
             return true; // caret/selection only → repaint, no rebuild
         }
         return UpdateHover(x, y);
     }
 
-    /// <summary>Pointer up: end any slider drag or text drag-select.</summary>
-    public void DispatchPointerUp(float x, float y) { _dragging = false; _textDrag = false; }
+    /// <summary>Pointer up: end any slider drag, scrollbar drag, or text drag-select.</summary>
+    public void DispatchPointerUp(float x, float y) { _dragging = false; _textDrag = false; _scrollDrag = null; }
 
     /// <summary>Scroll wheel: scroll the nearest scrollable element under the pointer by pixels.</summary>
     public bool DispatchWheel(float x, float y, float pixelDelta)

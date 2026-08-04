@@ -75,6 +75,7 @@ Sustained fluidity is the core requirement (DESIGN risk #0); a demo hitting 60 f
 
 | Item | Status | Notes |
 |------|--------|-------|
+| **Right-click context menu for inputs** (next) | 🔴 | Copy / Cut / Paste / Select-all on right-click in text fields & textareas. Compose the existing overlay/menu (`cupri-menu`), `CopySelection`/`CutSelection`, and the host clipboard bridge; needs a right-button/`contextmenu` event routed through the hosts (SDL/GLFW + web `contextmenu`). |
 | **Extensibility for custom interaction primitives** | 🔴 | Custom components reuse the engine's built-in interaction vocabulary (roles + `data-*` hooks) and `OnClick`; a genuinely new low-level gesture/keybinding needs an engine hook. Design a registration point so third parties aren't limited to the built-in set. |
 | CSS-controllable **icon sizing** | 🔴 | `IconMarkup` sets `width/height` inline (a deliberate per-use size); expose it as a variable/class if authors want to restyle icon size via CSS. |
 | **Images / media** (`<cupri-image>`, …) | 🔴 | Decode via SkiaSharp; add a `DrawImage` paint command; resolve the source through the existing **`CupriSource`** pipeline (embedded/file/URL, same trust model — already shipped for markup/CSS). Works desktop + web. |
