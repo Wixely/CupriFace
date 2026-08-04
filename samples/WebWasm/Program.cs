@@ -96,12 +96,17 @@ public partial class Interop
     // Dispatch* returns whether anything actually changed; only THEN mark dirty for a repaint.
     // (Marking dirty unconditionally repainted the whole 940x720 canvas on every mouse-move —
     // even over empty space where hover didn't change — saturating the CPU while moving.)
-    [JSExport] internal static void PointerDown(double x, double y) { if (_doc?.DispatchClick((float)(x / _scale), (float)(y / _scale)) == true) _dirty = true; }
+    [JSExport] internal static void PointerDown(double x, double y, int clicks) { if (_doc?.DispatchClick((float)(x / _scale), (float)(y / _scale), clicks) == true) _dirty = true; }
     [JSExport] internal static void PointerMove(double x, double y) { if (_doc?.DispatchPointerMove((float)(x / _scale), (float)(y / _scale)) == true) _dirty = true; }
     [JSExport] internal static void PointerUp(double x, double y) { _doc?.DispatchPointerUp((float)(x / _scale), (float)(y / _scale)); }
     [JSExport] internal static void Wheel(double x, double y, double dy) { if (_doc?.DispatchWheel((float)(x / _scale), (float)(y / _scale), (float)-dy) == true) _dirty = true; }
     [JSExport] internal static void KeyChar(string text) { if (_doc?.DispatchKey(text, EditKey.None) == true) _dirty = true; }
-    [JSExport] internal static void EditKeyPress(int code) { if (_doc?.DispatchKey(null, (EditKey)code) == true) _dirty = true; }
+    [JSExport] internal static void EditKeyPress(int code, int mods) { if (_doc?.DispatchKey(null, (EditKey)code, (KeyMods)mods) == true) _dirty = true; }
+
+    // Clipboard bridge — the engine has no clipboard access (host concern); JS does the actual
+    // navigator.clipboard I/O. Copy/Cut return the selected text; Paste inserts via KeyChar.
+    [JSExport] internal static string? CopySelection() => _doc?.CopySelection();
+    [JSExport] internal static string? CutSelection() { var t = _doc?.CutSelection(); _dirty = true; return t; }
 
     // JS side (module "cupri") copies the pixels into the 2D canvas via putImageData.
     [JSImport("present", "cupri")]

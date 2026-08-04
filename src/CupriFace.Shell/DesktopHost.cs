@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using CupriFace;
+using CupriFace.Interaction;
 
 namespace CupriFace.Shell;
 
@@ -43,12 +44,13 @@ public static class DesktopHost
         {
             var window = new SkiaWindow(app.Title, app.Width, app.Height);
             window.Render += Draw;
-            window.PointerDown += (x, y) => doc.DispatchClick(x / scale, y / scale);
+            window.PointerDown += (x, y, clicks) => doc.DispatchClick(x / scale, y / scale, clicks);
             window.PointerMove += (x, y) => doc.DispatchPointerMove(x / scale, y / scale);
             window.PointerUp += (x, y) => doc.DispatchPointerUp(x / scale, y / scale);
             window.PointerWheel += (x, y, dy) => doc.DispatchWheel(x / scale, y / scale, -dy * 50f); // wheel up → scroll up
-            window.TextEntered += t => doc.DispatchKey(t, CupriFace.Interaction.EditKey.None);
-            window.EditKeyPressed += k => doc.DispatchKey(null, k);
+            window.TextEntered += t => doc.DispatchKey(t, EditKey.None);
+            window.EditKeyPressed += (k, mods) => doc.DispatchKey(null, k, mods);
+            window.Shortcut += (ch, mods) => Shortcut(doc, ch, () => window.ClipboardText, v => window.ClipboardText = v);
             window.Run();
         }
         catch (Exception ex)
@@ -56,13 +58,27 @@ public static class DesktopHost
             Console.WriteLine($"[CupriFace] GPU unavailable ({ex.GetType().Name}); using the SDL software window.");
             using var window = new SdlSoftwareWindow(app.Title, app.Width, app.Height);
             window.Render += Draw;
-            window.PointerDown += (x, y) => doc.DispatchClick(x / scale, y / scale);
+            window.PointerDown += (x, y, clicks) => doc.DispatchClick(x / scale, y / scale, clicks);
             window.PointerMove += (x, y) => doc.DispatchPointerMove(x / scale, y / scale);
             window.PointerUp += (x, y) => doc.DispatchPointerUp(x / scale, y / scale);
             window.PointerWheel += (x, y, dy) => doc.DispatchWheel(x / scale, y / scale, -dy * 50f); // wheel up → scroll up
-            window.TextEntered += t => doc.DispatchKey(t, CupriFace.Interaction.EditKey.None);
-            window.EditKeyPressed += k => doc.DispatchKey(null, k);
+            window.TextEntered += t => doc.DispatchKey(t, EditKey.None);
+            window.EditKeyPressed += (k, mods) => doc.DispatchKey(null, k, mods);
+            window.Shortcut += (ch, mods) => Shortcut(doc, ch, () => window.ClipboardText, v => window.ClipboardText = v);
             window.Run();
+        }
+    }
+
+    // Text shortcuts common to both hosts. The engine owns selection/editing; the host owns the
+    // OS clipboard (get/set passed in) — keeping the engine free of any platform clipboard code.
+    private static void Shortcut(CupriDocument doc, char ch, Func<string?> getClip, Action<string> setClip)
+    {
+        switch (ch)
+        {
+            case 'a': doc.DispatchKey(null, EditKey.SelectAll); break;
+            case 'c': if (doc.CopySelection() is { } cp) setClip(cp); break;
+            case 'x': if (doc.CutSelection() is { } ct) setClip(ct); break;
+            case 'v': if (getClip() is { Length: > 0 } pv) doc.DispatchKey(pv, EditKey.None); break;
         }
     }
 }

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using CupriFace.Interaction;
 using Silk.NET.Input;
 using Silk.NET.Maths;
@@ -32,13 +33,27 @@ public sealed class SkiaWindow : IDisposable
     /// <summary>Raised each frame after the surface is ready. Draw here.</summary>
     public event Action<RenderContext>? Render;
 
-    /// <summary>Raised on left-button press with client-area coordinates.</summary>
-    public event Action<float, float>? PointerDown;
+    /// <summary>Raised on left-button press with client-area coordinates and the click count
+    /// (1/2/3 = single/double/triple — for word/line text selection).</summary>
+    public event Action<float, float, int>? PointerDown;
     public event Action<float, float>? PointerMove;
     public event Action<float, float>? PointerUp;
     public event Action<float, float, float>? PointerWheel; // x, y, deltaY (notches)
     public event Action<string>? TextEntered;
-    public event Action<EditKey>? EditKeyPressed;
+    public event Action<EditKey, KeyMods>? EditKeyPressed;  // key + Shift/Ctrl modifiers
+    public event Action<char, KeyMods>? Shortcut;           // Ctrl/Cmd + letter (a/c/x/v …)
+
+    /// <summary>OS clipboard text, for copy/cut/paste (Silk keyboard, no P/Invoke).</summary>
+    public string? ClipboardText
+    {
+        get => _input?.Keyboards is { Count: > 0 } ks ? ks[0].ClipboardText : null;
+        set { if (value is not null && _input is not null) foreach (var kb in _input.Keyboards) kb.ClipboardText = value; }
+    }
+
+    // Click-count tracking (Silk MouseDown carries no count, unlike SDL): rapid clicks near
+    // the same point escalate 1→2→3 for word/line selection.
+    private readonly Stopwatch _clickClock = Stopwatch.StartNew();
+    private double _lastClickMs; private float _lastClickX, _lastClickY; private int _clickCount;
 
     /// <summary>
     /// Optional per-frame predicate to request window close (used by the headless
@@ -87,17 +102,27 @@ public sealed class SkiaWindow : IDisposable
         _input = _window.CreateInput();
         foreach (var mouse in _input.Mice)
         {
-            mouse.MouseDown += (m, btn) => { if (btn == MouseButton.Left) PointerDown?.Invoke(m.Position.X, m.Position.Y); };
+            mouse.MouseDown += (m, btn) => { if (btn == MouseButton.Left) PointerDown?.Invoke(m.Position.X, m.Position.Y, NextClickCount(m.Position.X, m.Position.Y)); };
             mouse.MouseUp += (m, btn) => { if (btn == MouseButton.Left) PointerUp?.Invoke(m.Position.X, m.Position.Y); };
             mouse.MouseMove += (m, pos) => PointerMove?.Invoke(pos.X, pos.Y);
             mouse.Scroll += (m, wheel) => PointerWheel?.Invoke(m.Position.X, m.Position.Y, wheel.Y);
         }
         foreach (var kb in _input.Keyboards)
         {
-            kb.KeyChar += (_, ch) => TextEntered?.Invoke(ch.ToString());
+            // Skip control chars (Ctrl+letter): those are shortcuts, handled in KeyDown below.
+            kb.KeyChar += (k, ch) => { if (!Ctrl(k) && !char.IsControl(ch)) TextEntered?.Invoke(ch.ToString()); };
             kb.KeyDown += (k, key, _) =>
             {
                 var shift = k.IsKeyPressed(Key.ShiftLeft) || k.IsKeyPressed(Key.ShiftRight);
+                var mods = (shift ? KeyMods.Shift : 0) | (Ctrl(k) ? KeyMods.Ctrl : 0);
+                if (Ctrl(k))
+                    switch (key)
+                    {
+                        case Key.A: Shortcut?.Invoke('a', mods); return;
+                        case Key.C: Shortcut?.Invoke('c', mods); return;
+                        case Key.X: Shortcut?.Invoke('x', mods); return;
+                        case Key.V: Shortcut?.Invoke('v', mods); return;
+                    }
                 var ek = key switch
                 {
                     Key.Backspace => EditKey.Backspace,
@@ -113,9 +138,22 @@ public sealed class SkiaWindow : IDisposable
                     Key.Escape => EditKey.Escape,
                     _ => EditKey.None,
                 };
-                if (ek != EditKey.None) EditKeyPressed?.Invoke(ek);
+                if (ek != EditKey.None) EditKeyPressed?.Invoke(ek, mods);
             };
         }
+    }
+
+    private static bool Ctrl(IKeyboard k) =>
+        k.IsKeyPressed(Key.ControlLeft) || k.IsKeyPressed(Key.ControlRight) ||
+        k.IsKeyPressed(Key.SuperLeft) || k.IsKeyPressed(Key.SuperRight); // Cmd on macOS
+
+    private int NextClickCount(float x, float y)
+    {
+        var now = _clickClock.Elapsed.TotalMilliseconds;
+        _clickCount = (now - _lastClickMs <= 400 && Math.Abs(x - _lastClickX) < 5 && Math.Abs(y - _lastClickY) < 5)
+            ? _clickCount + 1 : 1;
+        _lastClickMs = now; _lastClickX = x; _lastClickY = y;
+        return _clickCount;
     }
 
     private void OnFramebufferResize(Vector2D<int> size)

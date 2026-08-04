@@ -46,6 +46,8 @@ public sealed partial class CupriDocument : IDisposable
     private double? _focusMin, _focusMax; // numeric field bounds (for validation/clamping)
     private string? _editBuffer; // raw text being edited (permissive); validated/committed on blur
     private int _caret;
+    private int _selAnchor;      // selection anchor; selection is [min(anchor,caret), max]. anchor==caret ⇒ none.
+    private bool _textDrag;      // a mouse drag is extending the text selection
     private int _kbIndex = -1;      // keyboard focus: index into the focusable list (-1 = none)
     private bool _focusVisible;     // show the focus ring? true after Tab, false after a mouse click
     private bool _dragging;
@@ -216,6 +218,7 @@ public sealed partial class CupriDocument : IDisposable
         }
         _layout.Layout(_root, width, height);
         var list = _painter.Build(_root);
+        AppendSelection(list);
         AppendCaret(list);
         AppendFocusRing(list);
         _rasterizer.Paint(canvas, list);
@@ -252,6 +255,76 @@ public sealed partial class CupriDocument : IDisposable
         var cx = box.X + anchor.ContentLeftInset + _fonts.MeasureText(anchor.Style, col);
         var cy = box.Y + anchor.ContentTopInset + lineIndex * lh + (lh - ch) / 2f;
         list.Add(new FillRect(cx, cy, 2f, ch, 0f, anchor.Style.Color));
+    }
+
+    // Draw the text selection highlight (behind the text) for the focused field.
+    private void AppendSelection(DisplayList list)
+    {
+        if (_focusKey is null || _selAnchor == _caret) return;
+        var field = FindFocused(_root);
+        if (field is null) return;
+        var anchor = FindCaretAnchor(field) ?? field;
+        var value = _editBuffer ?? BindingEngine.Resolve(_model, _focusKey)?.ToString() ?? "";
+        int s = Math.Clamp(Math.Min(_selAnchor, _caret), 0, value.Length);
+        int e = Math.Clamp(Math.Max(_selAnchor, _caret), 0, value.Length);
+        if (s == e) return;
+
+        var box = HitTesting.AbsoluteBox(anchor);
+        var lh = FontService.LineHeightPx(anchor.Style);
+        var ch = anchor.Style.FontSize * 1.1f;
+        var left0 = box.X + anchor.ContentLeftInset;
+        var top0 = box.Y + anchor.ContentTopInset;
+        var sel = new SKColor(0x2F, 0x6F, 0xED, 0x40); // translucent selection blue
+
+        if (field.Element?.HasAttribute("data-multiline") != true)
+        {
+            var x1 = left0 + _fonts.MeasureText(anchor.Style, value[..s]);
+            var x2 = left0 + _fonts.MeasureText(anchor.Style, value[..e]);
+            list.Add(new FillRect(x1, top0 + (lh - ch) / 2f, x2 - x1, ch, 0f, sel));
+            return;
+        }
+        // Per-line highlight for a textarea (a selected newline shows a small trailing sliver).
+        int lineStart = 0, lineIdx = 0;
+        foreach (var line in value.Split('\n'))
+        {
+            int lineEnd = lineStart + line.Length;
+            if (e > lineStart && s <= lineEnd)
+            {
+                int ca = Math.Clamp(s - lineStart, 0, line.Length);
+                int cb = Math.Clamp(e - lineStart, 0, line.Length);
+                var x1 = left0 + _fonts.MeasureText(anchor.Style, line[..ca]);
+                var x2 = left0 + _fonts.MeasureText(anchor.Style, line[..cb]);
+                var w = (x2 - x1) + (e > lineEnd ? 6f : 0f); // selected trailing newline → sliver
+                if (w > 0) list.Add(new FillRect(x1, top0 + lineIdx * lh + (lh - ch) / 2f, w, ch, 0f, sel));
+            }
+            lineStart = lineEnd + 1;
+            lineIdx++;
+        }
+    }
+
+    // The caret index in the focused field's buffer nearest the point (x,y) — click-to-place-caret.
+    private int CaretFromPoint(RenderNode field, RenderNode anchorNode, float x, float y)
+    {
+        var value = _editBuffer ?? "";
+        if (value.Length == 0) return 0;
+        var box = HitTesting.AbsoluteBox(anchorNode);
+        var lh = FontService.LineHeightPx(anchorNode.Style);
+        var localX = x - (box.X + anchorNode.ContentLeftInset);
+        var localY = y - (box.Y + anchorNode.ContentTopInset);
+        var multiline = field.Element?.HasAttribute("data-multiline") == true;
+        var lines = multiline ? value.Split('\n') : new[] { value };
+        var lineIdx = multiline ? Math.Clamp((int)MathF.Floor(localY / lh), 0, lines.Length - 1) : 0;
+        var lineStart = 0;
+        for (var i = 0; i < lineIdx; i++) lineStart += lines[i].Length + 1;
+        var lineText = lines[lineIdx];
+        var bestCol = 0;
+        var bestDist = MathF.Abs(localX);
+        for (var i = 1; i <= lineText.Length; i++)
+        {
+            var d = MathF.Abs(localX - _fonts.MeasureText(anchorNode.Style, lineText[..i]));
+            if (d < bestDist) { bestDist = d; bestCol = i; }
+        }
+        return lineStart + bestCol;
     }
 
     // Draw a keyboard focus ring around the focused control (only after Tab — "focus-visible").
@@ -316,12 +389,13 @@ public sealed partial class CupriDocument : IDisposable
     /// toggle, slider set) and user handlers along the bubble path, write back to the
     /// bound model, and refresh. Returns true if anything handled it (→ needs repaint).
     /// </summary>
-    public bool DispatchClick(float x, float y)
+    public bool DispatchClick(float x, float y, int clickCount = 1)
     {
+        _textDrag = false;
         var hit = HitTesting.HitTest(_root, x, y);
         if (hit is null) { _kbIndex = -1; return UpdateFocus(null); } // click on empty space blurs
 
-        // Focus: a click inside a text/number field focuses it (caret at end); elsewhere blurs.
+        // Focus: a click inside a text/number field focuses it; elsewhere blurs.
         RenderNode? field = hit;
         while (field is not null && field.Element?.GetAttribute("role") is not ("textbox" or "spinbutton")) field = field.Parent;
         var focusChanged = UpdateFocus(field?.Element);
@@ -331,7 +405,23 @@ public sealed partial class CupriDocument : IDisposable
         _kbIndex = IndexOfFocusable(hit);
         _focusVisible = false;
 
+        // Built-in behaviour first (steppers, toggles, buttons, user handlers).
         var handled = ActivateFrom(hit, x, y);
+
+        // If the click landed in a focused text field and nothing else consumed it, position the
+        // caret / select a word (double-click) or line (triple-click), and arm a drag-select.
+        if (!handled && field is not null && _focusKey is not null)
+        {
+            var pos = CaretFromPoint(field, FindCaretAnchor(field) ?? field, x, y);
+            var buf = _editBuffer ?? "";
+            if (clickCount >= 3) { var (a, b) = LineAt(buf, pos); _selAnchor = a; _caret = b; }
+            else if (clickCount == 2) { var (a, b) = WordAt(buf, pos); _selAnchor = a; _caret = b; }
+            else { _caret = pos; _selAnchor = pos; _textDrag = true; }
+            if (focusChanged) Refresh(); // new field → rebuild; caret/selection alone just repaints
+            ReconcileScope();
+            return true;
+        }
+
         if (handled || focusChanged) Refresh();
         ReconcileScope(); // a click may have opened/closed an overlay → update the focus scope
         return handled || focusChanged;
@@ -561,6 +651,7 @@ public sealed partial class CupriDocument : IDisposable
         _focusMax = double.TryParse(field?.GetAttribute("data-max"), out var mx) ? mx : null;
         _editBuffer = key is null ? null : BindingEngine.Resolve(_model, key)?.ToString() ?? "";
         _caret = _editBuffer?.Length ?? 0;
+        _selAnchor = _caret;
         return true;
     }
 
@@ -568,7 +659,7 @@ public sealed partial class CupriDocument : IDisposable
     /// Feed a keystroke to the focused text field: printable text via <paramref name="text"/>,
     /// or an editing key (backspace/arrows/…). Edits the bound string and refreshes.
     /// </summary>
-    public bool DispatchKey(string? text, EditKey key)
+    public bool DispatchKey(string? text, EditKey key, KeyMods mods = KeyMods.None)
     {
         ReconcileScope(); // reflect any overlay that opened/closed since the last event
 
@@ -598,34 +689,139 @@ public sealed partial class CupriDocument : IDisposable
         // border and is validated/clamped on blur — never block the user mid-edit.
         var value = _editBuffer ?? BindingEngine.Resolve(_model, _focusKey)?.ToString() ?? "";
         var caret = Math.Clamp(_caret, 0, value.Length);
+        var anchor = Math.Clamp(_selAnchor, 0, value.Length);
+        var shift = mods.HasFlag(KeyMods.Shift);
+        var ctrl = mods.HasFlag(KeyMods.Ctrl);
+        int selS = Math.Min(anchor, caret), selE = Math.Max(anchor, caret);
+        var hasSel = selS != selE;
         var edited = false;
 
         switch (key)
         {
-            case EditKey.Backspace: if (caret > 0) { value = value.Remove(caret - 1, 1); caret--; edited = true; } break;
-            case EditKey.Delete: if (caret < value.Length) { value = value.Remove(caret, 1); edited = true; } break;
-            case EditKey.Left: caret = Math.Max(0, caret - 1); break;
-            case EditKey.Right: caret = Math.Min(value.Length, caret + 1); break;
-            case EditKey.Home: caret = 0; break;
-            case EditKey.End: caret = value.Length; break;
+            case EditKey.SelectAll: anchor = 0; caret = value.Length; break;
+
+            case EditKey.Left:
+                if (!shift && hasSel) caret = selS;                                        // collapse to left edge
+                else caret = ctrl ? WordLeft(value, caret) : Math.Max(0, caret - 1);
+                if (!shift) anchor = caret;
+                break;
+            case EditKey.Right:
+                if (!shift && hasSel) caret = selE;
+                else caret = ctrl ? WordRight(value, caret) : Math.Min(value.Length, caret + 1);
+                if (!shift) anchor = caret;
+                break;
+            case EditKey.Home: caret = 0; if (!shift) anchor = caret; break;
+            case EditKey.End: caret = value.Length; if (!shift) anchor = caret; break;
+
+            case EditKey.Backspace:
+                if (hasSel) { value = value.Remove(selS, selE - selS); caret = selS; edited = true; }
+                else if (ctrl && caret > 0) { var w = WordLeft(value, caret); value = value.Remove(w, caret - w); caret = w; edited = true; }
+                else if (caret > 0) { value = value.Remove(caret - 1, 1); caret--; edited = true; }
+                anchor = caret;
+                break;
+            case EditKey.Delete:
+                if (hasSel) { value = value.Remove(selS, selE - selS); caret = selS; edited = true; }
+                else if (ctrl && caret < value.Length) { var w = WordRight(value, caret); value = value.Remove(caret, w - caret); edited = true; }
+                else if (caret < value.Length) { value = value.Remove(caret, 1); edited = true; }
+                anchor = caret;
+                break;
+
             case EditKey.Enter:
-                if (_focusMultiline) { value = value.Insert(caret, "\n"); caret++; edited = true; break; } // newline
+                if (_focusMultiline)
+                {
+                    if (hasSel) { value = value.Remove(selS, selE - selS); caret = selS; }
+                    value = value.Insert(caret, "\n"); caret++; anchor = caret; edited = true; break;
+                }
                 CommitBuffer(); _focusKey = null; Refresh(); return true; // validate + commit + blur
+
             default:
-                if (!string.IsNullOrEmpty(text)) { value = value.Insert(caret, text); caret += text.Length; edited = true; }
+                if (!string.IsNullOrEmpty(text))
+                {
+                    if (hasSel) { value = value.Remove(selS, selE - selS); caret = selS; }
+                    value = value.Insert(caret, text); caret += text.Length; anchor = caret; edited = true;
+                }
                 break;
         }
 
         _caret = caret;
+        _selAnchor = anchor;
         if (edited)
         {
             _editBuffer = value;
             // Live-commit only when the buffer is currently valid, so other bindings track it;
             // invalid text stays in the buffer (red border) and the model keeps its last good value.
             if (BufferValid(value)) BindingEngine.TrySet(_model, _focusKey, value);
+            Refresh(); // buffer changed → rebuild so the field re-renders the new text
         }
-        Refresh();
+        // A caret/selection-only change needs just a repaint (the caret + selection are drawn from
+        // _caret/_selAnchor at render time), so we skip the rebuild — the host repaints on `true`.
         return true;
+    }
+
+    // ---- text: clipboard + word/line boundaries (host provides the actual clipboard I/O) ----
+
+    /// <summary>The currently selected text in the focused field, or null if nothing is selected.</summary>
+    public string? CopySelection()
+    {
+        if (_focusKey is null || _editBuffer is null || _selAnchor == _caret) return null;
+        int s = Math.Clamp(Math.Min(_selAnchor, _caret), 0, _editBuffer.Length);
+        int e = Math.Clamp(Math.Max(_selAnchor, _caret), 0, _editBuffer.Length);
+        return e > s ? _editBuffer[s..e] : null;
+    }
+
+    /// <summary>Copy the selection and delete it (cut). Returns the cut text, or null.</summary>
+    public string? CutSelection()
+    {
+        var t = CopySelection();
+        if (t is not null) DispatchKey(null, EditKey.Delete);
+        return t;
+    }
+
+    private static bool IsWordChar(char c) => char.IsLetterOrDigit(c) || c == '_';
+
+    private static int WordLeft(string s, int i)
+    {
+        i = Math.Clamp(i, 0, s.Length);
+        while (i > 0 && !IsWordChar(s[i - 1])) i--;
+        while (i > 0 && IsWordChar(s[i - 1])) i--;
+        return i;
+    }
+
+    private static int WordRight(string s, int i)
+    {
+        i = Math.Clamp(i, 0, s.Length);
+        while (i < s.Length && !IsWordChar(s[i])) i++;
+        while (i < s.Length && IsWordChar(s[i])) i++;
+        return i;
+    }
+
+    // The word (or whitespace/punctuation run) around index i — for double-click selection.
+    private static (int, int) WordAt(string s, int i)
+    {
+        if (s.Length == 0) return (0, 0);
+        i = Math.Clamp(i, 0, s.Length);
+        int a = i, b = i;
+        if ((i < s.Length && IsWordChar(s[i])) || (i > 0 && IsWordChar(s[i - 1])))
+        {
+            while (a > 0 && IsWordChar(s[a - 1])) a--;
+            while (b < s.Length && IsWordChar(s[b])) b++;
+        }
+        else
+        {
+            while (a > 0 && !IsWordChar(s[a - 1]) && s[a - 1] != '\n') a--;
+            while (b < s.Length && !IsWordChar(s[b]) && s[b] != '\n') b++;
+        }
+        return (a, b);
+    }
+
+    // The whole line around index i (between newlines) — for triple-click selection.
+    private static (int, int) LineAt(string s, int i)
+    {
+        i = Math.Clamp(i, 0, s.Length);
+        int a = i, b = i;
+        while (a > 0 && s[a - 1] != '\n') a--;
+        while (b < s.Length && s[b] != '\n') b++;
+        return (a, b);
     }
 
     private bool ToggleSwitch(IElement el)
@@ -749,11 +945,17 @@ public sealed partial class CupriDocument : IDisposable
             Refresh();
             return true;
         }
+        // Drag-select text: extend the selection caret to the pointer (anchor stays put).
+        if (_textDrag && _focusKey is not null && FindFocused(_root) is { } field)
+        {
+            _caret = CaretFromPoint(field, FindCaretAnchor(field) ?? field, x, y);
+            return true; // caret/selection only → repaint, no rebuild
+        }
         return UpdateHover(x, y);
     }
 
-    /// <summary>Pointer up: end any slider drag.</summary>
-    public void DispatchPointerUp(float x, float y) => _dragging = false;
+    /// <summary>Pointer up: end any slider drag or text drag-select.</summary>
+    public void DispatchPointerUp(float x, float y) { _dragging = false; _textDrag = false; }
 
     /// <summary>Scroll wheel: scroll the nearest scrollable element under the pointer by pixels.</summary>
     public bool DispatchWheel(float x, float y, float pixelDelta)

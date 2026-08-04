@@ -33,13 +33,21 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     private EventFilter? _resizeWatch; // kept alive: fires during the OS modal resize loop
 
     public event Action<RenderContext>? Render;
-    public event Action<float, float>? PointerDown;
+    public event Action<float, float, int>? PointerDown;    // x, y, click count (1/2/3)
     public event Action<float, float>? PointerMove;
     public event Action<float, float>? PointerUp;
     public event Action<float, float, float>? PointerWheel; // x, y, deltaY (notches)
     public event Action<string>? TextEntered;               // printable text (IME-aware)
-    public event Action<EditKey>? EditKeyPressed;           // backspace/arrows/…
+    public event Action<EditKey, KeyMods>? EditKeyPressed;  // key + Shift/Ctrl modifiers
+    public event Action<char, KeyMods>? Shortcut;           // Ctrl/Cmd + letter (a/c/x/v …)
     public FrameStats Stats => _stats;
+
+    /// <summary>OS clipboard text, for copy/cut/paste (SDL, via managed Silk bindings).</summary>
+    public string? ClipboardText
+    {
+        get => _sdl.GetClipboardTextS();
+        set { if (value is not null) _sdl.SetClipboardText(value); }
+    }
 
     private float _lastX, _lastY; // wheel events carry no position — use the last move
 
@@ -82,7 +90,7 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                         running = false;
                         break;
                     case EventType.Mousebuttondown:
-                        PointerDown?.Invoke(e.Button.X, e.Button.Y);
+                        PointerDown?.Invoke(e.Button.X, e.Button.Y, e.Button.Clicks); // SDL tracks click count
                         break;
                     case EventType.Mousebuttonup:
                         PointerUp?.Invoke(e.Button.X, e.Button.Y);
@@ -102,7 +110,18 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                     }
                     case EventType.Keydown:
                     {
-                        var shift = (e.Key.Keysym.Mod & (ushort)Keymod.Shift) != 0;
+                        var mod = e.Key.Keysym.Mod;
+                        var shift = (mod & (ushort)Keymod.Shift) != 0;
+                        var ctrl = (mod & ((ushort)Keymod.Ctrl | (ushort)Keymod.Gui)) != 0; // Gui = Cmd (macOS)
+                        var mods = (shift ? KeyMods.Shift : 0) | (ctrl ? KeyMods.Ctrl : 0);
+                        if (ctrl)
+                            switch (e.Key.Keysym.Scancode)
+                            {
+                                case Scancode.ScancodeA: Shortcut?.Invoke('a', mods); continue;
+                                case Scancode.ScancodeC: Shortcut?.Invoke('c', mods); continue;
+                                case Scancode.ScancodeX: Shortcut?.Invoke('x', mods); continue;
+                                case Scancode.ScancodeV: Shortcut?.Invoke('v', mods); continue;
+                            }
                         var ek = e.Key.Keysym.Scancode switch
                         {
                             Scancode.ScancodeBackspace => EditKey.Backspace,
@@ -118,7 +137,7 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                             Scancode.ScancodeEscape => EditKey.Escape,
                             _ => EditKey.None,
                         };
-                        if (ek != EditKey.None) EditKeyPressed?.Invoke(ek);
+                        if (ek != EditKey.None) EditKeyPressed?.Invoke(ek, mods);
                         break;
                     }
                     case EventType.Windowevent when (WindowEventID)e.Window.Event == WindowEventID.SizeChanged:

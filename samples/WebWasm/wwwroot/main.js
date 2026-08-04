@@ -69,18 +69,29 @@ try {
 
     // JS → C#: pointer + wheel (same hit-test/dispatch as desktop). Registered now; they only
     // fire after the runtime is running, below.
-    canvas.addEventListener('pointerdown', e => { canvas.focus(); const [x, y] = at(e); I.PointerDown(x, y); });
+    // e.detail carries the click count (1/2/3 = single/double/triple) for word/line selection.
+    canvas.addEventListener('pointerdown', e => { canvas.focus(); const [x, y] = at(e); I.PointerDown(x, y, e.detail || 1); });
     canvas.addEventListener('pointermove', e => { const [x, y] = at(e); I.PointerMove(x, y); });
     canvas.addEventListener('pointerup',   e => { const [x, y] = at(e); I.PointerUp(x, y); });
     canvas.addEventListener('wheel', e => { const [x, y] = at(e); I.Wheel(x, y, e.deltaY); e.preventDefault(); }, { passive: false });
 
-    // Keyboard: named keys → EditKey codes (must match CupriFace.Interaction.EditKey); printable
-    // characters → KeyChar. Tab/arrows/Escape are prevented so they drive the app, not the browser.
+    // Keyboard: named keys → EditKey codes (must match CupriFace.Interaction.EditKey), with
+    // Shift/Ctrl modifiers (KeyMods: Shift=1, Ctrl=2) for selection + word movement; printable
+    // characters → KeyChar. Ctrl+A/C/X/V are text shortcuts (clipboard I/O lives here in JS).
     const EK = { Backspace: 1, Delete: 2, ArrowLeft: 3, ArrowRight: 4, Home: 5, End: 6, Enter: 7, ArrowUp: 8, ArrowDown: 9, Escape: 13 };
     canvas.addEventListener('keydown', e => {
-        if (e.key === 'Tab') { I.EditKeyPress(e.shiftKey ? 11 : 10); e.preventDefault(); return; }
-        if (e.key in EK) { I.EditKeyPress(EK[e.key]); e.preventDefault(); return; }
-        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) { I.KeyChar(e.key); e.preventDefault(); }
+        const ctrl = e.ctrlKey || e.metaKey;                 // Cmd on macOS
+        const mods = (e.shiftKey ? 1 : 0) | (ctrl ? 2 : 0);
+        if (ctrl) {
+            const k = e.key.toLowerCase();
+            if (k === 'a') { I.EditKeyPress(14, 0); e.preventDefault(); return; }                                    // select all
+            if (k === 'c') { const t = I.CopySelection(); if (t) navigator.clipboard.writeText(t).catch(() => {}); e.preventDefault(); return; }
+            if (k === 'x') { const t = I.CutSelection(); if (t) navigator.clipboard.writeText(t).catch(() => {}); e.preventDefault(); return; }
+            if (k === 'v') { navigator.clipboard.readText().then(t => { if (t) I.KeyChar(t); }).catch(() => {}); e.preventDefault(); return; }
+        }
+        if (e.key === 'Tab') { I.EditKeyPress(e.shiftKey ? 11 : 10, 0); e.preventDefault(); return; }
+        if (e.key in EK) { I.EditKeyPress(EK[e.key], mods); e.preventDefault(); return; }
+        if (e.key.length === 1 && !ctrl) { I.KeyChar(e.key); e.preventDefault(); }
     });
 
     // Start the runtime with runMain (runs Main and STAYS RESIDENT — unlike dotnet.run(),
