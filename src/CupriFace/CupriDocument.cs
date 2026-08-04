@@ -241,19 +241,24 @@ public sealed partial class CupriDocument : IDisposable
         var lh = FontService.LineHeightPx(anchor.Style);
         var ch = anchor.Style.FontSize * 1.1f;
 
-        // Multi-line (textarea): the caret's line is the count of newlines before it, and its
-        // column is the text since the last newline. Single-line fields have one line at index 0.
-        var upto = value[..caret];
-        var lineIndex = 0;
-        var col = upto;
+        // Place the caret at its real painted position. Multi-line (textarea) uses wrap-aware
+        // visual rows; a single-line field is one row of text at the anchor's content origin.
+        float cx, cy;
         if (field.Element?.HasAttribute("data-multiline") == true)
         {
-            var nl = upto.LastIndexOf('\n');
-            lineIndex = upto.Count(c => c == '\n');
-            col = nl >= 0 ? upto[(nl + 1)..] : upto;
+            var rows = BuildTextRows(anchor, value);
+            var target = rows[^1];
+            foreach (var row in rows)
+                if (caret >= row.Start && caret <= row.Start + row.Text.Length) target = row;
+            var col = Math.Clamp(caret - target.Start, 0, target.Text.Length);
+            cx = target.X + _fonts.MeasureText(anchor.Style, target.Text[..col]);
+            cy = target.Y + (target.Height - ch) / 2f;
         }
-        var cx = box.X + anchor.ContentLeftInset + _fonts.MeasureText(anchor.Style, col);
-        var cy = box.Y + anchor.ContentTopInset + lineIndex * lh + (lh - ch) / 2f;
+        else
+        {
+            cx = box.X + anchor.ContentLeftInset + _fonts.MeasureText(anchor.Style, value[..caret]);
+            cy = box.Y + anchor.ContentTopInset + (lh - ch) / 2f;
+        }
         list.Add(new FillRect(cx, cy, 2f, ch, 0f, anchor.Style.Color));
     }
 
@@ -283,23 +288,66 @@ public sealed partial class CupriDocument : IDisposable
             list.Add(new FillRect(x1, top0 + (lh - ch) / 2f, x2 - x1, ch, 0f, sel));
             return;
         }
-        // Per-line highlight for a textarea (a selected newline shows a small trailing sliver).
-        int lineStart = 0, lineIdx = 0;
-        foreach (var line in value.Split('\n'))
+        // Per visual row (wrap-aware) highlight for a textarea. A selected newline at a logical
+        // line's end shows a small trailing sliver.
+        foreach (var row in BuildTextRows(anchor, value))
         {
-            int lineEnd = lineStart + line.Length;
-            if (e > lineStart && s <= lineEnd)
-            {
-                int ca = Math.Clamp(s - lineStart, 0, line.Length);
-                int cb = Math.Clamp(e - lineStart, 0, line.Length);
-                var x1 = left0 + _fonts.MeasureText(anchor.Style, line[..ca]);
-                var x2 = left0 + _fonts.MeasureText(anchor.Style, line[..cb]);
-                var w = (x2 - x1) + (e > lineEnd ? 6f : 0f); // selected trailing newline → sliver
-                if (w > 0) list.Add(new FillRect(x1, top0 + lineIdx * lh + (lh - ch) / 2f, w, ch, 0f, sel));
-            }
-            lineStart = lineEnd + 1;
-            lineIdx++;
+            int re = row.Start + row.Text.Length;
+            if (e <= row.Start || s > re) continue;
+            int ca = Math.Clamp(s - row.Start, 0, row.Text.Length);
+            int cb = Math.Clamp(e - row.Start, 0, row.Text.Length);
+            var x1 = row.X + _fonts.MeasureText(anchor.Style, row.Text[..ca]);
+            var x2 = row.X + _fonts.MeasureText(anchor.Style, row.Text[..cb]);
+            var w = (x2 - x1) + (row.NewlineAfter && e > re ? 6f : 0f); // selected trailing newline → sliver
+            if (w > 0) list.Add(new FillRect(x1, row.Y + (row.Height - ch) / 2f, w, ch, 0f, sel));
         }
+    }
+
+    /// <summary>A visual (post-wrap) row of a field's text: its buffer start offset, text, and the
+    /// absolute top-left it is PAINTED at (matching the painter's <c>AbsoluteBox(textNode)+line.X/Y</c>),
+    /// so caret/selection/hit-testing line up with wrapped text instead of a synthetic line grid.</summary>
+    private readonly record struct TextRow(int Start, string Text, float X, float Y, float Height, bool NewlineAfter);
+
+    private static List<TextRow> BuildTextRows(RenderNode anchor, string value)
+    {
+        var rows = new List<TextRow>();
+        var logical = value.Split('\n');
+        // The textarea renders one <div class="cupri-ta-line"> per logical line, in order.
+        var lineDivs = anchor.Children.Where(c => c.Element is not null).ToList();
+        var lh = FontService.LineHeightPx(anchor.Style);
+        var offset = 0;
+        for (var i = 0; i < logical.Length; i++)
+        {
+            var lineText = logical[i];
+            var newlineAfter = i < logical.Length - 1;
+            var div = i < lineDivs.Count ? lineDivs[i] : null;
+            var textNode = div?.Children.FirstOrDefault(c => c.IsText);
+
+            if (lineText.Length > 0 && textNode?.Lines is { Count: > 0 } lines)
+            {
+                var (tx, ty, _, _) = HitTesting.AbsoluteBox(textNode);
+                var cursor = 0;
+                for (var r = 0; r < lines.Count; r++)
+                {
+                    var rt = lines[r].Text;
+                    // Where this visual row sits in the logical line (skips whitespace consumed at wraps).
+                    var col = lineText.IndexOf(rt, Math.Min(cursor, lineText.Length), StringComparison.Ordinal);
+                    if (col < 0) col = Math.Min(cursor, lineText.Length);
+                    var last = r == lines.Count - 1;
+                    rows.Add(new TextRow(offset + col, rt, tx + lines[r].X, ty + lines[r].Y, lines[r].Height, last && newlineAfter));
+                    cursor = col + rt.Length;
+                }
+            }
+            else
+            {
+                // Empty logical line (or no laid-out text): a zero-width row at the line box.
+                var (dx, dy, _, _) = div is not null ? HitTesting.AbsoluteBox(div) : HitTesting.AbsoluteBox(anchor);
+                rows.Add(new TextRow(offset, "",
+                    dx + (div?.ContentLeftInset ?? 0f), dy + (div?.ContentTopInset ?? 0f), lh, newlineAfter));
+            }
+            offset += lineText.Length + 1;
+        }
+        return rows;
     }
 
     // The caret index in the focused field's buffer nearest the point (x,y) — click-to-place-caret.
@@ -307,24 +355,36 @@ public sealed partial class CupriDocument : IDisposable
     {
         var value = _editBuffer ?? "";
         if (value.Length == 0) return 0;
+
+        // Multi-line: pick the visual (wrap-aware) row nearest y, then the nearest column in it.
+        if (field.Element?.HasAttribute("data-multiline") == true)
+        {
+            var rows = BuildTextRows(anchorNode, value);
+            var row = rows[0];
+            var bestDy = float.MaxValue;
+            foreach (var r in rows)
+            {
+                var dy = y < r.Y ? r.Y - y : y > r.Y + r.Height ? y - (r.Y + r.Height) : 0f;
+                if (dy < bestDy) { bestDy = dy; row = r; }
+            }
+            return row.Start + NearestColumn(anchorNode.Style, row.Text, x - row.X);
+        }
+
         var box = HitTesting.AbsoluteBox(anchorNode);
-        var lh = FontService.LineHeightPx(anchorNode.Style);
-        var localX = x - (box.X + anchorNode.ContentLeftInset);
-        var localY = y - (box.Y + anchorNode.ContentTopInset);
-        var multiline = field.Element?.HasAttribute("data-multiline") == true;
-        var lines = multiline ? value.Split('\n') : new[] { value };
-        var lineIdx = multiline ? Math.Clamp((int)MathF.Floor(localY / lh), 0, lines.Length - 1) : 0;
-        var lineStart = 0;
-        for (var i = 0; i < lineIdx; i++) lineStart += lines[i].Length + 1;
-        var lineText = lines[lineIdx];
+        return NearestColumn(anchorNode.Style, value, x - (box.X + anchorNode.ContentLeftInset));
+    }
+
+    // The column in <paramref name="text"/> whose x-offset is nearest <paramref name="localX"/>.
+    private int NearestColumn(ComputedStyle style, string text, float localX)
+    {
         var bestCol = 0;
         var bestDist = MathF.Abs(localX);
-        for (var i = 1; i <= lineText.Length; i++)
+        for (var i = 1; i <= text.Length; i++)
         {
-            var d = MathF.Abs(localX - _fonts.MeasureText(anchorNode.Style, lineText[..i]));
+            var d = MathF.Abs(localX - _fonts.MeasureText(style, text[..i]));
             if (d < bestDist) { bestDist = d; bestCol = i; }
         }
-        return lineStart + bestCol;
+        return bestCol;
     }
 
     // Draw a keyboard focus ring around the focused control (only after Tab — "focus-visible").
