@@ -61,4 +61,20 @@ public class DatePickerTests
         Assert.True(m.Open);
         Assert.True(TitleHas(t, "August 2026"));
     }
+
+    [Fact]
+    public void Popup_height_is_constant_across_months_of_different_row_counts()
+    {
+        // Feb 2026 spans 5 week-rows; Aug 2026 spans 6. Padding to a fixed six rows keeps the popup
+        // the same height so viewport-edge flipping doesn't jump around while paging months.
+        float HeightFor(string date)
+        {
+            using var t = new TestDoc(Html, "", new Model { Date = date, Open = true }, components: true, width: 360, height: 420);
+            var grid = t.Find(n => n.Element?.ClassList.Contains("cupri-dp-grid") == true)!;
+            Assert.Equal(49, grid.Children.Count);              // 7 weekday headers + 6*7 fixed day cells
+            return Popup(t)!.Height;
+        }
+
+        Assert.Equal(HeightFor("2026-02-15"), HeightFor("2026-08-15"), 0.5); // 5-row vs 6-row → same height
+    }
 }

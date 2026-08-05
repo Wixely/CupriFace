@@ -31,7 +31,10 @@ public sealed class DatePickerComponent : ComponentBase
         .cupri-dp-nav[data-hover] { background:var(--cupri-hover, #eef1f5); }
         .cupri-dp-grid { display:grid; grid-template-columns: repeat(7, 1fr); gap:2px; }
         .cupri-dp-dow { text-align:center; font-size:11px; color:#98a2b3; padding:4px 0; }
-        .cupri-dp-day { text-align:center; font-size:13px; padding:7px 0; border-radius:6px; color:var(--cupri-text, #1e2430); }
+        /* Fixed cell height so every week-row is equal even when a row is all padding — keeps the
+           popup a constant height across months (no edge-flip jitter while paging). */
+        .cupri-dp-day, .cupri-dp-pad { text-align:center; font-size:13px; height:16px; padding:7px 0; }
+        .cupri-dp-day { border-radius:6px; color:var(--cupri-text, #1e2430); }
         .cupri-dp-day[data-hover] { background:var(--cupri-hover, #eef1f5); }
         .cupri-dp-day.selected { background:#B87333; color:white; font-weight:bold; }
         """;
@@ -72,7 +75,7 @@ public sealed class DatePickerComponent : ComponentBase
 
             body.Append("<div class='cupri-dp-grid'>");
             foreach (var w in Dow) body.Append($"<div class='cupri-dp-dow'>{w}</div>");
-            for (var i = 0; i < startDow; i++) body.Append("<div></div>"); // leading blanks
+            for (var i = 0; i < startDow; i++) body.Append("<div class='cupri-dp-pad'></div>"); // leading blanks
             for (var day = 1; day <= daysInMonth; day++)
             {
                 var iso = new DateOnly(view.Year, view.Month, day).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
@@ -81,6 +84,10 @@ public sealed class DatePickerComponent : ComponentBase
                     .Append(path.Length > 0 ? $" data-set-path='{path}' data-set-value='{iso}'" : "")
                     .Append($">{day}</div>");
             }
+            // Always fill six week-rows (42 day cells). A month spans 4–6 rows; padding to a fixed
+            // count keeps the popup height constant so viewport-edge flipping doesn't jump around as
+            // you page months (the anchor logic measures the same height every month).
+            for (var i = startDow + daysInMonth; i < 42; i++) body.Append("<div class='cupri-dp-pad'></div>");
             body.Append("</div></div>");
         }
 
