@@ -80,7 +80,7 @@ Sustained fluidity is the core requirement (DESIGN risk #0); a demo hitting 60 f
 | CSS-controllable **icon sizing** | 🔴 | `IconMarkup` sets `width/height` inline (a deliberate per-use size); expose it as a variable/class if authors want to restyle icon size via CSS. |
 | **Images** (`<cupri-image>`) | 🟢 | **Done** — SkiaSharp decode + `DrawImage` command; `src` via `CupriSource` (embedded/file/URL) or `data:` URI; `object-fit` contain/cover/fill/none; intrinsic + aspect sizing. **Remote (`http(s)`) images now load asynchronously** on a background task (they never block the first paint; the image pops in when it arrives — `ConsumeImageArrived()` flags the repaint, de-duped per src). Local (embedded/file/`data:`) decode synchronously. URL policy is configurable via `UseImageUrlOptions`. |
 | **Video / audio** | 🔴 | Royalty-free, permissively-licensed stack (WebM + VP9/AV1 via libvpx/dav1d, shipped per-RID like Skia) → managed decode→`SKImage`. Platform-agnostic + license-clean; avoids per-OS media frameworks. |
-| Additional controls | 🔴 | Candidates: date/time picker, typeahead combobox, sortable/virtualized data table, hover-triggered tooltip (today's tooltip is `open`-driven). |
+| Additional controls | 🟡 | **Hover-triggered tooltip done** — `<cupri-tooltip>` now shows on `:hover` (bubble always in the DOM, revealed by a hover rule; `open="true"` still pins it). Remaining candidates: date/time picker, typeahead combobox, sortable/virtualized data table. |
 | Visual **debug overlay** | 🔴 | Optional dev aid: outline layout boxes / flag overflow in the live window (the agent-readable `DebugDump` already exists). |
 
 ## 8. Tooling & quality (P2)

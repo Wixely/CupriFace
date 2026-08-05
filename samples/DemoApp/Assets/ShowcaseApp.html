@@ -124,7 +124,7 @@
       <!-- OVERLAYS -->
       <div class="section" style="display:{{SecOverlays}}">
         <div class="title">Overlays</div>
-        <p class="sub">Top-layer dialog, dropdown menu, tooltip and toast.</p>
+        <p class="sub">Top-layer dialog, dropdown menu, hover tooltip and toast.</p>
         <div class="row">
           <cupri-button class="act-dialog">Open dialog</cupri-button>
           <cupri-button variant="ghost" class="act-toast">Toggle toast</cupri-button>
@@ -133,8 +133,11 @@
             <cupri-menu-item icon="edit">Rename</cupri-menu-item>
             <cupri-menu-item icon="trash">Delete</cupri-menu-item>
           </cupri-menu>
-          <cupri-tooltip text="A tooltip" open="true">
+          <cupri-tooltip text="Always shown (open)" open="true">
             <cupri-icon-button icon="info"></cupri-icon-button>
+          </cupri-tooltip>
+          <cupri-tooltip text="Shown on hover">
+            <cupri-button variant="ghost">Hover me</cupri-button>
           </cupri-tooltip>
         </div>
       </div>

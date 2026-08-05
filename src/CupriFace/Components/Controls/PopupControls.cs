@@ -54,8 +54,10 @@ public sealed class MenuItemComponent : ComponentBase
 }
 
 /// <summary>
-/// <c>&lt;cupri-tooltip text open&gt;…&lt;/cupri-tooltip&gt;</c> — wraps a trigger; shows an anchored
-/// bubble above it when open. (Hover-to-open arrives with the :hover work.)
+/// <c>&lt;cupri-tooltip text open&gt;…&lt;/cupri-tooltip&gt;</c> — wraps a trigger and shows an anchored
+/// bubble above it. Shows on <b>hover</b> by default (via <c>:hover</c>); <c>open="true"</c> pins it
+/// open regardless. The bubble is always in the DOM but hidden until revealed, so no re-expand is
+/// needed — a hover just re-resolves styles (like any other <c>:hover</c> rule).
 /// </summary>
 public sealed class TooltipComponent : ComponentBase
 {
@@ -64,7 +66,9 @@ public sealed class TooltipComponent : ComponentBase
         .cupri-tooltip { display:inline-block; }
         .cupri-tt-anchor { display:inline-block; }
         .cupri-tt-bubble { position:fixed; background:#1e2430; color:white; padding:6px 10px;
-                           border-radius:6px; font-size:12px; z-index:40; }
+                           border-radius:6px; font-size:12px; z-index:40; display:none; }
+        .cupri-tooltip:hover .cupri-tt-bubble { display:inline-block; } /* reveal on hover */
+        .cupri-tt-bubble.cupri-tt-open { display:inline-block; }        /* open="true" pins it */
         """;
 
     public override void Expand(IElement el)
@@ -75,8 +79,9 @@ public sealed class TooltipComponent : ComponentBase
         var trigger = el.InnerHtml;
 
         el.ClassList.Add("cupri-tooltip");
-        var bubble = open
-            ? $"<div class='cupri-tt-bubble' role='tooltip' data-cupri-anchor='{id}' data-cupri-placement='top'>{text}</div>"
+        var bubble = text.Length > 0
+            ? $"<div class='cupri-tt-bubble{(open ? " cupri-tt-open" : "")}' role='tooltip' " +
+              $"data-cupri-anchor='{id}' data-cupri-placement='top'>{text}</div>"
             : "";
         el.InnerHtml = $"<div class='cupri-tt-anchor' id='{id}'>{trigger}</div>" + bubble;
     }

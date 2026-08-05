@@ -426,7 +426,7 @@ trapped while open.
 | `<cupri-drawer>` | Slide‑in edge panel | `open`, `side` (`left`\|`right`) | `open` | content | `dialog` (modal) |
 | `<cupri-popover>` | Anchored panel below a trigger | `label` (“More”), `open` | `open` | panel content | panel `dialog` |
 | `<cupri-menu>` | Dropdown menu | `label` (“Menu”), `open` | `open` | `<cupri-menu-item icon="…">Label</cupri-menu-item>` | `menu`/`menuitem` |
-| `<cupri-tooltip>` | Hover/anchored bubble | `text`, `open` | `open` | trigger element(s) | bubble `tooltip` |
+| `<cupri-tooltip>` | Anchored bubble — shows on **hover** by default; `open="true"` pins it | `text`, `open` | `open` | trigger element(s) | bubble `tooltip` |
 | `<cupri-toast>` | Transient corner message | — | — | message | `status` |
 
 ```html
