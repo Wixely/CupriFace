@@ -14,6 +14,12 @@ public sealed class Painter
     private readonly ImageStore? _images;
     public Painter(ImageStore? images = null) => _images = images;
 
+    /// <summary>Dev overlay: outline every element's border box (scrollers in a second colour) on top
+    /// of the normal paint. Toggled via <c>CupriDocument.DebugOverlay</c>.</summary>
+    public bool DebugOutline;
+    private static readonly SKColor _dbgBox = new(0xE0, 0x2F, 0x8A, 0x66);    // magenta box outline
+    private static readonly SKColor _dbgScroll = new(0x2F, 0x8A, 0xE0, 0x99); // blue for scroll containers
+
     private static ObjectFit ParseFit(string? v) => v switch
     {
         "cover" => ObjectFit.Cover,
@@ -140,6 +146,11 @@ public sealed class Painter
                 absY + node.Height - node.BorderBottomW - grip - 2f,
                 grip, new SKColor(0x8b, 0x93, 0xa7)));
         }
+
+        // Debug overlay: outline this element's border box on top of its content.
+        if (DebugOutline && node.Width > 0 && node.Height > 0)
+            list.Add(new BorderRect(absX, absY, node.Width, node.Height, 0f, 1, 1, 1, 1,
+                node.IsScrollable ? _dbgScroll : _dbgBox));
 
         if (transformed) list.Add(new PopTransform());
         if (faded) list.Add(new PopOpacity());

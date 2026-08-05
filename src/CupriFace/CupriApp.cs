@@ -78,11 +78,15 @@ public abstract class CupriApp
     public virtual PresentInfo Present(float windowWidth, float windowHeight) =>
         new(windowWidth, windowHeight, 1f);
 
+    /// <summary>Dev aid: outline every element box in the window (see <see cref="CupriDocument.DebugOverlay"/>).</summary>
+    public virtual bool DebugOverlay => false;
+
     /// <summary>Build a ready-to-render document — identical on every host.</summary>
     public CupriDocument CreateDocument()
     {
         var doc = CupriDocument.Load(Html, Css).UseComponents(Components).UseImages(GetType().Assembly);
         if (Model is { } model) doc.Bind(model);
+        doc.DebugOverlay = DebugOverlay;
         Configure(doc);
         return doc;
     }

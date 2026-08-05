@@ -116,6 +116,10 @@ public sealed partial class CupriDocument : IDisposable
 
     public RenderNode Root => _root;
 
+    /// <summary>Dev aid: outline every element's box on top of the paint (scroll containers in blue),
+    /// to inspect layout in the live window. Off by default.</summary>
+    public bool DebugOverlay { get => _painter.DebugOutline; set => _painter.DebugOutline = value; }
+
     /// <summary>Parse an HTML document and an optional external stylesheet.</summary>
     public static CupriDocument Load(string html, string? css = null)
     {
