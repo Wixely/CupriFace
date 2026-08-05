@@ -50,11 +50,17 @@ public abstract class ComponentBase : ICupriComponent
     /// <summary>A unique element id for wiring an anchor to its popup.</summary>
     protected static string NextId() => "cupri-anchor-" + System.Threading.Interlocked.Increment(ref _idCounter);
 
-    /// <summary>Markup for a leaf icon element (SVG path filled with current color).</summary>
+    /// <summary>Markup for a leaf icon element (SVG path filled with current color). The per-use
+    /// <paramref name="size"/> is the *default* — it's the fallback of the <c>--cupri-icon-size</c>
+    /// variable, so authors can restyle icon size from CSS (e.g. <c>.cupri-icon { --cupri-icon-size: 20px }</c>
+    /// or set the token on an ancestor) without fighting an inline width. Every icon also gets the
+    /// <c>cupri-icon</c> class hook.</summary>
     protected static string IconMarkup(string name, int size, string cssClass = "")
     {
         var d = Icons.Get(name);
         if (d is null) return "";
-        return $"<div class='{cssClass}' data-cupri-icon=\"{d}\" style='width:{size}px;height:{size}px'></div>";
+        var cls = string.IsNullOrEmpty(cssClass) ? "cupri-icon" : $"cupri-icon {cssClass}";
+        return $"<div class='{cls}' data-cupri-icon=\"{d}\" " +
+               $"style='width:var(--cupri-icon-size, {size}px);height:var(--cupri-icon-size, {size}px)'></div>";
     }
 }
