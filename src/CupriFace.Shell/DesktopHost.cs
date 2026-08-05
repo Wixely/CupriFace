@@ -31,7 +31,9 @@ public static class DesktopHost
                 doc.Refresh();
             }
 
-            ctx.Canvas.Clear(app.Background);
+            // Transparent apps clear to a fully-transparent framebuffer so the desktop shows through
+            // (premultiplied output is exactly what the OS compositor wants — no conversion needed).
+            ctx.Canvas.Clear(app.Transparent ? SkiaSharp.SKColors.Transparent : app.Background);
             if (doc.HasAnimations) doc.Animate(clock.Elapsed.TotalSeconds); // drive @keyframes (spinner, etc.)
 
             ctx.Canvas.Save();
@@ -42,7 +44,7 @@ public static class DesktopHost
 
         try
         {
-            var window = new SkiaWindow(app.Title, app.Width, app.Height);
+            var window = new SkiaWindow(app.Title, app.Width, app.Height, app.Transparent, app.Frameless, app.TopMost);
             window.Render += Draw;
             window.PointerDown += (x, y, clicks) => doc.DispatchClick(x / scale, y / scale, clicks);
             window.PointerMove += (x, y) => doc.DispatchPointerMove(x / scale, y / scale);
@@ -56,7 +58,7 @@ public static class DesktopHost
         catch (Exception ex)
         {
             Console.WriteLine($"[CupriFace] GPU unavailable ({ex.GetType().Name}); using the SDL software window.");
-            using var window = new SdlSoftwareWindow(app.Title, app.Width, app.Height);
+            using var window = new SdlSoftwareWindow(app.Title, app.Width, app.Height, app.Transparent, app.Frameless, app.TopMost);
             window.Render += Draw;
             window.PointerDown += (x, y, clicks) => doc.DispatchClick(x / scale, y / scale, clicks);
             window.PointerMove += (x, y) => doc.DispatchPointerMove(x / scale, y / scale);

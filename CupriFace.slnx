@@ -24,6 +24,7 @@
     <Project Path="samples/Scroll/Scroll.csproj" />
     <Project Path="samples/TextInput/TextInput.csproj" />
     <Project Path="samples/ThreadedRender/ThreadedRender.csproj" />
+    <Project Path="samples/TransparentHud/TransparentHud.csproj" />
     <Project Path="samples/Viewer/Viewer.csproj" />
     <Project Path="samples/Web/Web.csproj" />
     <Project Path="samples/WebWasm/WebWasm.csproj" />

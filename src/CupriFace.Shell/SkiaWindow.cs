@@ -63,7 +63,8 @@ public sealed class SkiaWindow : IDisposable
 
     public FrameStats Stats => _stats;
 
-    public SkiaWindow(string title = "CupriFace", int width = 1024, int height = 768)
+    public SkiaWindow(string title = "CupriFace", int width = 1024, int height = 768,
+        bool transparent = false, bool frameless = false, bool topMost = false)
     {
         _options = WindowOptions.Default with
         {
@@ -71,6 +72,12 @@ public sealed class SkiaWindow : IDisposable
             Size = new Vector2D<int>(width, height),
             VSync = true,               // pace to the display (§7.1 target)
             API = GraphicsAPI.Default,  // OpenGL, double-buffered
+            // Cross-platform (GLFW) window traits — no OS-specific code. Transparency needs a
+            // compositing window manager (universal on Win8+/macOS/modern Linux); it degrades to
+            // an opaque black background where none is present — the host environment's concern.
+            TransparentFramebuffer = transparent,
+            WindowBorder = frameless ? WindowBorder.Hidden : WindowBorder.Resizable,
+            TopMost = topMost,
         };
     }
 

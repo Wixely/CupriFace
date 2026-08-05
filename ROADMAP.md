@@ -89,6 +89,18 @@ Sustained fluidity is the core requirement (DESIGN risk #0); a demo hitting 60 f
 |------|--------|-------|
 | **Automated test project** (xUnit) + CI | 🔴 | Behaviour is currently verified with throwaway harnesses (selection, label-click, style-override). Promote these into a permanent suite so they run in CI instead of by hand. |
 
+## 9. Embedding & overlays (P3)
+
+Rendering *over* other content — the desktop, a game, an HTML page — so the UI can be composited by a host.
+
+| Item | Status | Notes |
+|------|--------|-------|
+| **Transparent / frameless / top-most windows** | 🟢 | **Done** — `CupriApp.Transparent`/`Frameless`/`TopMost`; the GL host opens a transparent framebuffer + transparent clear (premultiplied output = what compositors want), the SDL fallback honours frameless/top-most (opaque). Portable Silk.NET/GLFW traits, no OS-specific code. Needs a compositing WM (universal on modern OSes); degrades to opaque otherwise. [`samples/TransparentHud`](samples/TransparentHud/). |
+| **Web canvas overlay** | 🟢 | **Done** — transparent clear + straight-alpha present for `putImageData`; the JS glue passes pointer events through wherever nothing is drawn. |
+| **`RenderToPixels` embed primitive** | 🟢 | **Done** — RGBA8888 `byte[]`, premultiplied or straight alpha, for blitting into any host surface (game texture, another render target). |
+| **Unity / game-engine embed sample** | 🔴 | The pieces exist (`RenderToPixels` straight-alpha → `Texture2D.LoadRawTextureData`); a worked sample + input-forwarding shim is the follow-up. |
+| **SDL software-path transparency** | 🔴 | The GL path is transparent; the CPU/SDL fallback blits opaque. Per-pixel alpha against the desktop on the software path is a per-OS follow-up (deliberately deferred as "too OS-specific"). |
+
 ---
 
 ## Non-goals (won't do — by design)

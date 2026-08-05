@@ -38,6 +38,17 @@ public abstract class CupriApp
     public virtual int Height => 600;
     public virtual SKColor Background => SKColors.White;
 
+    /// <summary>Render with a transparent background so the UI composites over what's behind it — the
+    /// desktop (a transparent GL window) or an HTML page (a transparent canvas overlay). The host
+    /// clears to transparent instead of <see cref="Background"/>.</summary>
+    public virtual bool Transparent => false;
+
+    /// <summary>Borderless window — no title bar or chrome (for HUDs / overlays).</summary>
+    public virtual bool Frameless => false;
+
+    /// <summary>Keep the window above other windows (always-on-top).</summary>
+    public virtual bool TopMost => false;
+
     /// <summary>Component library available to the markup (defaults to the built-ins).</summary>
     public virtual ComponentRegistry Components => ComponentRegistry.Default();
 

@@ -65,11 +65,19 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
 
     private float _lastX, _lastY; // wheel events carry no position — use the last move
 
-    public SdlSoftwareWindow(string title = "CupriFace", int width = 1024, int height = 768)
+    private readonly bool _frameless, _topMost;
+
+    // NOTE: the SDL software path is opaque — its streaming texture blits over the window with no
+    // per-pixel alpha against the desktop, so `transparent` has no effect here (the GL path handles
+    // transparency). Frameless / always-on-top do work through standard SDL window flags.
+    public SdlSoftwareWindow(string title = "CupriFace", int width = 1024, int height = 768,
+        bool transparent = false, bool frameless = false, bool topMost = false)
     {
         _title = title;
         _width = width;
         _height = height;
+        _frameless = frameless;
+        _topMost = topMost;
     }
 
     public void Run()
@@ -77,8 +85,11 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         if (_sdl.Init(Sdl.InitVideo) != 0)
             throw new InvalidOperationException($"SDL_Init failed: {_sdl.GetErrorS()}");
 
+        var flags = WindowFlags.Resizable;
+        if (_frameless) flags |= WindowFlags.Borderless;
+        if (_topMost) flags |= WindowFlags.AlwaysOnTop;
         _window = _sdl.CreateWindow(_title, Sdl.WindowposCentered, Sdl.WindowposCentered,
-            _width, _height, (uint)WindowFlags.Resizable);
+            _width, _height, (uint)flags);
         if (_window is null) throw new InvalidOperationException($"SDL_CreateWindow failed: {_sdl.GetErrorS()}");
 
         _renderer = _sdl.CreateRenderer(_window, -1, (uint)RendererFlags.Software);

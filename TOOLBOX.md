@@ -78,6 +78,7 @@ doc.OnClick(".save", _ => Console.WriteLine($"Saved {model.Name}, vol={model.Vol
 | `.Refresh()` | Re‑bind + rebuild (call after you mutate the model from code). |
 | `.Render(canvas, w, h)` | Paint into an `SKCanvas`. |
 | `.RenderToImage(w, h, clear?)` | Convenience CPU raster to an `SKImage` (headless/tests). |
+| `.RenderToPixels(w, h, clear?, straightAlpha?)` | CPU raster to an RGBA8888 `byte[]` — the canonical "embed me in another surface" call (HTML canvas, a game texture). `clear` defaults to **transparent**; set `straightAlpha` for consumers wanting non‑premultiplied alpha (HTML `ImageData`, Unity `RGBA32`). |
 | `.DispatchClick/DispatchPointerMove/DispatchPointerUp/DispatchWheel/DispatchKey(...)` | Feed input. Each returns whether anything changed (drives render‑on‑demand). |
 | `.Root` | The root `RenderNode` (layout boxes via `HitTesting.AbsoluteBox`). |
 
@@ -117,6 +118,36 @@ CupriFace.Shell.DesktopHost.Run(new MyApp());
 Run it on the **web**: compile the same class against the WASM host in
 [`samples/WebWasm`](samples/WebWasm/) — the thin JS glue blits the engine's pixels to a `<canvas>`
 and forwards input. "Exporting to a website" is just recompiling the app against the web host.
+
+### 2c. Transparent overlays & floating HUDs
+
+Three opt‑in flags on `CupriApp` turn an ordinary window into an overlay that composites over whatever
+is behind it — the desktop, a game, or an HTML page — with **no OS‑specific code** (they map to portable
+Silk.NET/GLFW window traits):
+
+| Flag | Effect |
+|------|--------|
+| `Transparent` | Clears to fully transparent instead of `Background`, so wherever the markup doesn't paint stays see‑through. |
+| `Frameless` | Borderless window — no title bar or chrome (HUDs, custom windows). |
+| `TopMost` | Always‑on‑top. |
+
+```csharp
+public override bool Transparent => true;
+public override bool Frameless   => true;
+public override bool TopMost     => true;
+```
+
+- **Desktop:** the GL host opens a transparent framebuffer and clears transparent; premultiplied output
+  is exactly what OS compositors expect, so there's no conversion. Transparency needs a compositing
+  window manager (universal on Windows 8+/macOS/modern Linux) and degrades to an opaque window where
+  none is present — the host environment's concern. The SDL software fallback is opaque, but still
+  honours `Frameless`/`TopMost`. See [`samples/TransparentHud`](samples/TransparentHud/).
+- **Web:** the canvas clears transparent and presents **straight** (non‑premultiplied) alpha for
+  `putImageData`; the JS glue makes the canvas an overlay and passes pointer events **through** wherever
+  nothing is drawn.
+- **Embedding elsewhere** (a game texture, another render target): use
+  [`RenderToPixels`](#) — `straightAlpha: true` for HTML/Unity‑style straight alpha, `false` (premul)
+  for OS compositors.
 
 ---
 

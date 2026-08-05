@@ -1435,6 +1435,27 @@ public sealed partial class CupriDocument : IDisposable
         return surface.Snapshot();
     }
 
+    /// <summary>Render a frame to an RGBA8888 byte buffer (<c>width*height*4</c>) — the canonical
+    /// "embed me in another surface" entry point (HTML canvas, a game texture, …). Clears to
+    /// <paramref name="clear"/> (default transparent, for overlays). Set <paramref name="straightAlpha"/>
+    /// for consumers that want NON-premultiplied alpha (HTML <c>ImageData</c>, Unity <c>RGBA32</c>);
+    /// leave it false for desktop compositors, which want premultiplied — Skia's native output.
+    /// (A host needing zero per-frame allocation can instead call <see cref="Render"/> into its own
+    /// surface and read its pixels directly.)</summary>
+    public byte[] RenderToPixels(int width, int height, SKColor? clear = null, bool straightAlpha = false)
+    {
+        using var surface = SKSurface.Create(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul));
+        surface.Canvas.Clear(clear ?? SKColors.Transparent);
+        Render(surface.Canvas, width, height);
+        surface.Canvas.Flush();
+        using var img = surface.Snapshot();
+        // Read back in the requested alpha type — Skia converts premultiplied → straight for us.
+        using var bmp = new SKBitmap(new SKImageInfo(width, height, SKColorType.Rgba8888,
+            straightAlpha ? SKAlphaType.Unpremul : SKAlphaType.Premul));
+        img.ReadPixels(bmp.PeekPixels(), 0, 0);
+        return bmp.Bytes;
+    }
+
     public void Dispose()
     {
         _fonts.Dispose();

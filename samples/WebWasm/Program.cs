@@ -16,8 +16,10 @@ public partial class Interop
     private static CupriApp _app = null!;
     private static CupriDocument _doc = null!;
     private static SKColor _bg;
+    private static bool _transparent;           // overlay mode: transparent clear + straight-alpha present
     private static float _scale = 1f;           // Present scale, for un-scaling pointer coords
     private static SKBitmap? _bitmap;
+    private static SKBitmap? _straight;         // staging buffer for the premul→straight-alpha conversion
     private static readonly Stopwatch _clock = Stopwatch.StartNew();
     private static double _lastRefresh, _lastAnimMs;
     private static int _lastW, _lastH;          // last canvas size, to repaint on resize
@@ -30,6 +32,7 @@ public partial class Interop
         _app = new ShowcaseApp();
         _doc = _app.CreateDocument();
         _bg = _app.Background;
+        _transparent = _app.Transparent;
     }
 
     /// <summary>Called every animation frame by JS. Renders ONLY when needed — after input, on
@@ -74,7 +77,8 @@ public partial class Interop
 
         using (var canvas = new SKCanvas(_bitmap))
         {
-            canvas.Clear(_bg);
+            // Overlay apps clear transparent so the HTML page shows through the canvas.
+            canvas.Clear(_transparent ? SKColors.Transparent : _bg);
             if (animating) _doc.Animate(_clock.Elapsed.TotalSeconds); // @keyframes (spinner)
             canvas.Save();
             if (_scale != 1f) canvas.Scale(_scale);
@@ -83,11 +87,26 @@ public partial class Interop
             canvas.Flush();
         }
 
-        // Zero-copy: hand JS a view over the bitmap's pixels in WASM memory (no per-frame
-        // allocation or managed→JS copy — bitmap.Bytes would allocate + copy 2.7 MB each frame).
+        // The buffer we hand JS. Opaque apps present the premultiplied render directly. Transparent
+        // apps must present STRAIGHT (non-premultiplied) alpha — that's what the browser's ImageData
+        // / putImageData expects — so convert into a staging buffer (Skia unpremultiplies for us).
+        var present = _bitmap;
+        if (_transparent)
+        {
+            if (_straight is null || _straight.Width != width || _straight.Height != height)
+            {
+                _straight?.Dispose();
+                _straight = new SKBitmap(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Unpremul));
+            }
+            _bitmap.PeekPixels().ReadPixels(_straight.PeekPixels()); // premul → straight
+            present = _straight;
+        }
+
+        // Zero-copy: hand JS a view over the buffer's pixels in WASM memory (no per-frame
+        // allocation or managed→JS copy — .Bytes would allocate + copy 2.7 MB each frame).
         unsafe
         {
-            var span = new Span<byte>((void*)_bitmap.GetPixels(), _bitmap.ByteCount);
+            var span = new Span<byte>((void*)present.GetPixels(), present.ByteCount);
             Present(span, width, height);
         }
     }
@@ -109,6 +128,10 @@ public partial class Interop
     [JSExport] internal static string? CutSelection() { var t = _doc?.CutSelection(); _dirty = true; return t; }
     [JSExport] internal static void Undo() { if (_doc?.Undo() == true) _dirty = true; }
     [JSExport] internal static void Redo() { if (_doc?.Redo() == true) _dirty = true; }
+
+    /// <summary>True when the app renders as a transparent overlay — JS then makes the canvas
+    /// transparent and passes pointer events through wherever nothing is drawn.</summary>
+    [JSExport] internal static bool IsTransparent() => _transparent;
 
     // JS side (module "cupri") copies the pixels into the 2D canvas via putImageData.
     [JSImport("present", "cupri")]

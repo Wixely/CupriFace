@@ -107,6 +107,22 @@ try {
     canvas.tabIndex = 0;
     canvas.focus();
 
+    // Overlay mode: the engine clears transparent and presents straight alpha, so the canvas
+    // composites over the page. Pass pointer events THROUGH wherever nothing is drawn — a
+    // window-level move listener (fires even when the canvas has pointer-events:none) samples the
+    // rendered alpha under the cursor and flips the canvas between catching and passing events.
+    if (I.IsTransparent()) {
+        canvas.style.background = 'transparent';
+        window.addEventListener('pointermove', e => {
+            const r = canvas.getBoundingClientRect();
+            const x = Math.floor(e.clientX - r.left), y = Math.floor(e.clientY - r.top);
+            if (x < 0 || y < 0 || x >= canvas.width || y >= canvas.height) return;
+            let alpha = 0;
+            try { alpha = ctx.getImageData(x, y, 1, 1).data[3]; } catch {}
+            canvas.style.pointerEvents = alpha > 0 ? 'auto' : 'none';
+        }, true);
+    }
+
     // Frame loop: Tick decides whether to paint (render-on-demand) — after input, on the app's
     // periodic re-bind, or throttled while something animates. An idle page costs ~nothing.
     let firstTick = true;
