@@ -73,6 +73,10 @@ public enum TextAlign { Left, Center, Right }
 public enum PositionType { Static, Relative, Absolute, Fixed }
 public enum OverflowMode { Visible, Hidden, Scroll }
 
+/// <summary>CSS <c>white-space</c> (the supported subset). <c>NoWrap</c> lays text out on a single
+/// line that overflows instead of wrapping — used by single-line text fields.</summary>
+public enum WhiteSpaceMode { Normal, NoWrap }
+
 /// <summary>CSS <c>resize</c>: which axes a user can drag the element's size on (via a corner grip).</summary>
 public enum ResizeMode { None, Both, Horizontal, Vertical }
 

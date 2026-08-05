@@ -103,18 +103,20 @@ public sealed class Painter
                 node.Width - node.BorderLeftW - node.BorderRightW,
                 node.Height - node.BorderTopW - node.BorderBottomW, s.BorderRadius));
 
-        // Scroll: shift children up by the (clamped) offset.
+        // Scroll: shift children up by the (clamped) vertical offset, and left by the horizontal
+        // caret-follow offset (single-line fields). Both are computed before paint.
         var scrollY = 0f;
         if (node.IsScrollable)
         {
             scrollY = Math.Clamp(node.ScrollY, 0, node.MaxScrollY);
             node.ScrollY = scrollY;
         }
+        var scrollX = node.ScrollX;
 
         foreach (var child in node.Children)
         {
             if (child.Style.Display == DisplayType.None) continue;
-            PaintNode(list, child, absX, absY - scrollY, topLayer, inTopLayer);
+            PaintNode(list, child, absX - scrollX, absY - scrollY, topLayer, inTopLayer);
         }
 
         if (clip) list.Add(new PopClip());

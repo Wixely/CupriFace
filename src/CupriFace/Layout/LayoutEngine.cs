@@ -631,6 +631,17 @@ public sealed class LayoutEngine
         var text = node.Text ?? "";
 
         var lines = new List<TextLine>();
+
+        // white-space:nowrap — one line, no wrapping (it overflows and is clipped by the field). Report
+        // a width clamped to the box so the container doesn't grow unbounded; the line keeps its true
+        // width for caret/selection/horizontal-scroll.
+        if (s.WhiteSpace == WhiteSpaceMode.NoWrap)
+        {
+            var full = text.Length == 0 ? 0 : _fonts.MeasureText(s, text);
+            node.Lines = [new TextLine { Text = text, X = 0, Y = 0, Width = full, Height = lh }];
+            return new Size(MathF.Min(full, maxWidth), lh);
+        }
+
         var sb = new StringBuilder();
         var lineW = 0f;
         var spaceW = _fonts.MeasureText(s, " ");

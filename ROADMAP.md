@@ -89,6 +89,12 @@ Sustained fluidity is the core requirement (DESIGN risk #0); a demo hitting 60 f
 |------|--------|-------|
 | **Automated test project** (xUnit) + CI | 🔴 | Behaviour is currently verified with throwaway harnesses (selection, label-click, style-override). Promote these into a permanent suite so they run in CI instead of by hand. |
 
+## 10. Text input polish
+
+| Item | Status | Notes |
+|------|--------|-------|
+| **Single-line field: `white-space:nowrap` + horizontal caret-follow** | 🟢 | **Done** — a `<cupri-textfield>` now stays one line (was ballooning when a long/pasted value wrapped): `white-space:nowrap` lays the value on a single line, `overflow:hidden` clips it, and a per-field `ScrollX` follows the caret so the visible window tracks typing/navigation (preserved across rebuilds like `ScrollY`). `white-space` is a real inherited property (`nowrap`/`pre` supported). |
+
 ## 9. Embedding & overlays (P3)
 
 Rendering *over* other content — the desktop, a game, an HTML page — so the UI can be composited by a host.

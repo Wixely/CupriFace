@@ -42,6 +42,9 @@ public sealed class RenderNode
     // interaction state — layout recomputes ScrollContentHeight but preserves ScrollY.
     public float ScrollContentHeight;
     public float ScrollY;
+    public float ScrollX; // horizontal caret scroll for a single-line (white-space:nowrap) text field
+
+    public float ContentBoxWidth => Width - HorizontalInsets;
 
     // User-dragged size (CSS resize) — interaction state, preserved across rebuilds like ScrollY.
     // Null = use the CSS size. Overrides width/height in layout, then clamped to min/max-*.

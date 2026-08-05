@@ -231,7 +231,7 @@ public sealed partial class CupriDocument : IDisposable
 
     // Per-node interaction state preserved across a rebuild, keyed by structural path (child-index
     // chain from root) since the DOM — and thus element identity — is re-parsed each rebuild.
-    private readonly record struct NodeState(float ScrollY, bool AtBottom, bool FollowTail, float? ResizeW, float? ResizeH);
+    private readonly record struct NodeState(float ScrollY, bool AtBottom, bool FollowTail, float? ResizeW, float? ResizeH, float ScrollX);
 
     private Dictionary<string, NodeState>? CaptureScroll()
     {
@@ -241,8 +241,8 @@ public sealed partial class CupriDocument : IDisposable
         {
             var tail = n.Element?.HasAttribute("data-follow-tail") == true;
             var scroll = n.Style.Overflow == OverflowMode.Scroll && (n.ScrollY > 0.01f || tail);
-            if (scroll || n.ResizeW is not null || n.ResizeH is not null)
-                (map ??= new())[PathOf(n)] = new NodeState(n.ScrollY, n.ScrollY >= n.MaxScrollY - 1f, tail, n.ResizeW, n.ResizeH);
+            if (scroll || n.ResizeW is not null || n.ResizeH is not null || n.ScrollX > 0.01f)
+                (map ??= new())[PathOf(n)] = new NodeState(n.ScrollY, n.ScrollY >= n.MaxScrollY - 1f, tail, n.ResizeW, n.ResizeH, n.ScrollX);
             foreach (var c in n.Children) Walk(c);
         }
         Walk(_root);
@@ -260,6 +260,7 @@ public sealed partial class CupriDocument : IDisposable
                     n.ScrollY = s.FollowTail && s.AtBottom ? float.MaxValue : s.ScrollY; // MaxValue → new bottom (tail-follow)
                 n.ResizeW = s.ResizeW;
                 n.ResizeH = s.ResizeH;
+                n.ScrollX = s.ScrollX;
             }
             foreach (var c in n.Children) Walk(c);
         }
@@ -313,7 +314,8 @@ public sealed partial class CupriDocument : IDisposable
             Rebuild();
         }
         _layout.Layout(_root, width, height);
-        ScrollCaretIntoView(); // after layout, before paint: keep the caret visible in a scrolled field
+        ScrollCaretIntoView();  // after layout, before paint: keep the caret visible in a scrolled field
+        ScrollCaretIntoViewX(); // and horizontally, in a single-line (nowrap) field
 
         var list = _painter.Build(_root);
         // Caret + selection are drawn outside the scrolled subtree, so clip them to the focused
@@ -353,11 +355,37 @@ public sealed partial class CupriDocument : IDisposable
         sc.ScrollY = Math.Clamp(newScroll, 0, sc.MaxScrollY);
     }
 
+    // Keep the caret horizontally visible in a single-line (white-space:nowrap) field by scrolling its
+    // content — mirrors ScrollCaretIntoView on the X axis. Preserved across rebuilds via NodeState.
+    private void ScrollCaretIntoViewX()
+    {
+        if (_focusKey is null) return;
+        var field = FindFocused(_root);
+        if (field is null || field.Style.WhiteSpace != WhiteSpaceMode.NoWrap) return;
+        if (field.Element?.HasAttribute("data-multiline") == true) return;
+
+        var anchor = FindCaretAnchor(field) ?? field;
+        var value = _editBuffer ?? BindingEngine.Resolve(_model, _focusKey)?.ToString() ?? "";
+        var caret = Math.Clamp(_caret, 0, value.Length);
+        var caretX = _fonts.MeasureText(anchor.Style, value[..caret]); // from the text start
+        var full = value.Length == 0 ? 0 : _fonts.MeasureText(anchor.Style, value);
+        var boxW = field.ContentBoxWidth;
+
+        var sx = field.ScrollX;
+        if (caretX - sx < 0) sx = caretX;                    // caret ran off the left → reveal it
+        else if (caretX - sx > boxW) sx = caretX - boxW;     // ran off the right → reveal it
+        field.ScrollX = Math.Clamp(sx, 0, MathF.Max(0, full - boxW));
+    }
+
     // The focused field's scroll-container content box (painted), for clipping caret/selection; null if none.
     private (float X, float Y, float W, float H, float Radius)? CaretClipRect()
     {
         if (_focusKey is null) return null;
-        var sc = ScrollableContainer(FindFocused(_root));
+        var focused = FindFocused(_root);
+        // A single-line (nowrap) field scrolls horizontally under overflow:hidden — clip the caret and
+        // selection to its content box so they never draw past the field edge when scrolled.
+        var sc = ScrollableContainer(focused)
+            ?? (focused is { } f && f.Style.WhiteSpace == WhiteSpaceMode.NoWrap ? f : null);
         if (sc is null) return null;
         var (sx, sy) = PaintedTopLeft(sc);
         return (sx + sc.ContentLeftInset, sy + sc.ContentTopInset,
@@ -519,7 +547,11 @@ public sealed partial class CupriDocument : IDisposable
         for (var n = node; n is not null; n = n.Parent)
         {
             x += n.X; y += n.Y;
-            if (n.Parent is { IsScrollable: true } p) y -= Math.Clamp(p.ScrollY, 0, p.MaxScrollY);
+            if (n.Parent is { } p)
+            {
+                if (p.IsScrollable) y -= Math.Clamp(p.ScrollY, 0, p.MaxScrollY);
+                x -= p.ScrollX; // horizontal caret-follow shift (0 unless a single-line field)
+            }
             if (n.IsTopLayer) break;
         }
         return (x, y);

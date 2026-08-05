@@ -233,6 +233,7 @@ public sealed class StyleResolver
                 case "font-family": s.FontFamily = v.Split(',')[0].Trim().Trim('"', '\''); break;
                 case "line-height": s.LineHeight = ParseLineHeight(v); break;
                 case "text-align": s.TextAlign = v.ToLowerInvariant() switch { "center" => TextAlign.Center, "right" => TextAlign.Right, _ => TextAlign.Left }; break;
+                case "white-space": s.WhiteSpace = v.ToLowerInvariant() is "nowrap" or "pre" ? WhiteSpaceMode.NoWrap : WhiteSpaceMode.Normal; break;
             }
         }
     }

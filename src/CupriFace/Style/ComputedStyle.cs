@@ -84,6 +84,7 @@ public sealed class ComputedStyle
     public string FontFamily = "sans-serif";
     public float LineHeight = 1.2f; // multiple of font-size
     public TextAlign TextAlign = TextAlign.Left;
+    public WhiteSpaceMode WhiteSpace = WhiteSpaceMode.Normal; // inherited
 
     /// <summary>Copy inherited properties down from a parent as the starting point.</summary>
     public void InheritFrom(ComputedStyle parent)
@@ -95,6 +96,7 @@ public sealed class ComputedStyle
         FontFamily = parent.FontFamily;
         LineHeight = parent.LineHeight;
         TextAlign = parent.TextAlign;
+        WhiteSpace = parent.WhiteSpace;
     }
 
     public bool IsFlexContainer => Display == DisplayType.Flex;
