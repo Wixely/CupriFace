@@ -49,6 +49,17 @@
           <cupri-textfield value="{{Name}}" placeholder="Type your name…"></cupri-textfield>
         </div>
         <div class="row">
+          <span class="lbl">City</span>
+          <cupri-combobox value="{{City}}" placeholder="Start typing…">
+            <cupri-option value="London">London</cupri-option>
+            <cupri-option value="Lisbon">Lisbon</cupri-option>
+            <cupri-option value="Paris">Paris</cupri-option>
+            <cupri-option value="Berlin">Berlin</cupri-option>
+            <cupri-option value="Madrid">Madrid</cupri-option>
+            <cupri-option value="Amsterdam">Amsterdam</cupri-option>
+          </cupri-combobox>
+        </div>
+        <div class="row">
           <span class="lbl">Quantity</span>
           <cupri-number value="{{Quantity}}" min="0" max="20" step="1"></cupri-number>
         </div>

@@ -55,6 +55,7 @@ public sealed class ComponentRegistry
         .Register(new NumberFieldComponent())
         .Register(new TextAreaComponent())
         .Register(new SelectComponent())
+        .Register(new ComboboxComponent())
         // Content
         .Register(new ImageComponent())
         .Register(new IconComponent())
