@@ -80,6 +80,13 @@ public enum ResizeMode { None, Both, Horizontal, Vertical }
 /// keywords (double/groove/…) fall back to <c>Solid</c>.</summary>
 public enum BorderLineStyle { Solid, Dashed, Dotted, None }
 
+/// <summary>A CSS <c>filter</c> function. Colour-matrix ops (brightness…invert) carry their amount in
+/// <c>A</c>; <c>Blur</c> carries the radius in <c>A</c>; <c>DropShadow</c> uses A=dx, B=dy, C=blur,
+/// plus <c>Color</c>.</summary>
+public enum FilterKind { Blur, Brightness, Contrast, Grayscale, Saturate, Sepia, Invert, Opacity, DropShadow }
+
+public readonly record struct FilterOp(FilterKind Kind, float A, float B, float C, SkiaSharp.SKColor Color);
+
 public static class Colors
 {
     private static readonly Dictionary<string, SKColor> Named = new(StringComparer.OrdinalIgnoreCase)

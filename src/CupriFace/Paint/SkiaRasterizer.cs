@@ -92,6 +92,18 @@ public sealed class SkiaRasterizer
                     canvas.Restore();
                     break;
 
+                case PushFilter f:
+                    // SaveLayer with an image filter applies the CSS filter chain to the whole subtree
+                    // when the layer is composited on the matching PopFilter/Restore.
+                    using (var imf = BuildFilter(f.Ops))
+                    using (var layer = new SKPaint { ImageFilter = imf })
+                        canvas.SaveLayer(layer);
+                    break;
+
+                case PopFilter:
+                    canvas.Restore();
+                    break;
+
                 case ResizeGrip g:
                 {
                     stroke.Style = SKPaintStyle.Stroke;
@@ -138,6 +150,97 @@ public sealed class SkiaRasterizer
         var rect = new SKRect(x, y, x + w, y + h);
         if (radius > 0) canvas.DrawRoundRect(rect, radius, radius, paint);
         else canvas.DrawRect(rect, paint);
+    }
+
+    // Build one SKImageFilter from a CSS filter chain: colour-matrix ops (brightness…invert) fold into
+    // a single colour filter; blur and drop-shadow are image filters composed in declaration order.
+    private static SKImageFilter? BuildFilter(IReadOnlyList<FilterOp> ops)
+    {
+        SKImageFilter? img = null;
+        SKColorFilter? color = null;
+        foreach (var op in ops)
+        {
+            switch (op.Kind)
+            {
+                case FilterKind.Blur:
+                    if (op.A > 0) img = SKImageFilter.CreateBlur(op.A, op.A, img); // CSS radius ≈ Gaussian σ
+                    break;
+                case FilterKind.DropShadow:
+                    img = SKImageFilter.CreateDropShadow(op.A, op.B, MathF.Max(0, op.C), MathF.Max(0, op.C), op.Color, img);
+                    break;
+                default:
+                    var m = ColorMatrix(op);
+                    if (m is not null)
+                    {
+                        var cf = SKColorFilter.CreateColorMatrix(m);
+                        color = color is null ? cf : SKColorFilter.CreateCompose(cf, color);
+                    }
+                    break;
+            }
+        }
+        if (color is not null) img = SKImageFilter.CreateColorFilter(color, img); // apply colour after blur/shadow
+        return img;
+    }
+
+    // A 4×5 row-major colour matrix for one colour-adjust filter (offset column in 0..255).
+    private static float[]? ColorMatrix(FilterOp op)
+    {
+        float a = op.A;
+        switch (op.Kind)
+        {
+            case FilterKind.Brightness:
+                return [a, 0, 0, 0, 0,  0, a, 0, 0, 0,  0, 0, a, 0, 0,  0, 0, 0, 1, 0];
+            case FilterKind.Contrast:
+            {
+                // Offset column is normalised [0,1] (Skia scales RGBA to [0,1] before the matrix).
+                float t = 0.5f - 0.5f * a;
+                return [a, 0, 0, 0, t,  0, a, 0, 0, t,  0, 0, a, 0, t,  0, 0, 0, 1, 0];
+            }
+            case FilterKind.Invert:
+            {
+                float s = 1f - 2f * a, o = a; // offset in [0,1]
+                return [s, 0, 0, 0, o,  0, s, 0, 0, o,  0, 0, s, 0, o,  0, 0, 0, 1, 0];
+            }
+            case FilterKind.Opacity:
+                return [1, 0, 0, 0, 0,  0, 1, 0, 0, 0,  0, 0, 1, 0, 0,  0, 0, 0, a, 0];
+            case FilterKind.Grayscale:
+            {
+                // Lerp identity → luminance by amount a.
+                float g = Math.Clamp(a, 0f, 1f);
+                float rr = 0.2126f, gg = 0.7152f, bb = 0.0722f;
+                return
+                [
+                    1 - g + g * rr, g * gg, g * bb, 0, 0,
+                    g * rr, 1 - g + g * gg, g * bb, 0, 0,
+                    g * rr, g * gg, 1 - g + g * bb, 0, 0,
+                    0, 0, 0, 1, 0,
+                ];
+            }
+            case FilterKind.Sepia:
+            {
+                float s = Math.Clamp(a, 0f, 1f);
+                return
+                [
+                    1 - s + s * 0.393f, s * 0.769f, s * 0.189f, 0, 0,
+                    s * 0.349f, 1 - s + s * 0.686f, s * 0.168f, 0, 0,
+                    s * 0.272f, s * 0.534f, 1 - s + s * 0.131f, 0, 0,
+                    0, 0, 0, 1, 0,
+                ];
+            }
+            case FilterKind.Saturate:
+            {
+                // Standard saturation matrix (a=1 → identity, 0 → greyscale, >1 → oversaturated).
+                float rw = 0.3086f, gw = 0.6094f, bw = 0.0820f, inv = 1f - a;
+                return
+                [
+                    inv * rw + a, inv * gw, inv * bw, 0, 0,
+                    inv * rw, inv * gw + a, inv * bw, 0, 0,
+                    inv * rw, inv * gw, inv * bw + a, 0, 0,
+                    0, 0, 0, 1, 0,
+                ];
+            }
+            default: return null;
+        }
     }
 
     private static void DrawBorder(SKCanvas canvas, SKPaint paint, BorderRect b)

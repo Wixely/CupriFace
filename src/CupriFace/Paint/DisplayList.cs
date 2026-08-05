@@ -46,6 +46,12 @@ public sealed record PushOpacity(float Alpha) : PaintCommand;
 
 public sealed record PopOpacity : PaintCommand;
 
+/// <summary>Composite the wrapped subtree through a CSS <c>filter</c> chain (blur / colour-matrix /
+/// drop-shadow). The rasteriser builds the Skia filter from these ops at paint time.</summary>
+public sealed record PushFilter(IReadOnlyList<FilterOp> Ops) : PaintCommand;
+
+public sealed record PopFilter : PaintCommand;
+
 /// <summary>Fill an SVG path (authored in a <paramref name="ViewBox"/>-square) scaled into the box.</summary>
 public sealed record FillPath(
     float X, float Y, float Width, float Height, float ViewBox, string PathData, SKColor Color) : PaintCommand;

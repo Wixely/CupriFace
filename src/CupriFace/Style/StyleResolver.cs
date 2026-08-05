@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using AngleSharp.Dom;
 using CupriFace.Dom;
+using SkiaSharp;
 
 namespace CupriFace.Style;
 
@@ -224,6 +225,7 @@ public sealed class StyleResolver
                 case "animation-name": s.AnimationName = v; break;
                 case "animation-duration": s.AnimationDuration = ParseSeconds(v); break;
                 case "transition": ParseTransition(s, v); break;
+                case "filter": ParseFilter(s, v); break;
 
                 case "color": if (Colors.TryParse(v, out var col)) s.Color = col; break;
                 case "font-size": s.FontSize = ParsePx(v, s.FontSize); break;
@@ -472,6 +474,52 @@ public sealed class StyleResolver
     }
 
     private static readonly Regex _transformFn = new(@"(\w+)\(([^)]*)\)", RegexOptions.Compiled);
+    private static readonly Regex _filterFn = new(@"([\w-]+)\(([^)]*)\)", RegexOptions.Compiled);
+
+    // filter: blur(4px) brightness(1.2) grayscale(50%) drop-shadow(2px 3px 4px #0008) …
+    private static void ParseFilter(ComputedStyle s, string v)
+    {
+        if (v.Trim().Equals("none", StringComparison.OrdinalIgnoreCase)) { s.Filter = null; return; }
+        var ops = new List<FilterOp>();
+        foreach (Match m in _filterFn.Matches(v))
+        {
+            var fn = m.Groups[1].Value.ToLowerInvariant();
+            var arg = m.Groups[2].Value.Trim();
+            switch (fn)
+            {
+                case "blur": ops.Add(new FilterOp(FilterKind.Blur, ParsePx(arg), 0, 0, default)); break;
+                case "brightness": ops.Add(new FilterOp(FilterKind.Brightness, Amount(arg), 0, 0, default)); break;
+                case "contrast": ops.Add(new FilterOp(FilterKind.Contrast, Amount(arg), 0, 0, default)); break;
+                case "grayscale" or "greyscale": ops.Add(new FilterOp(FilterKind.Grayscale, Amount(arg), 0, 0, default)); break;
+                case "saturate": ops.Add(new FilterOp(FilterKind.Saturate, Amount(arg), 0, 0, default)); break;
+                case "sepia": ops.Add(new FilterOp(FilterKind.Sepia, Amount(arg), 0, 0, default)); break;
+                case "invert": ops.Add(new FilterOp(FilterKind.Invert, Amount(arg), 0, 0, default)); break;
+                case "opacity": ops.Add(new FilterOp(FilterKind.Opacity, Amount(arg), 0, 0, default)); break;
+                case "drop-shadow":
+                {
+                    float dx = 0, dy = 0, blur = 0;
+                    var col = new SKColor(0, 0, 0, 0x80);
+                    var li = 0;
+                    foreach (var p in arg.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        if (Colors.TryParse(p, out var c)) col = c;
+                        else { var px = ParsePx(p); if (li == 0) dx = px; else if (li == 1) dy = px; else blur = px; li++; }
+                    }
+                    ops.Add(new FilterOp(FilterKind.DropShadow, dx, dy, blur, col));
+                    break;
+                }
+            }
+        }
+        s.Filter = ops.Count > 0 ? ops : null;
+    }
+
+    // A filter amount: bare number or percentage (100% → 1.0). Defaults to 1.0.
+    private static float Amount(string v)
+    {
+        v = v.Trim();
+        if (v.EndsWith('%')) return float.TryParse(v[..^1], out var pct) ? pct / 100f : 1f;
+        return float.TryParse(v, out var n) ? n : 1f;
+    }
 
     private static void ParseTransform(ComputedStyle s, string v)
     {

@@ -55,7 +55,11 @@ public sealed class Painter
             return;
         }
 
-        // Opacity composites the whole subtree as a group (outermost, wrapping any transform).
+        // Filter wraps the whole subtree (outermost — the filter sees the composited element).
+        var filtered = s.Filter is { Count: > 0 };
+        if (filtered) list.Add(new PushFilter(s.Filter!));
+
+        // Opacity composites the whole subtree as a group (wrapping any transform).
         var faded = s.Opacity < 1f;
         if (faded) list.Add(new PushOpacity(Math.Clamp(s.Opacity, 0f, 1f)));
 
@@ -137,6 +141,7 @@ public sealed class Painter
 
         if (transformed) list.Add(new PopTransform());
         if (faded) list.Add(new PopOpacity());
+        if (filtered) list.Add(new PopFilter());
     }
 
     private static void PaintText(DisplayList list, RenderNode node, float absX, float absY)

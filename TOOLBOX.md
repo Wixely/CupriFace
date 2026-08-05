@@ -288,6 +288,13 @@ controls handle their own state.
   .card:hover { transform: translateY(-6px); }                          /* lift on hover */
   .surface { transition: background-color 0.35s ease; }                 /* light/dark cross-fade */
   ```
+- **`filter`.** `blur() brightness() contrast() grayscale() saturate() sepia() invert() opacity()
+  drop-shadow()` are supported and compose left-to-right (applied to the element and its subtree).
+  ```css
+  .thumb  { filter: grayscale(1) brightness(0.9); }
+  .glass  { filter: blur(6px); }
+  .raised { filter: drop-shadow(2px 4px 6px #0006); }
+  ```
 
 ```css
 body { --cupri-surface:#1e2430; --cupri-text:#eef1f5; --cupri-border:#33405a; }  /* a dark theme */

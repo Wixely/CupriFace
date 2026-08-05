@@ -81,6 +81,10 @@ code { display:inline; font-family:monospace; color:var(--cupri-text); }
 .tspin { transition: transform 0.4s ease-in-out; }
 .tspin:hover { transform: rotate(90deg); }
 
+/* Filter tiles — each applies a CSS filter() to a copper square. */
+.fbox { width:84px; height:84px; border-radius:14px; display:flex; align-items:center;
+        justify-content:center; color:white; font-weight:bold; font-size:13px; background:#B87333; }
+
 .dlg-title { font-size:19px; font-weight:bold; color:#1e2430; margin-bottom:10px; }
 .dlg-body { color:#48505c; font-size:14px; margin-bottom:20px; }
 .dlg-actions { display:flex; justify-content:flex-end; }

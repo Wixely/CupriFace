@@ -58,6 +58,9 @@ public sealed class ComputedStyle
     public SKColor Background = SKColors.Transparent;
     public float Opacity = 1f;
 
+    // Filter (CSS filter chain — blur / colour-matrix / drop-shadow). Not inherited.
+    public List<FilterOp>? Filter;
+
     // Transform (applied around the border-box centre at paint time)
     public bool HasTransform;
     public float TranslateX, TranslateY, RotateDeg;
