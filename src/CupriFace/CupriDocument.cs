@@ -294,8 +294,7 @@ public sealed partial class CupriDocument : IDisposable
         if (field.Element?.HasAttribute("data-multiline") == true)
         {
             var rows = BuildTextRows(anchor, value);
-            var t = rows[^1];
-            foreach (var r in rows) if (caret >= r.Start && caret <= r.Start + r.Text.Length) t = r;
+            var t = RowForCaret(rows, caret);
             rowY = t.Y; rowH = t.Height;
         }
         else
@@ -347,9 +346,7 @@ public sealed partial class CupriDocument : IDisposable
         if (field.Element?.HasAttribute("data-multiline") == true)
         {
             var rows = BuildTextRows(anchor, value);
-            var target = rows[^1];
-            foreach (var row in rows)
-                if (caret >= row.Start && caret <= row.Start + row.Text.Length) target = row;
+            var target = RowForCaret(rows, caret);
             var col = Math.Clamp(caret - target.Start, 0, target.Text.Length);
             cx = target.X + _fonts.MeasureText(anchor.Style, target.Text[..col]);
             cy = target.Y + (target.Height - ch) / 2f;
@@ -403,10 +400,11 @@ public sealed partial class CupriDocument : IDisposable
         }
     }
 
-    /// <summary>A visual (post-wrap) row of a field's text: its buffer start offset, text, and the
-    /// absolute top-left it is PAINTED at (matching the painter's <c>AbsoluteBox(textNode)+line.X/Y</c>),
+    /// <summary>A visual (post-wrap) row of a field's text: the buffer range it covers
+    /// (<c>[Start,End]</c>, contiguous so no caret position falls in a gap), its visible text, and
+    /// the absolute top-left it is PAINTED at (matching the painter's <c>AbsoluteBox(textNode)+line.X/Y</c>),
     /// so caret/selection/hit-testing line up with wrapped text instead of a synthetic line grid.</summary>
-    private readonly record struct TextRow(int Start, string Text, float X, float Y, float Height, bool NewlineAfter);
+    private readonly record struct TextRow(int Start, int End, string Text, float X, float Y, float Height, bool NewlineAfter);
 
     private static List<TextRow> BuildTextRows(RenderNode anchor, string value)
     {
@@ -426,28 +424,49 @@ public sealed partial class CupriDocument : IDisposable
             if (lineText.Length > 0 && textNode?.Lines is { Count: > 0 } lines)
             {
                 var (tx, ty) = PaintedTopLeft(textNode);
+                // Each visual row's start column in the logical line (skips whitespace consumed at wraps).
+                var cols = new int[lines.Count];
                 var cursor = 0;
                 for (var r = 0; r < lines.Count; r++)
                 {
-                    var rt = lines[r].Text;
-                    // Where this visual row sits in the logical line (skips whitespace consumed at wraps).
-                    var col = lineText.IndexOf(rt, Math.Min(cursor, lineText.Length), StringComparison.Ordinal);
-                    if (col < 0) col = Math.Min(cursor, lineText.Length);
-                    var last = r == lines.Count - 1;
-                    rows.Add(new TextRow(offset + col, rt, tx + lines[r].X, ty + lines[r].Y, lines[r].Height, last && newlineAfter));
-                    cursor = col + rt.Length;
+                    var col = lineText.IndexOf(lines[r].Text, Math.Min(cursor, lineText.Length), StringComparison.Ordinal);
+                    cols[r] = col < 0 ? Math.Min(cursor, lineText.Length) : col;
+                    cursor = cols[r] + lines[r].Text.Length;
+                }
+                for (var r = 0; r < lines.Count; r++)
+                {
+                    // Cover contiguously up to the next row's start (or the line's end for the last
+                    // row) so a caret in consumed/trailing whitespace still maps here — no gaps, so the
+                    // caret/scroll never falls through to the bottom row.
+                    var end = offset + (r + 1 < lines.Count ? cols[r + 1] : lineText.Length);
+                    rows.Add(new TextRow(offset + cols[r], end, lines[r].Text,
+                        tx + lines[r].X, ty + lines[r].Y, lines[r].Height, r == lines.Count - 1 && newlineAfter));
                 }
             }
             else
             {
                 // Empty logical line (or no laid-out text): a zero-width row at the line box.
                 var (dx, dy) = PaintedTopLeft(div ?? anchor);
-                rows.Add(new TextRow(offset, "",
+                rows.Add(new TextRow(offset, offset, "",
                     dx + (div?.ContentLeftInset ?? 0f), dy + (div?.ContentTopInset ?? 0f), lh, newlineAfter));
             }
             offset += lineText.Length + 1;
         }
         return rows;
+    }
+
+    // The visual row a caret sits in: the row whose [Start,End] contains it, else the nearest by
+    // offset (never the last row by default, which would jump the caret/scroll to the bottom).
+    private static TextRow RowForCaret(List<TextRow> rows, int caret)
+    {
+        var best = rows[0];
+        var bestDist = int.MaxValue;
+        foreach (var r in rows)
+        {
+            var d = caret < r.Start ? r.Start - caret : caret > r.End ? caret - r.End : 0;
+            if (d <= bestDist) { bestDist = d; best = r; } // <= keeps the later row on a boundary tie
+        }
+        return best;
     }
 
     // The caret index in the focused field's buffer nearest the point (x,y) — click-to-place-caret.
