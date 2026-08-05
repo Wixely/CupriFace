@@ -82,14 +82,13 @@ public class ThreadedRendererTests
         using var presenter = new ThreadedPresenter();
         presenter.Submit(list, 120, 120, SKColors.White);
 
-        // Wait for the render thread to produce a frame.
-        var deadline = Stopwatch.StartNew();
-        while (presenter.FramesRendered == 0 && deadline.ElapsedMilliseconds < 3000) Thread.Sleep(5);
-        Assert.True(presenter.FramesRendered > 0);
-
-        // Present it onto a UI-thread surface and check the pixels match the single-threaded raster.
+        // Poll Present until the render thread has a frame ready (it returns false until then — this
+        // avoids racing FramesRendered, which increments before the present callback copies the frame).
         using var surface = SKSurface.Create(new SKImageInfo(120, 120, SKColorType.Bgra8888, SKAlphaType.Premul));
-        Assert.True(presenter.Present(surface.Canvas));
+        var ok = false;
+        var deadline = Stopwatch.StartNew();
+        while (deadline.ElapsedMilliseconds < 5000) { if (presenter.Present(surface.Canvas)) { ok = true; break; } Thread.Sleep(5); }
+        Assert.True(ok, "presenter never produced a frame");
         surface.Canvas.Flush();
         using var got = SKBitmap.FromImage(surface.Snapshot());
 

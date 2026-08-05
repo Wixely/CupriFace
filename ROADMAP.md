@@ -51,7 +51,7 @@ Sustained fluidity is the core requirement (DESIGN risk #0); a demo hitting 60 f
 | Item | Status | Notes |
 |------|--------|-------|
 | Render-thread split in the **interactive windows** | 🟢 | **Done for the CPU/SDL path.** `CupriDocument.BuildFrame` is the UI-thread half (layout + paint → immutable `DisplayList`, no rasterise); a new `ThreadedPresenter` (over `ThreadedRenderer`) rasterises off-thread and hands back the latest frame via one lock-guarded buffer. `DesktopHost` uses it for the SDL software window when `CupriApp.ThreadedRender` is set. Verified headlessly: threaded raster matches single-threaded pixels, `Commit` never blocks + coalesces latest-wins, and `ThreadedPresenter.Present` draws the correct frame. Remaining: the GL path renders inline (threading it needs a background GL context — the per-backend piece). |
-| **List/tree virtualization** | 🔴 | Long lists and deep trees are where 60 fps is lost; no virtualization yet. |
+| **List/tree virtualization** | 🟢 | **Done (paint-culling).** A scroll container skips painting children whose box is entirely outside the visible band (+margin), so a long list costs paint+raster for the on-screen rows only — the win during scroll. Layout is untouched (culling is paint-only); transparent, no API/markup change. Follow-up: also skip layout for off-screen rows (needs app-cooperative windowing). |
 | **CI perf-budget gates** | 🔴 | The design calls for perf budgets failing the build from M1; no CI harness is wired up in the repo. |
 | **Live-resize fluidity** during the OS modal resize loop | 🟡 | Reflow itself is instant; streaming frames *during* a drag-resize is a per-backend follow-up. |
 

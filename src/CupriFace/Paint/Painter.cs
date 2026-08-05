@@ -17,6 +17,8 @@ public sealed class Painter
     /// <summary>Dev overlay: outline every element's border box (scrollers in a second colour) on top
     /// of the normal paint. Toggled via <c>CupriDocument.DebugOverlay</c>.</summary>
     public bool DebugOutline;
+
+    private const float CullMargin = 60f; // paint a little past the viewport so scrolling never flashes blank
     private static readonly SKColor _dbgBox = new(0xE0, 0x2F, 0x8A, 0x66);    // magenta box outline
     private static readonly SKColor _dbgScroll = new(0x2F, 0x8A, 0xE0, 0x99); // blue for scroll containers
 
@@ -119,9 +121,17 @@ public sealed class Painter
         }
         var scrollX = node.ScrollX;
 
+        // Virtualisation: in a scroll container, skip painting children whose box is entirely outside
+        // the visible band (plus a margin). Long lists then cost paint+raster for the visible rows
+        // only, not every row — the win during scrolling. Layout is unaffected (culling is paint-only).
+        var cull = node.IsScrollable;
+        var bandTop = node.ContentTopInset + scrollY - CullMargin;
+        var bandBottom = node.ContentTopInset + scrollY + node.ContentBoxHeight + CullMargin;
+
         foreach (var child in node.Children)
         {
             if (child.Style.Display == DisplayType.None) continue;
+            if (cull && !child.IsTopLayer && (child.Y + child.Height < bandTop || child.Y > bandBottom)) continue;
             PaintNode(list, child, absX - scrollX, absY - scrollY, topLayer, inTopLayer);
         }
 
