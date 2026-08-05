@@ -784,12 +784,14 @@ public sealed partial class CupriDocument : IDisposable
             // Number stepper: +/- button adjusts the nearest numeric field's bound value.
             if (el.GetAttribute("data-cupri-step") is { Length: > 0 } stepRaw) return StepNumber(node, stepRaw);
 
-            // Generic "set a bound value" click (tabs, select options, tree selection). Also
-            // closes any containing overlay so picking an option dismisses its dropdown.
+            // Generic "set a bound value" click (tabs, select options, tree selection). Closes any
+            // containing overlay so picking an option dismisses its dropdown — unless the element opts
+            // out with data-set-keep (an in-place control that adjusts a value without dismissing, e.g.
+            // the date picker's month navigation).
             if (el.GetAttribute("data-set-path") is { Length: > 0 } setPath && _model is not null)
             {
                 var ok = BindingEngine.TrySet(_model, setPath, el.GetAttribute("data-set-value") ?? "");
-                SetNearestOpen(node, false);
+                if (!el.HasAttribute("data-set-keep")) SetNearestOpen(node, false);
                 return ok;
             }
 

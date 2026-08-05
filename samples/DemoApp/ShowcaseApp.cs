@@ -84,6 +84,8 @@ public sealed partial class ShowcaseModel
     public int Volume { get; set; } = 60;
     public string Name { get; set; } = "";
     public string City { get; set; } = "";
+    public string Date { get; set; } = "2026-08-15";
+    public bool DateOpen { get; set; }
     public int Quantity { get; set; } = 3;
     public bool Notifications { get; set; } = true;
     public bool DarkMode { get; set; }
