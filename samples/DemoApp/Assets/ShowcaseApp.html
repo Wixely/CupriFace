@@ -2,28 +2,23 @@
   <div class="app">
     <div class="sidebar">
       <div class="brand">CupriFace</div>
-      <div class="nav {{NavControls}}" data-section="controls">Controls</div>
+      <div class="nav {{NavControls}}" data-section="controls">Inputs</div>
       <div class="nav {{NavComponents}}" data-section="components">Components</div>
       <div class="nav {{NavImages}}" data-section="images">Images</div>
       <div class="nav {{NavOverlays}}" data-section="overlays">Overlays</div>
       <div class="nav {{NavLayout}}" data-section="layout">Layout</div>
       <div class="nav {{NavMotion}}" data-section="motion">Motion</div>
+      <div class="nav {{NavStyling}}" data-section="styling">Styling</div>
       <div class="nav {{NavSettings}}" data-section="settings">Settings</div>
       <div class="nav {{NavDiag}}" data-section="diag">Diagnostics</div>
       <div class="tip">Resize the window to see scaling</div>
     </div>
 
     <div class="content">
-      <!-- CONTROLS -->
+      <!-- INPUTS -->
       <div class="section" style="display:{{SecControls}}">
-        <div class="title">Controls</div>
-        <div class="row">
-          <cupri-icon name="home"></cupri-icon><cupri-icon name="search"></cupri-icon>
-          <cupri-icon name="bell"></cupri-icon><cupri-icon name="user"></cupri-icon>
-          <cupri-icon name="heart" style="color:#e0245e"></cupri-icon>
-          <cupri-icon name="star" style="color:#f5b301"></cupri-icon>
-          <cupri-icon name="settings"></cupri-icon><cupri-icon name="trash"></cupri-icon>
-        </div>
+        <div class="title">Inputs</div>
+        <p class="sub">Form controls — buttons, toggles, sliders, text, and the picker family.</p>
         <div class="row">
           <cupri-button>Primary</cupri-button>
           <cupri-button variant="ghost">Ghost</cupri-button>
@@ -66,26 +61,16 @@
         <div class="row">
           <span class="lbl">Date</span>
           <cupri-datepicker value="{{Date}}" open="{{DateOpen}}"></cupri-datepicker>
-        </div>
-        <div class="row">
-          <cupri-chip>Design</cupri-chip><cupri-chip closable="true">Removable</cupri-chip>
-          <cupri-avatar initials="AM"></cupri-avatar><cupri-badge>NEW</cupri-badge>
-          <cupri-spinner></cupri-spinner>
-          <cupri-progress value="62" max="100" style="width:160px"></cupri-progress>
-        </div>
-        <cupri-alert type="success">Everything is working.</cupri-alert>
-        <cupri-alert type="warning">This is a warning banner.</cupri-alert>
-        <div class="row">
-          <cupri-card style="width:150px"><cupri-stat label="Users" value="12.4k"></cupri-stat></cupri-card>
-          <cupri-card style="width:150px"><cupri-stat label="Revenue" value="$8.9k"></cupri-stat></cupri-card>
-          <cupri-card style="width:150px"><cupri-stat label="Uptime" value="99.9%"></cupri-stat></cupri-card>
+          <span class="lbl">Time</span>
+          <cupri-timepicker value="{{Time}}" open="{{TimeOpen}}"></cupri-timepicker>
         </div>
       </div>
 
       <!-- COMPONENTS -->
       <div class="section" style="display:{{SecComponents}}">
         <div class="title">Components</div>
-        <p class="sub">Tabs, select, textarea, popover, accordion, tree and a table.</p>
+        <p class="sub">Navigation, selection and data-display: tabs, select, textarea, popover,
+          accordion, tree, a sortable table, plus icons, chips, badges, alerts and stat cards.</p>
         <cupri-tabs value="{{Tab}}">
           <cupri-tab id="one" label="First">First tab content.</cupri-tab>
           <cupri-tab id="two" label="Second">Second tab content.</cupri-tab>
@@ -119,6 +104,26 @@
             <cupri-row><cupri-cell>Grace</cupri-cell><cupri-cell>Editor</cupri-cell></cupri-row>
             <cupri-row><cupri-cell>Linus</cupri-cell><cupri-cell>Owner</cupri-cell></cupri-row>
           </cupri-table>
+        </div>
+        <div class="row">
+          <cupri-icon name="home"></cupri-icon><cupri-icon name="search"></cupri-icon>
+          <cupri-icon name="bell"></cupri-icon><cupri-icon name="user"></cupri-icon>
+          <cupri-icon name="heart" style="color:#e0245e"></cupri-icon>
+          <cupri-icon name="star" style="color:#f5b301"></cupri-icon>
+          <cupri-icon name="settings"></cupri-icon><cupri-icon name="trash"></cupri-icon>
+        </div>
+        <div class="row">
+          <cupri-chip>Design</cupri-chip><cupri-chip closable="true">Removable</cupri-chip>
+          <cupri-avatar initials="AM"></cupri-avatar><cupri-badge>NEW</cupri-badge>
+          <cupri-spinner></cupri-spinner>
+          <cupri-progress value="62" max="100" style="width:160px"></cupri-progress>
+        </div>
+        <cupri-alert type="success">Everything is working.</cupri-alert>
+        <cupri-alert type="warning">This is a warning banner.</cupri-alert>
+        <div class="row">
+          <cupri-card style="width:150px"><cupri-stat label="Users" value="12.4k"></cupri-stat></cupri-card>
+          <cupri-card style="width:150px"><cupri-stat label="Revenue" value="$8.9k"></cupri-stat></cupri-card>
+          <cupri-card style="width:150px"><cupri-stat label="Uptime" value="99.9%"></cupri-stat></cupri-card>
         </div>
       </div>
 
@@ -231,6 +236,13 @@
           <div class="tbox tgrow">scale</div>
           <div class="tbox tspin">rotate</div>
         </div>
+      </div>
+
+      <!-- STYLING -->
+      <div class="section" style="display:{{SecStyling}}">
+        <div class="title">Styling</div>
+        <p class="sub">Paint-level CSS: <code>filter()</code> effects and <code>border-style</code> — both
+          compose with the same rounded-box paint used everywhere.</p>
         <div class="mlabel">Filters</div>
         <div class="stage">
           <div class="fbox" style="filter:blur(2px)">blur</div>

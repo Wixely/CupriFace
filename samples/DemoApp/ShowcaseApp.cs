@@ -66,6 +66,7 @@ public sealed partial class ShowcaseModel
     public string SecOverlays => Section == "overlays" ? "block" : "none";
     public string SecLayout => Section == "layout" ? "block" : "none";
     public string SecMotion => Section == "motion" ? "block" : "none";
+    public string SecStyling => Section == "styling" ? "block" : "none";
     public string SecSettings => Section == "settings" ? "block" : "none";
     public string SecDiag => Section == "diag" ? "block" : "none";
     public string NavControls => Section == "controls" ? "active" : "";
@@ -74,6 +75,7 @@ public sealed partial class ShowcaseModel
     public string NavOverlays => Section == "overlays" ? "active" : "";
     public string NavLayout => Section == "layout" ? "active" : "";
     public string NavMotion => Section == "motion" ? "active" : "";
+    public string NavStyling => Section == "styling" ? "active" : "";
     public string NavSettings => Section == "settings" ? "active" : "";
     public string NavDiag => Section == "diag" ? "active" : "";
 
@@ -86,6 +88,8 @@ public sealed partial class ShowcaseModel
     public string City { get; set; } = "";
     public string Date { get; set; } = "2026-08-15";
     public bool DateOpen { get; set; }
+    public string Time { get; set; } = "14:30";
+    public bool TimeOpen { get; set; }
     public string TableSort { get; set; } = "";
     public int Quantity { get; set; } = 3;
     public bool Notifications { get; set; } = true;
