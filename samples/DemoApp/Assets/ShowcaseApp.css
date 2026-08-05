@@ -18,6 +18,11 @@ body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; -
 cupri-alert { margin-bottom:10px; }
 cupri-textarea { max-height:150px; } /* bounded → scrolls (wheel, thumb) instead of running off-screen */
 
+/* Images: a fixed frame; the letterbox (contain/none) shows the frame's dark background. */
+.frame { display:block; width:460px; height:300px; border:8px #2f3b4d; border-radius:6px; background:#0b0f18; }
+.credit { color:var(--cupri-muted); font-size:12px; margin-top:12px; }
+code { display:inline; font-family:monospace; color:var(--cupri-text); }
+
 .flexdemo { display:flex; gap:12px; margin-bottom:18px; }
 .fb { padding:20px; border-radius:10px; color:white; font-weight:bold; text-align:center; }
 .fb.a { flex:1; background:#B87333; } .fb.b { flex:2; background:#4682B4; }

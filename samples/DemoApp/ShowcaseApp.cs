@@ -62,6 +62,7 @@ public sealed partial class ShowcaseModel
 
     public string SecControls => Section == "controls" ? "block" : "none";
     public string SecComponents => Section == "components" ? "block" : "none";
+    public string SecImages => Section == "images" ? "block" : "none";
     public string SecOverlays => Section == "overlays" ? "block" : "none";
     public string SecLayout => Section == "layout" ? "block" : "none";
     public string SecMotion => Section == "motion" ? "block" : "none";
@@ -69,6 +70,7 @@ public sealed partial class ShowcaseModel
     public string SecDiag => Section == "diag" ? "block" : "none";
     public string NavControls => Section == "controls" ? "active" : "";
     public string NavComponents => Section == "components" ? "active" : "";
+    public string NavImages => Section == "images" ? "active" : "";
     public string NavOverlays => Section == "overlays" ? "active" : "";
     public string NavLayout => Section == "layout" ? "active" : "";
     public string NavMotion => Section == "motion" ? "active" : "";
@@ -85,6 +87,7 @@ public sealed partial class ShowcaseModel
     public bool Notifications { get; set; } = true;
     public bool DarkMode { get; set; }
     public string Size { get; set; } = "medium";
+    public string ImageFit { get; set; } = "contain"; // <cupri-image> object-fit, chosen via radios
     public bool DialogOpen { get; set; }
     public bool DrawerOpen { get; set; }
     public bool MenuOpen { get; set; }

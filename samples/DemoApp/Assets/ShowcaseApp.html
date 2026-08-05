@@ -4,6 +4,7 @@
       <div class="brand">CupriFace</div>
       <div class="nav {{NavControls}}" data-section="controls">Controls</div>
       <div class="nav {{NavComponents}}" data-section="components">Components</div>
+      <div class="nav {{NavImages}}" data-section="images">Images</div>
       <div class="nav {{NavOverlays}}" data-section="overlays">Overlays</div>
       <div class="nav {{NavLayout}}" data-section="layout">Layout</div>
       <div class="nav {{NavMotion}}" data-section="motion">Motion</div>
@@ -69,12 +70,7 @@
       <!-- COMPONENTS -->
       <div class="section" style="display:{{SecComponents}}">
         <div class="title">Components</div>
-        <p class="sub">Images, tabs, select, textarea, popover, accordion, tree and a table.</p>
-        <div class="row">
-          <cupri-image src="Assets/logo.png" alt="CupriFace logo" style="width:52px;height:52px;border-radius:12px"></cupri-image>
-          <cupri-image src="Assets/logo.png" alt="logo" fit="cover" style="width:84px;height:52px;border-radius:10px"></cupri-image>
-          <span class="lbl">&lt;cupri-image&gt; — embedded PNG · fit contain / cover</span>
-        </div>
+        <p class="sub">Tabs, select, textarea, popover, accordion, tree and a table.</p>
         <cupri-tabs value="{{Tab}}">
           <cupri-tab id="one" label="First">First tab content.</cupri-tab>
           <cupri-tab id="two" label="Second">Second tab content.</cupri-tab>
@@ -108,6 +104,21 @@
             <cupri-row><cupri-cell>Grace</cupri-cell><cupri-cell>Editor</cupri-cell></cupri-row>
           </cupri-table>
         </div>
+      </div>
+
+      <!-- IMAGES -->
+      <div class="section" style="display:{{SecImages}}">
+        <div class="title">Images</div>
+        <p class="sub">A public-domain painting in a fixed frame — pick how <code>&lt;cupri-image&gt;</code> fits it to the box.</p>
+        <div class="row">
+          <cupri-radio group="{{ImageFit}}" value="contain"></cupri-radio><span class="lbl">Contain</span>
+          <cupri-radio group="{{ImageFit}}" value="cover"></cupri-radio><span class="lbl">Cover</span>
+          <cupri-radio group="{{ImageFit}}" value="fill"></cupri-radio><span class="lbl">Fill (stretch)</span>
+          <cupri-radio group="{{ImageFit}}" value="none"></cupri-radio><span class="lbl">None</span>
+        </div>
+        <cupri-image class="frame" src="Assets/torus-colony.jpg" fit="{{ImageFit}}"
+                     alt="A torus colony's interior — Don Davis, 1970s"></cupri-image>
+        <p class="credit">“A torus colony's interior” · Don Davis · 1970s · public domain · fit: {{ImageFit}}</p>
       </div>
 
       <!-- OVERLAYS -->
