@@ -29,6 +29,9 @@
     <Project Path="samples/Web/Web.csproj" />
     <Project Path="samples/WebWasm/WebWasm.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CupriFace.Tests/CupriFace.Tests.csproj" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/CupriFace.Binding.Gen/CupriFace.Binding.Gen.csproj" />
     <Project Path="src/CupriFace.Resources.Gen/CupriFace.Resources.Gen.csproj" />
