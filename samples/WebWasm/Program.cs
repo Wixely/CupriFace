@@ -131,7 +131,7 @@ public partial class Interop
     [JSExport] internal static void PointerDown(double x, double y, int clicks) { if (_doc?.DispatchClick((float)(x / _scale), (float)(y / _scale), clicks) == true) _dirty = true; }
     [JSExport] internal static void ContextMenu(double x, double y) { if (_doc?.DispatchContextMenu((float)(x / _scale), (float)(y / _scale)) == true) _dirty = true; }
     [JSExport] internal static void PointerMove(double x, double y) { if (_doc?.DispatchPointerMove((float)(x / _scale), (float)(y / _scale)) == true) _dirty = true; }
-    [JSExport] internal static void PointerUp(double x, double y) { _doc?.DispatchPointerUp((float)(x / _scale), (float)(y / _scale)); }
+    [JSExport] internal static void PointerUp(double x, double y) { if (_doc?.DispatchPointerUp((float)(x / _scale), (float)(y / _scale)) == true) _dirty = true; }
     [JSExport] internal static void Wheel(double x, double y, double dy) { if (_doc?.DispatchWheel((float)(x / _scale), (float)(y / _scale), (float)-dy) == true) _dirty = true; }
     [JSExport] internal static void KeyChar(string text) { if (_doc?.DispatchKey(text, EditKey.None) == true) _dirty = true; }
     [JSExport] internal static void EditKeyPress(int code, int mods) { if (_doc?.DispatchKey(null, (EditKey)code, (KeyMods)mods) == true) _dirty = true; }

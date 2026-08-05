@@ -42,6 +42,7 @@ public sealed partial class CupriDocument : IDisposable
 
     // Hover + drag + text-focus state
     private readonly List<IElement> _hoverChain = new();
+    private readonly List<IElement> _activeChain = new(); // :active — the pressed element + ancestors
     private string? _focusKey;  // the focused field's bound path (survives rebuilds)
     private bool _focusNumeric; // focused field is validated as a number
     private bool _focusMultiline; // focused field is a textarea (Enter inserts a newline)
@@ -684,6 +685,9 @@ public sealed partial class CupriDocument : IDisposable
                 return true;
             }
 
+        // :active press feedback — mark the pressed element chain (restyled below; cleared on pointer-up).
+        SetActive(hit.Element);
+
         // Focus: a click inside a text/number field focuses it; elsewhere blurs.
         RenderNode? field = hit;
         while (field is not null && field.Element?.GetAttribute("role") is not ("textbox" or "spinbutton")) field = field.Parent;
@@ -720,8 +724,9 @@ public sealed partial class CupriDocument : IDisposable
         }
 
         if (handled || focusChanged) Refresh();
+        else if (_activeChain.Count > 0) ReStyle(); // show the :active press even if nothing else changed
         ReconcileScope(); // a click may have opened/closed an overlay → update the focus scope
-        return handled || focusChanged;
+        return handled || focusChanged || _activeChain.Count > 0;
     }
 
     // Walk from a node up the ancestor chain, applying the first built-in control behaviour or
@@ -1466,7 +1471,9 @@ public sealed partial class CupriDocument : IDisposable
     }
 
     /// <summary>Pointer up: end any slider drag, scrollbar drag, or text drag-select.</summary>
-    public void DispatchPointerUp(float x, float y) { _dragging = false; _textDrag = false; _scrollDrag = null; _resizeDrag = null; }
+    /// <summary>Pointer released: end any drag and clear the :active press. Returns true if the press
+    /// state cleared (→ repaint needed to un-press).</summary>
+    public bool DispatchPointerUp(float x, float y) { _dragging = false; _textDrag = false; _scrollDrag = null; _resizeDrag = null; return ClearActive(); }
 
     /// <summary>Scroll wheel: scroll the nearest scrollable element under the pointer by pixels.</summary>
     public bool DispatchWheel(float x, float y, float pixelDelta)
@@ -1497,6 +1504,29 @@ public sealed partial class CupriDocument : IDisposable
             e.SetAttribute("data-hover", "");
             _hoverChain.Add(e);
         }
+        ReStyle();
+        return true;
+    }
+
+    // Mark data-active (CSS :active) on the pressed element + ancestors — set on pointer-down (the
+    // caller restyles), cleared on pointer-up. Holds while the button is down, unlike hover. Just
+    // mutates the DOM (no restyle here) so it doesn't disturb the click's in-progress hit logic.
+    private void SetActive(IElement? target)
+    {
+        foreach (var e in _activeChain) e.RemoveAttribute("data-active");
+        _activeChain.Clear();
+        for (var e = target; e is not null; e = e.ParentElement)
+        {
+            e.SetAttribute("data-active", "");
+            _activeChain.Add(e);
+        }
+    }
+
+    private bool ClearActive()
+    {
+        if (_activeChain.Count == 0) return false;
+        foreach (var e in _activeChain) e.RemoveAttribute("data-active");
+        _activeChain.Clear();
         ReStyle();
         return true;
     }

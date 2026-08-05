@@ -33,8 +33,9 @@ code { display:inline; font-family:monospace; color:var(--cupri-text); }
 .flexdemo { display:flex; gap:12px; margin-bottom:18px; }
 /* transform transition: the boxes lift on hover. */
 .fb { padding:20px; border-radius:10px; color:white; font-weight:bold; text-align:center;
-      transition: transform 0.2s ease-out; }
+      transition: transform 0.12s ease-out; }
 .fb:hover { transform: translateY(-6px); }
+.fb:active { transform: scale(0.96); } /* :active press feedback (eased via the transition) */
 .fb.a { flex:1; background:#B87333; } .fb.b { flex:2; background:#4682B4; }
 .grid { display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; }
 .gcell { background:#1b2233; color:#e6e9f0; border-radius:10px; padding:16px; font-size:14px; }

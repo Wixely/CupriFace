@@ -259,7 +259,8 @@ controls handle their own state.
 
 - Author normal CSS. Every component adds stable class hooks you can override
   (e.g. `.cupri-button`, `.cupri-switch`, `.cupri-slider-thumb`).
-- **State selectors:** `[data-hover]` (pointer over), `:focus`, `[data-invalid]` (bad field value),
+- **State selectors:** `:hover` / `[data-hover]` (pointer over), `:active` (pressed — held while the
+  mouse button is down), `:focus`, `[data-invalid]` (bad field value),
   and variant/state classes like `.on` (checked switch/checkbox/radio) and `.ghost` (button variant),
   `.active` (current tab), `.selected` (chosen option).
 - **Positioned parts are overridable too.** Nothing visual is locked behind computed inline styles:
