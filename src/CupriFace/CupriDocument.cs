@@ -51,6 +51,7 @@ public sealed partial class CupriDocument : IDisposable
     private int _caret;
     private int _selAnchor;      // selection anchor; selection is [min(anchor,caret), max]. anchor==caret ⇒ none.
     private int _listHi = -1;    // highlighted option index for a focused listbox field (combobox); -1 = none
+    private int _gridHi = -1;    // highlighted cell index for an open [data-gridnav] overlay (datepicker); -1 = none
     private bool _textDrag;      // a mouse drag is extending the text selection
     private int _kbIndex = -1;      // keyboard focus: index into the focusable list (-1 = none)
     private bool _focusVisible;     // show the focus ring? true after Tab, false after a mouse click
@@ -1045,6 +1046,45 @@ public sealed partial class CupriDocument : IDisposable
         return opts;
     }
 
+    // An open [data-gridnav] overlay (the date picker's day grid) + its option cells and column count,
+    // for arrow-key 2D navigation; null if none is open.
+    private (List<IElement> Cells, int Cols)? FocusedGrid()
+    {
+        if (_dom is null || _dom.QuerySelector("[data-gridnav]") is not { } grid) return null;
+        var cols = int.TryParse(grid.GetAttribute("data-gridnav"), out var c) ? Math.Max(1, c) : 7;
+        var cells = new List<IElement>();
+        foreach (var cell in grid.QuerySelectorAll("[data-set-value]")) cells.Add(cell);
+        return cells.Count > 0 ? (cells, cols) : null;
+    }
+
+    private static int GridSelectedIndex(List<IElement> cells)
+    {
+        for (var i = 0; i < cells.Count; i++) if (cells[i].ClassList.Contains("selected")) return i;
+        return 0;
+    }
+
+    private bool MoveGrid((List<IElement> Cells, int Cols) g, int delta)
+    {
+        _gridHi = Math.Clamp(_gridHi + delta, 0, g.Cells.Count - 1); // clamp keeps it within the shown month
+        foreach (var cell in g.Cells) cell.RemoveAttribute("data-highlight");
+        g.Cells[_gridHi].SetAttribute("data-highlight", "");
+        ReStyle();
+        return true;
+    }
+
+    private bool ActivateGrid((List<IElement> Cells, int Cols) g)
+    {
+        if (_gridHi < 0 || _gridHi >= g.Cells.Count || _model is null) return false;
+        var cell = g.Cells[_gridHi];
+        if (cell.GetAttribute("data-set-path") is not { Length: > 0 } path) return false;
+        BindingEngine.TrySet(_model, path, cell.GetAttribute("data-set-value") ?? "");
+        for (var e = cell; e is not null; e = e.ParentElement) // close the overlay (set its bound open=false)
+            if (e.GetAttribute("data-bind-open") is { Length: > 0 } op) { BindingEngine.TrySet(_model, op, "false"); break; }
+        _gridHi = -1;
+        Refresh();
+        return true;
+    }
+
     private bool UpdateFocus(IElement? field)
     {
         var key = field?.GetAttribute("data-bind-value") ?? field?.GetAttribute("id");
@@ -1088,6 +1128,22 @@ public sealed partial class CupriDocument : IDisposable
         // (Hosts deliver space as either EditKey.Space or a " " character.)
         if (_focusKey is null)
         {
+            // An open [data-gridnav] overlay (the date picker) captures the arrows for 2D day nav,
+            // Enter/Space to pick the highlighted day, ±1 = day, ±cols = week.
+            if (key is EditKey.Left or EditKey.Right or EditKey.Up or EditKey.Down or EditKey.Enter or EditKey.Space
+                && FocusedGrid() is { } grid)
+            {
+                if (_gridHi < 0) _gridHi = GridSelectedIndex(grid.Cells);
+                return key switch
+                {
+                    EditKey.Left => MoveGrid(grid, -1),
+                    EditKey.Right => MoveGrid(grid, +1),
+                    EditKey.Up => MoveGrid(grid, -grid.Cols),
+                    EditKey.Down => MoveGrid(grid, +grid.Cols),
+                    _ => ActivateGrid(grid), // Enter / Space
+                };
+            }
+
             var role = CurrentFocusNode()?.Element?.GetAttribute("role");
             switch (key)
             {

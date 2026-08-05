@@ -35,7 +35,7 @@ public sealed class DatePickerComponent : ComponentBase
            popup a constant height across months (no edge-flip jitter while paging). */
         .cupri-dp-day, .cupri-dp-pad { text-align:center; font-size:13px; height:16px; padding:7px 0; }
         .cupri-dp-day { border-radius:6px; color:var(--cupri-text, #1e2430); }
-        .cupri-dp-day[data-hover] { background:var(--cupri-hover, #eef1f5); }
+        .cupri-dp-day[data-hover], .cupri-dp-day[data-highlight] { background:var(--cupri-hover, #eef1f5); }
         .cupri-dp-day.selected { background:#B87333; color:white; font-weight:bold; }
         """;
 
@@ -73,7 +73,7 @@ public sealed class DatePickerComponent : ComponentBase
                 .Append(path.Length > 0 ? $"<div class='cupri-dp-nav' role='button' data-set-path='{path}' data-set-value='{Shift(1)}' data-set-keep>&#8250;</div>" : "<div class='cupri-dp-nav'>&#8250;</div>")
                 .Append("</div>");
 
-            body.Append("<div class='cupri-dp-grid'>");
+            body.Append("<div class='cupri-dp-grid' data-gridnav='7'>"); // 7 cols → arrow-key day nav
             foreach (var w in Dow) body.Append($"<div class='cupri-dp-dow'>{w}</div>");
             for (var i = 0; i < startDow; i++) body.Append("<div class='cupri-dp-pad'></div>"); // leading blanks
             for (var day = 1; day <= daysInMonth; day++)

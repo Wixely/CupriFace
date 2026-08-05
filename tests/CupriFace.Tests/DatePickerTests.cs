@@ -64,6 +64,26 @@ public class DatePickerTests
     }
 
     [Fact]
+    public void Arrow_keys_navigate_days_and_enter_picks_the_highlighted()
+    {
+        var m = new Model { Open = true };  // starts on 2026-08-15
+        using var t = new TestDoc(Html, "", m, components: true, width: 360, height: 420);
+
+        string? Highlight() => t.Find(n => n.Element?.HasAttribute("data-highlight") == true)?.Element?.GetAttribute("data-set-value");
+
+        t.Key(EditKey.Right);                       // 15 → 16 (from the selected day)
+        Assert.Equal("2026-08-16", Highlight());
+        t.Key(EditKey.Down);                        // +7 days → 23
+        Assert.Equal("2026-08-23", Highlight());
+        t.Key(EditKey.Up);                          // −7 → 16
+        Assert.Equal("2026-08-16", Highlight());
+
+        t.Key(EditKey.Enter);                       // pick the highlighted day
+        Assert.Equal("2026-08-16", m.Date);
+        Assert.False(m.Open);                       // and close
+    }
+
+    [Fact]
     public void Escape_closes_the_open_calendar()
     {
         var m = new Model { Open = true };
