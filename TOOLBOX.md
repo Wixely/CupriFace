@@ -281,8 +281,9 @@ controls handle their own state.
 - **Motion.** `@keyframes` (looping animations) and **`transition`** are both supported. A `transition`
   eases a property from its old value to its new one whenever that value changes — on `[data-hover]`,
   `:focus`, a state/class change, a model update, or the theme toggle. Animatable: `opacity`,
-  `background`/`color`/`border-color`, and `transform` (translate/scale/rotate). Easing keywords
-  `linear`/`ease`/`ease-in`/`ease-out`/`ease-in-out`. It's paint‑only (no reflow), so it's cheap.
+  `background`/`color`/`border-color`, `transform` (translate/scale/rotate), and `filter` (op‑by‑op).
+  Timing: `linear`/`ease`/`ease-in`/`ease-out`/`ease-in-out` or `cubic-bezier(x1,y1,x2,y2)` (overshoot
+  allowed). It's paint‑only (no reflow), so it's cheap.
   ```css
   .nav  { transition: background-color 0.2s ease, color 0.2s ease; }   /* smooth hover highlight */
   .card { transition: transform 0.25s ease-out; }

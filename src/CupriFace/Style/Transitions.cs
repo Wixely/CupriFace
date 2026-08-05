@@ -7,7 +7,7 @@ namespace CupriFace.Style;
 /// <summary>The paint-only properties a CSS <c>transition</c> can animate. All are read/written on
 /// <see cref="ComputedStyle"/> and none affect layout, so a transition re-paints without re-laying-out
 /// (like <c>@keyframes</c>).</summary>
-public enum TransProp { Opacity, Background, Color, BorderColor, Transform }
+public enum TransProp { Opacity, Background, Color, BorderColor, Transform, Filter }
 
 public enum EasingKind { Linear, Bezier }
 
@@ -75,6 +75,9 @@ public sealed class TransitionEngine
     private sealed class St
     {
         public float[] From = [], To = [], Current = [];
+        // Filter is structured (a list of ops), so it gets its own endpoints instead of the float[].
+        public List<FilterOp>? FromFil, ToFil, CurFil;
+        public bool FilterInterp; // endpoints have matching op-kinds → interpolate; else discrete (jump at 50%)
         public double Start = double.NaN; // set on the first applied frame (NaN = pending)
         public float Duration, Delay;
         public Easing Easing;
@@ -82,7 +85,7 @@ public sealed class TransitionEngine
         public bool Seen;
     }
 
-    private static readonly TransProp[] AllProps = [TransProp.Opacity, TransProp.Background, TransProp.Color, TransProp.BorderColor, TransProp.Transform];
+    private static readonly TransProp[] AllProps = [TransProp.Opacity, TransProp.Background, TransProp.Color, TransProp.BorderColor, TransProp.Transform, TransProp.Filter];
     private readonly Dictionary<string, St> _states = new();
 
     /// <summary>True while any transition is mid-flight (drives the host's continuous repaint).</summary>
@@ -109,6 +112,9 @@ public sealed class TransitionEngine
             {
                 if (Resolve(specs, p) is not { } spec) continue;
                 var key = $"{path}|{(int)p}";
+
+                if (p == TransProp.Filter) { DetectFilter(n.Style, key, spec); continue; }
+
                 var target = Read(n.Style, p);
                 if (_states.TryGetValue(key, out var st))
                 {
@@ -153,6 +159,9 @@ public sealed class TransitionEngine
                 if (!_states.TryGetValue($"{path}|{(int)p}", out var st) || !st.Active) continue;
                 if (double.IsNaN(st.Start)) st.Start = now;
                 var u = st.Duration > 0 ? (float)((now - st.Start - st.Delay) / st.Duration) : 1f;
+
+                if (p == TransProp.Filter) { ApplyFilter(n.Style, st, u); continue; }
+
                 if (u <= 0f) { Write(n.Style, p, st.From); continue; }      // delay phase: hold the start value
                 if (u >= 1f) { st.Current = st.To; st.Active = false; Write(n.Style, p, st.To); continue; }
                 st.Current = Lerp(st.From, st.To, st.Easing.Eval(u));
@@ -183,8 +192,111 @@ public sealed class TransitionEngine
         TransProp.Background => "background",
         TransProp.Color => "color",
         TransProp.BorderColor => "border-color",
+        TransProp.Filter => "filter",
         _ => "transform",
     };
+
+    // ---- filter transitions (structured: a list of ops, interpolated op-by-op) --------------------
+
+    private void DetectFilter(ComputedStyle style, string key, TransitionSpec spec)
+    {
+        var target = style.Filter; // List<FilterOp>? (null = no filter)
+        if (_states.TryGetValue(key, out var st))
+        {
+            st.Seen = true;
+            st.Duration = spec.Duration; st.Delay = spec.Delay; st.Easing = spec.Easing;
+            if (!FilterEqual(target, st.ToFil))
+            {
+                st.FromFil = st.CurFil ?? st.ToFil; // animate from the currently-displayed filter
+                st.ToFil = target;
+                st.FilterInterp = FilterInterpolable(st.FromFil, st.ToFil);
+                st.Start = double.NaN;
+                st.Active = spec.Duration > 0;
+                if (!st.Active) st.CurFil = target;
+            }
+        }
+        else // baseline — no animation on the initial style
+        {
+            _states[key] = new St
+            {
+                FromFil = target, ToFil = target, CurFil = target, Seen = true,
+                Duration = spec.Duration, Delay = spec.Delay, Easing = spec.Easing,
+            };
+        }
+    }
+
+    private static void ApplyFilter(ComputedStyle style, St st, float u)
+    {
+        if (u <= 0f) { style.Filter = st.FromFil; return; }               // delay phase: hold the start
+        if (u >= 1f) { st.CurFil = st.ToFil; st.Active = false; style.Filter = st.ToFil; return; }
+        var e = st.Easing.Eval(u);
+        if (!st.FilterInterp) { style.Filter = e < 0.5f ? st.FromFil : st.ToFil; return; } // discrete
+        st.CurFil = LerpFilters(st.FromFil, st.ToFil, e);
+        style.Filter = st.CurFil;
+    }
+
+    // The identity (no-op) value for a filter function — what a missing side interpolates from/to.
+    private static float Identity(FilterKind k) => k switch
+    {
+        FilterKind.Brightness or FilterKind.Contrast or FilterKind.Saturate or FilterKind.Opacity => 1f,
+        _ => 0f, // blur, grayscale, sepia, invert, drop-shadow amounts start at 0
+    };
+
+    // Pad a (possibly null/empty) list to match a reference list's op-kinds, using identity amounts.
+    private static List<FilterOp> PadToKinds(List<FilterOp>? list, List<FilterOp> kinds)
+    {
+        var outp = new List<FilterOp>(kinds.Count);
+        for (var i = 0; i < kinds.Count; i++)
+        {
+            if (list is not null && i < list.Count && list[i].Kind == kinds[i].Kind) outp.Add(list[i]);
+            else outp.Add(new FilterOp(kinds[i].Kind, Identity(kinds[i].Kind), 0, 0, new SKColor(0, 0, 0, 0)));
+        }
+        return outp;
+    }
+
+    // Two filter chains interpolate if one is empty (→ identity of the other) or their op-kinds match.
+    private static bool FilterInterpolable(List<FilterOp>? a, List<FilterOp>? b)
+    {
+        var an = a is { Count: > 0 }; var bn = b is { Count: > 0 };
+        if (!an || !bn) return true; // empty side pads to identities of the other
+        if (a!.Count != b!.Count) return false;
+        for (var i = 0; i < a.Count; i++) if (a[i].Kind != b[i].Kind) return false;
+        return true;
+    }
+
+    private static List<FilterOp> LerpFilters(List<FilterOp>? from, List<FilterOp>? to, float t)
+    {
+        var kinds = to is { Count: > 0 } ? to : from ?? [];
+        var f = PadToKinds(from, kinds);
+        var g = PadToKinds(to, kinds);
+        var outp = new List<FilterOp>(kinds.Count);
+        for (var i = 0; i < kinds.Count; i++)
+        {
+            var a = f[i]; var b = g[i];
+            outp.Add(new FilterOp(a.Kind,
+                a.A + (b.A - a.A) * t, a.B + (b.B - a.B) * t, a.C + (b.C - a.C) * t,
+                LerpColor(a.Color, b.Color, t)));
+        }
+        return outp;
+    }
+
+    private static bool FilterEqual(List<FilterOp>? a, List<FilterOp>? b)
+    {
+        var an = a is { Count: > 0 }; var bn = b is { Count: > 0 };
+        if (!an && !bn) return true;
+        if (an != bn || a!.Count != b!.Count) return false;
+        for (var i = 0; i < a.Count; i++)
+        {
+            var x = a[i]; var y = b[i];
+            if (x.Kind != y.Kind || MathF.Abs(x.A - y.A) > 0.001f || MathF.Abs(x.B - y.B) > 0.001f
+                || MathF.Abs(x.C - y.C) > 0.001f || x.Color != y.Color) return false;
+        }
+        return true;
+    }
+
+    private static SKColor LerpColor(SKColor a, SKColor b, float t) => new(
+        Byte(a.Red + (b.Red - a.Red) * t), Byte(a.Green + (b.Green - a.Green) * t),
+        Byte(a.Blue + (b.Blue - a.Blue) * t), Byte(a.Alpha + (b.Alpha - a.Alpha) * t));
 
     private static float[] Read(ComputedStyle s, TransProp p) => p switch
     {

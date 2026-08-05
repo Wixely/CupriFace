@@ -85,6 +85,9 @@ code { display:inline; font-family:monospace; color:var(--cupri-text); }
 /* Filter tiles — each applies a CSS filter() to a copper square. */
 .fbox { width:84px; height:84px; border-radius:14px; display:flex; align-items:center;
         justify-content:center; color:white; font-weight:bold; font-size:13px; background:#B87333; }
+/* filter transition: greyscale eases to full colour on hover. */
+.freveal { filter: grayscale(1) brightness(0.9); transition: filter 0.4s ease; }
+.freveal:hover { filter: grayscale(0) brightness(1); }
 
 /* Border-style tiles — solid / dashed / dotted. */
 .brdemo { width:80px; height:80px; border-radius:12px; display:flex; align-items:center;
