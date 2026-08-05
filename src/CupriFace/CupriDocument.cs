@@ -1283,7 +1283,11 @@ public sealed partial class CupriDocument : IDisposable
     private void ReStyle()
     {
         if (_dom is null) return;
+        // Restyle (hover/active) rebuilds the tree too, so preserve scroll offsets — otherwise any
+        // mouse move over the page snaps a scrolled field back to the top.
+        var scroll = CaptureScroll();
         _root = new StyleResolver(_rules, _viewportWidth).BuildTree(_dom);
+        RestoreScroll(scroll);
     }
 
     private static double ParseAttr(IElement el, string name, double fallback) =>
