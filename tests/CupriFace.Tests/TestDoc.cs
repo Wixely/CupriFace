@@ -69,6 +69,7 @@ public sealed class TestDoc : IDisposable
     public void Type(string text) { Doc.DispatchKey(text, EditKey.None); Layout(); }
 
     public void ClickNode(RenderNode n, int clicks = 1) { var (x, y) = Center(n); Click(x, y, clicks); }
+    public void ClickMatch(Func<RenderNode, bool> match) => ClickNode(Find(match)!);
     public void HoverClass(string cls) { var (x, y) = Center(FindClass(cls)); Move(x, y); }
 
     public void Dispose() => Doc.Dispose();

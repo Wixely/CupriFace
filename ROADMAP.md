@@ -87,7 +87,7 @@ Sustained fluidity is the core requirement (DESIGN risk #0); a demo hitting 60 f
 
 | Item | Status | Notes |
 |------|--------|-------|
-| **Automated test project** (xUnit) + CI | 🟢 | **Done** — `tests/CupriFace.Tests` (xUnit) with a shared `TestDoc` harness; 25 tests covering transitions (+cubic-bezier, +filter), `filter`, `border-style`, `:hover`/`:active`, the single-line field (nowrap + horizontal scroll), wrap-aware selection, the context menu, `RenderToPixels` (premul/straight/transparent), and async `ImageStore` loading. GitHub Actions runs `dotnet test` on push/PR. Follow-up: fold in more control-behaviour cases as they're added. |
+| **Automated test project** (xUnit) + CI | 🟢 | **Done** — `tests/CupriFace.Tests` (xUnit) with a shared `TestDoc` harness; 33 tests covering transitions (+cubic-bezier, +filter), `filter`, `border-style`, `:hover`/`:active`, the single-line field (nowrap + horizontal scroll), wrap-aware selection, the context menu, `RenderToPixels` (premul/straight/transparent), async `ImageStore` loading, and the native controls (tabs, accordion, select, textarea, tree, checkbox, switch, radio, slider). GitHub Actions runs `dotnet test` on push/PR. |
 
 ## 10. Text input polish
 
