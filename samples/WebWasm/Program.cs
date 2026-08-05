@@ -33,6 +33,19 @@ public partial class Interop
         _doc = _app.CreateDocument();
         _bg = _app.Background;
         _transparent = _app.Transparent;
+
+        // Right-click menu → clipboard. The engine raises the chosen command; the browser owns the
+        // clipboard (async), so route Copy/Cut/Paste through JS (same as the Ctrl+C/X/V handlers).
+        _doc.ContextRequested += cmd =>
+        {
+            switch (cmd)
+            {
+                case ContextCommand.Copy: if (_doc.CopySelection() is { } cp) ClipboardWrite(cp); break;
+                case ContextCommand.Cut: if (_doc.CutSelection() is { } ct) { ClipboardWrite(ct); _dirty = true; } break;
+                case ContextCommand.Paste: ClipboardPaste(); break; // JS reads the clipboard, then calls KeyChar
+                case ContextCommand.SelectAll: if (_doc.DispatchKey(null, EditKey.SelectAll)) _dirty = true; break;
+            }
+        };
     }
 
     /// <summary>Called every animation frame by JS. Renders ONLY when needed — after input, on
@@ -116,6 +129,7 @@ public partial class Interop
     // (Marking dirty unconditionally repainted the whole 940x720 canvas on every mouse-move —
     // even over empty space where hover didn't change — saturating the CPU while moving.)
     [JSExport] internal static void PointerDown(double x, double y, int clicks) { if (_doc?.DispatchClick((float)(x / _scale), (float)(y / _scale), clicks) == true) _dirty = true; }
+    [JSExport] internal static void ContextMenu(double x, double y) { if (_doc?.DispatchContextMenu((float)(x / _scale), (float)(y / _scale)) == true) _dirty = true; }
     [JSExport] internal static void PointerMove(double x, double y) { if (_doc?.DispatchPointerMove((float)(x / _scale), (float)(y / _scale)) == true) _dirty = true; }
     [JSExport] internal static void PointerUp(double x, double y) { _doc?.DispatchPointerUp((float)(x / _scale), (float)(y / _scale)); }
     [JSExport] internal static void Wheel(double x, double y, double dy) { if (_doc?.DispatchWheel((float)(x / _scale), (float)(y / _scale), (float)-dy) == true) _dirty = true; }
@@ -136,4 +150,8 @@ public partial class Interop
     // JS side (module "cupri") copies the pixels into the 2D canvas via putImageData.
     [JSImport("present", "cupri")]
     internal static partial void Present([JSMarshalAs<JSType.MemoryView>] Span<byte> rgba, int width, int height);
+
+    // Clipboard bridge for the context menu (the browser clipboard is async, so it lives in JS).
+    [JSImport("clipboardWrite", "cupri")] internal static partial void ClipboardWrite(string text);
+    [JSImport("clipboardPaste", "cupri")] internal static partial void ClipboardPaste();
 }

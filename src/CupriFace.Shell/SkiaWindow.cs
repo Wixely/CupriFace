@@ -36,6 +36,7 @@ public sealed class SkiaWindow : IDisposable
     /// <summary>Raised on left-button press with client-area coordinates and the click count
     /// (1/2/3 = single/double/triple — for word/line text selection).</summary>
     public event Action<float, float, int>? PointerDown;
+    public event Action<float, float>? RightPointerDown;     // right-click → context menu
     public event Action<float, float>? PointerMove;
     public event Action<float, float>? PointerUp;
     public event Action<float, float, float>? PointerWheel; // x, y, deltaY (notches)
@@ -109,7 +110,11 @@ public sealed class SkiaWindow : IDisposable
         _input = _window.CreateInput();
         foreach (var mouse in _input.Mice)
         {
-            mouse.MouseDown += (m, btn) => { if (btn == MouseButton.Left) PointerDown?.Invoke(m.Position.X, m.Position.Y, NextClickCount(m.Position.X, m.Position.Y)); };
+            mouse.MouseDown += (m, btn) =>
+            {
+                if (btn == MouseButton.Left) PointerDown?.Invoke(m.Position.X, m.Position.Y, NextClickCount(m.Position.X, m.Position.Y));
+                else if (btn == MouseButton.Right) RightPointerDown?.Invoke(m.Position.X, m.Position.Y);
+            };
             mouse.MouseUp += (m, btn) => { if (btn == MouseButton.Left) PointerUp?.Invoke(m.Position.X, m.Position.Y); };
             mouse.MouseMove += (m, pos) => PointerMove?.Invoke(pos.X, pos.Y);
             mouse.Scroll += (m, wheel) => PointerWheel?.Invoke(m.Position.X, m.Position.Y, wheel.Y);

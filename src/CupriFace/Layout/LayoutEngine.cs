@@ -102,6 +102,12 @@ public sealed class LayoutEngine
                 child.Y = s.Top.IsDefinite ? s.Top.Resolve(vh)
                     : s.Bottom.IsDefinite ? vh - s.Bottom.Resolve(vh) - child.Height
                     : (vh - child.Height) / 2f;         // no vertical inset ⇒ centre
+                // Keep a context menu fully on-screen (it opens at the pointer, which may be near an edge).
+                if (child.Element?.HasAttribute("data-ctx-clamp") == true)
+                {
+                    child.X = Math.Clamp(child.X, 4f, MathF.Max(4f, vw - child.Width - 4f));
+                    child.Y = Math.Clamp(child.Y, 4f, MathF.Max(4f, vh - child.Height - 4f));
+                }
                 child.IsTopLayer = true;
             }
             LayoutFixedNodes(child, vw, vh);

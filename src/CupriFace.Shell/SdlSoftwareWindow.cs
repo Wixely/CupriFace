@@ -34,6 +34,7 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
 
     public event Action<RenderContext>? Render;
     public event Action<float, float, int>? PointerDown;    // x, y, click count (1/2/3)
+    public event Action<float, float>? RightPointerDown;    // right-click → context menu
     public event Action<float, float>? PointerMove;
     public event Action<float, float>? PointerUp;
     public event Action<float, float, float>? PointerWheel; // x, y, deltaY (notches)
@@ -115,7 +116,8 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                         running = false;
                         break;
                     case EventType.Mousebuttondown:
-                        PointerDown?.Invoke(e.Button.X, e.Button.Y, e.Button.Clicks); // SDL tracks click count
+                        if (e.Button.Button == Sdl.ButtonRight) RightPointerDown?.Invoke(e.Button.X, e.Button.Y);
+                        else PointerDown?.Invoke(e.Button.X, e.Button.Y, e.Button.Clicks); // SDL tracks click count
                         break;
                     case EventType.Mousebuttonup:
                         PointerUp?.Invoke(e.Button.X, e.Button.Y);

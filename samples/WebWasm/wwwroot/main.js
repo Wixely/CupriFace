@@ -50,7 +50,10 @@ try {
             img.data.set(rgba.slice());
             ctx.putImageData(img, 0, 0);
             window.__paints++;
-        }
+        },
+        // Context-menu clipboard (async browser clipboard). Paste reads then feeds the engine.
+        clipboardWrite: text => navigator.clipboard.writeText(text).catch(() => {}),
+        clipboardPaste: () => navigator.clipboard.readText().then(t => { if (t) I.KeyChar(t); }).catch(() => {})
     });
 
     const config = getConfig();
@@ -71,6 +74,8 @@ try {
     // fire after the runtime is running, below.
     // e.detail carries the click count (1/2/3 = single/double/triple) for word/line selection.
     canvas.addEventListener('pointerdown', e => { canvas.focus(); const [x, y] = at(e); I.PointerDown(x, y, e.detail || 1); });
+    // Right-click: show the engine's context menu, suppress the browser's default menu.
+    canvas.addEventListener('contextmenu', e => { canvas.focus(); const [x, y] = at(e); I.ContextMenu(x, y); e.preventDefault(); });
     canvas.addEventListener('pointermove', e => { const [x, y] = at(e); I.PointerMove(x, y); });
     canvas.addEventListener('pointerup',   e => { const [x, y] = at(e); I.PointerUp(x, y); });
     canvas.addEventListener('wheel', e => { const [x, y] = at(e); I.Wheel(x, y, e.deltaY); e.preventDefault(); }, { passive: false });

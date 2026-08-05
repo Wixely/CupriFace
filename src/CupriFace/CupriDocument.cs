@@ -61,6 +61,18 @@ public sealed partial class CupriDocument : IDisposable
     private RenderNode? _resizeDrag;    // node whose resize grip is being dragged
     private float _resizeX0, _resizeY0, _resizeW0, _resizeH0;
 
+    // Right-click context menu (Cut/Copy/Paste/Select-all) over a text field. The engine owns
+    // opening/positioning/rendering/dismissing it; the host performs the chosen clipboard action.
+    private bool _ctxOpen;
+    private float _ctxX, _ctxY;
+    private bool _ctxHasSelection;  // enables Cut/Copy
+    private bool _ctxHasText;       // enables Select All
+
+    /// <summary>Raised when a context-menu item is chosen. The host performs the clipboard action
+    /// (via <see cref="CopySelection"/>/<see cref="CutSelection"/>/<see cref="DispatchKey"/> +
+    /// its own clipboard), keeping platform clipboard code out of the engine.</summary>
+    public event Action<Interaction.ContextCommand>? ContextRequested;
+
     // Per-field undo/redo history (cleared on focus change). A snapshot of the edit buffer + caret.
     private readonly record struct EditState(string Buffer, int Caret, int Anchor);
     private readonly List<EditState> _undo = new();
@@ -175,6 +187,10 @@ public sealed partial class CupriDocument : IDisposable
         }
 
         Mark("focus");
+
+        // The context menu is engine-owned, so re-inject it on every rebuild (the DOM re-parses
+        // from the template each time) while it's open — same approach as focus re-application.
+        if (_ctxOpen) InjectContextMenu(dom);
 
         // CSS rules + @keyframes come from immutable sources (component CSS, author CSS, template
         // <style> tags), so parse them ONCE and reuse across rebuilds — a rebuild happens on every
@@ -659,6 +675,21 @@ public sealed partial class CupriDocument : IDisposable
     public bool DispatchClick(float x, float y, int clickCount = 1)
     {
         _textDrag = false;
+
+        // An open context menu intercepts the next click: an item runs its command (without
+        // blurring the underlying field, so the selection survives for Copy/Cut); a click
+        // elsewhere (or on a disabled/separator row) just dismisses it. Either way it's swallowed.
+        if (_ctxOpen)
+        {
+            var ctxHit = HitTesting.HitTest(_root, x, y);
+            if (InContextMenu(ctxHit))
+            {
+                if (ContextCommandOf(ctxHit) is { } cmd) { _ctxOpen = false; ContextRequested?.Invoke(cmd); Refresh(); }
+                return true; // inside but not actionable → keep the menu open
+            }
+            _ctxOpen = false; Refresh(); return true; // outside → dismiss
+        }
+
         var hit = HitTesting.HitTest(_root, x, y);
         if (hit is null) { _kbIndex = -1; return UpdateFocus(null); } // click on empty space blurs
 
@@ -961,6 +992,9 @@ public sealed partial class CupriDocument : IDisposable
     {
         ReconcileScope(); // reflect any overlay that opened/closed since the last event
 
+        // Any keystroke dismisses an open context menu; Escape only closes it (swallowed).
+        if (_ctxOpen) { _ctxOpen = false; Refresh(); if (key == EditKey.Escape) return true; }
+
         // Normalize pasted/typed line endings to '\n' (a textarea's internal newline). Windows
         // clipboards deliver "\r\n"; the stray '\r' would otherwise render as a collapsed empty line.
         if (text is { } t && t.IndexOf('\r') >= 0) text = t.Replace("\r\n", "\n").Replace('\r', '\n');
@@ -1094,6 +1128,91 @@ public sealed partial class CupriDocument : IDisposable
         var t = CopySelection();
         if (t is not null) DispatchKey(null, EditKey.Delete);
         return t;
+    }
+
+    // ---- right-click context menu (Cut/Copy/Paste/Select-all on text fields) -----------------
+
+    /// <summary>Open a context menu at (x,y) if it's over a text field. Focuses the field (a fresh
+    /// focus has no selection, so Cut/Copy start disabled; right-clicking the already-focused field
+    /// keeps its selection). Returns true if a menu opened or an open one closed (→ repaint).</summary>
+    public bool DispatchContextMenu(float x, float y)
+    {
+        var hit = HitTesting.HitTest(_root, x, y);
+        RenderNode? field = hit;
+        while (field is not null && field.Element?.GetAttribute("role") is not ("textbox" or "spinbutton"))
+            field = field.Parent;
+
+        if (field is null) // not over an editable → close any open menu, otherwise nothing to do
+        {
+            if (!_ctxOpen) return false;
+            _ctxOpen = false; Refresh(); return true;
+        }
+
+        // Focus the field (does nothing if already focused — so an existing selection is kept).
+        UpdateFocus(field.Element);
+        _kbIndex = IndexOfFocusable(hit!); // hit is non-null here (field is hit or an ancestor)
+        _focusVisible = false;
+
+        _ctxOpen = true; _ctxX = x; _ctxY = y;
+        _ctxHasSelection = CopySelection() is not null;
+        _ctxHasText = !string.IsNullOrEmpty(_editBuffer);
+        Refresh(); // rebuild injects the menu subtree
+        return true;
+    }
+
+    // Is this node inside the open context menu? (walk up to the data-ctx-menu container)
+    private static bool InContextMenu(RenderNode? n)
+    {
+        for (; n is not null; n = n.Parent)
+            if (n.Element?.HasAttribute("data-ctx-menu") == true) return true;
+        return false;
+    }
+
+    // The command a clicked menu row carries (data-cupri-context), searching up from the hit node.
+    private static Interaction.ContextCommand? ContextCommandOf(RenderNode? n)
+    {
+        for (; n is not null; n = n.Parent)
+            if (n.Element?.GetAttribute("data-cupri-context") is { Length: > 0 } cmd)
+                return cmd switch
+                {
+                    "cut" => Interaction.ContextCommand.Cut,
+                    "copy" => Interaction.ContextCommand.Copy,
+                    "paste" => Interaction.ContextCommand.Paste,
+                    "selectall" => Interaction.ContextCommand.SelectAll,
+                    _ => (Interaction.ContextCommand?)null,
+                };
+        return null;
+    }
+
+    // Inject the menu as a position:fixed overlay at the pointer. Self-styled (inline) so it never
+    // depends on the app's stylesheet or which component library is registered.
+    private void InjectContextMenu(IDocument dom)
+    {
+        if (dom.Body is not { } body) return;
+        var x = _ctxX.ToString(CultureInfo.InvariantCulture);
+        var y = _ctxY.ToString(CultureInfo.InvariantCulture);
+
+        static string Row(string cmd, string label, string hint, bool enabled)
+        {
+            var color = enabled ? "#1e2430" : "#b0b6c0";
+            var attr = enabled ? $" role='menuitem' data-cupri-context='{cmd}'" : "";
+            return $"<div{attr} style='display:flex;justify-content:space-between;gap:28px;"
+                 + $"padding:7px 12px;border-radius:6px;color:{color};font-size:14px;'>"
+                 + $"<span>{label}</span><span style='color:#9aa2b1'>{hint}</span></div>";
+        }
+        const string sep = "<div style='height:1px;background:#e6e9f0;margin:4px 6px;'></div>";
+
+        var menu = $"<div data-ctx-menu data-ctx-clamp style='position:fixed;left:{x}px;top:{y}px;"
+            + "background:#ffffff;border:1px #e6e9f0;border-radius:8px;padding:5px;min-width:180px;"
+            + "font-family:sans-serif;z-index:60;'>"
+            + Row("cut", "Cut", "Ctrl+X", _ctxHasSelection)
+            + Row("copy", "Copy", "Ctrl+C", _ctxHasSelection)
+            + Row("paste", "Paste", "Ctrl+V", true)
+            + sep
+            + Row("selectall", "Select All", "Ctrl+A", _ctxHasText)
+            + "</div>";
+
+        body.Insert(AngleSharp.Dom.AdjacentPosition.BeforeEnd, menu);
     }
 
     /// <summary>Undo the last edit in the focused field (Ctrl+Z). Returns true if it changed anything.</summary>
@@ -1375,6 +1494,7 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>Scroll wheel: scroll the nearest scrollable element under the pointer by pixels.</summary>
     public bool DispatchWheel(float x, float y, float pixelDelta)
     {
+        if (_ctxOpen) { _ctxOpen = false; Refresh(); } // scrolling dismisses the context menu
         var hit = HitTesting.HitTest(_root, x, y);
         for (var n = hit; n is not null; n = n.Parent)
         {
