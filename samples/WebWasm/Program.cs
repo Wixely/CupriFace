@@ -59,6 +59,9 @@ public partial class Interop
         // Canvas resized (window resize) → repaint so scaling reflows to the new viewport.
         if (width != _lastW || height != _lastH) { _lastW = width; _lastH = height; _dirty = true; }
 
+        // A background (remote) image finished loading → repaint so it appears.
+        if (_doc.ConsumeImageArrived()) _dirty = true;
+
         // Live re-bind (e.g. the Diagnostics readout) on the app's cadence.
         if (_app.RefreshIntervalSeconds > 0 && _clock.Elapsed.TotalSeconds - _lastRefresh >= _app.RefreshIntervalSeconds)
         {

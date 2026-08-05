@@ -101,6 +101,18 @@ public sealed partial class CupriDocument : IDisposable
         return this;
     }
 
+    /// <summary>Policy for remote (<c>http(s)</c>) image URLs (https-only, size cap, host allow-list…).
+    /// Defaults are strict; override to e.g. allow a specific host.</summary>
+    public CupriDocument UseImageUrlOptions(Resources.CupriSourceOptions options)
+    {
+        _images.UrlOptions = options;
+        return this;
+    }
+
+    /// <summary>True (once, then reset) if a background image load finished since the last call. A
+    /// render-on-demand host repaints when this returns true, so an async remote image appears.</summary>
+    public bool ConsumeImageArrived() => _images.TakeArrived();
+
     public RenderNode Root => _root;
 
     /// <summary>Parse an HTML document and an optional external stylesheet.</summary>
