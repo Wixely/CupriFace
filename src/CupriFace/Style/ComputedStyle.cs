@@ -43,6 +43,7 @@ public sealed class ComputedStyle
     public List<TrackSize>? GridTemplateColumns;
     public List<TrackSize>? GridTemplateRows;
     public TrackSize? GridAutoRows;
+    public Dictionary<string, int>? GridColumnLines, GridRowLines; // [name] → 1-based grid line
 
     // Grid item
     public GridPlacement GridColumn = GridPlacement.Auto;

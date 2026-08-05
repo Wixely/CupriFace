@@ -206,8 +206,8 @@ public sealed class StyleResolver
                 case "flex-basis": s.FlexBasis = ParseLen(v); break;
                 case "flex": ParseFlexShorthand(s, v); break;
 
-                case "grid-template-columns": s.GridTemplateColumns = ParseTracks(v); break;
-                case "grid-template-rows": s.GridTemplateRows = ParseTracks(v); break;
+                case "grid-template-columns": s.GridTemplateColumns = ParseTemplate(v, out s.GridColumnLines); break;
+                case "grid-template-rows": s.GridTemplateRows = ParseTemplate(v, out s.GridRowLines); break;
                 case "grid-auto-rows": s.GridAutoRows = ParseTrack(v); break;
                 case "grid-column": s.GridColumn = ParsePlacement(v); break;
                 case "grid-row": s.GridRow = ParsePlacement(v); break;
@@ -342,8 +342,12 @@ public sealed class StyleResolver
     }
 
     // ---- grid parsers --------------------------------------------------------
-    private static List<TrackSize> ParseTracks(string v)
+    private static List<TrackSize> ParseTracks(string v) => ParseTemplate(v, out _);
+
+    /// <summary>Parse a grid template into tracks plus any <c>[name]</c> line names → 1-based line index.</summary>
+    private static List<TrackSize> ParseTemplate(string v, out System.Collections.Generic.Dictionary<string, int>? lineNames)
     {
+        lineNames = null;
         // Expand repeat(n, tracklist) → the tracklist repeated n times.
         v = _repeat.Replace(v, m =>
         {
@@ -354,11 +358,19 @@ public sealed class StyleResolver
 
         var tracks = new List<TrackSize>();
         foreach (var tok in SplitTopLevel(v))
-            tracks.Add(ParseTrack(tok));
+        {
+            if (tok.Length > 1 && tok[0] == '[' && tok[^1] == ']') // [a b] names the line before the next track
+            {
+                var line = tracks.Count + 1; // 1-based line number
+                foreach (var name in tok[1..^1].Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    (lineNames ??= new())[name] = line;
+            }
+            else tracks.Add(ParseTrack(tok));
+        }
         return tracks;
     }
 
-    /// <summary>Split on spaces but keep parenthesised groups (minmax(...)) intact.</summary>
+    /// <summary>Split on spaces but keep parenthesised groups (minmax(...)) and [name] lists intact.</summary>
     private static List<string> SplitTopLevel(string v)
     {
         var list = new List<string>();
@@ -366,8 +378,8 @@ public sealed class StyleResolver
         var depth = 0;
         foreach (var ch in v)
         {
-            if (ch == '(') depth++;
-            else if (ch == ')') depth--;
+            if (ch is '(' or '[') depth++;
+            else if (ch is ')' or ']') depth--;
             if (char.IsWhiteSpace(ch) && depth == 0)
             {
                 if (sb.Length > 0) { list.Add(sb.ToString()); sb.Clear(); }
@@ -396,24 +408,27 @@ public sealed class StyleResolver
 
     private static GridPlacement ParsePlacement(string v)
     {
-        // Supports: "2", "span 3", "2 / 4", "2 / span 3".
+        // Supports: "2", "span 3", "2 / 4", "2 / span 3", and named lines ("main / main-end").
         v = v.Trim().ToLowerInvariant();
         var sides = v.Split('/', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
 
         int? start = null;
         var span = 1;
-        if (sides.Length >= 1 && sides[0].StartsWith("span"))
-            span = int.TryParse(sides[0][4..].Trim(), out var sp) ? sp : 1;
-        else if (sides.Length >= 1 && int.TryParse(sides[0], out var st))
-            start = st;
-
+        string? startName = null, endName = null;
+        if (sides.Length >= 1)
+        {
+            if (sides[0].StartsWith("span")) span = int.TryParse(sides[0][4..].Trim(), out var sp) ? sp : 1;
+            else if (int.TryParse(sides[0], out var st)) start = st;
+            else startName = sides[0]; // named grid line
+        }
         if (sides.Length >= 2)
         {
             var end = sides[1];
             if (end.StartsWith("span")) span = int.TryParse(end[4..].Trim(), out var sp2) ? sp2 : 1;
             else if (int.TryParse(end, out var e) && start is { } s0) span = Math.Max(1, e - s0);
+            else if (!int.TryParse(end, out _)) endName = end; // named end line
         }
-        return new GridPlacement(start, span);
+        return new GridPlacement(start, span, startName, endName);
     }
 
     private static void ParseAnimation(ComputedStyle s, string v)

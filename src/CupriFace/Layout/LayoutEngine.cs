@@ -419,8 +419,8 @@ public sealed class LayoutEngine
 
     // ---- grid ----------------------------------------------------------------
     // Subset: explicit columns (px/%/fr/auto/repeat), row-major auto-placement with
-    // column spans and explicit start lines, gap, content-sized (or grid-auto-rows)
-    // rows, items stretched to their cell. rowSpan>1 and named lines are future work.
+    // column/row spans, explicit start lines and named grid lines, gap, content-sized
+    // (or grid-auto-rows) rows, items stretched to their cell.
     private float LayoutGrid(RenderNode node, float contentW, float contentH)
     {
         var s = node.Style;
@@ -464,14 +464,17 @@ public sealed class LayoutEngine
         {
             var gc = items[i].Style.GridColumn;
             var gr = items[i].Style.GridRow;
-            var span = Math.Min(gc.Span, nCols);
-            var rowSpan = Math.Max(1, gr.Span);
+            // Resolve named grid lines against the container's template line names.
+            var colStart = ResolveLine(gc, s.GridColumnLines);
+            var rowStart = ResolveLine(gr, s.GridRowLines);
+            var span = Math.Min(ResolveSpan(gc, colStart, s.GridColumnLines), nCols);
+            var rowSpan = Math.Max(1, ResolveSpan(gr, rowStart, s.GridRowLines));
 
             int r, c;
-            if (gc.Start is { } startLine)
+            if (colStart is { } startLine)
             {
                 c = Math.Clamp(startLine - 1, 0, nCols - span);
-                r = gr.Start is { } rowLine ? rowLine - 1 : cursorRow;
+                r = rowStart is { } rowLine ? rowLine - 1 : cursorRow;
                 while (!Free(r, rowSpan, c, span)) r++;
             }
             else
@@ -548,6 +551,19 @@ public sealed class LayoutEngine
         for (var r = 0; r < nRows; r++) total += rowHeights[r];
         total += rowGap * MathF.Max(0, nRows - 1);
         return total;
+    }
+
+    // Resolve a placement's start line: a named line (via the container's line-name map) else the
+    // numeric start (both 1-based).
+    private static int? ResolveLine(GridPlacement p, Dictionary<string, int>? names)
+        => p.StartName is { } n && names is not null && names.TryGetValue(n, out var li) ? li : p.Start;
+
+    // Resolve a placement's span: from a named end line (end − start) when both resolve, else the span.
+    private static int ResolveSpan(GridPlacement p, int? start, Dictionary<string, int>? names)
+    {
+        if (p.EndName is { } en && names is not null && names.TryGetValue(en, out var el) && start is { } st)
+            return Math.Max(1, el - st);
+        return p.Span;
     }
 
     private static float[] ResolveTracks(List<TrackSize> tracks, float available, float gap)

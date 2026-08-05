@@ -34,7 +34,7 @@ Ambition is the modern core; these are the sequenced-but-unshipped pieces (DESIG
 | Real **`:hover` / `:active`** pseudo-classes | 🟢 | **Done** — authored as `:hover`/`:active`/`:focus` (rewritten to marker attributes the engine toggles). `:hover` follows the pointer; `:active` marks the pressed element chain on pointer-down and clears on pointer-up (holds while held, like a real button press). |
 | **`filter`** | 🟢 | **Done** — `filter: blur() brightness() contrast() grayscale() saturate() sepia() invert() opacity() drop-shadow()`, composed into one `SKImageFilter` (colour-matrix ops fold into a colour filter; blur/drop-shadow are image filters) and applied via a `SaveLayer` wrapping the element's subtree. Animatable via `transition` (op-by-op). |
 | **Border style keywords** (`solid`/`dashed`/`dotted`) | 🟢 | **Done** — `border-style` (and the keyword in the `border` shorthand) parsed to `BorderLineStyle`; the rasteriser dashes/dots the uniform border stroke via a dash path effect (`none`/`hidden` suppress it). |
-| Grid: **named lines** + **multi-row spans** (`rowSpan>1`) | 🔴 | Grid v1 covers tracks/`fr`/`repeat()`/`gap`/column spans; these are the remaining refinements (`LayoutEngine` comment). |
+| Grid: **named lines** + **multi-row spans** (`rowSpan>1`) | 🟢 | **Done** — `grid-template-columns/rows` parse `[name]` line names into a name→line map; `grid-column`/`grid-row` accept named lines (`main-start / main-end`) resolved at layout time, and `grid-row: span N` spans multiple rows (row heights summed + inter-row gaps). |
 | Full **inline / bidi line-breaking** | 🟡 | Simplified bidi reorder ships; the full Unicode Bidi Algorithm + rich inline flow remain. |
 
 ## 3. Text & internationalization (P2)

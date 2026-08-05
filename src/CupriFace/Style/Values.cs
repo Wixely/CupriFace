@@ -57,12 +57,15 @@ public readonly struct TrackSize
     public static readonly TrackSize Auto = new(TrackKind.Auto, 0);
 }
 
-/// <summary>Grid item placement along one axis: an optional 1-based start line and a span.</summary>
+/// <summary>Grid item placement along one axis: an optional 1-based start line and a span, or named
+/// grid lines (resolved against the container's template line names at layout time).</summary>
 public readonly struct GridPlacement
 {
     public readonly int? Start; // 1-based grid line, null = auto-place
     public readonly int Span;
-    public GridPlacement(int? start, int span) { Start = start; Span = Math.Max(1, span); }
+    public readonly string? StartName, EndName; // named lines (override Start/Span when they resolve)
+    public GridPlacement(int? start, int span, string? startName = null, string? endName = null)
+    { Start = start; Span = Math.Max(1, span); StartName = startName; EndName = endName; }
     public static readonly GridPlacement Auto = new(null, 1);
 }
 public enum FlexDirection { Row, RowReverse, Column, ColumnReverse }
