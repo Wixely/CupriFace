@@ -107,6 +107,8 @@ public partial class Interop
     // navigator.clipboard I/O. Copy/Cut return the selected text; Paste inserts via KeyChar.
     [JSExport] internal static string? CopySelection() => _doc?.CopySelection();
     [JSExport] internal static string? CutSelection() { var t = _doc?.CutSelection(); _dirty = true; return t; }
+    [JSExport] internal static void Undo() { if (_doc?.Undo() == true) _dirty = true; }
+    [JSExport] internal static void Redo() { if (_doc?.Redo() == true) _dirty = true; }
 
     // JS side (module "cupri") copies the pixels into the 2D canvas via putImageData.
     [JSImport("present", "cupri")]

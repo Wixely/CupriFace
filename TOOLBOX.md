@@ -213,9 +213,10 @@ outside of an input dispatch (e.g. a background timer), call `doc.Refresh()` (or
 - **Keyboard & focus.** Tab / Shift+Tab move focus across interactive controls; Space/Enter activate;
   arrows drive sliders and groups. Focus is trapped inside an open overlay (dialog/menu/drawer).
 - **Text editing.** `cupri-textfield` / `cupri-textarea` / `cupri-number` support caret placement,
-  selection (drag, double‑click word, triple‑click line, Shift+arrows, Ctrl+A), and clipboard
-  (Ctrl+C/X/V) on both desktop and web. Editing is permissive: the field shows a red border while a
-  value is invalid and validates/clamps on blur.
+  selection (drag, double‑click word, triple‑click line, Shift+arrows, Ctrl+A), clipboard
+  (Ctrl+C/X/V), and **undo/redo** (Ctrl+Z / Ctrl+Y or Ctrl+Shift+Z — history is per‑field) on both
+  desktop and web. Editing is permissive: the field shows a red border while a value is invalid and
+  validates/clamps on blur.
 
 You rarely touch any of this directly — you register `OnClick` for custom actions and let bound
 controls handle their own state.

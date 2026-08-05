@@ -135,6 +135,8 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                                 case Scancode.ScancodeC: Shortcut?.Invoke('c', mods); continue;
                                 case Scancode.ScancodeX: Shortcut?.Invoke('x', mods); continue;
                                 case Scancode.ScancodeV: Shortcut?.Invoke('v', mods); continue;
+                                case Scancode.ScancodeZ: Shortcut?.Invoke('z', mods); continue;
+                                case Scancode.ScancodeY: Shortcut?.Invoke('y', mods); continue;
                             }
                         var ek = e.Key.Keysym.Scancode switch
                         {

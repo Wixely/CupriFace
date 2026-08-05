@@ -122,6 +122,8 @@ public sealed class SkiaWindow : IDisposable
                         case Key.C: Shortcut?.Invoke('c', mods); return;
                         case Key.X: Shortcut?.Invoke('x', mods); return;
                         case Key.V: Shortcut?.Invoke('v', mods); return;
+                        case Key.Z: Shortcut?.Invoke('z', mods); return;
+                        case Key.Y: Shortcut?.Invoke('y', mods); return;
                     }
                 var ek = key switch
                 {

@@ -58,6 +58,12 @@ public sealed partial class CupriDocument : IDisposable
     private RenderNode? _scrollDrag;    // scrollable node whose scrollbar thumb is being dragged
     private float _scrollDragY0, _scrollDragScroll0;
 
+    // Per-field undo/redo history (cleared on focus change). A snapshot of the edit buffer + caret.
+    private readonly record struct EditState(string Buffer, int Caret, int Anchor);
+    private readonly List<EditState> _undo = new();
+    private readonly List<EditState> _redo = new();
+    private bool _typingGroup;          // coalesce a run of printable chars into one undo step
+
     private CupriDocument(string html, string? css)
     {
         _templateHtml = html;
@@ -886,6 +892,7 @@ public sealed partial class CupriDocument : IDisposable
         _caret = _editBuffer?.Length ?? 0;
         _selAnchor = _caret;
         _caretMoved = true;
+        _undo.Clear(); _redo.Clear(); _typingGroup = false; // undo history is per-field
         return true;
     }
 
@@ -896,6 +903,10 @@ public sealed partial class CupriDocument : IDisposable
     public bool DispatchKey(string? text, EditKey key, KeyMods mods = KeyMods.None)
     {
         ReconcileScope(); // reflect any overlay that opened/closed since the last event
+
+        // Normalize pasted/typed line endings to '\n' (a textarea's internal newline). Windows
+        // clipboards deliver "\r\n"; the stray '\r' would otherwise render as a collapsed empty line.
+        if (text is { } t && t.IndexOf('\r') >= 0) text = t.Replace("\r\n", "\n").Replace('\r', '\n');
 
         if (key == EditKey.Escape) return HandleEscape();
         // Tab moves keyboard focus regardless of edit state (trapped within an open overlay).
@@ -929,6 +940,7 @@ public sealed partial class CupriDocument : IDisposable
         int selS = Math.Min(anchor, caret), selE = Math.Max(anchor, caret);
         var hasSel = selS != selE;
         var edited = false;
+        var (oValue, oCaret, oAnchor) = (value, caret, anchor); // pre-edit snapshot (for undo)
 
         switch (key)
         {
@@ -977,6 +989,21 @@ public sealed partial class CupriDocument : IDisposable
                 break;
         }
 
+        if (edited)
+        {
+            // Record undo history. Coalesce a run of printable non-space chars into one step;
+            // space/newline/delete/paste/any selection-replace start a new step.
+            var typingChar = key == EditKey.None && text is { Length: 1 } && text[0] is not ('\n' or ' ') && !hasSel;
+            if (!(typingChar && _typingGroup))
+            {
+                _undo.Add(new EditState(oValue, oCaret, oAnchor));
+                if (_undo.Count > 300) _undo.RemoveAt(0);
+                _redo.Clear();
+            }
+            _typingGroup = typingChar;
+        }
+        else _typingGroup = false;
+
         _caret = caret;
         _selAnchor = anchor;
         _caretMoved = true;
@@ -1010,6 +1037,38 @@ public sealed partial class CupriDocument : IDisposable
         var t = CopySelection();
         if (t is not null) DispatchKey(null, EditKey.Delete);
         return t;
+    }
+
+    /// <summary>Undo the last edit in the focused field (Ctrl+Z). Returns true if it changed anything.</summary>
+    public bool Undo()
+    {
+        if (_focusKey is null || _undo.Count == 0) return false;
+        _redo.Add(new EditState(_editBuffer ?? "", _caret, _selAnchor));
+        var s = _undo[^1]; _undo.RemoveAt(_undo.Count - 1);
+        ApplyEditState(s);
+        return true;
+    }
+
+    /// <summary>Redo the last undone edit (Ctrl+Y / Ctrl+Shift+Z). Returns true if it changed anything.</summary>
+    public bool Redo()
+    {
+        if (_focusKey is null || _redo.Count == 0) return false;
+        _undo.Add(new EditState(_editBuffer ?? "", _caret, _selAnchor));
+        var s = _redo[^1]; _redo.RemoveAt(_redo.Count - 1);
+        ApplyEditState(s);
+        return true;
+    }
+
+    private void ApplyEditState(EditState s)
+    {
+        _editBuffer = s.Buffer;
+        _caret = Math.Clamp(s.Caret, 0, s.Buffer.Length);
+        _selAnchor = Math.Clamp(s.Anchor, 0, s.Buffer.Length);
+        _caretMoved = true;
+        _typingGroup = false;
+        if (_model is not null && _focusKey is not null && BufferValid(s.Buffer))
+            BindingEngine.TrySet(_model, _focusKey, s.Buffer);
+        Refresh();
     }
 
     private static bool IsWordChar(char c) => char.IsLetterOrDigit(c) || c == '_';

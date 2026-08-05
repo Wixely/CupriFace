@@ -47,10 +47,13 @@ public sealed class TextAreaComponent : ComponentBase
     public static string RenderLines(string text)
     {
         var sb = new StringBuilder();
-        foreach (var line in text.Split('\n'))
+        foreach (var raw in text.Split('\n'))
+        {
+            var line = raw.Length > 0 && raw[^1] == '\r' ? raw[..^1] : raw; // tolerate stray CRLF '\r'
             sb.Append("<div class='cupri-ta-line'>")
               .Append(line.Length == 0 ? Zwsp : Escape(line))
               .Append("</div>");
+        }
         return sb.ToString();
     }
 

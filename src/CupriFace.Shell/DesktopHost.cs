@@ -50,7 +50,7 @@ public static class DesktopHost
             window.PointerWheel += (x, y, dy) => doc.DispatchWheel(x / scale, y / scale, -dy * 50f); // wheel up → scroll up
             window.TextEntered += t => doc.DispatchKey(t, EditKey.None);
             window.EditKeyPressed += (k, mods) => doc.DispatchKey(null, k, mods);
-            window.Shortcut += (ch, mods) => Shortcut(doc, ch, () => window.ClipboardText, v => window.ClipboardText = v);
+            window.Shortcut += (ch, mods) => Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v);
             window.Run();
         }
         catch (Exception ex)
@@ -64,14 +64,14 @@ public static class DesktopHost
             window.PointerWheel += (x, y, dy) => doc.DispatchWheel(x / scale, y / scale, -dy * 50f); // wheel up → scroll up
             window.TextEntered += t => doc.DispatchKey(t, EditKey.None);
             window.EditKeyPressed += (k, mods) => doc.DispatchKey(null, k, mods);
-            window.Shortcut += (ch, mods) => Shortcut(doc, ch, () => window.ClipboardText, v => window.ClipboardText = v);
+            window.Shortcut += (ch, mods) => Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v);
             window.Run();
         }
     }
 
     // Text shortcuts common to both hosts. The engine owns selection/editing; the host owns the
     // OS clipboard (get/set passed in) — keeping the engine free of any platform clipboard code.
-    private static void Shortcut(CupriDocument doc, char ch, Func<string?> getClip, Action<string> setClip)
+    private static void Shortcut(CupriDocument doc, char ch, KeyMods mods, Func<string?> getClip, Action<string> setClip)
     {
         switch (ch)
         {
@@ -79,6 +79,8 @@ public static class DesktopHost
             case 'c': if (doc.CopySelection() is { } cp) setClip(cp); break;
             case 'x': if (doc.CutSelection() is { } ct) setClip(ct); break;
             case 'v': if (getClip() is { Length: > 0 } pv) doc.DispatchKey(pv, EditKey.None); break;
+            case 'z': if (mods.HasFlag(KeyMods.Shift)) doc.Redo(); else doc.Undo(); break; // Ctrl+Shift+Z = redo
+            case 'y': doc.Redo(); break;
         }
     }
 }
