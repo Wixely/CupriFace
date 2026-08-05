@@ -20,7 +20,8 @@ public readonly record struct Size(float W, float H);
 public sealed class LayoutEngine
 {
     private readonly FontService _fonts;
-    public LayoutEngine(FontService fonts) => _fonts = fonts;
+    private readonly Paint.ImageStore? _images;
+    public LayoutEngine(FontService fonts, Paint.ImageStore? images = null) { _fonts = fonts; _images = images; }
 
     public void Layout(RenderNode root, float viewportWidth, float viewportHeight)
     {
@@ -134,6 +135,20 @@ public sealed class LayoutEngine
         else if (s.Width.IsDefinite) contentW = s.Width.Resolve(cbW);
         else contentW = MathF.Max(0, cbW - node.MarginLeft - node.MarginRight - node.HorizontalInsets);
         contentW = ClampW(s, contentW, cbW);
+
+        // Image: size from intrinsic pixels + CSS width/height, aspect-preserving (a leaf with no
+        // flow children would otherwise be height 0). Resolves before the block/flex/grid path.
+        if (node.ImageSrc is { Length: > 0 } imgSrc && _images?.Size(imgSrc) is { W: > 0, H: > 0 } px)
+        {
+            var aspect = (float)px.W / px.H;
+            var wDef = s.Width.IsDefinite || forceContentW is not null;
+            var hDef = s.Height.IsDefinite || forceContentH is not null;
+            var hh = hDef ? (forceContentH ?? s.Height.Resolve(cbH)) : (wDef ? contentW / aspect : px.H);
+            var ww = wDef ? contentW : (hDef ? hh * aspect : px.W);
+            node.Width = ClampW(s, ww, cbW) + node.HorizontalInsets;
+            node.Height = ClampH(s, hh, cbH) + node.VerticalInsets;
+            return new Size(node.Width, node.Height);
+        }
 
         float usedH;
         if (node.IsText)

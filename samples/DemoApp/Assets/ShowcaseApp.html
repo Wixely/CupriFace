@@ -69,7 +69,12 @@
       <!-- COMPONENTS -->
       <div class="section" style="display:{{SecComponents}}">
         <div class="title">Components</div>
-        <p class="sub">Tabs, select, textarea, popover, accordion, tree and a table.</p>
+        <p class="sub">Images, tabs, select, textarea, popover, accordion, tree and a table.</p>
+        <div class="row">
+          <cupri-image src="Assets/logo.png" alt="CupriFace logo" style="width:52px;height:52px;border-radius:12px"></cupri-image>
+          <cupri-image src="Assets/logo.png" alt="logo" fit="cover" style="width:84px;height:52px;border-radius:10px"></cupri-image>
+          <span class="lbl">&lt;cupri-image&gt; — embedded PNG · fit contain / cover</span>
+        </div>
         <cupri-tabs value="{{Tab}}">
           <cupri-tab id="one" label="First">First tab content.</cupri-tab>
           <cupri-tab id="two" label="Second">Second tab content.</cupri-tab>

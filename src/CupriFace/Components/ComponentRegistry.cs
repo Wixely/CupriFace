@@ -56,6 +56,7 @@ public sealed class ComponentRegistry
         .Register(new TextAreaComponent())
         .Register(new SelectComponent())
         // Content
+        .Register(new ImageComponent())
         .Register(new IconComponent())
         .Register(new BadgeComponent())
         .Register(new ChipComponent())

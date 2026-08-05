@@ -48,3 +48,11 @@ public sealed record PopOpacity : PaintCommand;
 /// <summary>Fill an SVG path (authored in a <paramref name="ViewBox"/>-square) scaled into the box.</summary>
 public sealed record FillPath(
     float X, float Y, float Width, float Height, float ViewBox, string PathData, SKColor Color) : PaintCommand;
+
+/// <summary>How an image is fitted into its box (CSS <c>object-fit</c>).</summary>
+public enum ObjectFit { Contain, Cover, Fill, None }
+
+/// <summary>Draw a decoded raster image into the box, fitted per <paramref name="Fit"/>, clipped to
+/// the (optionally rounded) box.</summary>
+public sealed record DrawImage(
+    float X, float Y, float W, float H, SKImage Image, ObjectFit Fit, float Radius) : PaintCommand;

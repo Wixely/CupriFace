@@ -286,6 +286,15 @@ static config unless noted.
 </cupri-select>
 ```
 
+**Images.** `<cupri-image>` decodes a raster image and paints it, fitted to its box. The `src`
+resolves through the same resource pipeline as markup/CSS — a bare name is an **embedded** asset
+(`src="Assets/logo.png"`), or use a `data:` URI, an `https://` URL, or a `file://` path. Size it with
+CSS `width`/`height` (aspect preserved if you set only one); `fit` defaults to `contain`.
+```html
+<cupri-image src="Assets/logo.png" alt="Logo" style="width:64px;height:64px;border-radius:12px"></cupri-image>
+<cupri-image src="https://example.com/banner.jpg" fit="cover" style="width:100%;height:120px"></cupri-image>
+```
+
 **Scrolling text fields.** Give a `cupri-textarea` a bounded height (`max-height` / `height`) and it
 scrolls when the content overflows — mouse wheel, a draggable scrollbar thumb, and caret‑into‑view
 while typing all work, and the scroll position survives edits. Add **`follow-tail`** to keep it pinned
@@ -298,6 +307,7 @@ to the bottom as new lines arrive (logging), *unless* the user has scrolled up:
 
 | Element | Purpose | Key attributes | Children | role |
 |---------|---------|----------------|----------|------|
+| `<cupri-image>` | Raster image (PNG/JPEG/WebP/GIF) | `src`, `alt`, `fit` (`contain`\|`cover`\|`fill`\|`none`) | — | `img` or decorative |
 | `<cupri-icon>` | Vector icon (current text colour) | `name`, `size` (24), `aria-label`? | — | `img` or decorative |
 | `<cupri-badge>` | Small pill label | — | text/HTML | — |
 | `<cupri-chip>` | Pill with optional close icon | `closable` | text/HTML | — |

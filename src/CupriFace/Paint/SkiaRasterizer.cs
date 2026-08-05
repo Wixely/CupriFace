@@ -15,6 +15,25 @@ public sealed class SkiaRasterizer
     private readonly FontService _fonts;
     public SkiaRasterizer(FontService fonts) => _fonts = fonts;
 
+    private static readonly SKSamplingOptions _imageSampling = new(SKFilterMode.Linear, SKMipmapMode.Linear);
+
+    // Destination rect for an image inside its box per object-fit (always drawing the whole image;
+    // the caller clips to the box, so Cover's overflow is cropped).
+    private static SKRect FitRect(DrawImage di)
+    {
+        float bw = di.W, bh = di.H, iw = di.Image.Width, ih = di.Image.Height;
+        if (iw <= 0 || ih <= 0 || di.Fit == ObjectFit.Fill) return new SKRect(di.X, di.Y, di.X + bw, di.Y + bh);
+        var scale = di.Fit switch
+        {
+            ObjectFit.Cover => MathF.Max(bw / iw, bh / ih),
+            ObjectFit.None => 1f,
+            _ => MathF.Min(bw / iw, bh / ih), // Contain
+        };
+        float dw = iw * scale, dh = ih * scale;
+        float x = di.X + (bw - dw) / 2f, y = di.Y + (bh - dh) / 2f; // centre in the box
+        return new SKRect(x, y, x + dw, y + dh);
+    }
+
     public void Paint(SKCanvas canvas, DisplayList list)
     {
         using var fill = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
@@ -72,6 +91,17 @@ public sealed class SkiaRasterizer
                 case PopOpacity:
                     canvas.Restore();
                     break;
+
+                case DrawImage di:
+                {
+                    canvas.Save();
+                    var box = new SKRect(di.X, di.Y, di.X + di.W, di.Y + di.H);
+                    if (di.Radius > 0) canvas.ClipRoundRect(new SKRoundRect(box, di.Radius), antialias: true);
+                    else canvas.ClipRect(box);
+                    canvas.DrawImage(di.Image, FitRect(di), _imageSampling);
+                    canvas.Restore();
+                    break;
+                }
 
                 case FillPath p:
                     using (var path = SKPath.ParseSvgPathData(p.PathData))

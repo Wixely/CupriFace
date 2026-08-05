@@ -31,6 +31,9 @@ public sealed class RenderNode
     // For icon nodes: an SVG path (24×24 viewBox) filled with the computed color.
     public string? IconPath;
 
+    // For image nodes (<cupri-image>): the source to decode + paint (resolved by ImageStore).
+    public string? ImageSrc;
+
     // Overlays: position:fixed nodes are lifted to the top layer and painted last,
     // with X/Y already in absolute viewport coordinates.
     public bool IsTopLayer;

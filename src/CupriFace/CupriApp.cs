@@ -65,7 +65,7 @@ public abstract class CupriApp
     /// <summary>Build a ready-to-render document — identical on every host.</summary>
     public CupriDocument CreateDocument()
     {
-        var doc = CupriDocument.Load(Html, Css).UseComponents(Components);
+        var doc = CupriDocument.Load(Html, Css).UseComponents(Components).UseImages(GetType().Assembly);
         if (Model is { } model) doc.Bind(model);
         Configure(doc);
         return doc;

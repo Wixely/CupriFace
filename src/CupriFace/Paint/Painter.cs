@@ -11,6 +11,17 @@ namespace CupriFace.Paint;
 /// </summary>
 public sealed class Painter
 {
+    private readonly ImageStore? _images;
+    public Painter(ImageStore? images = null) => _images = images;
+
+    private static ObjectFit ParseFit(string? v) => v switch
+    {
+        "cover" => ObjectFit.Cover,
+        "fill" => ObjectFit.Fill,
+        "none" => ObjectFit.None,
+        _ => ObjectFit.Contain,
+    };
+
     public DisplayList Build(RenderNode root)
     {
         var list = new DisplayList();
@@ -73,6 +84,13 @@ public sealed class Painter
             var ih = node.Height - node.VerticalInsets;
             list.Add(new FillPath(absX + node.ContentLeftInset, absY + node.ContentTopInset, iw, ih, 24f, iconPath, s.Color));
         }
+
+        // Image: decode + draw into the content box, fitted per object-fit.
+        if (node.ImageSrc is { Length: > 0 } imageSrc && _images?.Get(imageSrc) is { } image)
+            list.Add(new DrawImage(
+                absX + node.ContentLeftInset, absY + node.ContentTopInset,
+                node.Width - node.HorizontalInsets, node.Height - node.VerticalInsets,
+                image, ParseFit(node.Element?.GetAttribute("data-object-fit")), s.BorderRadius));
 
         // Clip children if overflow is not visible.
         var clip = s.Overflow != OverflowMode.Visible;

@@ -28,6 +28,7 @@ public sealed partial class CupriDocument : IDisposable
     private readonly LayoutEngine _layout;
     private readonly Painter _painter;
     private readonly SkiaRasterizer _rasterizer;
+    private readonly Paint.ImageStore _images;
 
     private IDocument? _dom;
     private RenderNode _root = null!;
@@ -69,9 +70,19 @@ public sealed partial class CupriDocument : IDisposable
         _templateHtml = html;
         _css = css;
         _fonts = new FontService();
-        _layout = new LayoutEngine(_fonts);
-        _painter = new Painter();
+        _images = new Paint.ImageStore();
+        _layout = new LayoutEngine(_fonts, _images);
+        _painter = new Painter(_images);
         _rasterizer = new SkiaRasterizer(_fonts);
+    }
+
+    /// <summary>Register the assembly used to resolve embedded image sources (e.g. a bare
+    /// <c>src="Assets/logo.png"</c> on a <c>&lt;cupri-image&gt;</c>). Data URIs, URLs and file paths
+    /// need no assembly.</summary>
+    public CupriDocument UseImages(System.Reflection.Assembly assembly)
+    {
+        _images.SetAssembly(assembly);
+        return this;
     }
 
     public RenderNode Root => _root;
@@ -1372,6 +1383,7 @@ public sealed partial class CupriDocument : IDisposable
     public void Dispose()
     {
         _fonts.Dispose();
+        _images.Dispose();
         _dom?.Dispose();
     }
 }
