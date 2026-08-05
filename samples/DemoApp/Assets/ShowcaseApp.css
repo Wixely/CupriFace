@@ -4,12 +4,17 @@ body { --cupri-bg:#f4f5f7; --cupri-surface:#ffffff; --cupri-text:#1e2430; --cupr
 body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; --cupri-muted:#8b93a7;
             --cupri-border:#2a3346; --cupri-sidebar:#0b0f18; --cupri-sidebar-text:#aeb6c6; --cupri-nav-active:#243049; }
 .app { display:flex; height:100%; font-family:sans-serif; }
-.sidebar { width:190px; background:var(--cupri-sidebar); padding:18px 14px; display:flex; flex-direction:column; gap:6px; }
+/* Colour transitions make the light/dark toggle cross-fade instead of snapping. */
+.sidebar { width:190px; background:var(--cupri-sidebar); padding:18px 14px; display:flex; flex-direction:column; gap:6px;
+           transition: background-color 0.35s ease; }
 .brand { color:white; font-size:19px; font-weight:bold; margin-bottom:16px; }
-.nav { color:var(--cupri-sidebar-text); padding:10px 12px; border-radius:8px; font-size:15px; }
+/* Nav items ease their highlight on hover and when the active tab changes. */
+.nav { color:var(--cupri-sidebar-text); padding:10px 12px; border-radius:8px; font-size:15px;
+       transition: background-color 0.2s ease, color 0.2s ease; }
+.nav:hover { background:var(--cupri-nav-active); color:white; }
 .nav.active { background:var(--cupri-nav-active); color:white; font-weight:bold; }
 .tip { color:#6b7688; font-size:12px; margin-top:auto; }
-.content { flex:1; padding:26px; background:var(--cupri-bg); }
+.content { flex:1; padding:26px; background:var(--cupri-bg); transition: background-color 0.35s ease; }
 .title { font-size:22px; font-weight:bold; color:var(--cupri-text); margin-bottom:14px; }
 .sub { color:var(--cupri-muted); font-size:14px; margin-bottom:16px; }
 .row { display:flex; align-items:center; flex-wrap:wrap; gap:14px; margin-bottom:14px; }
@@ -26,7 +31,10 @@ cupri-textarea { max-height:300px; min-height:78px; resize:vertical; }
 code { display:inline; font-family:monospace; color:var(--cupri-text); }
 
 .flexdemo { display:flex; gap:12px; margin-bottom:18px; }
-.fb { padding:20px; border-radius:10px; color:white; font-weight:bold; text-align:center; }
+/* transform transition: the boxes lift on hover. */
+.fb { padding:20px; border-radius:10px; color:white; font-weight:bold; text-align:center;
+      transition: transform 0.2s ease-out; }
+.fb:hover { transform: translateY(-6px); }
 .fb.a { flex:1; background:#B87333; } .fb.b { flex:2; background:#4682B4; }
 .grid { display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; }
 .gcell { background:#1b2233; color:#e6e9f0; border-radius:10px; padding:16px; font-size:14px; }
@@ -60,6 +68,18 @@ code { display:inline; font-family:monospace; color:var(--cupri-text); }
 @keyframes showcase-fade   { 0% { opacity: 1; } 50% { opacity: 0.2; } 100% { opacity: 1; } }
 @keyframes showcase-wobble { 0% { transform: rotate(-10deg) translateX(-6px); } 50% { transform: rotate(10deg) translateX(6px); } 100% { transform: rotate(-10deg) translateX(-6px); } }
 @keyframes showcase-flip   { 0% { transform: scaleX(1); } 50% { transform: scaleX(-1); } 100% { transform: scaleX(1); } }
+
+/* Transition tiles — each eases a property from its base to its :hover value and back. */
+.tbox { width:84px; height:84px; border-radius:14px; display:flex; align-items:center;
+        justify-content:center; color:white; font-weight:bold; font-size:13px; background:#4682B4; }
+.tcolor { transition: background-color 0.3s ease; }
+.tcolor:hover { background:#B87333; }
+.tlift { transition: transform 0.25s ease-out; }
+.tlift:hover { transform: translateY(-14px); }
+.tgrow { transition: transform 0.25s ease; }
+.tgrow:hover { transform: scale(1.18); }
+.tspin { transition: transform 0.4s ease-in-out; }
+.tspin:hover { transform: rotate(90deg); }
 
 .dlg-title { font-size:19px; font-weight:bold; color:#1e2430; margin-bottom:10px; }
 .dlg-body { color:#48505c; font-size:14px; margin-bottom:20px; }

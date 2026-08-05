@@ -30,7 +30,7 @@ Ambition is the modern core; these are the sequenced-but-unshipped pieces (DESIG
 
 | Item | Status | Notes |
 |------|--------|-------|
-| **CSS transitions** | 🔴 | Only `@keyframes` animation exists today; `transition` is "committed next" and core to feeling fluid. |
+| **CSS transitions** | 🟢 | **Done** — `transition: <prop> <dur> [easing] [delay]` (comma-separated) animates `opacity`, `background`/`color`/`border-color` and `transform` when their target value changes (hover, class/model change, theme toggle). Easing keywords (`linear`/`ease`/`ease-in`/`ease-out`/`ease-in-out`) via a cubic-bézier solver; state keyed by structural path so it survives the per-interaction rebuild. Paint-only (no relayout), driven by the same per-frame `Animate` clock as `@keyframes`. Follow-ups: `cubic-bezier()` literals, width/height (layout-affecting) transitions, per-property longhands. |
 | Real **`:hover` / `:active`** pseudo-classes | 🟡 | Hover works via a `[data-hover]` attribute + restyle; the actual pseudo-class selectors are a refinement. |
 | **`filter`** | 🔴 | Listed in "committed next". |
 | **Border style keywords** (`solid`/`dashed`/`dotted`) | 🔴 | Currently parsed but ignored (`StyleResolver` "style keyword ignored in M1"); only solid rendering. |

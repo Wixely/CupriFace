@@ -66,6 +66,10 @@ public sealed class ComputedStyle
     public string? AnimationName;
     public float AnimationDuration; // seconds
 
+    // Transitions (NOT inherited — deliberately absent from InheritFrom). Null unless the element
+    // declares `transition`. Each entry animates one paint property when its target value changes.
+    public List<TransitionSpec>? Transitions;
+
     // CSS custom properties (design tokens). Inherit by default; resolved by var().
     public Dictionary<string, string> CustomProps = new();
 

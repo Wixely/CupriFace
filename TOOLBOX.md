@@ -277,6 +277,17 @@ controls handle their own state.
   The default accent is copper `#B87333` (hence *Cupri*). Controls that don't read a variable can
   still be restyled through their class hooks.
 - `@media (width ...)` is supported and re‑resolves on viewport change, so layouts can be responsive.
+- **Motion.** `@keyframes` (looping animations) and **`transition`** are both supported. A `transition`
+  eases a property from its old value to its new one whenever that value changes — on `[data-hover]`,
+  `:focus`, a state/class change, a model update, or the theme toggle. Animatable: `opacity`,
+  `background`/`color`/`border-color`, and `transform` (translate/scale/rotate). Easing keywords
+  `linear`/`ease`/`ease-in`/`ease-out`/`ease-in-out`. It's paint‑only (no reflow), so it's cheap.
+  ```css
+  .nav  { transition: background-color 0.2s ease, color 0.2s ease; }   /* smooth hover highlight */
+  .card { transition: transform 0.25s ease-out; }
+  .card:hover { transform: translateY(-6px); }                          /* lift on hover */
+  .surface { transition: background-color 0.35s ease; }                 /* light/dark cross-fade */
+  ```
 
 ```css
 body { --cupri-surface:#1e2430; --cupri-text:#eef1f5; --cupri-border:#33405a; }  /* a dark theme */

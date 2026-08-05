@@ -38,6 +38,7 @@ public sealed partial class CupriDocument : IDisposable
     private Dictionary<string, List<Keyframe>>? _cachedKeyframes;
     private float _viewportWidth = 1024f;
     private bool _hasMedia;
+    private readonly Style.TransitionEngine _transitions = new();
 
     // Hover + drag + text-focus state
     private readonly List<IElement> _hoverChain = new();
@@ -221,6 +222,7 @@ public sealed partial class CupriDocument : IDisposable
         _hoverChain.Clear();
         _root = new StyleResolver(_rules, _viewportWidth).BuildTree(dom);
         RestoreScroll(scroll);
+        _transitions.Detect(_root); // (re)start transitions whose target value changed this rebuild
         Mark("style+tree");
         _hasActiveAnim = _keyframes.Count > 0 && AnyAnimated(_root);
         _dom = dom;
@@ -270,21 +272,27 @@ public sealed partial class CupriDocument : IDisposable
         return sb.ToString();
     }
 
-    /// <summary>Advance @keyframes animations to the given elapsed time (paint-only).</summary>
+    /// <summary>Advance @keyframes animations and in-flight CSS transitions to the given elapsed time
+    /// (paint-only — neither affects layout). Returns true if anything animated this frame.</summary>
     public bool Animate(double timeSeconds)
     {
-        if (_keyframes.Count == 0) return false;
-        Animation.Apply(_root, _keyframes, timeSeconds);
-        return true;
+        var any = false;
+        if (_keyframes.Count > 0) { Animation.Apply(_root, _keyframes, timeSeconds); any = true; }
+        if (_transitions.Apply(_root, timeSeconds)) any = true; // interpolate transitions over @keyframes
+        return any;
     }
 
     public bool HasAnimations => _keyframes.Count > 0;
+
+    /// <summary>True while a CSS transition is mid-flight (a continuous host should keep calling
+    /// <see cref="Animate"/> and repainting until it settles).</summary>
+    public bool HasActiveTransitions => _transitions.Active;
 
     /// <summary>True only if a *visible* node is currently animating (display:none subtrees are
     /// absent from the render tree). Lets a host render continuously only when it must, instead
     /// of every frame — critical for the CPU-rendered web host. Cached per rebuild (the animated
     /// set only changes when the tree does), so a host may poll it every frame for free.</summary>
-    public bool HasActiveAnimations => _hasActiveAnim;
+    public bool HasActiveAnimations => _hasActiveAnim || _transitions.Active;
     private bool _hasActiveAnim;
 
     private static bool AnyAnimated(RenderNode n)
@@ -1502,6 +1510,7 @@ public sealed partial class CupriDocument : IDisposable
         var scroll = CaptureScroll();
         _root = new StyleResolver(_rules, _viewportWidth).BuildTree(_dom);
         RestoreScroll(scroll);
+        _transitions.Detect(_root); // hover/focus/class change → (re)start any transitions that flipped
     }
 
     private static double ParseAttr(IElement el, string name, double fallback) =>

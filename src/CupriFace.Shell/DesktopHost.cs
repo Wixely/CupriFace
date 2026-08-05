@@ -34,7 +34,8 @@ public static class DesktopHost
             // Transparent apps clear to a fully-transparent framebuffer so the desktop shows through
             // (premultiplied output is exactly what the OS compositor wants — no conversion needed).
             ctx.Canvas.Clear(app.Transparent ? SkiaSharp.SKColors.Transparent : app.Background);
-            if (doc.HasAnimations) doc.Animate(clock.Elapsed.TotalSeconds); // drive @keyframes (spinner, etc.)
+            if (doc.HasAnimations || doc.HasActiveTransitions)
+                doc.Animate(clock.Elapsed.TotalSeconds); // drive @keyframes (spinner) + CSS transitions
 
             ctx.Canvas.Save();
             if (scale != 1f) ctx.Canvas.Scale(scale);

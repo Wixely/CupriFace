@@ -222,6 +222,7 @@ public sealed class StyleResolver
                 case "animation": ParseAnimation(s, v); break;
                 case "animation-name": s.AnimationName = v; break;
                 case "animation-duration": s.AnimationDuration = ParseSeconds(v); break;
+                case "transition": ParseTransition(s, v); break;
 
                 case "color": if (Colors.TryParse(v, out var col)) s.Color = col; break;
                 case "font-size": s.FontSize = ParsePx(v, s.FontSize); break;
@@ -434,6 +435,39 @@ public sealed class StyleResolver
         if (v.EndsWith("ms")) return float.TryParse(v[..^2], out var ms) ? ms / 1000f : 0f;
         if (v.EndsWith('s')) return float.TryParse(v[..^1], out var sec) ? sec : 0f;
         return float.TryParse(v, out var n) ? n : 0f;
+    }
+
+    // transition: <prop|all> <duration> [timing] [delay] [, <prop> <duration> …]. A later `transition`
+    // declaration replaces the whole list (CSS shorthand semantics).
+    private static void ParseTransition(ComputedStyle s, string v)
+    {
+        var list = new List<TransitionSpec>();
+        foreach (var seg in v.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            string prop = "all";
+            float dur = 0, delay = 0;
+            var times = 0;
+            var ease = Easing.Ease; // CSS default timing
+            foreach (var tok in seg.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (IsTime(tok, out var secs)) { if (times++ == 0) dur = secs; else delay = secs; }
+                else if (Easing.FromKeyword(tok.ToLowerInvariant()) is { } e) ease = e;
+                else prop = tok.ToLowerInvariant();
+            }
+            if (prop == "background-color") prop = "background";
+            else if (prop == "border") prop = "border-color";
+            list.Add(new TransitionSpec(prop, dur, delay, ease));
+        }
+        s.Transitions = list;
+    }
+
+    private static bool IsTime(string tok, out float seconds)
+    {
+        seconds = 0f;
+        var t = tok.ToLowerInvariant();
+        if (t.EndsWith("ms")) { if (float.TryParse(t[..^2], out var ms)) { seconds = ms / 1000f; return true; } return false; }
+        if (t.EndsWith('s') && float.TryParse(t[..^1], out var sec)) { seconds = sec; return true; }
+        return false;
     }
 
     private static readonly Regex _transformFn = new(@"(\w+)\(([^)]*)\)", RegexOptions.Compiled);
