@@ -692,6 +692,22 @@ public sealed partial class CupriDocument : IDisposable
         return this;
     }
 
+    // Custom interaction primitives (extensibility): a data-* attribute → behaviour, alongside the
+    // engine's built-in vocabulary (data-set-path / data-cupri-toggle / …). Fires on click AND on
+    // keyboard activation (Enter/Space) since both route through ActivateFrom.
+    private readonly List<(string Attr, Func<Interaction.CupriActionEvent, bool> Handler)> _actionHandlers = new();
+
+    /// <summary>Register a custom activation primitive: when a clicked/activated element (or an
+    /// ancestor) carries <paramref name="dataAttribute"/> (e.g. <c>"data-sort-by"</c>), the handler
+    /// runs with the element, its attribute value and the model. Return true if it handled the event
+    /// (stops bubbling + triggers a refresh). Lets components define new interactions without an engine
+    /// change — the registration point the built-in <c>data-*</c> hooks were missing for third parties.</summary>
+    public CupriDocument OnAction(string dataAttribute, Func<Interaction.CupriActionEvent, bool> handler)
+    {
+        _actionHandlers.Add((dataAttribute, handler));
+        return this;
+    }
+
     public RenderNode? HitTest(float x, float y) => HitTesting.HitTest(_root, x, y);
 
     /// <summary>Build the platform-neutral semantics tree (§5) at the given size.</summary>
@@ -800,6 +816,12 @@ public sealed partial class CupriDocument : IDisposable
         for (var node = start; node is not null; node = node.Parent)
         {
             if (node.Element is not { } el) continue;
+
+            // Custom registered interaction primitives (extensibility) — checked before the built-ins
+            // so a third party can define new data-* behaviours.
+            foreach (var (attr, handler) in _actionHandlers)
+                if (el.GetAttribute(attr) is { } av && handler(new Interaction.CupriActionEvent(node, el, av, _model, x, y)))
+                    return true;
 
             // Number stepper: +/- button adjusts the nearest numeric field's bound value.
             if (el.GetAttribute("data-cupri-step") is { Length: > 0 } stepRaw) return StepNumber(node, stepRaw);

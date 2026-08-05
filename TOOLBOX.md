@@ -75,6 +75,7 @@ doc.OnClick(".save", _ => Console.WriteLine($"Saved {model.Name}, vol={model.Vol
 | `.UseComponents(registry)` | Register the `cupri-*` library (use `ComponentRegistry.Default()`). |
 | `.Bind(model)` | Bind a model for `{{…}}` and two‑way controls. |
 | `.OnClick(selector, handler)` | Register a click handler matched by CSS selector (bubbles target→root). Handler gets a `CupriPointerEvent`. |
+| `.OnAction("data-…", handler)` | Register a **custom interaction primitive**: when a clicked/keyboard‑activated element carries that `data-*` attribute, the handler runs (`CupriActionEvent` = element, value, model, x/y); return true to consume. Extends the built‑in `data-*` vocabulary without an engine change. |
 | `.Refresh()` | Re‑bind + rebuild (call after you mutate the model from code). |
 | `.Render(canvas, w, h)` | Paint into an `SKCanvas`. |
 | `.RenderToImage(w, h, clear?)` | Convenience CPU raster to an `SKImage` (headless/tests). |
