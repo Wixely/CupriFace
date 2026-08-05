@@ -50,6 +50,7 @@ public sealed partial class CupriDocument : IDisposable
     private string? _editBuffer; // raw text being edited (permissive); validated/committed on blur
     private int _caret;
     private int _selAnchor;      // selection anchor; selection is [min(anchor,caret), max]. anchor==caret ⇒ none.
+    private int _listHi = -1;    // highlighted option index for a focused listbox field (combobox); -1 = none
     private bool _textDrag;      // a mouse drag is extending the text selection
     private int _kbIndex = -1;      // keyboard focus: index into the focusable list (-1 = none)
     private bool _focusVisible;     // show the focus ring? true after Tab, false after a mouse click
@@ -991,6 +992,18 @@ public sealed partial class CupriDocument : IDisposable
         return false;
     }
 
+    // The option rows of the focused field's listbox (a data-listbox field, e.g. the combobox), for
+    // keyboard nav; null if the focused field isn't a listbox.
+    private List<IElement>? FocusedListbox()
+    {
+        if (_dom is null || _focusKey is null) return null;
+        var input = _dom.QuerySelector($"[data-bind-value=\"{_focusKey}\"]");
+        if (input is null || !input.HasAttribute("data-listbox") || input.ParentElement is not { } container) return null;
+        var opts = new List<IElement>();
+        foreach (var o in container.QuerySelectorAll("[role=\"option\"][data-set-value]")) opts.Add(o);
+        return opts;
+    }
+
     private bool UpdateFocus(IElement? field)
     {
         var key = field?.GetAttribute("data-bind-value") ?? field?.GetAttribute("id");
@@ -1005,6 +1018,7 @@ public sealed partial class CupriDocument : IDisposable
         _caret = _editBuffer?.Length ?? 0;
         _selAnchor = _caret;
         _caretMoved = true;
+        _listHi = -1; // listbox highlight is per-field
         _undo.Clear(); _redo.Clear(); _typingGroup = false; // undo history is per-field
         return true;
     }
@@ -1046,6 +1060,32 @@ public sealed partial class CupriDocument : IDisposable
         }
 
         if (_model is null) return false;
+
+        // Combobox / focused-listbox keyboard nav: Down/Up move a highlight over the suggestion rows,
+        // Enter commits the highlighted one. (Applies only to a focused field marked data-listbox.)
+        if (key is EditKey.Down or EditKey.Up or EditKey.Enter && FocusedListbox() is { } lb)
+        {
+            if (key is EditKey.Down or EditKey.Up)
+            {
+                if (lb.Count == 0) return false;
+                foreach (var o in lb) o.RemoveAttribute("data-highlight");
+                _listHi = key == EditKey.Down
+                    ? Math.Min(_listHi < 0 ? 0 : _listHi + 1, lb.Count - 1)
+                    : Math.Max(_listHi < 0 ? 0 : _listHi - 1, 0);
+                lb[_listHi].SetAttribute("data-highlight", "");
+                ReStyle();
+                return true;
+            }
+            if (_listHi >= 0 && _listHi < lb.Count && lb[_listHi].GetAttribute("data-set-path") is { Length: > 0 } sp)
+            {
+                var picked = lb[_listHi].GetAttribute("data-set-value") ?? "";
+                UpdateFocus(null);                         // blur (commits the typed buffer)…
+                BindingEngine.TrySet(_model, sp, picked);  // …then overwrite with the chosen suggestion
+                Refresh();
+                return true;
+            }
+        }
+
         // Edit a permissive buffer (may hold an invalid value while typing); it shows a red
         // border and is validated/clamped on blur — never block the user mid-edit.
         var value = _editBuffer ?? BindingEngine.Resolve(_model, _focusKey)?.ToString() ?? "";
@@ -1129,6 +1169,7 @@ public sealed partial class CupriDocument : IDisposable
         if (edited)
         {
             _editBuffer = value;
+            _listHi = -1; // the suggestion list re-filters on edit → drop the stale highlight
             // Live-commit only when the buffer is currently valid, so other bindings track it;
             // invalid text stays in the buffer (red border) and the model keeps its last good value.
             if (BufferValid(value)) BindingEngine.TrySet(_model, _focusKey, value);

@@ -1,4 +1,5 @@
 using CupriFace.Dom;
+using CupriFace.Interaction;
 using CupriFace.Style;
 using Xunit;
 
@@ -69,6 +70,25 @@ public class ComboboxTests
 
         Assert.Equal("Lisbon", m.City);              // value written
         Assert.Null(Popup(t));                       // field blurred → dropdown closed
+    }
+
+    [Fact]
+    public void Arrow_keys_highlight_and_enter_picks_the_highlighted_suggestion()
+    {
+        var m = new Model();
+        using var t = new TestDoc(Html, "", m, components: true, width: 400, height: 300);
+        t.ClickNode(t.FindRole("textbox"));                  // focus → dropdown (London, Paris, Lisbon)
+
+        t.Key(EditKey.Down);                                 // highlight first (London)
+        var hi = t.Find(n => n.Element?.HasAttribute("data-highlight") == true);
+        Assert.Equal("London", hi?.Element?.GetAttribute("data-set-value"));
+
+        t.Key(EditKey.Down);                                 // move to Paris
+        Assert.Equal("Paris", t.Find(n => n.Element?.HasAttribute("data-highlight") == true)?.Element?.GetAttribute("data-set-value"));
+
+        t.Key(EditKey.Enter);                                // commit the highlighted one
+        Assert.Equal("Paris", m.City);
+        Assert.Null(Popup(t));                               // closed
     }
 
     [Fact]

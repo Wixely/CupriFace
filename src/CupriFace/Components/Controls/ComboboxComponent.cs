@@ -26,7 +26,7 @@ public sealed class ComboboxComponent : ComponentBase
                           z-index:30; border:1px var(--cupri-border, #e6e9f0); min-width:200px; display:none; }
         .cupri-cb-input:focus ~ .cupri-cb-popup { display:block; } /* reveal while the field is focused */
         .cupri-cb-option { display:block; padding:9px 12px; border-radius:6px; color:var(--cupri-text, #1e2430); font-size:14px; }
-        .cupri-cb-option[data-hover] { background:var(--cupri-hover, #eef1f5); }
+        .cupri-cb-option[data-hover], .cupri-cb-option[data-highlight] { background:var(--cupri-hover, #eef1f5); }
         .cupri-cb-option.selected { color:#B87333; font-weight:bold; }
         .cupri-cb-empty { padding:9px 12px; color:#98a2b3; font-size:14px; }
         """;
@@ -66,7 +66,7 @@ public sealed class ComboboxComponent : ComponentBase
         var display = value.Length > 0
             ? $"<span class='cupri-tf-text' data-caret-anchor>{Escape(value)}</span>"
             : $"<span class='cupri-tf-ph' data-caret-anchor>{Escape(placeholder)}</span>";
-        var input = $"<div class='cupri-cb-input' role='textbox' id='{id}'"
+        var input = $"<div class='cupri-cb-input' role='textbox' id='{id}' data-listbox"
                   + (path.Length > 0 ? $" data-bind-value='{path}'" : "")
                   + $">{display}</div>";
 

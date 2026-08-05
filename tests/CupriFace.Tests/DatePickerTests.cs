@@ -1,4 +1,5 @@
 using CupriFace.Dom;
+using CupriFace.Interaction;
 using Xunit;
 
 namespace CupriFace.Tests;
@@ -60,6 +61,17 @@ public class DatePickerTests
         Assert.Equal("2026-08-15", m.Date);
         Assert.True(m.Open);
         Assert.True(TitleHas(t, "August 2026"));
+    }
+
+    [Fact]
+    public void Escape_closes_the_open_calendar()
+    {
+        var m = new Model { Open = true };
+        using var t = new TestDoc(Html, "", m, components: true, width: 360, height: 380);
+        Assert.NotNull(Popup(t));
+        t.Key(EditKey.Escape);
+        Assert.False(m.Open);
+        Assert.Null(Popup(t));
     }
 
     [Fact]
