@@ -7,6 +7,16 @@ import { dotnet } from './_framework/dotnet.js'
 const canvas = document.getElementById('cupri');
 const ctx = canvas.getContext('2d');
 
+// The canvas is opaque to assistive tech; mirror the engine's semantics tree into an off-screen but
+// screen-reader-visible element next to it. (Visually hidden via the clip pattern — NOT display:none
+// or aria-hidden, which would hide it from screen readers too.)
+canvas.setAttribute('aria-hidden', 'true');
+const a11y = document.createElement('div');
+a11y.id = 'cupri-a11y';
+a11y.setAttribute('aria-live', 'polite');
+a11y.style.cssText = 'position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;';
+document.body.appendChild(a11y);
+
 // Boot log mirrored into the DOM (hidden) so headless --dump-dom diagnostics can read boot
 // progress and errors even when the canvas never paints. Harmless in normal use.
 const bootLog = document.createElement('pre');
@@ -53,7 +63,9 @@ try {
         },
         // Context-menu clipboard (async browser clipboard). Paste reads then feeds the engine.
         clipboardWrite: text => navigator.clipboard.writeText(text).catch(() => {}),
-        clipboardPaste: () => navigator.clipboard.readText().then(t => { if (t) I.KeyChar(t); }).catch(() => {})
+        clipboardPaste: () => navigator.clipboard.readText().then(t => { if (t) I.KeyChar(t); }).catch(() => {}),
+        // Off-screen ARIA mirror of the semantics tree (screen-reader accessibility).
+        a11y: html => { if (a11y.innerHTML !== html) a11y.innerHTML = html; }
     });
 
     const config = getConfig();

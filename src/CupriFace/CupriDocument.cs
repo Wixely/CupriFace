@@ -697,6 +697,11 @@ public sealed partial class CupriDocument : IDisposable
         return Accessibility.AccessibilityTree.Build(_root);
     }
 
+    /// <summary>Serialise the semantics tree to an ARIA HTML fragment for the web host's off-screen
+    /// screen-reader mirror (the canvas is opaque to assistive tech). See <see cref="Accessibility.AriaHtml"/>.</summary>
+    public string BuildAriaHtml(float width, float height) =>
+        Accessibility.AriaHtml.Serialize(BuildAccessibilityTree(width, height));
+
     /// <summary>
     /// Dispatch a click at (x,y): hit-test, run built-in control behaviour (switch
     /// toggle, slider set) and user handlers along the bubble path, write back to the

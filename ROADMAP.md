@@ -21,7 +21,7 @@ it's a scaffold. Screen-reader support is the highest-effort, lowest-visibility 
 | Complete **UIA** provider (Windows) | 🟡 | Role→pattern scaffold exists (`WindowsUiaBridge`); needs full pattern coverage + a real screen-reader pass. |
 | **AT-SPI** bridge (Linux) | 🔴 | The missing sibling of the UIA bridge. |
 | **NSAccessibility** bridge (macOS) | 🔴 | The missing sibling of the UIA bridge. |
-| **Web hidden-DOM a11y** | 🔴 | The canvas is opaque to screen readers; mirror the semantics tree into an offscreen ARIA DOM for the WASM host. |
+| **Web hidden-DOM a11y** | 🟢 | **Done** — `CupriDocument.BuildAriaHtml` serialises the semantics tree to an ARIA fragment (`role` + `aria-label`/`aria-checked`/`aria-valuenow-min-max`/`aria-disabled`/`tabindex`); the WASM host mirrors it into an off-screen, screen-reader-visible `<div>` (clip pattern, `aria-live`) beside the `aria-hidden` canvas, updated on input-driven repaints. Verified headlessly (roles/labels/states + updates on model change). |
 | End-to-end screen-reader verification of the control gallery | 🔴 | The M7 exit criterion, per-OS. |
 
 ## 2. CSS engine (P2)
@@ -61,7 +61,7 @@ Sustained fluidity is the core requirement (DESIGN risk #0); a demo hitting 60 f
 |------|--------|-------|
 | **Prompt-free clipboard** via a hidden focused `<textarea>` | 🔴 | Current copy/paste uses `navigator.clipboard` (can prompt for paste; `readText` also wedges headless automation). A hidden textarea receiving native `copy`/`cut`/`paste` events avoids both. |
 | **IME composition** on the web host | 🔴 | Desktop handles IME (SDL `StartTextInput`); the raw-WASM keyboard path takes single chars only. |
-| WASM **a11y** | 🔴 | Same item as §1's hidden-DOM a11y. |
+| WASM **a11y** | 🟢 | **Done** — the off-screen ARIA mirror (see §1). |
 | Fix Mono **WASM-AOT codegen** so `CupriFace.dll` can be AOT-compiled | 🟡 | It's currently force-*interpreted* to dodge a `function signature mismatch` (SliderComponent interface dispatch); the rest AOT-compiles. Interpreting the engine assembly costs web performance. Track/patch upstream or refactor the offending dispatch. |
 
 ## 6. AOT & build (P2)

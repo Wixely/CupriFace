@@ -125,6 +125,11 @@ public partial class Interop
             var span = new Span<byte>((void*)present.GetPixels(), present.ByteCount);
             Present(span, width, height);
         }
+
+        // Mirror the semantics tree into the off-screen ARIA DOM so screen readers can read the
+        // canvas UI. Only on input-driven repaints (not every animation frame) — the tree only
+        // changes on interaction, and re-parsing HTML 30×/s during a spinner would be wasteful.
+        if (!animating) A11y(_doc.BuildAriaHtml(p.LogicalWidth, p.LogicalHeight));
     }
 
     // Pointer + wheel + keyboard route through the SAME dispatch the desktop hosts use. Each
@@ -157,4 +162,7 @@ public partial class Interop
     // Clipboard bridge for the context menu (the browser clipboard is async, so it lives in JS).
     [JSImport("clipboardWrite", "cupri")] internal static partial void ClipboardWrite(string text);
     [JSImport("clipboardPaste", "cupri")] internal static partial void ClipboardPaste();
+
+    // Push the ARIA mirror HTML into the off-screen accessibility DOM (JS sets innerHTML).
+    [JSImport("a11y", "cupri")] internal static partial void A11y(string html);
 }
