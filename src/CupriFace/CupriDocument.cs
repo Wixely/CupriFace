@@ -332,18 +332,8 @@ public sealed partial class CupriDocument : IDisposable
         var anchor = FindCaretAnchor(field) ?? field;
         var value = _editBuffer ?? BindingEngine.Resolve(_model, _focusKey)?.ToString() ?? "";
         var caret = Math.Clamp(_caret, 0, value.Length);
-        float rowY, rowH;
-        if (field.Element?.HasAttribute("data-multiline") == true)
-        {
-            var rows = BuildTextRows(anchor, value);
-            var t = RowForCaret(rows, caret);
-            rowY = t.Y; rowH = t.Height;
-        }
-        else
-        {
-            var (_, py) = PaintedTopLeft(anchor);
-            rowY = py + anchor.ContentTopInset; rowH = FontService.LineHeightPx(anchor.Style);
-        }
+        var t = RowForCaret(BuildTextRows(anchor, value), caret); // wrap-aware for textarea + wrapped field
+        float rowY = t.Y, rowH = t.Height;
 
         var (_, scY) = PaintedTopLeft(sc);
         var bandTop = scY + sc.ContentTopInset;
@@ -378,26 +368,15 @@ public sealed partial class CupriDocument : IDisposable
         var anchor = FindCaretAnchor(field) ?? field;
         var value = _editBuffer ?? BindingEngine.Resolve(_model, _focusKey)?.ToString() ?? "";
         var caret = Math.Clamp(_caret, 0, value.Length);
-        var (px, py) = PaintedTopLeft(anchor);
-        var lh = FontService.LineHeightPx(anchor.Style);
         var ch = anchor.Style.FontSize * 1.1f;
 
-        // Place the caret at its real painted position. Multi-line (textarea) uses wrap-aware
-        // visual rows; a single-line field is one row of text at the anchor's content origin.
-        float cx, cy;
-        if (field.Element?.HasAttribute("data-multiline") == true)
-        {
-            var rows = BuildTextRows(anchor, value);
-            var target = RowForCaret(rows, caret);
-            var col = Math.Clamp(caret - target.Start, 0, target.Text.Length);
-            cx = target.X + _fonts.MeasureText(anchor.Style, target.Text[..col]);
-            cy = target.Y + (target.Height - ch) / 2f;
-        }
-        else
-        {
-            cx = px + anchor.ContentLeftInset + _fonts.MeasureText(anchor.Style, value[..caret]);
-            cy = py + anchor.ContentTopInset + (lh - ch) / 2f;
-        }
+        // Place the caret at its real painted position via wrap-aware visual rows — correct for a
+        // textarea AND for a single-line field whose long value has soft-wrapped to several rows.
+        var rows = BuildTextRows(anchor, value);
+        var target = RowForCaret(rows, caret);
+        var col = Math.Clamp(caret - target.Start, 0, target.Text.Length);
+        var cx = target.X + _fonts.MeasureText(anchor.Style, target.Text[..col]);
+        var cy = target.Y + (target.Height - ch) / 2f;
         list.Add(new FillRect(cx, cy, 2f, ch, 0f, anchor.Style.Color));
     }
 
@@ -413,22 +392,11 @@ public sealed partial class CupriDocument : IDisposable
         int e = Math.Clamp(Math.Max(_selAnchor, _caret), 0, value.Length);
         if (s == e) return;
 
-        var (px, py) = PaintedTopLeft(anchor);
-        var lh = FontService.LineHeightPx(anchor.Style);
         var ch = anchor.Style.FontSize * 1.1f;
-        var left0 = px + anchor.ContentLeftInset;
-        var top0 = py + anchor.ContentTopInset;
         var sel = new SKColor(0x2F, 0x6F, 0xED, 0x40); // translucent selection blue
 
-        if (field.Element?.HasAttribute("data-multiline") != true)
-        {
-            var x1 = left0 + _fonts.MeasureText(anchor.Style, value[..s]);
-            var x2 = left0 + _fonts.MeasureText(anchor.Style, value[..e]);
-            list.Add(new FillRect(x1, top0 + (lh - ch) / 2f, x2 - x1, ch, 0f, sel));
-            return;
-        }
-        // Per visual row (wrap-aware) highlight for a textarea. A selected newline at a logical
-        // line's end shows a small trailing sliver.
+        // Per visual row (wrap-aware) highlight — for both a textarea and a soft-wrapped single-line
+        // field. A selected newline at a logical line's end shows a small trailing sliver.
         foreach (var row in BuildTextRows(anchor, value))
         {
             int re = row.Start + row.Text.Length;
@@ -461,7 +429,9 @@ public sealed partial class CupriDocument : IDisposable
             var lineText = logical[i];
             var newlineAfter = i < logical.Length - 1;
             var div = i < lineDivs.Count ? lineDivs[i] : null;
-            var textNode = div?.Children.FirstOrDefault(c => c.IsText);
+            // Textarea: one line-<div> per logical line, each wrapping a text node. Single-line field:
+            // no line divs — the value text node sits directly under the anchor span. Handle both.
+            var textNode = (div ?? anchor).Children.FirstOrDefault(c => c.IsText);
 
             if (lineText.Length > 0 && textNode?.Lines is { Count: > 0 } lines)
             {
@@ -517,22 +487,18 @@ public sealed partial class CupriDocument : IDisposable
         var value = _editBuffer ?? "";
         if (value.Length == 0) return 0;
 
-        // Multi-line: pick the visual (wrap-aware) row nearest y, then the nearest column in it.
-        if (field.Element?.HasAttribute("data-multiline") == true)
+        // Pick the visual (wrap-aware) row nearest y, then the nearest column within it. Works for
+        // both a textarea and a single-line field whose long value soft-wraps to several rows.
+        _ = field;
+        var rows = BuildTextRows(anchorNode, value);
+        var row = rows[0];
+        var bestDy = float.MaxValue;
+        foreach (var r in rows)
         {
-            var rows = BuildTextRows(anchorNode, value);
-            var row = rows[0];
-            var bestDy = float.MaxValue;
-            foreach (var r in rows)
-            {
-                var dy = y < r.Y ? r.Y - y : y > r.Y + r.Height ? y - (r.Y + r.Height) : 0f;
-                if (dy < bestDy) { bestDy = dy; row = r; }
-            }
-            return row.Start + NearestColumn(anchorNode.Style, row.Text, x - row.X);
+            var dy = y < r.Y ? r.Y - y : y > r.Y + r.Height ? y - (r.Y + r.Height) : 0f;
+            if (dy < bestDy) { bestDy = dy; row = r; }
         }
-
-        var (bx, _) = PaintedTopLeft(anchorNode);
-        return NearestColumn(anchorNode.Style, value, x - (bx + anchorNode.ContentLeftInset));
+        return row.Start + NearestColumn(anchorNode.Style, row.Text, x - row.X);
     }
 
     // Painted top-left of a node: like HitTesting.AbsoluteBox but subtracts each scrollable ancestor's
@@ -1074,6 +1040,9 @@ public sealed partial class CupriDocument : IDisposable
             default:
                 if (!string.IsNullOrEmpty(text))
                 {
+                    // A single-line field takes no hard line breaks (like <input>): a pasted multi-line
+                    // string collapses its newlines to spaces so it stays one logical line.
+                    if (!_focusMultiline && text.IndexOf('\n') >= 0) text = text.Replace('\n', ' ');
                     if (hasSel) { value = value.Remove(selS, selE - selS); caret = selS; }
                     value = value.Insert(caret, text); caret += text.Length; anchor = caret; edited = true;
                 }
