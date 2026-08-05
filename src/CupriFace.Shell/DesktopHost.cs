@@ -62,7 +62,22 @@ public static class DesktopHost
         {
             Console.WriteLine($"[CupriFace] GPU unavailable ({ex.GetType().Name}); using the SDL software window.");
             using var window = new SdlSoftwareWindow(app.Title, app.Width, app.Height, app.Transparent, app.Frameless, app.TopMost);
-            window.Render += Draw;
+
+            // Commit-snapshot render thread (opt-in): build the display list on this UI thread and let
+            // a background thread rasterise it; present the latest completed frame each vsync. Targets
+            // the physical surface (scale 1), so it composes with the responsive present.
+            using var presenter = app.ThreadedRender ? new CupriFace.Threading.ThreadedPresenter() : null;
+            void DrawThreaded(RenderContext ctx)
+            {
+                presenter!.Present(ctx.Canvas); // draw the previous frame the render thread finished
+                if (app.RefreshIntervalSeconds > 0 && clock.Elapsed.TotalSeconds - lastRefresh >= app.RefreshIntervalSeconds)
+                { lastRefresh = clock.Elapsed.TotalSeconds; doc.Refresh(); }
+                if (doc.HasAnimations || doc.HasActiveTransitions) doc.Animate(clock.Elapsed.TotalSeconds);
+                var list = doc.BuildFrame(ctx.Width, ctx.Height);
+                presenter.Submit(list, ctx.Width, ctx.Height, app.Transparent ? SkiaSharp.SKColors.Transparent : app.Background);
+            }
+
+            window.Render += presenter is not null ? DrawThreaded : Draw;
             window.PointerDown += (x, y, clicks) => doc.DispatchClick(x / scale, y / scale, clicks);
             window.RightPointerDown += (x, y) => doc.DispatchContextMenu(x / scale, y / scale);
             window.PointerMove += (x, y) => doc.DispatchPointerMove(x / scale, y / scale);

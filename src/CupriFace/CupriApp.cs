@@ -49,6 +49,11 @@ public abstract class CupriApp
     /// <summary>Keep the window above other windows (always-on-top).</summary>
     public virtual bool TopMost => false;
 
+    /// <summary>Opt in to the commit-snapshot render-thread split (DESIGN §7.2): the UI thread builds
+    /// the display list and a background thread rasterises it, so rasterisation never blocks input.
+    /// Wired for the CPU/SDL software path; the GL path renders inline. Default off.</summary>
+    public virtual bool ThreadedRender => false;
+
     /// <summary>Component library available to the markup (defaults to the built-ins).</summary>
     public virtual ComponentRegistry Components => ComponentRegistry.Default();
 

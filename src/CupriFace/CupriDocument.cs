@@ -320,6 +320,16 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>Lay out at the given viewport size and paint onto <paramref name="canvas"/>.</summary>
     public void Render(SKCanvas canvas, float width, float height)
     {
+        var list = BuildFrame(width, height);
+        _rasterizer.Paint(canvas, list);
+    }
+
+    /// <summary>The UI-thread half of the commit-snapshot seam: lay out, scroll the caret into view,
+    /// and paint the render tree (with caret/selection/focus-ring) into an immutable
+    /// <see cref="DisplayList"/> — <b>without rasterising</b>. A threaded host hands this to a render
+    /// thread (see <c>ThreadedPresenter</c>); <see cref="Render"/> just rasterises it inline.</summary>
+    public DisplayList BuildFrame(float width, float height)
+    {
         // @media depends on viewport width — re-resolve styles when it changes.
         if (_hasMedia && Math.Abs(width - _viewportWidth) > 0.5f)
         {
@@ -339,7 +349,7 @@ public sealed partial class CupriDocument : IDisposable
         AppendCaret(list);
         if (clip is not null) list.Add(new PopClip());
         AppendFocusRing(list);
-        _rasterizer.Paint(canvas, list);
+        return list;
     }
 
     // If the caret moved (typing/nav, not wheel) and its field scrolls, nudge that container's
