@@ -72,10 +72,10 @@ public sealed class Painter
 
         // Border frame.
         var hasBorder = (node.BorderTopW + node.BorderRightW + node.BorderBottomW + node.BorderLeftW) > 0
-                        && s.BorderColor.Alpha > 0;
+                        && s.BorderColor.Alpha > 0 && s.BorderStyle != BorderLineStyle.None;
         if (hasBorder)
             list.Add(new BorderRect(absX, absY, node.Width, node.Height, s.BorderRadius,
-                node.BorderTopW, node.BorderRightW, node.BorderBottomW, node.BorderLeftW, s.BorderColor));
+                node.BorderTopW, node.BorderRightW, node.BorderBottomW, node.BorderLeftW, s.BorderColor, s.BorderStyle));
 
         // Icon: fill an SVG path in the content box with the current color.
         if (node.IconPath is { Length: > 0 } iconPath)

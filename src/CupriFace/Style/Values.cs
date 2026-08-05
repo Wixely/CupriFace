@@ -76,6 +76,10 @@ public enum OverflowMode { Visible, Hidden, Scroll }
 /// <summary>CSS <c>resize</c>: which axes a user can drag the element's size on (via a corner grip).</summary>
 public enum ResizeMode { None, Both, Horizontal, Vertical }
 
+/// <summary>CSS <c>border-style</c> (the supported subset). <c>hidden</c> maps to <c>None</c>; other
+/// keywords (double/groove/…) fall back to <c>Solid</c>.</summary>
+public enum BorderLineStyle { Solid, Dashed, Dotted, None }
+
 public static class Colors
 {
     private static readonly Dictionary<string, SKColor> Named = new(StringComparer.OrdinalIgnoreCase)

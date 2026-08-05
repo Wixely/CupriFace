@@ -214,6 +214,7 @@ public sealed class StyleResolver
                 case "border": ParseBorderShorthand(s, v); break;
                 case "border-width": { var w = ParsePx(v); s.BorderTop = s.BorderRight = s.BorderBottom = s.BorderLeft = w; break; }
                 case "border-color": if (Colors.TryParse(v, out var bc)) s.BorderColor = bc; break;
+                case "border-style": if (ParseBorderStyle(v) is { } st) s.BorderStyle = st; break;
                 case "border-radius": s.BorderRadius = ParsePx(v); break;
 
                 case "background" or "background-color": if (Colors.TryParse(v, out var bg)) s.Background = bg; break;
@@ -508,8 +509,19 @@ public sealed class StyleResolver
         {
             if (token.EndsWith("px", StringComparison.OrdinalIgnoreCase) || float.TryParse(token, out _))
             { var w = ParsePx(token); s.BorderTop = s.BorderRight = s.BorderBottom = s.BorderLeft = w; }
+            else if (ParseBorderStyle(token) is { } st) s.BorderStyle = st;
             else if (Colors.TryParse(token, out var c)) s.BorderColor = c;
-            // style keyword (solid/dashed) ignored in M1
         }
     }
+
+    // Supported border-style keywords; hidden→None, unknowns (double/groove/…) fall back to Solid.
+    private static BorderLineStyle? ParseBorderStyle(string v) => v.Trim().ToLowerInvariant() switch
+    {
+        "solid" => BorderLineStyle.Solid,
+        "dashed" => BorderLineStyle.Dashed,
+        "dotted" => BorderLineStyle.Dotted,
+        "none" or "hidden" => BorderLineStyle.None,
+        "double" or "groove" or "ridge" or "inset" or "outset" => BorderLineStyle.Solid,
+        _ => null,
+    };
 }

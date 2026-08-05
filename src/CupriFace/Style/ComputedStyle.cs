@@ -51,6 +51,7 @@ public sealed class ComputedStyle
     // Border
     public float BorderTop, BorderRight, BorderBottom, BorderLeft;
     public SKColor BorderColor = SKColors.Black;
+    public BorderLineStyle BorderStyle = BorderLineStyle.Solid;
     public float BorderRadius;
 
     // Paint

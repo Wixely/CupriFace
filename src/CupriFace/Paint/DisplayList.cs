@@ -23,7 +23,8 @@ public sealed record FillRect(float X, float Y, float W, float H, float Radius, 
 
 public sealed record BorderRect(
     float X, float Y, float W, float H, float Radius,
-    float Top, float Right, float Bottom, float Left, SKColor Color) : PaintCommand;
+    float Top, float Right, float Bottom, float Left, SKColor Color,
+    BorderLineStyle Style = BorderLineStyle.Solid) : PaintCommand;
 
 public sealed record TextRun(
     float X, float Y, float ContainerWidth, float LineWidth, float LineHeight,

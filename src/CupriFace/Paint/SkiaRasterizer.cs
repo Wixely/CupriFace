@@ -151,8 +151,18 @@ public sealed class SkiaRasterizer
             var inset = b.Top / 2f;
             var rect = new SKRect(b.X + inset, b.Y + inset, b.X + b.W - inset, b.Y + b.H - inset);
             var r = MathF.Max(0, b.Radius - inset);
+
+            // dashed/dotted → a dash path effect on the stroke (dotted = round-capped zero-length dashes).
+            SKPathEffect? dash = null;
+            if (b.Style == BorderLineStyle.Dashed) { paint.StrokeCap = SKStrokeCap.Butt; dash = SKPathEffect.CreateDash([b.Top * 2.5f, b.Top * 2.5f], 0f); }
+            else if (b.Style == BorderLineStyle.Dotted) { paint.StrokeCap = SKStrokeCap.Round; dash = SKPathEffect.CreateDash([0.1f, b.Top * 2f], 0f); }
+            paint.PathEffect = dash;
+
             if (r > 0) canvas.DrawRoundRect(rect, r, r, paint);
             else canvas.DrawRect(rect, paint);
+
+            paint.PathEffect = null; dash?.Dispose();
+            paint.StrokeCap = SKStrokeCap.Butt;
             paint.Style = SKPaintStyle.Fill;
             return;
         }
