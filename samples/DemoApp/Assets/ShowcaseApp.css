@@ -16,10 +16,12 @@ body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; -
 .lbl { color:var(--cupri-muted); font-size:14px; }
 .val { color:var(--cupri-text); font-weight:bold; font-size:14px; width:34px; }
 cupri-alert { margin-bottom:10px; }
-cupri-textarea { max-height:150px; } /* bounded → scrolls (wheel, thumb) instead of running off-screen */
+/* Bounded → scrolls (wheel, thumb); resize:vertical → drag the corner to change its height. */
+cupri-textarea { max-height:300px; min-height:78px; resize:vertical; }
 
-/* Images: a fixed frame; the letterbox (contain/none) shows the frame's dark background. */
-.frame { display:block; width:460px; height:300px; border:8px #2f3b4d; border-radius:6px; background:#0b0f18; }
+/* Images: a resizable frame; the letterbox (contain/none) shows the frame's dark background. */
+.frame { display:block; width:460px; height:300px; border:8px #2f3b4d; border-radius:6px; background:#0b0f18;
+         resize:both; min-width:220px; max-width:660px; min-height:140px; max-height:460px; }
 .credit { color:var(--cupri-muted); font-size:12px; margin-top:12px; }
 code { display:inline; font-family:monospace; color:var(--cupri-text); }
 

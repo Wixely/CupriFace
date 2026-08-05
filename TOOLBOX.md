@@ -295,6 +295,15 @@ CSS `width`/`height` (aspect preserved if you set only one); `fit` defaults to `
 <cupri-image src="https://example.com/banner.jpg" fit="cover" style="width:100%;height:120px"></cupri-image>
 ```
 
+**Resizable controls.** CSS `resize: both | horizontal | vertical` puts a grab handle in an
+element's bottom‑right corner — dragging it resizes the element, clamped to its
+`min-/max-width/height`. It's generic (works on any element — a textarea, an image frame, a panel)
+and the dragged size survives re‑renders.
+```css
+.frame { resize: both; min-width:220px; max-width:660px; min-height:140px; max-height:460px; }
+cupri-textarea { resize: vertical; min-height:78px; max-height:300px; }
+```
+
 **Scrolling text fields.** Give a `cupri-textarea` a bounded height (`max-height` / `height`) and it
 scrolls when the content overflows — mouse wheel, a draggable scrollbar thumb, and caret‑into‑view
 while typing all work, and the scroll position survives edits. Add **`follow-tail`** to keep it pinned

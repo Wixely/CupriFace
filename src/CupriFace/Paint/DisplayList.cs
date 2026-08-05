@@ -52,6 +52,9 @@ public sealed record FillPath(
 /// <summary>How an image is fitted into its box (CSS <c>object-fit</c>).</summary>
 public enum ObjectFit { Contain, Cover, Fill, None }
 
+/// <summary>A resize grip (corner grab handle) in a control's bottom-right corner (CSS <c>resize</c>).</summary>
+public sealed record ResizeGrip(float X, float Y, float Size, SKColor Color) : PaintCommand;
+
 /// <summary>Draw a decoded raster image into the box, fitted per <paramref name="Fit"/>, clipped to
 /// the (optionally rounded) box.</summary>
 public sealed record DrawImage(

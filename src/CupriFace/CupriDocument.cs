@@ -58,6 +58,8 @@ public sealed partial class CupriDocument : IDisposable
     private bool _caretMoved;           // caret changed since last render → scroll it into view once
     private RenderNode? _scrollDrag;    // scrollable node whose scrollbar thumb is being dragged
     private float _scrollDragY0, _scrollDragScroll0;
+    private RenderNode? _resizeDrag;    // node whose resize grip is being dragged
+    private float _resizeX0, _resizeY0, _resizeW0, _resizeH0;
 
     // Per-field undo/redo history (cleared on focus change). A snapshot of the edit buffer + caret.
     private readonly record struct EditState(string Buffer, int Caret, int Anchor);
@@ -208,31 +210,38 @@ public sealed partial class CupriDocument : IDisposable
         _dom = dom;
     }
 
-    // Scroll-offset preservation across a rebuild, keyed by structural path (child-index chain from
-    // root) since the DOM — and thus element identity — is re-parsed each rebuild.
-    private Dictionary<string, (float ScrollY, bool AtBottom, bool FollowTail)>? CaptureScroll()
+    // Per-node interaction state preserved across a rebuild, keyed by structural path (child-index
+    // chain from root) since the DOM — and thus element identity — is re-parsed each rebuild.
+    private readonly record struct NodeState(float ScrollY, bool AtBottom, bool FollowTail, float? ResizeW, float? ResizeH);
+
+    private Dictionary<string, NodeState>? CaptureScroll()
     {
         if (_root is null) return null;
-        Dictionary<string, (float, bool, bool)>? map = null;
+        Dictionary<string, NodeState>? map = null;
         void Walk(RenderNode n)
         {
             var tail = n.Element?.HasAttribute("data-follow-tail") == true;
-            if (n.Style.Overflow == OverflowMode.Scroll && (n.ScrollY > 0.01f || tail))
-                (map ??= new())[PathOf(n)] = (n.ScrollY, n.ScrollY >= n.MaxScrollY - 1f, tail);
+            var scroll = n.Style.Overflow == OverflowMode.Scroll && (n.ScrollY > 0.01f || tail);
+            if (scroll || n.ResizeW is not null || n.ResizeH is not null)
+                (map ??= new())[PathOf(n)] = new NodeState(n.ScrollY, n.ScrollY >= n.MaxScrollY - 1f, tail, n.ResizeW, n.ResizeH);
             foreach (var c in n.Children) Walk(c);
         }
         Walk(_root);
         return map;
     }
 
-    private void RestoreScroll(Dictionary<string, (float ScrollY, bool AtBottom, bool FollowTail)>? map)
+    private void RestoreScroll(Dictionary<string, NodeState>? map)
     {
         if (map is null) return;
         void Walk(RenderNode n)
         {
-            if (n.Style.Overflow == OverflowMode.Scroll && map.TryGetValue(PathOf(n), out var s))
-                // float.MaxValue clamps to the NEW bottom at paint time → tail-follow.
-                n.ScrollY = s.FollowTail && s.AtBottom ? float.MaxValue : s.ScrollY;
+            if (map.TryGetValue(PathOf(n), out var s))
+            {
+                if (n.Style.Overflow == OverflowMode.Scroll)
+                    n.ScrollY = s.FollowTail && s.AtBottom ? float.MaxValue : s.ScrollY; // MaxValue → new bottom (tail-follow)
+                n.ResizeW = s.ResizeW;
+                n.ResizeH = s.ResizeH;
+            }
             foreach (var c in n.Children) Walk(c);
         }
         Walk(_root);
@@ -544,6 +553,34 @@ public sealed partial class CupriDocument : IDisposable
         return (thumbX, thumbY, 5f, thumbH);
     }
 
+    // Is (x,y) over the resize grip (bottom-right corner) of a resizable node?
+    private bool InResizeGrip(RenderNode n, float x, float y)
+    {
+        if (n.Style.Resize == ResizeMode.None) return false;
+        var (ax, ay) = PaintedTopLeft(n);
+        float right = ax + n.Width, bottom = ay + n.Height;
+        const float hot = 18f;
+        return x >= right - hot && x <= right + 2 && y >= bottom - hot && y <= bottom + 2;
+    }
+
+    // Clamp a dragged border-box size to a floor + the element's min/max-* (resolved approximately).
+    private float ClampResize(RenderNode n, float value, bool horizontal)
+    {
+        var s = n.Style;
+        float min = 24f, max = float.MaxValue;
+        if (horizontal)
+        {
+            if (s.MinWidth.IsDefinite) min = MathF.Max(min, s.MinWidth.Resolve(_viewportWidth) + n.HorizontalInsets);
+            if (s.MaxWidth.IsDefinite) max = s.MaxWidth.Resolve(_viewportWidth) + n.HorizontalInsets;
+        }
+        else
+        {
+            if (s.MinHeight.IsDefinite) min = MathF.Max(min, s.MinHeight.Resolve(_viewportWidth) + n.VerticalInsets);
+            if (s.MaxHeight.IsDefinite) max = s.MaxHeight.Resolve(_viewportWidth) + n.VerticalInsets;
+        }
+        return Math.Clamp(value, min, MathF.Max(min, max));
+    }
+
     // The column in <paramref name="text"/> whose x-offset is nearest <paramref name="localX"/>.
     private int NearestColumn(ComputedStyle style, string text, float localX)
     {
@@ -624,6 +661,15 @@ public sealed partial class CupriDocument : IDisposable
         _textDrag = false;
         var hit = HitTesting.HitTest(_root, x, y);
         if (hit is null) { _kbIndex = -1; return UpdateFocus(null); } // click on empty space blurs
+
+        // Grabbing a resize grip (bottom-right corner) starts a resize-drag — corner takes priority.
+        for (var n = hit; n is not null; n = n.Parent)
+            if (InResizeGrip(n, x, y))
+            {
+                _resizeDrag = n; _resizeX0 = x; _resizeY0 = y;
+                _resizeW0 = n.ResizeW ?? n.Width; _resizeH0 = n.ResizeH ?? n.Height;
+                return true;
+            }
 
         // Grabbing a scrollbar thumb starts a scroll-drag (takes priority; doesn't focus/blur).
         for (var n = hit; n is not null; n = n.Parent)
@@ -1289,6 +1335,15 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>Pointer move: drag a slider, or update :hover. Returns true if a repaint is needed.</summary>
     public bool DispatchPointerMove(float x, float y)
     {
+        if (_resizeDrag is { } rz)
+        {
+            var mode = rz.Style.Resize;
+            if (mode is ResizeMode.Both or ResizeMode.Horizontal)
+                rz.ResizeW = ClampResize(rz, _resizeW0 + (x - _resizeX0), horizontal: true);
+            if (mode is ResizeMode.Both or ResizeMode.Vertical)
+                rz.ResizeH = ClampResize(rz, _resizeH0 + (y - _resizeY0), horizontal: false);
+            return true; // re-layout on repaint; no rebuild
+        }
         if (_scrollDrag is { } sd)
         {
             var boxH = sd.ContentBoxHeight;
@@ -1315,7 +1370,7 @@ public sealed partial class CupriDocument : IDisposable
     }
 
     /// <summary>Pointer up: end any slider drag, scrollbar drag, or text drag-select.</summary>
-    public void DispatchPointerUp(float x, float y) { _dragging = false; _textDrag = false; _scrollDrag = null; }
+    public void DispatchPointerUp(float x, float y) { _dragging = false; _textDrag = false; _scrollDrag = null; _resizeDrag = null; }
 
     /// <summary>Scroll wheel: scroll the nearest scrollable element under the pointer by pixels.</summary>
     public bool DispatchWheel(float x, float y, float pixelDelta)

@@ -165,6 +165,7 @@ public sealed class StyleResolver
                 case "position": s.Position = v.ToLowerInvariant() switch { "relative" => PositionType.Relative, "absolute" => PositionType.Absolute, "fixed" => PositionType.Fixed, _ => PositionType.Static }; break;
                 case "z-index": s.ZIndex = (int)ParseNum(v); break;
                 case "overflow": s.Overflow = v.ToLowerInvariant() switch { "hidden" => OverflowMode.Hidden, "scroll" or "auto" => OverflowMode.Scroll, _ => OverflowMode.Visible }; break;
+                case "resize": s.Resize = v.ToLowerInvariant() switch { "both" => ResizeMode.Both, "horizontal" => ResizeMode.Horizontal, "vertical" => ResizeMode.Vertical, _ => ResizeMode.None }; break;
 
                 case "width": s.Width = ParseLen(v); break;
                 case "height": s.Height = ParseLen(v); break;

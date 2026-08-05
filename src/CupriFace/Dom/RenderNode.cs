@@ -42,6 +42,10 @@ public sealed class RenderNode
     // interaction state — layout recomputes ScrollContentHeight but preserves ScrollY.
     public float ScrollContentHeight;
     public float ScrollY;
+
+    // User-dragged size (CSS resize) — interaction state, preserved across rebuilds like ScrollY.
+    // Null = use the CSS size. Overrides width/height in layout, then clamped to min/max-*.
+    public float? ResizeW, ResizeH;
     public float ContentBoxHeight => Height - VerticalInsets;
     public float MaxScrollY => MathF.Max(0, ScrollContentHeight - ContentBoxHeight);
     public bool IsScrollable => MaxScrollY > 0.5f;

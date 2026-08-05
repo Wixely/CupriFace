@@ -125,6 +125,16 @@ public sealed class Painter
             list.Add(new FillRect(thumbX, thumbY, 5f, thumbH, 2.5f, new SKColor(0x60, 0x6a, 0x7a, 0xB0)));
         }
 
+        // Resize grip (CSS resize) in the bottom-right corner.
+        if (s.Resize != ResizeMode.None)
+        {
+            const float grip = 13f;
+            list.Add(new ResizeGrip(
+                absX + node.Width - node.BorderRightW - grip - 2f,
+                absY + node.Height - node.BorderBottomW - grip - 2f,
+                grip, new SKColor(0x8b, 0x93, 0xa7)));
+        }
+
         if (transformed) list.Add(new PopTransform());
         if (faded) list.Add(new PopOpacity());
     }

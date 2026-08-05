@@ -92,6 +92,20 @@ public sealed class SkiaRasterizer
                     canvas.Restore();
                     break;
 
+                case ResizeGrip g:
+                {
+                    stroke.Style = SKPaintStyle.Stroke;
+                    stroke.StrokeWidth = 1.5f;
+                    stroke.StrokeCap = SKStrokeCap.Round;
+                    stroke.Color = g.Color;
+                    float gx2 = g.X + g.Size, gy2 = g.Y + g.Size; // three ticks parallel to the corner diagonal
+                    foreach (var f in stackalloc[] { 0.30f, 0.62f, 0.94f })
+                        canvas.DrawLine(gx2 - g.Size * f, gy2, gx2, gy2 - g.Size * f, stroke);
+                    stroke.Style = SKPaintStyle.Fill;
+                    stroke.StrokeCap = SKStrokeCap.Butt;
+                    break;
+                }
+
                 case DrawImage di:
                 {
                     canvas.Save();

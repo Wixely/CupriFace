@@ -131,7 +131,8 @@ public sealed class LayoutEngine
         node.BorderLeftW = s.BorderLeft;
 
         float contentW;
-        if (forceContentW is { } fw) contentW = fw;
+        if (node.ResizeW is { } rw && forceContentW is null) contentW = rw - node.HorizontalInsets; // user-dragged size
+        else if (forceContentW is { } fw) contentW = fw;
         else if (s.Width.IsDefinite) contentW = s.Width.Resolve(cbW);
         else contentW = MathF.Max(0, cbW - node.MarginLeft - node.MarginRight - node.HorizontalInsets);
         contentW = ClampW(s, contentW, cbW);
@@ -141,9 +142,11 @@ public sealed class LayoutEngine
         if (node.ImageSrc is { Length: > 0 } imgSrc && _images?.Size(imgSrc) is { W: > 0, H: > 0 } px)
         {
             var aspect = (float)px.W / px.H;
-            var wDef = s.Width.IsDefinite || forceContentW is not null;
-            var hDef = s.Height.IsDefinite || forceContentH is not null;
-            var hh = hDef ? (forceContentH ?? s.Height.Resolve(cbH)) : (wDef ? contentW / aspect : px.H);
+            var wDef = s.Width.IsDefinite || forceContentW is not null || node.ResizeW is not null;
+            var hDef = s.Height.IsDefinite || forceContentH is not null || node.ResizeH is not null;
+            var hh = node.ResizeH is { } rh2 ? rh2 - node.VerticalInsets
+                   : hDef ? (forceContentH ?? s.Height.Resolve(cbH))
+                   : (wDef ? contentW / aspect : px.H);
             var ww = wDef ? contentW : (hDef ? hh * aspect : px.W);
             node.Width = ClampW(s, ww, cbW) + node.HorizontalInsets;
             node.Height = ClampH(s, hh, cbH) + node.VerticalInsets;
@@ -168,7 +171,8 @@ public sealed class LayoutEngine
             usedH = LayoutBlock(node, contentW, cbH);
 
         float contentH;
-        if (forceContentH is { } fh) contentH = fh;
+        if (node.ResizeH is { } rh && forceContentH is null) contentH = rh - node.VerticalInsets; // user-dragged size
+        else if (forceContentH is { } fh) contentH = fh;
         else if (s.Height.IsDefinite) contentH = s.Height.Resolve(cbH);
         else contentH = usedH;
         contentH = ClampH(s, contentH, cbH);

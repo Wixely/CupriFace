@@ -13,6 +13,7 @@ public sealed class ComputedStyle
     public DisplayType Display = DisplayType.Block;
     public PositionType Position = PositionType.Static;
     public OverflowMode Overflow = OverflowMode.Visible;
+    public ResizeMode Resize = ResizeMode.None;
     public int ZIndex;
 
     public Length Width = Length.Auto, Height = Length.Auto;
