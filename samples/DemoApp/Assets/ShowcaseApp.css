@@ -86,6 +86,14 @@ code { display:inline; font-family:monospace; color:var(--cupri-text); }
 .fbox { width:84px; height:84px; border-radius:14px; display:flex; align-items:center;
         justify-content:center; color:white; font-weight:bold; font-size:13px; background:#B87333; }
 
+/* Border-style tiles — solid / dashed / dotted. */
+.brdemo { width:80px; height:80px; border-radius:12px; display:flex; align-items:center;
+          justify-content:center; color:var(--cupri-text); font-weight:bold; font-size:13px;
+          background:var(--cupri-surface); }
+.bsolid  { border:3px solid #B87333; }
+.bdashed { border:3px dashed #4682B4; }
+.bdotted { border:4px dotted #10ac84; }
+
 .dlg-title { font-size:19px; font-weight:bold; color:#1e2430; margin-bottom:10px; }
 .dlg-body { color:#48505c; font-size:14px; margin-bottom:20px; }
 .dlg-actions { display:flex; justify-content:flex-end; }
