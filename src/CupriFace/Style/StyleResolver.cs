@@ -442,20 +442,21 @@ public sealed class StyleResolver
     }
 
     // transition: <prop|all> <duration> [timing] [delay] [, <prop> <duration> …]. A later `transition`
-    // declaration replaces the whole list (CSS shorthand semantics).
+    // declaration replaces the whole list (CSS shorthand semantics). Splitting is paren-aware so a
+    // cubic-bezier(...)'s inner commas/spaces don't split the list or tokens.
     private static void ParseTransition(ComputedStyle s, string v)
     {
         var list = new List<TransitionSpec>();
-        foreach (var seg in v.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        foreach (var seg in SplitTopLevel(v, ','))
         {
             string prop = "all";
             float dur = 0, delay = 0;
             var times = 0;
             var ease = Easing.Ease; // CSS default timing
-            foreach (var tok in seg.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            foreach (var tok in SplitTopLevel(seg, ' '))
             {
                 if (IsTime(tok, out var secs)) { if (times++ == 0) dur = secs; else delay = secs; }
-                else if (Easing.FromKeyword(tok.ToLowerInvariant()) is { } e) ease = e;
+                else if (ParseEasing(tok) is { } e) ease = e;
                 else prop = tok.ToLowerInvariant();
             }
             if (prop == "background-color") prop = "background";
@@ -463,6 +464,44 @@ public sealed class StyleResolver
             list.Add(new TransitionSpec(prop, dur, delay, ease));
         }
         s.Transitions = list;
+    }
+
+    // Split on `sep` at the top level only (ignoring separators inside parentheses).
+    private static List<string> SplitTopLevel(string s, char sep)
+    {
+        var parts = new List<string>();
+        int depth = 0, start = 0;
+        for (var i = 0; i < s.Length; i++)
+        {
+            var c = s[i];
+            if (c == '(') depth++;
+            else if (c == ')') { if (depth > 0) depth--; }
+            else if (c == sep && depth == 0)
+            {
+                var t = s[start..i].Trim();
+                if (t.Length > 0) parts.Add(t);
+                start = i + 1;
+            }
+        }
+        var last = s[start..].Trim();
+        if (last.Length > 0) parts.Add(last);
+        return parts;
+    }
+
+    // A timing function: an easing keyword or a cubic-bezier(x1,y1,x2,y2) literal.
+    private static Easing? ParseEasing(string tok)
+    {
+        var t = tok.Trim().ToLowerInvariant();
+        if (Easing.FromKeyword(t) is { } k) return k;
+        if (t.StartsWith("cubic-bezier(", StringComparison.Ordinal) && t.EndsWith(')'))
+        {
+            var nums = t[13..^1].Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            if (nums.Length == 4
+                && float.TryParse(nums[0], out var x1) && float.TryParse(nums[1], out var y1)
+                && float.TryParse(nums[2], out var x2) && float.TryParse(nums[3], out var y2))
+                return new Easing(EasingKind.Bezier, Math.Clamp(x1, 0f, 1f), y1, Math.Clamp(x2, 0f, 1f), y2);
+        }
+        return null;
     }
 
     private static bool IsTime(string tok, out float seconds)
