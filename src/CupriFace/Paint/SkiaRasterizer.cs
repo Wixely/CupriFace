@@ -311,11 +311,26 @@ public sealed class SkiaRasterizer
         }
     }
 
-    private void DrawRun(SKCanvas canvas, SKPaint paint, SKFont font, string family, int weight, string text, float x, float baseline)
+    private void DrawRun(SKCanvas canvas, SKPaint paint, SKFont primaryFont, string family, int weight, string text, float x, float baseline)
     {
-        // HarfBuzz-shaped drawing (correct advances/direction); fall back to Skia's simple path.
-        try { canvas.DrawShapedText(_fonts.GetShaper(family, weight), text, x, baseline, font, paint); }
-        catch { canvas.DrawText(text, x, baseline, font, paint); }
+        // Split into fallback-face runs so glyphs the primary lacks (emoji/CJK/symbols) draw in a
+        // face that has them instead of tofu. Each sub-run is HarfBuzz-shaped in its own typeface.
+        // (The overwhelmingly common case is one run in the primary face — then we shape once, no
+        // extra measuring.)
+        var runs = _fonts.SplitRuns(text, family, weight);
+        for (var i = 0; i < runs.Count; i++)
+        {
+            var (segment, tf) = runs[i];
+            var font = _fonts.GetFont(tf, primaryFont.Size);
+            var shaper = _fonts.GetShaper(tf);
+            try { canvas.DrawShapedText(shaper, segment, x, baseline, font, paint); }
+            catch { canvas.DrawText(segment, x, baseline, font, paint); }
+            if (i < runs.Count - 1) // advance to the next run only when one follows
+            {
+                try { x += shaper.Shape(segment, font).Width; }
+                catch { x += font.MeasureText(segment); }
+            }
+        }
     }
 
     private static bool Approximately(float a, float b) => MathF.Abs(a - b) < 0.01f;

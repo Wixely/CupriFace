@@ -41,7 +41,7 @@ Ambition is the modern core; these are the sequenced-but-unshipped pieces (DESIG
 
 | Item | Status | Notes |
 |------|--------|-------|
-| International + **emoji font fallback** | 🟡 | HarfBuzz *shapes*, but fallback-face **selection** is our code and is deceptively deep (DESIGN risk #5). |
+| International + **emoji font fallback** | 🟢 | **Done** — `FontService.SplitRuns` splits text (codepoint-aware, surrogate pairs intact) into runs by which face can render each character: the primary family, or a fallback found via `SKFontManager.MatchCharacter` (cached per codepoint). The rasteriser draws, and `MeasureText` measures, each run in its own HarfBuzz‑shaped face — so emoji/CJK/symbols the primary lacks render instead of tofu (subject to a suitable face being installed). |
 | Full spec **UBA** bidi | 🟡 | See §2 — current reorder is simplified. |
 
 ## 4. Performance & threading (P1)
