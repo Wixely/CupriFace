@@ -59,7 +59,7 @@ Sustained fluidity is the core requirement (DESIGN risk #0); a demo hitting 60 f
 
 | Item | Status | Notes |
 |------|--------|-------|
-| **Prompt-free clipboard** via a hidden focused `<textarea>` | 🔴 | Current copy/paste uses `navigator.clipboard` (can prompt for paste; `readText` also wedges headless automation). A hidden textarea receiving native `copy`/`cut`/`paste` events avoids both. |
+| **Prompt-free clipboard** via a hidden focused `<textarea>` | 🟢 | **Done (web keyboard path).** Keyboard focus + clipboard now flow through a hidden `<textarea>`: Ctrl+C/X/V fall through to native `copy`/`cut`/`paste` events (engine selection supplied via `clipboardData`; pasted text fed to the engine) — no `navigator.clipboard`, no prompt, no `readText` automation wedge. The right-click-menu Paste still uses `navigator.clipboard` (a menu click can't raise a native paste event) — a deliberate, user-initiated path. |
 | **IME composition** on the web host | 🔴 | Desktop handles IME (SDL `StartTextInput`); the raw-WASM keyboard path takes single chars only. |
 | WASM **a11y** | 🟢 | **Done** — the off-screen ARIA mirror (see §1). |
 | Fix Mono **WASM-AOT codegen** so `CupriFace.dll` can be AOT-compiled | 🟡 | It's currently force-*interpreted* to dodge a `function signature mismatch` (SliderComponent interface dispatch); the rest AOT-compiles. Interpreting the engine assembly costs web performance. Track/patch upstream or refactor the offending dispatch. |

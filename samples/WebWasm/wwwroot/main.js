@@ -17,6 +17,19 @@ a11y.setAttribute('aria-live', 'polite');
 a11y.style.cssText = 'position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;';
 document.body.appendChild(a11y);
 
+// Hidden focused textarea that owns keyboard focus and receives NATIVE copy/cut/paste events — so
+// clipboard works with no permission prompt and without navigator.clipboard.readText (which prompts
+// on paste and wedges headless automation). It keeps a selected placeholder so copy/cut always fire.
+const kbd = document.createElement('textarea');
+kbd.id = 'cupri-kbd';
+kbd.setAttribute('aria-hidden', 'true');
+kbd.autocapitalize = 'off'; kbd.autocomplete = 'off'; kbd.spellcheck = false;
+kbd.style.cssText = 'position:absolute;top:0;left:0;width:1px;height:1px;opacity:0;border:0;padding:0;resize:none;overflow:hidden;';
+kbd.value = ' '; // non-empty so cut/copy events fire even with no textarea selection
+document.body.appendChild(kbd);
+const keepSelected = () => { kbd.value = ' '; kbd.setSelectionRange(0, kbd.value.length); };
+const focusKbd = () => { kbd.focus({ preventScroll: true }); keepSelected(); };
+
 // Boot log mirrored into the DOM (hidden) so headless --dump-dom diagnostics can read boot
 // progress and errors even when the canvas never paints. Harmless in normal use.
 const bootLog = document.createElement('pre');
@@ -85,33 +98,39 @@ try {
     // JS → C#: pointer + wheel (same hit-test/dispatch as desktop). Registered now; they only
     // fire after the runtime is running, below.
     // e.detail carries the click count (1/2/3 = single/double/triple) for word/line selection.
-    canvas.addEventListener('pointerdown', e => { canvas.focus(); const [x, y] = at(e); I.PointerDown(x, y, e.detail || 1); });
+    canvas.addEventListener('pointerdown', e => { focusKbd(); const [x, y] = at(e); I.PointerDown(x, y, e.detail || 1); });
     // Right-click: show the engine's context menu, suppress the browser's default menu.
-    canvas.addEventListener('contextmenu', e => { canvas.focus(); const [x, y] = at(e); I.ContextMenu(x, y); e.preventDefault(); });
+    canvas.addEventListener('contextmenu', e => { focusKbd(); const [x, y] = at(e); I.ContextMenu(x, y); e.preventDefault(); });
     canvas.addEventListener('pointermove', e => { const [x, y] = at(e); I.PointerMove(x, y); });
     canvas.addEventListener('pointerup',   e => { const [x, y] = at(e); I.PointerUp(x, y); });
     canvas.addEventListener('wheel', e => { const [x, y] = at(e); I.Wheel(x, y, e.deltaY); e.preventDefault(); }, { passive: false });
 
-    // Keyboard: named keys → EditKey codes (must match CupriFace.Interaction.EditKey), with
-    // Shift/Ctrl modifiers (KeyMods: Shift=1, Ctrl=2) for selection + word movement; printable
-    // characters → KeyChar. Ctrl+A/C/X/V are text shortcuts (clipboard I/O lives here in JS).
+    // Keyboard on the hidden textarea: named keys → EditKey codes (must match
+    // CupriFace.Interaction.EditKey), Shift/Ctrl mods (KeyMods: Shift=1, Ctrl=2); printable chars →
+    // KeyChar. Ctrl+C/X/V are NOT handled here — they fall through so the browser fires the native
+    // copy/cut/paste events (handled below), which need no clipboard permission.
     const EK = { Backspace: 1, Delete: 2, ArrowLeft: 3, ArrowRight: 4, Home: 5, End: 6, Enter: 7, ArrowUp: 8, ArrowDown: 9, Escape: 13 };
-    canvas.addEventListener('keydown', e => {
+    kbd.addEventListener('keydown', e => {
         const ctrl = e.ctrlKey || e.metaKey;                 // Cmd on macOS
         const mods = (e.shiftKey ? 1 : 0) | (ctrl ? 2 : 0);
         if (ctrl) {
             const k = e.key.toLowerCase();
-            if (k === 'a') { I.EditKeyPress(14, 0); e.preventDefault(); return; }                                    // select all
-            if (k === 'c') { const t = I.CopySelection(); if (t) navigator.clipboard.writeText(t).catch(() => {}); e.preventDefault(); return; }
-            if (k === 'x') { const t = I.CutSelection(); if (t) navigator.clipboard.writeText(t).catch(() => {}); e.preventDefault(); return; }
-            if (k === 'v') { navigator.clipboard.readText().then(t => { if (t) I.KeyChar(t); }).catch(() => {}); e.preventDefault(); return; }
-            if (k === 'z') { if (e.shiftKey) I.Redo(); else I.Undo(); e.preventDefault(); return; } // Ctrl+Shift+Z = redo
+            if (k === 'c' || k === 'x' || k === 'v') return; // let the native copy/cut/paste event fire
+            if (k === 'a') { I.EditKeyPress(14, 0); e.preventDefault(); return; }                     // select all
+            if (k === 'z') { if (e.shiftKey) I.Redo(); else I.Undo(); e.preventDefault(); return; }   // Ctrl+Shift+Z = redo
             if (k === 'y') { I.Redo(); e.preventDefault(); return; }
         }
         if (e.key === 'Tab') { I.EditKeyPress(e.shiftKey ? 11 : 10, 0); e.preventDefault(); return; }
         if (e.key in EK) { I.EditKeyPress(EK[e.key], mods); e.preventDefault(); return; }
         if (e.key.length === 1 && !ctrl) { I.KeyChar(e.key); e.preventDefault(); }
     });
+
+    // Native clipboard events on the focused textarea — no navigator.clipboard, no prompt. We supply
+    // the engine's selection on copy/cut and feed pasted text to the engine, and preventDefault so the
+    // textarea's own placeholder isn't used.
+    kbd.addEventListener('copy', e => { const t = I.CopySelection(); if (t) { e.clipboardData.setData('text/plain', t); e.preventDefault(); } keepSelected(); });
+    kbd.addEventListener('cut',  e => { const t = I.CutSelection();  if (t) { e.clipboardData.setData('text/plain', t); e.preventDefault(); } keepSelected(); });
+    kbd.addEventListener('paste', e => { const t = e.clipboardData.getData('text/plain'); e.preventDefault(); if (t) I.KeyChar(t); keepSelected(); });
 
     // Start the runtime with runMain (runs Main and STAYS RESIDENT — unlike dotnet.run(),
     // which exits after Main so later [JSExport] calls would fail) before calling any export.
@@ -121,8 +140,7 @@ try {
 
     I.Init();
     logBoot('Init ok');
-    canvas.tabIndex = 0;
-    canvas.focus();
+    focusKbd(); // keyboard + clipboard flow through the hidden textarea, not the canvas
 
     // Overlay mode: the engine clears transparent and presents straight alpha, so the canvas
     // composites over the page. Pass pointer events THROUGH wherever nothing is drawn — a
