@@ -38,6 +38,17 @@
       "stopAtEntry": false
     },
     {
+      "name": "TransparentHud — floating overlay (stays open)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${workspaceFolder}/samples/TransparentHud/bin/Debug/net10.0/TransparentHud.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "stopAtEntry": false
+    },
+    {
       "name": "ControlsGallery (M5)",
       "type": "coreclr",
       "request": "launch",
