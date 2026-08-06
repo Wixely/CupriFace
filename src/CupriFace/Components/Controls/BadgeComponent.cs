@@ -11,7 +11,7 @@ public sealed class BadgeComponent : ComponentBase
 
     public override string DefaultCss => """
         .cupri-badge { display:inline-block; padding:4px 10px; border-radius:11px;
-                       background:#eef1f5; color:#48505c; font-size:13px; font-weight:bold; }
+                       background:var(--cupri-hover, #eef1f5); color:var(--cupri-text, #48505c); font-size:13px; font-weight:bold; }
         """;
 
     public override void Expand(IElement el)

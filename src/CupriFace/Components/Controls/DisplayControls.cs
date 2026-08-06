@@ -7,8 +7,8 @@ public sealed class ChipComponent : ComponentBase
 {
     public override string Tag => "cupri-chip";
     public override string DefaultCss => """
-        .cupri-chip { display:inline-flex; align-items:center; gap:6px; background:#eef1f5; color:#48505c;
-                      padding:5px 12px; border-radius:14px; font-size:13px; font-weight:bold; }
+        .cupri-chip { display:inline-flex; align-items:center; gap:6px; background:var(--cupri-hover, #eef1f5);
+                      color:var(--cupri-text, #48505c); padding:5px 12px; border-radius:14px; font-size:13px; font-weight:bold; }
         """;
 
     public override void Expand(IElement el)
@@ -50,7 +50,7 @@ public sealed class CardComponent : ComponentBase
 public sealed class DividerComponent : ComponentBase
 {
     public override string Tag => "cupri-divider";
-    public override string DefaultCss => ".cupri-divider { display:block; height:1px; background:#e0e4ea; margin:10px 0; }";
+    public override string DefaultCss => ".cupri-divider { display:block; height:1px; background:var(--cupri-border, #e0e4ea); margin:10px 0; }";
 
     public override void Expand(IElement el)
     {
