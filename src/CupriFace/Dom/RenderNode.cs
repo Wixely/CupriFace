@@ -34,6 +34,10 @@ public sealed class RenderNode
     // For image nodes (<cupri-image>): the source to decode + paint (resolved by ImageStore).
     public string? ImageSrc;
 
+    // For chart plots (line chart / sparkline): normalised points "x0,y0 x1,y1 …" in 0..1 (y=0 top),
+    // painted as a polyline (+ area fill / dots) scaled into the content box. Set from data-cupri-line.
+    public string? ChartLine;
+
     // Overlays: position:fixed nodes are lifted to the top layer and painted last,
     // with X/Y already in absolute viewport coordinates.
     public bool IsTopLayer;

@@ -56,6 +56,12 @@ public sealed record PopFilter : PaintCommand;
 public sealed record FillPath(
     float X, float Y, float Width, float Height, float ViewBox, string PathData, SKColor Color) : PaintCommand;
 
+/// <summary>A chart line: an optional filled area (down to <paramref name="BaseY"/>) under a stroked
+/// polyline. <paramref name="Points"/> is absolute [x0,y0,x1,y1,…]. Width 0 skips the stroke; a
+/// transparent <paramref name="Fill"/> skips the area. Used by the line chart / sparkline.</summary>
+public sealed record Polyline(
+    IReadOnlyList<float> Points, float Width, SKColor Stroke, SKColor Fill, float BaseY) : PaintCommand;
+
 /// <summary>How an image is fitted into its box (CSS <c>object-fit</c>).</summary>
 public enum ObjectFit { Contain, Cover, Fill, None }
 

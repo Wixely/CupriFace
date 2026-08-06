@@ -104,6 +104,36 @@ public sealed class SkiaRasterizer
                     canvas.Restore();
                     break;
 
+                case Polyline pl when pl.Points.Count >= 4:
+                {
+                    using var path = new SKPath();
+                    path.MoveTo(pl.Points[0], pl.Points[1]);
+                    for (var i = 2; i + 1 < pl.Points.Count; i += 2) path.LineTo(pl.Points[i], pl.Points[i + 1]);
+
+                    if (pl.Fill.Alpha > 0) // area under the line, closed down to the baseline
+                    {
+                        using var area = new SKPath();
+                        area.MoveTo(pl.Points[0], pl.BaseY);
+                        area.LineTo(pl.Points[0], pl.Points[1]);
+                        for (var i = 2; i + 1 < pl.Points.Count; i += 2) area.LineTo(pl.Points[i], pl.Points[i + 1]);
+                        area.LineTo(pl.Points[^2], pl.BaseY);
+                        area.Close();
+                        fill.Color = pl.Fill;
+                        canvas.DrawPath(area, fill);
+                    }
+                    if (pl.Width > 0)
+                    {
+                        stroke.Style = SKPaintStyle.Stroke;
+                        stroke.StrokeWidth = pl.Width;
+                        stroke.StrokeJoin = SKStrokeJoin.Round;
+                        stroke.StrokeCap = SKStrokeCap.Round;
+                        stroke.Color = pl.Stroke;
+                        canvas.DrawPath(path, stroke);
+                        stroke.Style = SKPaintStyle.Fill; // reset for the next border/grip
+                    }
+                    break;
+                }
+
                 case ResizeGrip g:
                 {
                     stroke.Style = SKPaintStyle.Stroke;

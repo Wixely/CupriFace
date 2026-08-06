@@ -73,6 +73,14 @@ public sealed class ComponentRegistry
         .Register(new CardComponent())
         .Register(new DividerComponent())
         .Register(new StatComponent())
+        // Charts
+        .Register(new BarChartComponent())
+        .Register(new BarComponent())
+        .Register(new LineChartComponent())
+        .Register(new PointComponent())
+        .Register(new SparklineComponent())
+        .Register(new HeatmapComponent())
+        .Register(new HeatCellComponent())
         // Navigation & disclosure
         .Register(new TabsComponent())
         .Register(new AccordionComponent())

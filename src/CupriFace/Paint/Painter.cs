@@ -77,6 +77,25 @@ public sealed class Painter
         return null;
     }
 
+    // Parse "x0,y0 x1,y1 …" normalised (0..1, y=0 top) chart points into a flat absolute [x,y,…] list
+    // scaled into the (x,y,w,h) content box.
+    private static List<float> ParsePoints(string data, float x, float y, float w, float h)
+    {
+        var pts = new List<float>();
+        foreach (var pair in data.Split(' ', System.StringSplitOptions.RemoveEmptyEntries))
+        {
+            var c = pair.Split(',');
+            if (c.Length == 2
+                && float.TryParse(c[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var nx)
+                && float.TryParse(c[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var ny))
+            {
+                pts.Add(x + nx * w);
+                pts.Add(y + ny * h);
+            }
+        }
+        return pts;
+    }
+
     // Is <paramref name="container"/> an ancestor-or-self of node's element? Used to tell the modal's own
     // parts (scrim, panel, a popup opened inside it) from unrelated background overlays.
     private static bool IsUnder(RenderNode node, IElement container)
@@ -146,6 +165,31 @@ public sealed class Painter
                 absX + node.ContentLeftInset, absY + node.ContentTopInset,
                 node.Width - node.HorizontalInsets, node.Height - node.VerticalInsets,
                 image, ParseFit(node.Element?.GetAttribute("data-object-fit")), s.BorderRadius));
+
+        // Chart line (line chart / sparkline): a polyline through normalised points scaled into the
+        // content box, with an optional area fill (data-cupri-area) and dots (data-cupri-dots).
+        if (node.ChartLine is { Length: > 0 } chartLine)
+        {
+            var cx = absX + node.ContentLeftInset;
+            var cy = absY + node.ContentTopInset;
+            var cw = node.Width - node.HorizontalInsets;
+            var ch = node.Height - node.VerticalInsets;
+            var pts = ParsePoints(chartLine, cx, cy, cw, ch);
+            if (pts.Count >= 4)
+            {
+                var el = node.Element;
+                var lineW = float.TryParse(el?.GetAttribute("data-cupri-width"), out var lw) ? lw : 2f;
+                var fillCol = el?.HasAttribute("data-cupri-area") == true
+                    ? new SKColor(s.Color.Red, s.Color.Green, s.Color.Blue, 0x2E) : SKColor.Empty;
+                list.Add(new Polyline(pts, lineW, s.Color, fillCol, cy + ch));
+                if (el?.HasAttribute("data-cupri-dots") == true)
+                {
+                    var r = lineW + 1.5f;
+                    for (var i = 0; i + 1 < pts.Count; i += 2)
+                        list.Add(new FillRect(pts[i] - r, pts[i + 1] - r, r * 2f, r * 2f, r, s.Color));
+                }
+            }
+        }
 
         // Clip children if overflow is not visible.
         var clip = s.Overflow != OverflowMode.Visible;

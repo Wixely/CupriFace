@@ -74,6 +74,7 @@ public sealed class StyleResolver
                     ResolveStyle(node, parentNode.Style);
                     node.IconPath = el.GetAttribute("data-cupri-icon"); // set by icon-bearing components
                     node.ImageSrc = el.GetAttribute("data-cupri-image"); // set by <cupri-image>
+                    node.ChartLine = el.GetAttribute("data-cupri-line"); // set by <cupri-line-chart>/<cupri-sparkline>
                     if (node.Style.Display != DisplayType.None)
                         BuildChildren(node, el);
                     break;
