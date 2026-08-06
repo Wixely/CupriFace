@@ -27,6 +27,7 @@ public sealed class SearchFieldComponent : ComponentBase
         var value = Str(el, "value");
         var placeholder = Str(el, "placeholder", "Search…");
 
+        el.RemoveAttribute("data-bind-value"); // the inner field owns the binding (avoid a duplicate)
         el.ClassList.Add("cupri-search");
         var display = value.Length > 0
             ? $"<span class='cupri-tf-text' data-caret-anchor>{Escape(value)}</span>"

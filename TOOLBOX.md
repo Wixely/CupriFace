@@ -331,6 +331,7 @@ static config unless noted.
 | `<cupri-datepicker>` | Date field + month calendar popup. `value` is ISO `yyyy‑MM‑dd`; a day pick sets it and closes; ‹ › page months in place | `value`, `open` | `value` (and `open`) | — | `combobox` |
 | `<cupri-timepicker>` | Time field + popup with scrollable hour/minute columns. `value` is `HH:mm` (24h); picking updates that part and keeps the popup open | `value`, `open` | `value` (and `open`) | — | `combobox` |
 | `<cupri-search>` | Single‑line search field with a leading 🔍 and a trailing clear (×) that shows once there's text | `value`, `placeholder` | `value` | — | `textbox` |
+| `<cupri-password>` | Masked text field — the bound value stays plaintext while the field paints bullets; add `reveal="{{Show}}"` for an eye toggle | `value`, `placeholder`, `reveal` | `value` (and `reveal`) | — | `textbox` |
 | `<cupri-segmented>` | Connected button bar bound to one value (radios rendered as a segmented control); the matching segment is active | `value` | `value` | `<cupri-segment value="…">Label</cupri-segment>` | `radiogroup` |
 | `<cupri-rating>` | Star rating; clicking the Nth star writes N (stars up to `value` are filled) | `value`, `max` (5) | `value` | — | `slider` |
 | `<cupri-pagination>` | 1‑based page navigator: ‹ prev, first/last, a window around the current page (with … gaps), next › | `page`, `pages` | `page` | — | `navigation` |

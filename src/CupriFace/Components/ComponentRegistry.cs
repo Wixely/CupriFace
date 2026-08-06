@@ -59,6 +59,7 @@ public sealed class ComponentRegistry
         .Register(new DatePickerComponent())
         .Register(new TimePickerComponent())
         .Register(new SearchFieldComponent())
+        .Register(new PasswordFieldComponent())
         .Register(new RatingComponent())
         .Register(new SegmentedComponent())
         .Register(new SegmentComponent())

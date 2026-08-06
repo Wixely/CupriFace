@@ -92,6 +92,8 @@ public sealed partial class ShowcaseModel
     public bool TimeOpen { get; set; }
     public string TableSort { get; set; } = "";
     public string Query { get; set; } = "";
+    public string Password { get; set; } = "";
+    public bool ShowPassword { get; set; }
     public string ViewMode { get; set; } = "grid";
     public int Rating { get; set; } = 4;
     public int Page { get; set; } = 1;

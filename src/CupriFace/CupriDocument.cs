@@ -46,6 +46,7 @@ public sealed partial class CupriDocument : IDisposable
     private string? _focusKey;  // the focused field's bound path (survives rebuilds)
     private bool _focusNumeric; // focused field is validated as a number
     private bool _focusMultiline; // focused field is a textarea (Enter inserts a newline)
+    private bool _focusMask;    // focused field masks its text (data-mask, e.g. <cupri-password>)
     private double? _focusMin, _focusMax; // numeric field bounds (for validation/clamping)
     private string? _editBuffer; // raw text being edited (permissive); validated/committed on blur
     private int _caret;
@@ -199,8 +200,8 @@ public sealed partial class CupriDocument : IDisposable
                     var anchor = focusEl.QuerySelector("[data-caret-anchor]") ?? focusEl;
                     if (focusEl.HasAttribute("data-multiline"))
                         anchor.InnerHtml = Components.Controls.TextAreaComponent.RenderLines(_editBuffer);
-                    else
-                        anchor.TextContent = _editBuffer;
+                    else // mask secret fields (data-mask): paint bullets, keep the plaintext in the buffer
+                        anchor.TextContent = focusEl.HasAttribute("data-mask") ? new string(MaskChar, _editBuffer.Length) : _editBuffer;
                 }
                 if (!BufferValid(_editBuffer)) focusEl.SetAttribute("data-invalid", "");
             }
@@ -357,6 +358,17 @@ public sealed partial class CupriDocument : IDisposable
         return list;
     }
 
+    private const char MaskChar = '•'; // • — the bullet a masked (data-mask) field paints per character
+
+    // The text to DISPLAY/measure for the focused field: the raw edit buffer (or the bound value),
+    // masked to bullets when the field opted in via data-mask (e.g. <cupri-password>). One bullet per
+    // UTF-16 unit, so caret/selection/scroll offsets into the plaintext line up 1:1 with the mask.
+    private string FocusedDisplayText()
+    {
+        var value = _editBuffer ?? (_focusKey is null ? null : BindingEngine.Resolve(_model, _focusKey)?.ToString()) ?? "";
+        return _focusMask ? new string(MaskChar, value.Length) : value;
+    }
+
     // If the caret moved (typing/nav, not wheel) and its field scrolls, nudge that container's
     // ScrollY so the caret's row sits inside the visible band.
     private void ScrollCaretIntoView()
@@ -369,7 +381,7 @@ public sealed partial class CupriDocument : IDisposable
         if (sc is null) return;
 
         var anchor = FindCaretAnchor(field) ?? field;
-        var value = _editBuffer ?? BindingEngine.Resolve(_model, _focusKey)?.ToString() ?? "";
+        var value = FocusedDisplayText();
         var caret = Math.Clamp(_caret, 0, value.Length);
         var t = RowForCaret(BuildTextRows(anchor, value), caret); // wrap-aware for textarea + wrapped field
         float rowY = t.Y, rowH = t.Height;
@@ -393,7 +405,7 @@ public sealed partial class CupriDocument : IDisposable
         if (field.Element?.HasAttribute("data-multiline") == true) return;
 
         var anchor = FindCaretAnchor(field) ?? field;
-        var value = _editBuffer ?? BindingEngine.Resolve(_model, _focusKey)?.ToString() ?? "";
+        var value = FocusedDisplayText();
         var caret = Math.Clamp(_caret, 0, value.Length);
         var caretX = _fonts.MeasureText(anchor.Style, value[..caret]); // from the text start
         var full = value.Length == 0 ? 0 : _fonts.MeasureText(anchor.Style, value);
@@ -431,7 +443,7 @@ public sealed partial class CupriDocument : IDisposable
         // nest it in a padded span — e.g. cupri-number puts its padding on the text span, not
         // the field), so the caret lines up regardless of where the padding lives.
         var anchor = FindCaretAnchor(field) ?? field;
-        var value = _editBuffer ?? BindingEngine.Resolve(_model, _focusKey)?.ToString() ?? "";
+        var value = FocusedDisplayText();
         var caret = Math.Clamp(_caret, 0, value.Length);
         var ch = anchor.Style.FontSize * 1.1f;
 
@@ -452,7 +464,7 @@ public sealed partial class CupriDocument : IDisposable
         var field = FindFocused(_root);
         if (field is null) return;
         var anchor = FindCaretAnchor(field) ?? field;
-        var value = _editBuffer ?? BindingEngine.Resolve(_model, _focusKey)?.ToString() ?? "";
+        var value = FocusedDisplayText();
         int s = Math.Clamp(Math.Min(_selAnchor, _caret), 0, value.Length);
         int e = Math.Clamp(Math.Max(_selAnchor, _caret), 0, value.Length);
         if (s == e) return;
@@ -1104,6 +1116,7 @@ public sealed partial class CupriDocument : IDisposable
         _focusKey = key;
         _focusNumeric = field?.HasAttribute("data-numeric") == true;
         _focusMultiline = field?.HasAttribute("data-multiline") == true;
+        _focusMask = field?.HasAttribute("data-mask") == true;
         _focusMin = double.TryParse(field?.GetAttribute("data-min"), out var mn) ? mn : null;
         _focusMax = double.TryParse(field?.GetAttribute("data-max"), out var mx) ? mx : null;
         _editBuffer = key is null ? null : BindingEngine.Resolve(_model, key)?.ToString() ?? "";
