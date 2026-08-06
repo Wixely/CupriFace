@@ -14,7 +14,9 @@ body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; -
 .nav:hover { background:var(--cupri-nav-active); color:white; }
 .nav.active { background:var(--cupri-nav-active); color:white; font-weight:bold; }
 .tip { color:#6b7688; font-size:12px; margin-top:auto; }
-.content { flex:1; padding:26px; background:var(--cupri-bg); transition: background-color 0.35s ease; }
+/* Bounded to the window height (flex-stretched), so a tall section scrolls (wheel + thumb) instead
+   of overflowing off-screen. The scrollbar only appears when a section is taller than the viewport. */
+.content { flex:1; padding:26px; background:var(--cupri-bg); transition: background-color 0.35s ease; overflow:scroll; }
 .title { font-size:22px; font-weight:bold; color:var(--cupri-text); margin-bottom:14px; }
 .sub { color:var(--cupri-muted); font-size:14px; margin-bottom:16px; }
 .row { display:flex; align-items:center; flex-wrap:wrap; gap:14px; margin-bottom:14px; }
