@@ -436,6 +436,7 @@ the largest value); line/sparkline auto‑scale to the data's range. All are the
 | `<cupri-bar-chart>` | Vertical bar chart | `values`, `labels`, `max` | `<cupri-bar value label color>` | `img` |
 | `<cupri-line-chart>` | Trend line, optional area fill + dots | `values`, `labels`, `max`, `area`, `dots`, `color` | `<cupri-point value label>` | `img` |
 | `<cupri-sparkline>` | Compact axis‑less trend (inline/stat cards) | `values`, `area`, `dots`, `color` | `<cupri-point value>` | `img` |
+| `<cupri-rolling-chart>` | Time‑series monitor (Task‑Manager style): a full‑width area line over a **fixed** `0..max` range, so newer samples scroll in from the right without the baseline jumping | `values`, `max`, `color` | `<cupri-point value>` | `img` |
 | `<cupri-heatmap>` | Grid tinted by intensity (contribution‑graph style) | `values`, `columns` (7), `max` | `<cupri-heat value>` | `img` |
 
 ```html
@@ -453,6 +454,12 @@ the largest value); line/sparkline auto‑scale to the data's range. All are the
 
 Sizing: charts fill their box (cap with `max-width`/`height`); the line/sparkline stroke width is
 `data-cupri-width` (default 2). Line width and dots ride on the engine's polyline paint command.
+
+**Rolling monitors.** `<cupri-rolling-chart>` renders whatever window it's given — the "rolling" comes
+from the *model*: keep a fixed-size ring buffer of recent samples, expose it as the bound `values`
+string, and let a refresh cadence re-bind it. Its fixed `0..max` range (unlike the auto-scaling line
+chart) keeps the baseline still as samples scroll. The showcase's Diagnostics page uses one for live
+RAM, appending a sample per second (via `CupriApp.RefreshIntervalSeconds`).
 
 ### Feedback
 

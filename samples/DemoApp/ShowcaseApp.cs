@@ -134,13 +134,30 @@ public sealed partial class ShowcaseModel
     private static string Mb(long bytes) => (bytes / (1024.0 * 1024)).ToString("0.0") + " MB";
     private static double _lastSample = -1;
     private static string _ws = "…", _pv = "…", _thr = "…";
+
+    // Rolling RAM history for the live monitor chart on the Diagnostics page — the last minute of samples
+    // (1 Hz, driven by the page's per-second refresh) with a fixed, ratcheting ceiling so the baseline
+    // doesn't jump as the window scrolls.
+    private const int RamWindow = 60;
+    private static readonly List<double> _ram = new();
+    private static double _ramCeil = 50;
+
     private static void Sample()
     {
         var now = _up.Elapsed.TotalSeconds;
         if (now - _lastSample < 1.0) return; // cache: at most once per second
         _lastSample = now;
-        try { using var p = System.Diagnostics.Process.GetCurrentProcess(); _ws = Mb(p.WorkingSet64); _pv = Mb(p.PrivateMemorySize64); _thr = p.Threads.Count.ToString(); }
-        catch { _ws = _pv = _thr = "n/a"; } // browser/WASM — Process is unsupported
+        double ramMb;
+        try { using var p = System.Diagnostics.Process.GetCurrentProcess(); _ws = Mb(p.WorkingSet64); _pv = Mb(p.PrivateMemorySize64); _thr = p.Threads.Count.ToString(); ramMb = p.WorkingSet64 / (1024.0 * 1024); }
+        catch { _ws = _pv = _thr = "n/a"; ramMb = GC.GetTotalMemory(false) / (1024.0 * 1024); } // browser/WASM: no Process → managed heap
+
+        // Seed a full window on the first sample so the monitor shows a graph straight away (a gentle wave
+        // around the current value; it scrolls out as real samples arrive over the next minute).
+        if (_ram.Count == 0)
+            for (var i = 0; i < RamWindow; i++) _ram.Add(ramMb * (0.9 + 0.08 * System.Math.Sin(i * 0.5)));
+        _ram.Add(ramMb);
+        while (_ram.Count > RamWindow) _ram.RemoveAt(0);
+        _ramCeil = System.Math.Max(_ramCeil, System.Math.Ceiling(ramMb * 1.3 / 25) * 25); // headroom, rounded up, never down
     }
     public string WorkingSetMb { get { Sample(); return _ws; } }
     public string PrivateMb { get { Sample(); return _pv; } }
@@ -148,4 +165,9 @@ public sealed partial class ShowcaseModel
     public string ManagedHeapMb => Mb(GC.GetTotalMemory(false));
     public string GcCounts => $"{GC.CollectionCount(0)} / {GC.CollectionCount(1)} / {GC.CollectionCount(2)}";
     public string Uptime => $"{(int)_up.Elapsed.TotalMinutes}m {_up.Elapsed.Seconds:00}s";
+
+    // The rolling RAM monitor: last-minute window, its fixed ceiling, and the latest reading.
+    public string RamHistory { get { Sample(); return string.Join(",", _ram.Select(v => v.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))); } }
+    public string RamCeiling { get { Sample(); return _ramCeil.ToString(System.Globalization.CultureInfo.InvariantCulture); } }
+    public string RamNow { get { Sample(); return _ram.Count > 0 ? _ram[^1].ToString("0.0") + " MB" : "…"; } }
 }

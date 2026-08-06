@@ -60,6 +60,9 @@ code { display:inline; font-family:monospace; color:var(--cupri-text); }
 .cstat-l { color:var(--cupri-muted); font-size:12px; }
 .cstat-v { color:var(--cupri-text); font-weight:bold; font-size:22px; }
 .cstat cupri-sparkline { width:84px; height:32px; }
+.diaghdr { display:flex; align-items:baseline; justify-content:space-between; max-width:580px; margin-bottom:8px; }
+.diaghdr-l { color:var(--cupri-muted); font-size:13px; font-weight:bold; }
+.diaghdr-v { color:var(--cupri-text); font-size:20px; font-weight:bold; }
 .stage { display:flex; gap:22px; align-items:center; flex-wrap:wrap; margin-bottom:20px; min-height:96px; }
 .box { width:84px; height:84px; border-radius:14px; display:flex; align-items:center;
        justify-content:center; color:white; font-weight:bold; font-size:13px; }

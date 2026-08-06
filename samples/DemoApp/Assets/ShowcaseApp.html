@@ -323,7 +323,10 @@
       <!-- DIAGNOSTICS -->
       <div class="section" style="display:{{SecDiag}}">
         <div class="title">Diagnostics</div>
-        <p class="sub">Live process metrics — refreshed once per second.</p>
+        <p class="sub">Live process metrics — refreshed once per second. The RAM monitor is a rolling
+          line chart (Task-Manager style): each second a new sample scrolls in from the right.</p>
+        <div class="diaghdr"><span class="diaghdr-l">RAM usage · last minute</span><span class="diaghdr-v">{{RamNow}}</span></div>
+        <cupri-rolling-chart class="chart" values="{{RamHistory}}" max="{{RamCeiling}}" color="#10ac84"></cupri-rolling-chart>
         <div class="row">
           <cupri-card style="width:180px"><cupri-stat label="RAM · working set" value="{{WorkingSetMb}}"></cupri-stat></cupri-card>
           <cupri-card style="width:180px"><cupri-stat label="Private bytes" value="{{PrivateMb}}"></cupri-stat></cupri-card>
