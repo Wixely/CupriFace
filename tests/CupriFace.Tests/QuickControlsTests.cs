@@ -87,8 +87,8 @@ public class QuickControlsTests
         bool IsPage(RenderNode r) => r.Element?.ClassList.Contains("cupri-page") == true;
         bool IsEll(RenderNode r) => r.Element?.ClassList.Contains("cupri-page-ell") == true;
 
-        Assert.Equal(3, Count(t, IsPage));   // {1, 2, …, 10} — windowed, not all ten
-        Assert.Equal(1, Count(t, IsEll));    // one gap between 2 and 10
+        Assert.Equal(6, Count(t, IsPage));   // 1 2 3 4 5 … 10 — fixed 7-slot window (6 numbers + 1 gap)
+        Assert.Equal(1, Count(t, IsEll));    // one … gap before the last page
 
         // Prev is disabled at page 1 (no setter); Next targets page 2.
         Assert.Null(t.Find(n => n.Element?.GetAttribute("data-set-value") == "0"));
@@ -100,6 +100,28 @@ public class QuickControlsTests
         Assert.Equal(10, m.Page);
         Assert.NotNull(t.Find(n => n.Element?.GetAttribute("data-set-value") == "9")); // prev → 9
         Assert.Null(t.Find(n => n.Element?.GetAttribute("data-set-value") == "11"));   // no next past last
+    }
+
+    [Fact]
+    public void Pagination_width_is_constant_across_pages()
+    {
+        // The whole point: as the current page moves, the control must not change width (no shifting).
+        var m = new PageModel { Page = 1 };
+        using var t = new TestDoc(
+            "<body><div style='padding:16px'><cupri-pagination page=\"{{Page}}\" pages=\"20\"></cupri-pagination></div></body>",
+            "", m, components: true, width: 640, height: 120);
+
+        float WidthAt(int p)
+        {
+            m.Page = p; t.Doc.Refresh(); t.Layout();
+            return t.FindClass("cupri-pagination").Width;
+        }
+
+        var w1 = WidthAt(1);
+        Assert.Equal(w1, WidthAt(2), 3);    // near start
+        Assert.Equal(w1, WidthAt(10), 3);   // middle
+        Assert.Equal(w1, WidthAt(19), 3);   // near end
+        Assert.Equal(w1, WidthAt(20), 3);   // last
     }
 
     // ---- Search --------------------------------------------------------------
