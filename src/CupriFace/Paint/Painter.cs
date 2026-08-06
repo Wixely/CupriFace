@@ -189,7 +189,8 @@ public sealed class Painter
                 var lineW = float.TryParse(el?.GetAttribute("data-cupri-width"), out var lw) ? lw : 2f;
                 var fillCol = el?.HasAttribute("data-cupri-area") == true
                     ? new SKColor(s.Color.Red, s.Color.Green, s.Color.Blue, 0x2E) : SKColor.Empty;
-                list.Add(new Polyline(pts, lineW, s.Color, fillCol, cy + ch));
+                var curved = el?.HasAttribute("data-cupri-curve") == true;
+                list.Add(new Polyline(pts, lineW, s.Color, fillCol, cy + ch, curved));
                 if (el?.HasAttribute("data-cupri-dots") == true)
                 {
                     var r = lineW + 1.5f;

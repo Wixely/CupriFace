@@ -34,6 +34,26 @@ public sealed class SkiaRasterizer
         return new SKRect(x, y, x + dw, y + dh);
     }
 
+    // Append a chart line to <paramref name="path"/> (already moved to point 0): straight segments, or a
+    // smooth Catmull-Rom spline (each segment's cubic control points come from the neighbouring points).
+    private static void AppendChartPath(SKPath path, IReadOnlyList<float> p, bool curved)
+    {
+        var n = p.Count / 2;
+        if (!curved)
+        {
+            for (var i = 1; i < n; i++) path.LineTo(p[i * 2], p[i * 2 + 1]);
+            return;
+        }
+        for (var i = 0; i < n - 1; i++)
+        {
+            int i0 = Math.Max(0, i - 1), i2 = i + 1, i3 = Math.Min(n - 1, i + 2);
+            float p0x = p[i0 * 2], p0y = p[i0 * 2 + 1], p1x = p[i * 2], p1y = p[i * 2 + 1];
+            float p2x = p[i2 * 2], p2y = p[i2 * 2 + 1], p3x = p[i3 * 2], p3y = p[i3 * 2 + 1];
+            path.CubicTo(p1x + (p2x - p0x) / 6f, p1y + (p2y - p0y) / 6f,
+                         p2x - (p3x - p1x) / 6f, p2y - (p3y - p1y) / 6f, p2x, p2y);
+        }
+    }
+
     public void Paint(SKCanvas canvas, DisplayList list)
     {
         using var fill = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
@@ -108,14 +128,14 @@ public sealed class SkiaRasterizer
                 {
                     using var path = new SKPath();
                     path.MoveTo(pl.Points[0], pl.Points[1]);
-                    for (var i = 2; i + 1 < pl.Points.Count; i += 2) path.LineTo(pl.Points[i], pl.Points[i + 1]);
+                    AppendChartPath(path, pl.Points, pl.Curved);
 
                     if (pl.Fill.Alpha > 0) // area under the line, closed down to the baseline
                     {
                         using var area = new SKPath();
                         area.MoveTo(pl.Points[0], pl.BaseY);
                         area.LineTo(pl.Points[0], pl.Points[1]);
-                        for (var i = 2; i + 1 < pl.Points.Count; i += 2) area.LineTo(pl.Points[i], pl.Points[i + 1]);
+                        AppendChartPath(area, pl.Points, pl.Curved);
                         area.LineTo(pl.Points[^2], pl.BaseY);
                         area.Close();
                         fill.Color = pl.Fill;

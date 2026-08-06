@@ -57,9 +57,9 @@ public class ChartTests
             "<body><cupri-line-chart values=\"4,8,5,10\" area dots></cupri-line-chart></body>",
             "", null, components: true, width: 400, height: 220);
 
-        var plot = t.FindClass("cupri-lc-plot");
-        Assert.True(plot.Element!.HasAttribute("data-cupri-area"));
-        Assert.True(plot.Element.HasAttribute("data-cupri-dots"));
+        var line = t.FindClass("cupri-lc-line");
+        Assert.True(line.Element!.HasAttribute("data-cupri-area"));
+        Assert.True(line.Element.HasAttribute("data-cupri-dots"));
 
         var cmds = t.Doc.BuildFrame(400, 220).Commands;
         var poly = cmds.OfType<Polyline>().Single();
@@ -67,6 +67,42 @@ public class ChartTests
         Assert.True(poly.Fill.Alpha > 0);            // area fill on
         Assert.True(poly.Width > 0);                 // line stroked
         Assert.Equal(4, cmds.OfType<FillRect>().Count(r => r.Radius >= 3 && r.W == r.H)); // 4 round dots
+    }
+
+    [Fact]
+    public void Line_chart_draws_multiple_series_on_a_shared_axis_with_a_legend()
+    {
+        using var t = new TestDoc(
+            "<body><cupri-line-chart labels=\"a,b,c\">" +
+            "<cupri-line label=\"X\" values=\"0,50,100\" color=\"#123456\"></cupri-line>" +
+            "<cupri-line label=\"Y\" values=\"100,50,0\"></cupri-line></cupri-line-chart></body>",
+            "", null, components: true, width: 400, height: 240);
+
+        var lines = All(t, n => n.Element?.ClassList.Contains("cupri-lc-line") == true);
+        Assert.Equal(2, lines.Count);
+        Assert.Contains("#123456", lines[0].Element!.GetAttribute("style")!);              // per-series colour
+        Assert.Equal(2, All(t, n => n.Element?.ClassList.Contains("cupri-lc-key") == true).Count); // legend keys
+        Assert.Equal(2, t.Doc.BuildFrame(400, 240).Commands.OfType<Polyline>().Count());   // two polylines
+
+        // Shared axis: both series span 0..100, so X's 100 and Y's 100 land at the same height.
+        double[] Ys(RenderNode n) => n.Element!.GetAttribute("data-cupri-line")!.Split(' ')
+            .Select(p => double.Parse(p.Split(',')[1], System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+        var x = Ys(lines[0]); var y = Ys(lines[1]);
+        Assert.Equal(x[2], y[0], 4);   // value 100 (both) → same y
+        Assert.Equal(x[0], y[2], 4);   // value 0 (both) → same y
+        Assert.True(x[2] < x[0]);      // 100 is higher up (smaller y) than 0
+    }
+
+    [Fact]
+    public void Curve_flag_smooths_the_line()
+    {
+        using var straight = new TestDoc("<body><cupri-line-chart values=\"1,5,2,6\"></cupri-line-chart></body>",
+            "", null, components: true, width: 300, height: 200);
+        using var curved = new TestDoc("<body><cupri-line-chart values=\"1,5,2,6\" curve></cupri-line-chart></body>",
+            "", null, components: true, width: 300, height: 200);
+
+        Assert.False(straight.Doc.BuildFrame(300, 200).Commands.OfType<Polyline>().Single().Curved);
+        Assert.True(curved.Doc.BuildFrame(300, 200).Commands.OfType<Polyline>().Single().Curved);
     }
 
     [Fact]

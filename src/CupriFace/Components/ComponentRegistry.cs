@@ -77,6 +77,7 @@ public sealed class ComponentRegistry
         .Register(new BarChartComponent())
         .Register(new BarComponent())
         .Register(new LineChartComponent())
+        .Register(new LineSeriesComponent())
         .Register(new PointComponent())
         .Register(new SparklineComponent())
         .Register(new RollingChartComponent())

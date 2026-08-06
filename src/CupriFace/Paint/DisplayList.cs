@@ -58,9 +58,10 @@ public sealed record FillPath(
 
 /// <summary>A chart line: an optional filled area (down to <paramref name="BaseY"/>) under a stroked
 /// polyline. <paramref name="Points"/> is absolute [x0,y0,x1,y1,…]. Width 0 skips the stroke; a
-/// transparent <paramref name="Fill"/> skips the area. Used by the line chart / sparkline.</summary>
+/// transparent <paramref name="Fill"/> skips the area. <paramref name="Curved"/> smooths the path
+/// (Catmull-Rom spline) instead of straight segments. Used by the line/sparkline/rolling charts.</summary>
 public sealed record Polyline(
-    IReadOnlyList<float> Points, float Width, SKColor Stroke, SKColor Fill, float BaseY) : PaintCommand;
+    IReadOnlyList<float> Points, float Width, SKColor Stroke, SKColor Fill, float BaseY, bool Curved = false) : PaintCommand;
 
 /// <summary>How an image is fitted into its box (CSS <c>object-fit</c>).</summary>
 public enum ObjectFit { Contain, Cover, Fill, None }

@@ -19,6 +19,8 @@ internal static class ChartData
     // A small palette for multi-colour cases; single-series charts use one accent by default.
     internal const string Accent = "#B87333";
     internal const string Line = "#4682B4";
+    private static readonly string[] _palette = { "#4682B4", "#e0245e", "#10ac84", "#f5b301", "#9b59b6", "#B87333", "#576574" };
+    internal static string Palette(int i) => _palette[System.Math.Abs(i) % _palette.Length];
 
     internal static List<ChartPoint> Read(IElement el, string childTag)
     {
@@ -129,46 +131,87 @@ public sealed class BarComponent : ComponentBase
 }
 
 /// <summary>
-/// <c>&lt;cupri-line-chart values="…" labels="…" area dots&gt;</c> (or <c>&lt;cupri-point value label&gt;</c>
-/// children) — a trend line auto-scaled to its data. <c>area</c> fills under it; <c>dots</c> marks points.
+/// <c>&lt;cupri-line-chart values="…" labels="…" area dots curve&gt;</c> — a trend line auto-scaled to its
+/// data. <c>area</c> fills under it, <c>dots</c> marks points, <c>curve</c> smooths it. For MULTIPLE
+/// lines, give it <c>&lt;cupri-line values="…" color="…" label="…"&gt;</c> children (they share one Y axis
+/// and get a legend); a single series can use <c>values="…"</c> or <c>&lt;cupri-point&gt;</c> children.
 /// </summary>
 public sealed class LineChartComponent : ComponentBase
 {
     public override string Tag => "cupri-line-chart";
     public override string DefaultCss => """
         .cupri-line-chart { display:block; }
-        .cupri-lc-plot { display:block; height:150px; color:#4682B4; }
+        .cupri-lc-plot { position:relative; display:block; height:150px; }
+        .cupri-lc-line { position:absolute; top:0; left:0; width:100%; height:100%; color:#4682B4; }
         .cupri-lc-labels { display:flex; margin-top:7px; }
         .cupri-lc-labels > span { flex:1; text-align:center; font-size:12px; color:var(--cupri-muted, #98a2b3); }
+        .cupri-lc-legend { display:flex; gap:16px; margin-top:9px; }
+        .cupri-lc-key { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--cupri-muted, #98a2b3); }
+        .cupri-lc-swatch { width:11px; height:11px; border-radius:3px; }
         """;
 
     public override void Expand(IElement el)
     {
-        var series = ChartData.Read(el, "cupri-point");
         el.SetAttribute("role", "img");
         el.ClassList.Add("cupri-line-chart");
 
-        var attrs = new StringBuilder($"data-cupri-line='{ChartData.Points(series, fullWidth: false)}'");
-        if (Flag(el, "area")) attrs.Append(" data-cupri-area");
-        if (Flag(el, "dots")) attrs.Append(" data-cupri-dots");
-        var color = Str(el, "color");
-        var style = color.Length > 0 ? $" style='color:{color}'" : "";
+        // Multiple series (<cupri-line …> children) or a single series (values / <cupri-point> children).
+        var lineEls = el.Children.Where(c => c.LocalName == "cupri-line").ToList();
+        var series = lineEls.Count > 0
+            ? lineEls.Select((c, i) => (Pts: ChartData.Read(c, "cupri-point"),
+                Color: c.GetAttribute("color") is { Length: > 0 } col ? col : ChartData.Palette(i),
+                Label: c.GetAttribute("label") ?? "")).ToList()
+            : new() { (ChartData.Read(el, "cupri-point"), Str(el, "color", ChartData.Line), "") };
 
-        var sb = new StringBuilder($"<div class='cupri-lc-plot' {attrs}{style}></div>");
-        if (series.Any(p => p.Label.Length > 0))
+        // One shared Y range across every series so the lines are directly comparable.
+        var all = series.SelectMany(s => s.Pts).ToList();
+        double min = all.Count > 0 ? all.Min(p => p.Value) : 0, max = all.Count > 0 ? all.Max(p => p.Value) : 1;
+
+        var flags = (Flag(el, "area") ? " data-cupri-area" : "")
+                  + (Flag(el, "dots") ? " data-cupri-dots" : "")
+                  + (Flag(el, "curve") ? " data-cupri-curve" : "");
+
+        var sb = new StringBuilder("<div class='cupri-lc-plot'>"); // each series overlays as an absolute line
+        foreach (var s in series)
+            sb.Append($"<div class='cupri-lc-line' data-cupri-line='{ChartData.Points(s.Pts, fullWidth: false, fixedMin: min, fixedMax: max)}'{flags} style='color:{s.Color}'></div>");
+        sb.Append("</div>");
+
+        // x-axis labels: the `labels` attr, else the first series' point labels.
+        var labels = Str(el, "labels") is { Length: > 0 } lab
+            ? lab.Split(',').Select(l => l.Trim()).ToList()
+            : series[0].Pts.Select(p => p.Label).ToList();
+        if (labels.Any(l => l.Length > 0))
         {
             sb.Append("<div class='cupri-lc-labels'>");
-            foreach (var p in series) sb.Append($"<span>{ChartData.Esc(p.Label)}</span>");
+            foreach (var l in labels) sb.Append($"<span>{ChartData.Esc(l)}</span>");
+            sb.Append("</div>");
+        }
+
+        // Legend for multiple named series.
+        if (series.Count > 1 && series.Any(s => s.Label.Length > 0))
+        {
+            sb.Append("<div class='cupri-lc-legend'>");
+            foreach (var s in series)
+                sb.Append($"<span class='cupri-lc-key'><span class='cupri-lc-swatch' style='background:{s.Color}'></span>{ChartData.Esc(s.Label)}</span>");
             sb.Append("</div>");
         }
         el.InnerHtml = sb.ToString();
     }
 }
 
-/// <summary>A point inside <c>&lt;cupri-line-chart&gt;</c> (value / label); consumed by the parent.</summary>
+/// <summary>A point inside a line chart / sparkline (value / label); consumed by the parent.</summary>
 public sealed class PointComponent : ComponentBase
 {
     public override string Tag => "cupri-point";
+    public override string DefaultCss => "";
+    public override void Expand(IElement el) { }
+}
+
+/// <summary>A series inside <c>&lt;cupri-line-chart&gt;</c> (values / color / label) for multi-line
+/// charts; consumed by the parent.</summary>
+public sealed class LineSeriesComponent : ComponentBase
+{
+    public override string Tag => "cupri-line";
     public override string DefaultCss => "";
     public override void Expand(IElement el) { }
 }
@@ -192,6 +235,7 @@ public sealed class SparklineComponent : ComponentBase
         el.SetAttribute("data-cupri-line", ChartData.Points(series, fullWidth: true));
         if (Flag(el, "area")) el.SetAttribute("data-cupri-area", "");
         if (Flag(el, "dots")) el.SetAttribute("data-cupri-dots", "");
+        if (Flag(el, "curve")) el.SetAttribute("data-cupri-curve", "");
         el.InnerHtml = ""; // the polyline is painted directly on this element's box
     }
 }
@@ -220,9 +264,10 @@ public sealed class RollingChartComponent : ComponentBase
         el.ClassList.Add("cupri-rolling");
 
         var pts = ChartData.Points(series, fullWidth: true, inset: 0.06, fixedMin: 0, fixedMax: max);
+        var curve = Flag(el, "curve") ? " data-cupri-curve" : "";
         var color = Str(el, "color");
         var style = color.Length > 0 ? $" style='color:{color}'" : "";
-        el.InnerHtml = $"<div class='cupri-rl-plot' data-cupri-line='{pts}' data-cupri-area{style}></div>";
+        el.InnerHtml = $"<div class='cupri-rl-plot' data-cupri-line='{pts}' data-cupri-area{curve}{style}></div>";
     }
 }
 
