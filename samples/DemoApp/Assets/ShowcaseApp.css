@@ -1,8 +1,8 @@
 body { --cupri-bg:#f4f5f7; --cupri-surface:#ffffff; --cupri-text:#1e2430; --cupri-muted:#48505c;
-       --cupri-border:#e6e9f0; --cupri-sidebar:#1e2430; --cupri-sidebar-text:#c8d0dc; --cupri-nav-active:#2f3b4d;
+       --cupri-border:#e6e9f0; --cupri-hover:#eef1f5; --cupri-sidebar:#1e2430; --cupri-sidebar-text:#c8d0dc; --cupri-nav-active:#2f3b4d;
        background:var(--cupri-bg); }
 body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; --cupri-muted:#8b93a7;
-            --cupri-border:#2a3346; --cupri-sidebar:#0b0f18; --cupri-sidebar-text:#aeb6c6; --cupri-nav-active:#243049; }
+            --cupri-border:#2a3346; --cupri-hover:#273249; --cupri-sidebar:#0b0f18; --cupri-sidebar-text:#aeb6c6; --cupri-nav-active:#243049; }
 .app { display:flex; height:100%; font-family:sans-serif; }
 /* Colour transitions make the light/dark toggle cross-fade instead of snapping. */
 .sidebar { width:190px; background:var(--cupri-sidebar); padding:18px 14px; display:flex; flex-direction:column; gap:6px;
@@ -16,10 +16,13 @@ body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; -
 .tip { color:#6b7688; font-size:12px; margin-top:auto; }
 /* Bounded to the window height (flex-stretched), so a tall section scrolls (wheel + thumb) instead
    of overflowing off-screen. The scrollbar only appears when a section is taller than the viewport. */
-.content { flex:1; padding:26px; background:var(--cupri-bg); transition: background-color 0.35s ease; overflow:scroll; }
+.content { flex:1; padding:26px; background:var(--cupri-bg); color:var(--cupri-text); transition: background-color 0.35s ease; overflow:scroll; }
 .title { font-size:22px; font-weight:bold; color:var(--cupri-text); margin-bottom:14px; }
 .sub { color:var(--cupri-muted); font-size:14px; margin-bottom:16px; }
 .row { display:flex; align-items:center; flex-wrap:wrap; gap:14px; margin-bottom:14px; }
+/* Block-level components dropped straight into a section (not wrapped in a .row) have no margin of
+   their own, so they'd sit flush against their neighbours — give them the same vertical rhythm. */
+.section > cupri-tabs, .section > cupri-textarea, .section > cupri-accordion { display:block; margin-bottom:14px; }
 .lbl { color:var(--cupri-muted); font-size:14px; }
 .val { color:var(--cupri-text); font-weight:bold; font-size:14px; width:34px; }
 cupri-alert { margin-bottom:10px; }
