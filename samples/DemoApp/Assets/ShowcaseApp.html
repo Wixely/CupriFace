@@ -11,7 +11,10 @@
       <div class="nav {{NavStyling}}" data-section="styling">Styling</div>
       <div class="nav {{NavSettings}}" data-section="settings">Settings</div>
       <div class="nav {{NavDiag}}" data-section="diag">Diagnostics</div>
-      <div class="tip">Resize the window to see scaling</div>
+      <div class="side-bottom">
+        <div class="side-toggle"><span>Dark mode</span><cupri-switch checked="{{DarkMode}}"></cupri-switch></div>
+        <div class="tip">Resize the window to see scaling</div>
+      </div>
     </div>
 
     <div class="content">
@@ -25,8 +28,6 @@
           <cupri-icon-button icon="settings"></cupri-icon-button>
           <cupri-checkbox checked="{{Notifications}}"></cupri-checkbox>
           <span class="lbl">Notifications</span>
-          <cupri-switch checked="{{DarkMode}}"></cupri-switch>
-          <span class="lbl">Dark mode</span>
         </div>
         <div class="row">
           <span class="lbl">Size</span>
@@ -187,6 +188,9 @@
           <cupri-tooltip text="Always shown (open)" open="true">
             <cupri-icon-button icon="info"></cupri-icon-button>
           </cupri-tooltip>
+        </div>
+        <!-- On its own row well below the pinned tooltip, so the hover bubble doesn't collide with it. -->
+        <div class="row" style="margin-top:34px">
           <cupri-tooltip text="Shown on hover">
             <cupri-button variant="ghost">Hover me</cupri-button>
           </cupri-tooltip>
