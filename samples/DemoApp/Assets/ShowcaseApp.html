@@ -4,6 +4,7 @@
       <div class="brand">CupriFace</div>
       <div class="nav {{NavControls}}" data-section="controls">Inputs</div>
       <div class="nav {{NavComponents}}" data-section="components">Components</div>
+      <div class="nav {{NavCharts}}" data-section="charts">Charts</div>
       <div class="nav {{NavImages}}" data-section="images">Images</div>
       <div class="nav {{NavOverlays}}" data-section="overlays">Overlays</div>
       <div class="nav {{NavLayout}}" data-section="layout">Layout</div>
@@ -149,6 +150,29 @@
           <cupri-card style="width:150px"><cupri-stat label="Revenue" value="$8.9k"></cupri-stat></cupri-card>
           <cupri-card style="width:150px"><cupri-stat label="Uptime" value="99.9%"></cupri-stat></cupri-card>
         </div>
+      </div>
+
+      <!-- CHARTS -->
+      <div class="section" style="display:{{SecCharts}}">
+        <div class="title">Charts</div>
+        <p class="sub">Simple data-viz drawn with the same rounded-box + stroke paint — no canvas, no SVG.
+          Data comes from a <code>values="…"</code> string (bindable) or child elements.</p>
+        <div class="mlabel">Bar — bound to the model (<code>values="{{Sales}}"</code>)</div>
+        <cupri-bar-chart class="chart" values="{{Sales}}" labels="Mon,Tue,Wed,Thu,Fri,Sat,Sun"></cupri-bar-chart>
+        <div class="mlabel">Line — area fill + dots</div>
+        <cupri-line-chart class="chart" values="4,8,5,10,7,12,9,13" labels="W1,W2,W3,W4,W5,W6,W7,W8" area dots></cupri-line-chart>
+        <div class="mlabel">Sparklines — inline trends in stat cards</div>
+        <div class="row">
+          <cupri-card style="width:200px"><div class="cstat">
+            <div><div class="cstat-l">Revenue</div><div class="cstat-v">$8.9k</div></div>
+            <cupri-sparkline values="3,5,4,6,5,8,7,9,8,11" area></cupri-sparkline></div></cupri-card>
+          <cupri-card style="width:200px"><div class="cstat">
+            <div><div class="cstat-l">Churn</div><div class="cstat-v">2.1%</div></div>
+            <cupri-sparkline values="9,7,8,6,7,5,6,4,5,3" style="color:#e0245e" area></cupri-sparkline></div></cupri-card>
+        </div>
+        <div class="mlabel">Heatmap — four weeks (darker = busier)</div>
+        <cupri-heatmap class="chart" columns="7"
+          values="0,1,2,4,1,0,3, 2,3,1,0,4,2,1, 4,0,2,3,1,4,0, 1,2,4,2,0,3,2"></cupri-heatmap>
       </div>
 
       <!-- IMAGES -->

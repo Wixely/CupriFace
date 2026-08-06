@@ -53,6 +53,13 @@ code { display:inline; font-family:monospace; color:var(--cupri-text); }
 
 .mlabel { color:var(--cupri-muted); font-size:12px; font-weight:bold; letter-spacing:0.5px;
           margin:2px 0 12px 0; }
+/* Charts: cap the width so they don't stretch the whole pane; sparklines sit beside a stat value.
+   No `display` here — each chart keeps its own (block for bar/line, grid for the heatmap). */
+.chart { max-width:580px; margin-bottom:22px; }
+.cstat { display:flex; align-items:flex-end; justify-content:space-between; gap:10px; }
+.cstat-l { color:var(--cupri-muted); font-size:12px; }
+.cstat-v { color:var(--cupri-text); font-weight:bold; font-size:22px; }
+.cstat cupri-sparkline { width:84px; height:32px; }
 .stage { display:flex; gap:22px; align-items:center; flex-wrap:wrap; margin-bottom:20px; min-height:96px; }
 .box { width:84px; height:84px; border-radius:14px; display:flex; align-items:center;
        justify-content:center; color:white; font-weight:bold; font-size:13px; }

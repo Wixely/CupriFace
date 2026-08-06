@@ -424,6 +424,36 @@ to the bottom as new lines arrive (logging), *unless* the user has scrolled up:
 </cupri-table>
 ```
 
+### Charts
+
+Simple data‑viz drawn with the same rounded‑box + stroke paint (no canvas/SVG). Every chart takes its
+data **either** as a `values="1,2,3"` string — bindable to a model, e.g. `values="{{Series}}"` — with an
+optional `labels="…"`, **or** as child elements when you need per‑item control. Bars scale to `max` (or
+the largest value); line/sparkline auto‑scale to the data's range. All are theme‑aware.
+
+| Element | Purpose | Key attributes | Children | role |
+|---------|---------|----------------|----------|------|
+| `<cupri-bar-chart>` | Vertical bar chart | `values`, `labels`, `max` | `<cupri-bar value label color>` | `img` |
+| `<cupri-line-chart>` | Trend line, optional area fill + dots | `values`, `labels`, `max`, `area`, `dots`, `color` | `<cupri-point value label>` | `img` |
+| `<cupri-sparkline>` | Compact axis‑less trend (inline/stat cards) | `values`, `area`, `dots`, `color` | `<cupri-point value>` | `img` |
+| `<cupri-heatmap>` | Grid tinted by intensity (contribution‑graph style) | `values`, `columns` (7), `max` | `<cupri-heat value>` | `img` |
+
+```html
+<cupri-bar-chart values="{{Sales}}" labels="Mon,Tue,Wed,Thu,Fri"></cupri-bar-chart>
+<cupri-line-chart values="4,8,5,10,7" area dots></cupri-line-chart>
+<span>Revenue $8.9k</span> <cupri-sparkline values="3,5,4,6,8,7,9,11" area></cupri-sparkline>
+<cupri-heatmap columns="7" values="0,1,2,4,1,0,3, 2,3,1,0,4,2,1"></cupri-heatmap>
+
+<!-- per-item control via children -->
+<cupri-bar-chart>
+  <cupri-bar value="12" label="A" color="#B87333"></cupri-bar>
+  <cupri-bar value="19" label="B"></cupri-bar>
+</cupri-bar-chart>
+```
+
+Sizing: charts fill their box (cap with `max-width`/`height`); the line/sparkline stroke width is
+`data-cupri-width` (default 2). Line width and dots ride on the engine's polyline paint command.
+
 ### Feedback
 
 | Element | Purpose | Key attributes | Children | role |

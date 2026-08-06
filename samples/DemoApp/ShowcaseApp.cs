@@ -63,6 +63,7 @@ public sealed partial class ShowcaseModel
 
     public string SecControls => Section == "controls" ? "block" : "none";
     public string SecComponents => Section == "components" ? "block" : "none";
+    public string SecCharts => Section == "charts" ? "block" : "none";
     public string SecImages => Section == "images" ? "block" : "none";
     public string SecOverlays => Section == "overlays" ? "block" : "none";
     public string SecLayout => Section == "layout" ? "block" : "none";
@@ -72,6 +73,7 @@ public sealed partial class ShowcaseModel
     public string SecDiag => Section == "diag" ? "block" : "none";
     public string NavControls => Section == "controls" ? "active" : "";
     public string NavComponents => Section == "components" ? "active" : "";
+    public string NavCharts => Section == "charts" ? "active" : "";
     public string NavImages => Section == "images" ? "active" : "";
     public string NavOverlays => Section == "overlays" ? "active" : "";
     public string NavLayout => Section == "layout" ? "active" : "";
@@ -93,6 +95,7 @@ public sealed partial class ShowcaseModel
     public bool TimeOpen { get; set; }
     public string TableSort { get; set; } = "";
     public string Query { get; set; } = "";
+    public string Sales { get; set; } = "12,19,7,15,22,9,14"; // bound into the bar chart on the Charts page
     public string Password { get; set; } = "";
     public bool ShowPassword { get; set; }
     public string ViewMode { get; set; } = "grid";
