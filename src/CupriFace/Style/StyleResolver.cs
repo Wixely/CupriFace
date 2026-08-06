@@ -226,6 +226,7 @@ public sealed class StyleResolver
                 case "animation-duration": s.AnimationDuration = ParseSeconds(v); break;
                 case "transition": ParseTransition(s, v); break;
                 case "filter": ParseFilter(s, v); break;
+                case "backdrop-filter" or "-webkit-backdrop-filter": s.BackdropFilter = ParseFilterOps(v); break;
 
                 case "color": if (Colors.TryParse(v, out var col)) s.Color = col; break;
                 case "font-size": s.FontSize = ParsePx(v, s.FontSize); break;
@@ -532,9 +533,11 @@ public sealed class StyleResolver
     private static readonly Regex _filterFn = new(@"([\w-]+)\(([^)]*)\)", RegexOptions.Compiled);
 
     // filter: blur(4px) brightness(1.2) grayscale(50%) drop-shadow(2px 3px 4px #0008) …
-    private static void ParseFilter(ComputedStyle s, string v)
+    private static void ParseFilter(ComputedStyle s, string v) => s.Filter = ParseFilterOps(v);
+
+    private static List<FilterOp>? ParseFilterOps(string v)
     {
-        if (v.Trim().Equals("none", StringComparison.OrdinalIgnoreCase)) { s.Filter = null; return; }
+        if (v.Trim().Equals("none", StringComparison.OrdinalIgnoreCase)) return null;
         var ops = new List<FilterOp>();
         foreach (Match m in _filterFn.Matches(v))
         {
@@ -565,7 +568,7 @@ public sealed class StyleResolver
                 }
             }
         }
-        s.Filter = ops.Count > 0 ? ops : null;
+        return ops.Count > 0 ? ops : null;
     }
 
     // A filter amount: bare number or percentage (100% → 1.0). Defaults to 1.0.

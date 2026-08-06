@@ -298,6 +298,13 @@ controls handle their own state.
   .glass  { filter: blur(6px); }
   .raised { filter: drop-shadow(2px 4px 6px #0006); }
   ```
+- **`backdrop-filter`.** Frosts what's painted *behind* an element instead of the element itself —
+  used by the modal/drawer/shelf scrims (`<cupri-dialog blur>` etc.). Honoured only on a full‑viewport
+  **top‑layer** element (`position:fixed` covering the page): it blurs the whole page behind the
+  overlay, which then paints sharp on top. Same function syntax as `filter` (typically just `blur()`).
+  ```css
+  .cupri-backdrop.blurred { background:#00000055; backdrop-filter: blur(9px); }
+  ```
 
 ```css
 body { --cupri-surface:#1e2430; --cupri-text:#eef1f5; --cupri-border:#33405a; }  /* a dark theme */
@@ -428,12 +435,15 @@ to the bottom as new lines arrive (logging), *unless* the user has scrolled up:
 ### Overlays
 
 All overlays take a two‑way `open` flag. Clicking a backdrop or the trigger toggles it; focus is
-trapped while open.
+trapped while open. The three scrim overlays — `<cupri-dialog>`, `<cupri-drawer>`, `<cupri-shelf>` —
+also take a two‑way **`blur`** flag: when set, the page behind them is frosted (a `backdrop-filter`
+blur, see Styling). Bind it to a switch inside the panel to let the user toggle it live.
 
 | Element | Purpose | Key attributes | Bind | Children | role |
 |---------|---------|----------------|------|----------|------|
-| `<cupri-dialog>` | Modal dialog + backdrop | `open` | `open` | content | `dialog` (modal) |
-| `<cupri-drawer>` | Slide‑in edge panel | `open`, `side` (`left`\|`right`) | `open` | content | `dialog` (modal) |
+| `<cupri-dialog>` | Modal dialog + backdrop | `open`, `blur` | `open`, `blur` | content | `dialog` (modal) |
+| `<cupri-drawer>` | Slide‑in edge panel | `open`, `side` (`left`\|`right`), `blur` | `open`, `blur` | content | `dialog` (modal) |
+| `<cupri-shelf>` | Bottom sheet — full‑width panel that rises from the bottom edge, rounded top + grab handle | `open`, `blur` | `open`, `blur` | content | `dialog` (modal) |
 | `<cupri-popover>` | Anchored panel below a trigger | `label` (“More”), `open` | `open` | panel content | panel `dialog` |
 | `<cupri-menu>` | Dropdown menu | `label` (“Menu”), `open` | `open` | `<cupri-menu-item icon="…">Label</cupri-menu-item>` | `menu`/`menuitem` |
 | `<cupri-tooltip>` | Anchored bubble — shows on **hover** by default; `open="true"` pins it | `text`, `open` | `open` | trigger element(s) | bubble `tooltip` |

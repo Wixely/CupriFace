@@ -62,6 +62,10 @@ public sealed class ComputedStyle
     // Filter (CSS filter chain — blur / colour-matrix / drop-shadow). Not inherited.
     public List<FilterOp>? Filter;
 
+    // Backdrop filter: blur (etc.) applied to what's painted BEHIND this element. Only honoured on a
+    // full-viewport top-layer element (a modal/drawer/shelf scrim) — it blurs the page behind it.
+    public List<FilterOp>? BackdropFilter;
+
     // Transform (applied around the border-box centre at paint time)
     public bool HasTransform;
     public float TranslateX, TranslateY, RotateDeg;

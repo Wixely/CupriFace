@@ -3,15 +3,19 @@ using AngleSharp.Dom;
 namespace CupriFace.Components.Controls;
 
 /// <summary>
-/// <c>&lt;cupri-dialog open&gt;</c> — a modal dialog: a full-viewport backdrop plus a centred
-/// panel, both lifted to the top layer (position:fixed). Clicking the backdrop dismisses it.
+/// <c>&lt;cupri-dialog open blur&gt;</c> — a modal dialog: a full-viewport backdrop plus a centred
+/// panel, both lifted to the top layer (position:fixed). Clicking the backdrop dismisses it. Add
+/// <c>blur="{{Flag}}"</c> to frost the page behind it (backdrop-filter).
 /// </summary>
 public sealed class DialogComponent : ComponentBase
 {
     public override string Tag => "cupri-dialog";
+    // .cupri-backdrop (and its .blurred variant) is the shared scrim used by the dialog, drawer and
+    // shelf — defined once here, reused by class name across all three overlay components.
     public override string DefaultCss => """
         .cupri-dialog { display:block; }
         .cupri-backdrop { position:fixed; top:0; left:0; width:100%; height:100%; background:#00000099; }
+        .cupri-backdrop.blurred { background:#00000055; backdrop-filter:blur(9px); }
         .cupri-dialog-panel { position:fixed; width:360px; background:white; border-radius:14px;
                               padding:24px; z-index:10; }
         """;
@@ -25,9 +29,13 @@ public sealed class DialogComponent : ComponentBase
         el.SetAttribute("aria-modal", "true");
         var content = el.InnerHtml;
         el.InnerHtml =
-            "<div class='cupri-backdrop' data-cupri-dismiss=\"true\"></div>" +
+            $"<div class='{Backdrop(el)}' data-cupri-dismiss=\"true\"></div>" +
             $"<div class='cupri-dialog-panel' data-focus-scope>{content}</div>";
     }
+
+    /// <summary>The scrim's class list — adds <c>blurred</c> (backdrop-filter) when <c>blur</c> is set.
+    /// Shared by the dialog, drawer and shelf.</summary>
+    internal static string Backdrop(IElement el) => Flag(el, "blur") ? "cupri-backdrop blurred" : "cupri-backdrop";
 }
 
 /// <summary>

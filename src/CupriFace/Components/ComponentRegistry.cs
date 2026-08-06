@@ -94,5 +94,6 @@ public sealed class ComponentRegistry
         .Register(new MenuItemComponent())
         .Register(new TooltipComponent())
         .Register(new PopoverComponent())
-        .Register(new DrawerComponent());
+        .Register(new DrawerComponent())
+        .Register(new ShelfComponent());
 }

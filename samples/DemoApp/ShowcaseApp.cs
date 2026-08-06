@@ -33,6 +33,7 @@ public sealed class ShowcaseApp : CupriApp
         doc.OnClick(".nav", e => { if (e.Element.GetAttribute("data-section") is { } s) _model.Section = s; });
         doc.OnClick(".act-dialog", _ => _model.DialogOpen = true);
         doc.OnClick(".act-drawer", _ => _model.DrawerOpen = true);
+        doc.OnClick(".act-shelf", _ => _model.ShelfOpen = true);
         doc.OnClick(".act-toast", _ => _model.ShowToast = !_model.ShowToast);
         doc.OnClick(".act-gc", _ => GC.Collect());
         // Zoom via buttons — a slider would fight the live re-scale it triggers.
@@ -103,7 +104,11 @@ public sealed partial class ShowcaseModel
     public string Size { get; set; } = "medium";
     public string ImageFit { get; set; } = "contain"; // <cupri-image> object-fit, chosen via radios
     public bool DialogOpen { get; set; }
+    public bool DialogBlur { get; set; } = true;  // frost the page behind the modal (toggle inside it)
     public bool DrawerOpen { get; set; }
+    public bool DrawerBlur { get; set; } = true;
+    public bool ShelfOpen { get; set; }
+    public bool ShelfBlur { get; set; } = true;
     public bool MenuOpen { get; set; }
     public bool ShowToast { get; set; }
     public string ToastDisplay => ShowToast ? "block" : "none";

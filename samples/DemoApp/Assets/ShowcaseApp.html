@@ -170,9 +170,11 @@
       <!-- OVERLAYS -->
       <div class="section" style="display:{{SecOverlays}}">
         <div class="title">Overlays</div>
-        <p class="sub">Top-layer dialog, dropdown menu, hover tooltip and toast.</p>
+        <p class="sub">Top-layer dialog, bottom-sheet shelf, dropdown menu, hover tooltip and toast —
+          the dialog/drawer/shelf can frost the page behind them (toggle it inside each).</p>
         <div class="row">
           <cupri-button class="act-dialog">Open dialog</cupri-button>
+          <cupri-button variant="ghost" class="act-shelf">Open shelf</cupri-button>
           <cupri-button variant="ghost" class="act-toast">Toggle toast</cupri-button>
           <cupri-menu label="Menu" open="{{MenuOpen}}">
             <cupri-menu-item icon="download">Download</cupri-menu-item>
@@ -305,14 +307,21 @@
     </div>
   </div>
 
-  <cupri-dialog open="{{DialogOpen}}">
+  <cupri-dialog open="{{DialogOpen}}" blur="{{DialogBlur}}">
     <div class="dlg-title">Dialog</div>
     <div class="dlg-body">A modal in the top layer. Click the backdrop or OK to dismiss.</div>
+    <div class="row"><cupri-switch checked="{{DialogBlur}}"></cupri-switch><span class="lbl">Blur background</span></div>
     <div class="dlg-actions"><cupri-button data-cupri-dismiss="true">OK</cupri-button></div>
   </cupri-dialog>
   <cupri-toast style="display:{{ToastDisplay}}">Toast shown — click “Toggle toast” to hide.</cupri-toast>
-  <cupri-drawer open="{{DrawerOpen}}" side="right">
+  <cupri-drawer open="{{DrawerOpen}}" side="right" blur="{{DrawerBlur}}">
     <div class="dlg-title">Drawer</div>
     <div class="dlg-body">An edge-pinned panel in the top layer. Click the backdrop to dismiss.</div>
+    <div class="row"><cupri-switch checked="{{DrawerBlur}}"></cupri-switch><span class="lbl">Blur background</span></div>
   </cupri-drawer>
+  <cupri-shelf open="{{ShelfOpen}}" blur="{{ShelfBlur}}">
+    <div class="dlg-title">Shelf</div>
+    <div class="dlg-body">A bottom sheet that rises from the edge. Click the backdrop to dismiss.</div>
+    <div class="row"><cupri-switch checked="{{ShelfBlur}}"></cupri-switch><span class="lbl">Blur background</span></div>
+  </cupri-shelf>
 </body>

@@ -37,8 +37,9 @@ public sealed class PopoverComponent : ComponentBase
 }
 
 /// <summary>
-/// <c>&lt;cupri-drawer open="{{Flag}}" side="right"&gt;…&lt;/cupri-drawer&gt;</c> — a panel that slides in
-/// from an edge over a dismissing backdrop (top layer). <c>side</c> is left or right.
+/// <c>&lt;cupri-drawer open="{{Flag}}" side="right" blur&gt;…&lt;/cupri-drawer&gt;</c> — a panel that slides in
+/// from an edge over a dismissing backdrop (top layer). <c>side</c> is left or right; add
+/// <c>blur="{{Flag}}"</c> to frost the page behind it.
 /// </summary>
 public sealed class DrawerComponent : ComponentBase
 {
@@ -62,8 +63,43 @@ public sealed class DrawerComponent : ComponentBase
         var side = Str(el, "side", "right") == "left" ? "left" : "right";
         var content = el.InnerHtml;
         el.InnerHtml =
-            "<div class='cupri-backdrop' data-cupri-dismiss=\"true\"></div>" +
+            $"<div class='{DialogComponent.Backdrop(el)}' data-cupri-dismiss=\"true\"></div>" +
             $"<div class='cupri-drawer-panel {side}' data-focus-scope>{content}</div>";
+    }
+}
+
+/// <summary>
+/// <c>&lt;cupri-shelf open="{{Flag}}" blur&gt;…&lt;/cupri-shelf&gt;</c> — a bottom sheet: a full-width panel
+/// that rises from the bottom edge over a dismissing backdrop (top layer), with a rounded top and a
+/// grab handle. Add <c>blur="{{Flag}}"</c> to frost the page behind it. (Padding lives on an inner
+/// wrapper so the full-width panel doesn't overflow — the engine's width is content-box.)
+/// </summary>
+public sealed class ShelfComponent : ComponentBase
+{
+    public override string Tag => "cupri-shelf";
+    public override string DefaultCss => """
+        .cupri-shelf { display:block; }
+        .cupri-shelf-panel { position:fixed; left:0; bottom:0; width:100%; max-height:72%; overflow:auto;
+                             background:var(--cupri-surface, white); color:var(--cupri-text, #1e2430);
+                             border-radius:18px 18px 0 0; z-index:15; }
+        .cupri-shelf-inner { padding:20px 24px 28px; }
+        .cupri-shelf-griprow { display:flex; justify-content:center; margin-bottom:16px; }
+        .cupri-shelf-grip { width:44px; height:5px; border-radius:3px; background:var(--cupri-border, #cbd2dc); }
+        """;
+
+    public override void Expand(IElement el)
+    {
+        el.ClassList.Add("cupri-shelf");
+        if (!Flag(el, "open")) { el.InnerHtml = ""; el.SetAttribute("style", "display:none"); return; }
+
+        el.SetAttribute("role", "dialog");
+        el.SetAttribute("aria-modal", "true");
+        var content = el.InnerHtml;
+        el.InnerHtml =
+            $"<div class='{DialogComponent.Backdrop(el)}' data-cupri-dismiss=\"true\"></div>" +
+            "<div class='cupri-shelf-panel' data-focus-scope><div class='cupri-shelf-inner'>" +
+            "<div class='cupri-shelf-griprow'><div class='cupri-shelf-grip'></div></div>" +
+            $"{content}</div></div>";
     }
 }
 

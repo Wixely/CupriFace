@@ -34,13 +34,30 @@ public sealed class Painter
     {
         var list = new DisplayList();
         var topLayer = new List<RenderNode>();
+
+        // backdrop-filter on a top-layer scrim (a modal/drawer/shelf) blurs the page BEHIND it. Skia
+        // has no backdrop-capture we can reach, but the top layer paints last — so we blur the whole
+        // main-content pass as one group, and the scrim + panel then paint sharp on top of it.
+        var backdrop = FindBackdropFilter(root);
+        if (backdrop is not null) list.Add(new PushFilter(backdrop));
         PaintNode(list, root, 0, 0, topLayer, inTopLayer: false);
+        if (backdrop is not null) list.Add(new PopFilter());
 
         // Overlays: painted last (above everything), ordered by z-index. Their X/Y are
         // already absolute viewport coordinates, so origin is (0,0).
         foreach (var overlay in topLayer.OrderBy(n => n.Style.ZIndex))
             PaintNode(list, overlay, 0, 0, topLayer, inTopLayer: true);
         return list;
+    }
+
+    // The first top-layer (fixed) element that requests a backdrop-filter — its filter blurs the page
+    // behind the overlay. Only top-layer scrims qualify (a full-viewport backdrop over the whole page).
+    private static IReadOnlyList<FilterOp>? FindBackdropFilter(RenderNode n)
+    {
+        if (n.IsTopLayer && n.Style.BackdropFilter is { Count: > 0 } bf) return bf;
+        foreach (var c in n.Children)
+            if (FindBackdropFilter(c) is { } found) return found;
+        return null;
     }
 
     private void PaintNode(DisplayList list, RenderNode node, float originX, float originY, List<RenderNode> topLayer, bool inTopLayer)
