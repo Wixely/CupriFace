@@ -94,8 +94,8 @@
       <!-- COMPONENTS -->
       <div class="section" style="display:{{SecComponents}}">
         <div class="title">Components</div>
-        <p class="sub">Navigation, selection and data-display: tabs, select, textarea, popover,
-          accordion, tree, a sortable table, plus icons, chips, badges, alerts and stat cards.</p>
+        <p class="sub">Navigation, selection and data-display: tabs, select, textarea, accordion, tree,
+          a sortable table, plus icons, chips, badges, alerts and stat cards.</p>
         <cupri-tabs value="{{Tab}}">
           <cupri-tab id="one" label="First">First tab content.</cupri-tab>
           <cupri-tab id="two" label="Second">Second tab content.</cupri-tab>
@@ -108,8 +108,6 @@
             <cupri-option value="medium">Medium</cupri-option>
             <cupri-option value="large">Large</cupri-option>
           </cupri-select>
-          <cupri-popover label="Info" open="{{PopOpen}}">A popover panel with rich content.</cupri-popover>
-          <cupri-button variant="ghost" class="act-drawer">Open drawer</cupri-button>
         </div>
         <cupri-textarea value="{{Notes}}" placeholder="Write a note…"></cupri-textarea>
         <cupri-accordion>
@@ -170,23 +168,29 @@
       <!-- OVERLAYS -->
       <div class="section" style="display:{{SecOverlays}}">
         <div class="title">Overlays</div>
-        <p class="sub">Top-layer dialog, bottom-sheet shelf, dropdown menu, hover tooltip and toast —
-          the dialog/drawer/shelf can frost the page behind them (toggle it inside each).</p>
+        <p class="sub">Top-layer surfaces over a dismissing backdrop. The dialog, drawer and shelf can
+          frost the page behind them — toggle it inside each.</p>
+        <div class="mlabel">Modal panels — backdrop + optional blur</div>
         <div class="row">
           <cupri-button class="act-dialog">Open dialog</cupri-button>
+          <cupri-button variant="ghost" class="act-drawer">Open drawer</cupri-button>
           <cupri-button variant="ghost" class="act-shelf">Open shelf</cupri-button>
-          <cupri-button variant="ghost" class="act-toast">Toggle toast</cupri-button>
+        </div>
+        <div class="mlabel">Lightweight — anchored &amp; transient</div>
+        <div class="row">
           <cupri-menu label="Menu" open="{{MenuOpen}}">
             <cupri-menu-item icon="download">Download</cupri-menu-item>
             <cupri-menu-item icon="edit">Rename</cupri-menu-item>
             <cupri-menu-item icon="trash">Delete</cupri-menu-item>
           </cupri-menu>
+          <cupri-popover label="Popover" open="{{PopOpen}}">A popover panel with rich content, anchored to its trigger.</cupri-popover>
           <cupri-tooltip text="Always shown (open)" open="true">
             <cupri-icon-button icon="info"></cupri-icon-button>
           </cupri-tooltip>
           <cupri-tooltip text="Shown on hover">
             <cupri-button variant="ghost">Hover me</cupri-button>
           </cupri-tooltip>
+          <cupri-button variant="ghost" class="act-toast">Toggle toast</cupri-button>
         </div>
       </div>
 
