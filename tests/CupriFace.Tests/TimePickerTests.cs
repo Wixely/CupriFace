@@ -32,6 +32,17 @@ public class TimePickerTests
     }
 
     [Fact]
+    public void Clicking_outside_closes_the_time_popup()
+    {
+        var m = new Model { Open = true };
+        using var t = new TestDoc(Html, "", m, components: true, width: 360, height: 320);
+        Assert.NotNull(Popup(t));
+        t.Click(350, 312);
+        Assert.False(m.Open);
+        Assert.Null(Popup(t));
+    }
+
+    [Fact]
     public void Picking_hour_then_minute_updates_the_parts_and_stays_open()
     {
         var m = new Model { Open = true };

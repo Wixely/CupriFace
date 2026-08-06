@@ -747,7 +747,18 @@ public sealed partial class CupriDocument : IDisposable
         }
 
         var hit = HitTesting.HitTest(_root, x, y);
-        if (hit is null) { _kbIndex = -1; return UpdateFocus(null); } // click on empty space blurs
+
+        // Click-away: close any open bound-flag popup (picker/select/popover) the click landed outside.
+        // Doesn't consume the click, so it still does its normal thing; the refresh below applies it.
+        var strayClosed = CloseStrayPopups(hit);
+
+        if (hit is null) // click on empty space blurs (and closes any stray popup)
+        {
+            _kbIndex = -1;
+            var blurred = UpdateFocus(null);
+            if (strayClosed) Refresh();
+            return blurred || strayClosed;
+        }
 
         // Grabbing a resize grip (bottom-right corner) starts a resize-drag — corner takes priority.
         for (var n = hit; n is not null; n = n.Parent)
@@ -799,15 +810,15 @@ public sealed partial class CupriDocument : IDisposable
             else if (clickCount == 2) { var (a, b) = WordAt(buf, pos); _selAnchor = a; _caret = b; }
             else { _caret = pos; _selAnchor = pos; _textDrag = true; }
             _caretMoved = true;
-            if (focusChanged) Refresh(); // new field → rebuild; caret/selection alone just repaints
+            if (focusChanged || strayClosed) Refresh(); // new field or a dismissed popup → rebuild
             ReconcileScope();
             return true;
         }
 
-        if (handled || focusChanged) Refresh();
+        if (handled || focusChanged || strayClosed) Refresh();
         else if (_activeChain.Count > 0) ReStyle(); // show the :active press even if nothing else changed
         ReconcileScope(); // a click may have opened/closed an overlay → update the focus scope
-        return handled || focusChanged || _activeChain.Count > 0;
+        return handled || focusChanged || strayClosed || _activeChain.Count > 0;
     }
 
     // Walk from a node up the ancestor chain, applying the first built-in control behaviour or
@@ -1526,6 +1537,29 @@ public sealed partial class CupriDocument : IDisposable
             if (n.Element?.GetAttribute("data-bind-open") is { Length: > 0 } path && _model is not null)
                 return BindingEngine.TrySet(_model, path, value);
         return false;
+    }
+
+    // Click-away dismissal: close any open anchored popup (select / date / time picker / popover) whose
+    // open state is a bound flag, when the click lands outside both the popup and its trigger. Mutates
+    // the flag like SetNearestOpen but does NOT consume the click, so it composes with whatever else the
+    // click does (e.g. opening a different picker). A rebuild by the caller applies it.
+    private bool CloseStrayPopups(RenderNode? hit)
+    {
+        if (_dom is null || _model is null) return false;
+        var closed = false;
+        foreach (var popup in _dom.QuerySelectorAll("[data-cupri-anchor]"))
+        {
+            var anchorId = popup.GetAttribute("data-cupri-anchor");
+            var insideOrTrigger = false;
+            for (var n = hit; n is not null; n = n.Parent)
+                if (n.Element is { } el && (ReferenceEquals(el, popup) || el.GetAttribute("id") == anchorId)) { insideOrTrigger = true; break; }
+            if (insideOrTrigger) continue;
+
+            for (var e = popup; e is not null; e = e.ParentElement)
+                if (e.GetAttribute("data-bind-open") is { Length: > 0 } path)
+                { if (BindingEngine.TrySet(_model, path, false)) closed = true; break; }
+        }
+        return closed;
     }
 
     private bool ToggleNearestOpen(RenderNode node)

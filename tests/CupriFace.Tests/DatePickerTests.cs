@@ -84,6 +84,28 @@ public class DatePickerTests
     }
 
     [Fact]
+    public void Clicking_outside_closes_the_calendar()
+    {
+        var m = new Model { Open = true };
+        using var t = new TestDoc(Html, "", m, components: true, width: 360, height: 420);
+        Assert.NotNull(Popup(t));
+        t.Click(350, 412);          // empty space, outside the popup and its trigger
+        Assert.False(m.Open);
+        Assert.Null(Popup(t));
+    }
+
+    [Fact]
+    public void Clicking_inside_the_calendar_does_not_dismiss_it()
+    {
+        var m = new Model { Open = true };
+        using var t = new TestDoc(Html, "", m, components: true, width: 360, height: 420);
+        // A month-nav click (inside the popup) keeps it open (data-set-keep); it must not be dismissed.
+        t.ClickMatch(n => n.Element?.ClassList.Contains("cupri-dp-nav") == true && n.Element.GetAttribute("data-set-value") == "2026-09-15");
+        Assert.True(m.Open);
+        Assert.NotNull(Popup(t));
+    }
+
+    [Fact]
     public void Escape_closes_the_open_calendar()
     {
         var m = new Model { Open = true };

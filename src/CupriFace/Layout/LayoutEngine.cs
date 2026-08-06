@@ -697,25 +697,35 @@ public sealed class LayoutEngine
         if (node.IsText)
             return _fonts.MeasureText(s, node.Text ?? "");
 
+        float baseW;
         if (s.Width.Unit == LengthUnit.Px)
-            return s.Width.Value + PadBorderX(s);
-
-        float inner = 0;
-        if (s.IsFlexContainer && s.MainIsHorizontal)
-        {
-            var kids = InFlowChildren(node);
-            for (var i = 0; i < kids.Count; i++)
-            {
-                inner += MaxContentWidth(kids[i]) + MarginX(kids[i].Style);
-                if (i > 0) inner += s.ColumnGap;
-            }
-        }
+            baseW = s.Width.Value + PadBorderX(s);
         else
         {
-            foreach (var c in InFlowChildren(node))
-                inner = MathF.Max(inner, MaxContentWidth(c) + MarginX(c.Style));
+            float inner = 0;
+            if (s.IsFlexContainer && s.MainIsHorizontal)
+            {
+                var kids = InFlowChildren(node);
+                for (var i = 0; i < kids.Count; i++)
+                {
+                    inner += MaxContentWidth(kids[i]) + MarginX(kids[i].Style);
+                    if (i > 0) inner += s.ColumnGap;
+                }
+            }
+            else
+            {
+                foreach (var c in InFlowChildren(node))
+                    inner = MathF.Max(inner, MaxContentWidth(c) + MarginX(c.Style));
+            }
+            baseW = PadBorderX(s) + inner;
         }
-        return PadBorderX(s) + inner;
+
+        // Respect the node's own min/max-width (content-box floors/ceilings) so an auto-width control
+        // that only sets min-width (e.g. a picker trigger) reports its true footprint to flex/intrinsic
+        // sizing — otherwise it under-reports and the next flex item overlaps it.
+        if (s.MinWidth.IsDefinite) baseW = MathF.Max(baseW, s.MinWidth.Resolve(0) + PadBorderX(s));
+        if (s.MaxWidth.IsDefinite) baseW = MathF.Min(baseW, s.MaxWidth.Resolve(0) + PadBorderX(s));
+        return baseW;
     }
 
     private static List<RenderNode> InFlowChildren(RenderNode node) =>
