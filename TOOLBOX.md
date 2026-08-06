@@ -434,14 +434,20 @@ the largest value); line/sparkline auto‑scale to the data's range. All are the
 | Element | Purpose | Key attributes | Children | role |
 |---------|---------|----------------|----------|------|
 | `<cupri-bar-chart>` | Vertical bar chart | `values`, `labels`, `max` | `<cupri-bar value label color>` | `img` |
-| `<cupri-line-chart>` | Trend line, optional area fill + dots | `values`, `labels`, `max`, `area`, `dots`, `color` | `<cupri-point value label>` | `img` |
-| `<cupri-sparkline>` | Compact axis‑less trend (inline/stat cards) | `values`, `area`, `dots`, `color` | `<cupri-point value>` | `img` |
-| `<cupri-rolling-chart>` | Time‑series monitor (Task‑Manager style): a full‑width area line over a **fixed** `0..max` range, so newer samples scroll in from the right without the baseline jumping | `values`, `max`, `color` | `<cupri-point value>` | `img` |
+| `<cupri-line-chart>` | Trend line(s): optional area fill, dots, and `curve` (smoothing). Multiple series via `<cupri-line>` children share one axis + get a legend | `values`, `labels`, `area`, `dots`, `curve`, `color` | `<cupri-line values color label>` (multi‑series) or `<cupri-point value label>` (one series) | `img` |
+| `<cupri-sparkline>` | Compact axis‑less trend (inline/stat cards) | `values`, `area`, `dots`, `curve`, `color` | `<cupri-point value>` | `img` |
+| `<cupri-rolling-chart>` | Time‑series monitor (Task‑Manager style): a full‑width area line over a **fixed** `0..max` range, so newer samples scroll in from the right without the baseline jumping | `values`, `max`, `curve`, `color` | `<cupri-point value>` | `img` |
 | `<cupri-heatmap>` | Grid tinted by intensity (contribution‑graph style) | `values`, `columns` (7), `max` | `<cupri-heat value>` | `img` |
 
 ```html
 <cupri-bar-chart values="{{Sales}}" labels="Mon,Tue,Wed,Thu,Fri"></cupri-bar-chart>
-<cupri-line-chart values="4,8,5,10,7" area dots></cupri-line-chart>
+<cupri-line-chart values="4,8,5,10,7" area dots curve></cupri-line-chart>
+
+<!-- multiple lines on one shared axis (with a legend) -->
+<cupri-line-chart curve labels="W1,W2,W3,W4">
+  <cupri-line label="Prod"    values="4,8,5,10"></cupri-line>
+  <cupri-line label="Staging" values="6,5,7,6"></cupri-line>
+</cupri-line-chart>
 <span>Revenue $8.9k</span> <cupri-sparkline values="3,5,4,6,8,7,9,11" area></cupri-sparkline>
 <cupri-heatmap columns="7" values="0,1,2,4,1,0,3, 2,3,1,0,4,2,1"></cupri-heatmap>
 

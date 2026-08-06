@@ -159,8 +159,14 @@
           Data comes from a <code>values="…"</code> string (bindable) or child elements.</p>
         <div class="mlabel">Bar — bound to the model (<code>values="{{Sales}}"</code>)</div>
         <cupri-bar-chart class="chart" values="{{Sales}}" labels="Mon,Tue,Wed,Thu,Fri,Sat,Sun"></cupri-bar-chart>
-        <div class="mlabel">Line — area fill + dots</div>
-        <cupri-line-chart class="chart" values="4,8,5,10,7,12,9,13" labels="W1,W2,W3,W4,W5,W6,W7,W8" area dots></cupri-line-chart>
+        <div class="mlabel">Line — smooth (curve) + area fill</div>
+        <cupri-line-chart class="chart" values="4,8,5,10,7,12,9,13" labels="W1,W2,W3,W4,W5,W6,W7,W8" area dots curve></cupri-line-chart>
+        <div class="mlabel">Multi-line — three series on one shared axis</div>
+        <cupri-line-chart class="chart" curve labels="W1,W2,W3,W4,W5,W6,W7,W8">
+          <cupri-line label="Prod" values="4,8,5,10,7,12,9,13"></cupri-line>
+          <cupri-line label="Staging" values="6,5,7,6,9,8,11,10"></cupri-line>
+          <cupri-line label="Dev" values="2,4,3,5,4,6,5,7"></cupri-line>
+        </cupri-line-chart>
         <div class="mlabel">Sparklines — inline trends in stat cards</div>
         <div class="row">
           <cupri-card style="width:200px"><div class="cstat">
