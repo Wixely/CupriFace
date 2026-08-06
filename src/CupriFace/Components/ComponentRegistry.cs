@@ -58,6 +58,11 @@ public sealed class ComponentRegistry
         .Register(new ComboboxComponent())
         .Register(new DatePickerComponent())
         .Register(new TimePickerComponent())
+        .Register(new SearchFieldComponent())
+        .Register(new RatingComponent())
+        .Register(new SegmentedComponent())
+        .Register(new SegmentComponent())
+        .Register(new PaginationComponent())
         // Content
         .Register(new ImageComponent())
         .Register(new IconComponent())

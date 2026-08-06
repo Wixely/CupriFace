@@ -64,6 +64,27 @@
           <span class="lbl">Time</span>
           <cupri-timepicker value="{{Time}}" open="{{TimeOpen}}"></cupri-timepicker>
         </div>
+        <div class="row">
+          <span class="lbl">Search</span>
+          <cupri-search value="{{Query}}" placeholder="Search the catalogue…"></cupri-search>
+        </div>
+        <div class="row">
+          <span class="lbl">View</span>
+          <cupri-segmented value="{{ViewMode}}">
+            <cupri-segment value="grid">Grid</cupri-segment>
+            <cupri-segment value="list">List</cupri-segment>
+            <cupri-segment value="table">Table</cupri-segment>
+          </cupri-segmented>
+        </div>
+        <div class="row">
+          <span class="lbl">Rating</span>
+          <cupri-rating value="{{Rating}}" max="5"></cupri-rating>
+          <span class="val">{{Rating}}/5</span>
+        </div>
+        <div class="row">
+          <span class="lbl">Page</span>
+          <cupri-pagination page="{{Page}}" pages="12"></cupri-pagination>
+        </div>
       </div>
 
       <!-- COMPONENTS -->

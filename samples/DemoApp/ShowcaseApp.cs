@@ -91,6 +91,10 @@ public sealed partial class ShowcaseModel
     public string Time { get; set; } = "14:30";
     public bool TimeOpen { get; set; }
     public string TableSort { get; set; } = "";
+    public string Query { get; set; } = "";
+    public string ViewMode { get; set; } = "grid";
+    public int Rating { get; set; } = 4;
+    public int Page { get; set; } = 1;
     public int Quantity { get; set; } = 3;
     public bool Notifications { get; set; } = true;
     public bool DarkMode { get; set; }

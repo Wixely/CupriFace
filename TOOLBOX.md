@@ -330,6 +330,10 @@ static config unless noted.
 | `<cupri-combobox>` | Typeahead: editable field + suggestions that filter as you type (free‑text; the dropdown shows while focused) | `value`, `placeholder` | `value` | `<cupri-option value="…">Label</cupri-option>` | `combobox` |
 | `<cupri-datepicker>` | Date field + month calendar popup. `value` is ISO `yyyy‑MM‑dd`; a day pick sets it and closes; ‹ › page months in place | `value`, `open` | `value` (and `open`) | — | `combobox` |
 | `<cupri-timepicker>` | Time field + popup with scrollable hour/minute columns. `value` is `HH:mm` (24h); picking updates that part and keeps the popup open | `value`, `open` | `value` (and `open`) | — | `combobox` |
+| `<cupri-search>` | Single‑line search field with a leading 🔍 and a trailing clear (×) that shows once there's text | `value`, `placeholder` | `value` | — | `textbox` |
+| `<cupri-segmented>` | Connected button bar bound to one value (radios rendered as a segmented control); the matching segment is active | `value` | `value` | `<cupri-segment value="…">Label</cupri-segment>` | `radiogroup` |
+| `<cupri-rating>` | Star rating; clicking the Nth star writes N (stars up to `value` are filled) | `value`, `max` (5) | `value` | — | `slider` |
+| `<cupri-pagination>` | 1‑based page navigator: ‹ prev, first/last, a window around the current page (with … gaps), next › | `page`, `pages` | `page` | — | `navigation` |
 | `<cupri-table sort>` | Add `sort="{{Sort}}"` and the header cells become click‑to‑sort triggers (numeric or text, asc↔desc, ▲/▼) that reorder the body rows | `sort` | `sort` | `<cupri-row>` / `<cupri-cell>` | `table` |
 
 ```html
