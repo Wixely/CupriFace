@@ -47,6 +47,8 @@ public sealed partial class CupriDocument : IDisposable
     private bool _focusNumeric; // focused field is validated as a number
     private bool _focusMultiline; // focused field is a textarea (Enter inserts a newline)
     private bool _focusMask;    // focused field masks its text (data-mask, e.g. <cupri-password>)
+    private int _maskRevealPos = -1;          // index of a masked char being briefly "peeked" after typing; -1 = none
+    private double _maskRevealStart = double.NaN; // Animate() clock time the peek began (NaN = not yet stamped)
     private double? _focusMin, _focusMax; // numeric field bounds (for validation/clamping)
     private string? _editBuffer; // raw text being edited (permissive); validated/committed on blur
     private int _caret;
@@ -201,7 +203,7 @@ public sealed partial class CupriDocument : IDisposable
                     if (focusEl.HasAttribute("data-multiline"))
                         anchor.InnerHtml = Components.Controls.TextAreaComponent.RenderLines(_editBuffer);
                     else // mask secret fields (data-mask): paint bullets, keep the plaintext in the buffer
-                        anchor.TextContent = focusEl.HasAttribute("data-mask") ? new string(MaskChar, _editBuffer.Length) : _editBuffer;
+                        anchor.TextContent = MaskText(_editBuffer);
                 }
                 if (!BufferValid(_editBuffer)) focusEl.SetAttribute("data-invalid", "");
             }
@@ -300,20 +302,36 @@ public sealed partial class CupriDocument : IDisposable
         var any = false;
         if (_keyframes.Count > 0) { Animation.Apply(_root, _keyframes, timeSeconds); any = true; }
         if (_transitions.Apply(_root, timeSeconds)) any = true; // interpolate transitions over @keyframes
+        if (_maskRevealPos >= 0) // a masked field is peeking its last-typed char — time it out
+        {
+            if (double.IsNaN(_maskRevealStart)) _maskRevealStart = timeSeconds;      // stamp on the first frame
+            else if (timeSeconds - _maskRevealStart >= MaskPeekSeconds)              // window elapsed → re-mask
+            {
+                _maskRevealPos = -1; _maskRevealStart = double.NaN;
+                Rebuild(); // re-bake the field text fully masked (paint-only content swap)
+            }
+            any = true;
+        }
         return any;
     }
+
+    // True while a masked field is peeking its last-typed char — keeps the host's frame pump alive
+    // (folded into both continuous-render signals below) so Animate() can time the peek out.
+    private bool MaskPeeking => _maskRevealPos >= 0;
 
     public bool HasAnimations => _keyframes.Count > 0;
 
     /// <summary>True while a CSS transition is mid-flight (a continuous host should keep calling
-    /// <see cref="Animate"/> and repainting until it settles).</summary>
-    public bool HasActiveTransitions => _transitions.Active;
+    /// <see cref="Animate"/> and repainting until it settles). Also true while a masked field is
+    /// peeking its last-typed char, so the host keeps ticking until <see cref="Animate"/> re-masks it.</summary>
+    public bool HasActiveTransitions => _transitions.Active || MaskPeeking;
 
     /// <summary>True only if a *visible* node is currently animating (display:none subtrees are
     /// absent from the render tree). Lets a host render continuously only when it must, instead
     /// of every frame — critical for the CPU-rendered web host. Cached per rebuild (the animated
-    /// set only changes when the tree does), so a host may poll it every frame for free.</summary>
-    public bool HasActiveAnimations => _hasActiveAnim || _transitions.Active;
+    /// set only changes when the tree does), so a host may poll it every frame for free. Also true
+    /// while a masked field peeks its last-typed char (see <see cref="HasActiveTransitions"/>).</summary>
+    public bool HasActiveAnimations => _hasActiveAnim || _transitions.Active || MaskPeeking;
     private bool _hasActiveAnim;
 
     private static bool AnyAnimated(RenderNode n)
@@ -359,14 +377,25 @@ public sealed partial class CupriDocument : IDisposable
     }
 
     private const char MaskChar = '•'; // • — the bullet a masked (data-mask) field paints per character
+    private const double MaskPeekSeconds = 1.4; // how long a masked field shows its last-typed char
+
+    // Mask <paramref name="plain"/> for a data-mask field: one bullet per UTF-16 unit (so caret/
+    // selection/scroll offsets line up 1:1 with the mask), except the one character being peeked
+    // (_maskRevealPos) after a keystroke, which stays visible until Animate() expires the peek.
+    private string MaskText(string plain)
+    {
+        if (!_focusMask) return plain;
+        var arr = new char[plain.Length];
+        for (var i = 0; i < plain.Length; i++) arr[i] = i == _maskRevealPos ? plain[i] : MaskChar;
+        return new string(arr);
+    }
 
     // The text to DISPLAY/measure for the focused field: the raw edit buffer (or the bound value),
-    // masked to bullets when the field opted in via data-mask (e.g. <cupri-password>). One bullet per
-    // UTF-16 unit, so caret/selection/scroll offsets into the plaintext line up 1:1 with the mask.
+    // masked when the field opted in via data-mask (e.g. <cupri-password>).
     private string FocusedDisplayText()
     {
         var value = _editBuffer ?? (_focusKey is null ? null : BindingEngine.Resolve(_model, _focusKey)?.ToString()) ?? "";
-        return _focusMask ? new string(MaskChar, value.Length) : value;
+        return MaskText(value);
     }
 
     // If the caret moved (typing/nav, not wheel) and its field scrolls, nudge that container's
@@ -1117,6 +1146,7 @@ public sealed partial class CupriDocument : IDisposable
         _focusNumeric = field?.HasAttribute("data-numeric") == true;
         _focusMultiline = field?.HasAttribute("data-multiline") == true;
         _focusMask = field?.HasAttribute("data-mask") == true;
+        _maskRevealPos = -1; _maskRevealStart = double.NaN; // the last-typed peek is per-field
         _focusMin = double.TryParse(field?.GetAttribute("data-min"), out var mn) ? mn : null;
         _focusMax = double.TryParse(field?.GetAttribute("data-max"), out var mx) ? mx : null;
         _editBuffer = key is null ? null : BindingEngine.Resolve(_model, key)?.ToString() ?? "";
@@ -1269,6 +1299,15 @@ public sealed partial class CupriDocument : IDisposable
                 break;
         }
 
+        // Mobile-style peek: a masked field briefly shows the character you just typed, then re-masks
+        // it (Animate expires the peek). Any other edit — delete, navigation, multi-char paste —
+        // hides it immediately so only a single fresh keystroke is ever visible.
+        if (_focusMask)
+        {
+            if (edited && key == EditKey.None && text is { Length: 1 }) { _maskRevealPos = caret - 1; _maskRevealStart = double.NaN; }
+            else _maskRevealPos = -1;
+        }
+
         if (edited)
         {
             // Record undo history. Coalesce a run of printable non-space chars into one step;
@@ -1303,10 +1342,12 @@ public sealed partial class CupriDocument : IDisposable
 
     // ---- text: clipboard + word/line boundaries (host provides the actual clipboard I/O) ----
 
-    /// <summary>The currently selected text in the focused field, or null if nothing is selected.</summary>
+    /// <summary>The currently selected text in the focused field, or null if nothing is selected.
+    /// A masked field (data-mask, e.g. an un-revealed &lt;cupri-password&gt;) never yields its
+    /// plaintext to the clipboard — copy/cut are disabled until the value is revealed.</summary>
     public string? CopySelection()
     {
-        if (_focusKey is null || _editBuffer is null || _selAnchor == _caret) return null;
+        if (_focusKey is null || _editBuffer is null || _selAnchor == _caret || _focusMask) return null;
         int s = Math.Clamp(Math.Min(_selAnchor, _caret), 0, _editBuffer.Length);
         int e = Math.Clamp(Math.Max(_selAnchor, _caret), 0, _editBuffer.Length);
         return e > s ? _editBuffer[s..e] : null;
