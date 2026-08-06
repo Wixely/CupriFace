@@ -166,8 +166,16 @@ public sealed class Painter
                 node.Width - node.HorizontalInsets, node.Height - node.VerticalInsets,
                 image, ParseFit(node.Element?.GetAttribute("data-object-fit")), s.BorderRadius));
 
-        // Chart line (line chart / sparkline): a polyline through normalised points scaled into the
-        // content box, with an optional area fill (data-cupri-area) and dots (data-cupri-dots).
+        // Clip children if overflow is not visible.
+        var clip = s.Overflow != OverflowMode.Visible;
+        if (clip)
+            list.Add(new PushClip(absX + node.BorderLeftW, absY + node.BorderTopW,
+                node.Width - node.BorderLeftW - node.BorderRightW,
+                node.Height - node.BorderTopW - node.BorderBottomW, s.BorderRadius));
+
+        // Chart line (line / sparkline / rolling): a polyline through normalised points scaled into the
+        // content box, with an optional area fill (data-cupri-area) and dots (data-cupri-dots). Emitted
+        // inside the clip so a plot with overflow:hidden crops the line to its (rounded) box.
         if (node.ChartLine is { Length: > 0 } chartLine)
         {
             var cx = absX + node.ContentLeftInset;
@@ -190,13 +198,6 @@ public sealed class Painter
                 }
             }
         }
-
-        // Clip children if overflow is not visible.
-        var clip = s.Overflow != OverflowMode.Visible;
-        if (clip)
-            list.Add(new PushClip(absX + node.BorderLeftW, absY + node.BorderTopW,
-                node.Width - node.BorderLeftW - node.BorderRightW,
-                node.Height - node.BorderTopW - node.BorderBottomW, s.BorderRadius));
 
         // Scroll: shift children up by the (clamped) vertical offset, and left by the horizontal
         // caret-follow offset (single-line fields). Both are computed before paint.

@@ -49,18 +49,23 @@ internal static class ChartData
         return s.Count == 0 ? 1 : System.Math.Max(1e-6, s.Max(p => p.Value));
     }
 
-    // Normalised polyline points "x,y x,y …" in 0..1 (y=0 top), auto-scaled to the data's min..max with a
-    // vertical inset so the line never hugs the edges. fullWidth spans 0..1 (sparkline); otherwise the
-    // points sit at flex-slot centres so they line up with the x-axis labels (line chart).
-    internal static string Points(IReadOnlyList<ChartPoint> s, bool fullWidth, double inset = 0.12)
+    // Normalised polyline points "x,y x,y …" in 0..1 (y=0 top), with a vertical inset so the line never
+    // hugs the edges. fullWidth spans 0..1 (sparkline/rolling); otherwise the points sit at flex-slot
+    // centres so they line up with the x-axis labels (line chart). By default the Y axis auto-scales to
+    // the data's min..max; pass fixedMin/fixedMax for a stable range (a rolling monitor), which also
+    // clamps out-of-range samples into the box.
+    internal static string Points(IReadOnlyList<ChartPoint> s, bool fullWidth, double inset = 0.12,
+        double? fixedMin = null, double? fixedMax = null)
     {
         if (s.Count == 0) return "";
-        double min = s.Min(p => p.Value), max = s.Max(p => p.Value), range = max - min;
+        var min = fixedMin ?? s.Min(p => p.Value);
+        var max = fixedMax ?? s.Max(p => p.Value);
+        var range = max - min;
         var sb = new StringBuilder();
         for (var i = 0; i < s.Count; i++)
         {
             var x = fullWidth ? (s.Count == 1 ? 0.5 : (double)i / (s.Count - 1)) : (i + 0.5) / s.Count;
-            var norm = range > 1e-9 ? (s[i].Value - min) / range : 0.5;
+            var norm = range > 1e-9 ? System.Math.Clamp((s[i].Value - min) / range, 0, 1) : 0.5;
             var y = inset + (1 - norm) * (1 - 2 * inset);
             if (i > 0) sb.Append(' ');
             sb.Append(Fmt(x)).Append(',').Append(Fmt(y));
@@ -188,6 +193,36 @@ public sealed class SparklineComponent : ComponentBase
         if (Flag(el, "area")) el.SetAttribute("data-cupri-area", "");
         if (Flag(el, "dots")) el.SetAttribute("data-cupri-dots", "");
         el.InnerHtml = ""; // the polyline is painted directly on this element's box
+    }
+}
+
+/// <summary>
+/// <c>&lt;cupri-rolling-chart values="{{Hist}}" max="200"&gt;</c> — a time-series monitor (Task-Manager
+/// style): a full-width area line over a FIXED 0..<c>max</c> range, so new samples scroll in from the
+/// right without the baseline jumping. Bind <c>values</c> to a rolling window your model maintains and
+/// let the refresh cadence drive it (no dots/labels; the plot is tinted, bordered and clips its line).
+/// </summary>
+public sealed class RollingChartComponent : ComponentBase
+{
+    public override string Tag => "cupri-rolling-chart";
+    public override string DefaultCss => """
+        .cupri-rolling { display:block; }
+        .cupri-rl-plot { display:block; height:130px; overflow:hidden; color:#4682B4;
+                         background:var(--cupri-hover, #eef1f5); border:1px solid var(--cupri-border, #cbd2dc);
+                         border-radius:8px; }
+        """;
+
+    public override void Expand(IElement el)
+    {
+        var series = ChartData.Read(el, "cupri-point");
+        var max = ChartData.Max(el, series); // fixed ceiling: the `max` attr, else the window's largest
+        el.SetAttribute("role", "img");
+        el.ClassList.Add("cupri-rolling");
+
+        var pts = ChartData.Points(series, fullWidth: true, inset: 0.06, fixedMin: 0, fixedMax: max);
+        var color = Str(el, "color");
+        var style = color.Length > 0 ? $" style='color:{color}'" : "";
+        el.InnerHtml = $"<div class='cupri-rl-plot' data-cupri-line='{pts}' data-cupri-area{style}></div>";
     }
 }
 

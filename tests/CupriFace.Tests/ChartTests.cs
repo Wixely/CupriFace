@@ -94,6 +94,41 @@ public class ChartTests
     }
 
     [Fact]
+    public void Rolling_chart_uses_a_fixed_zero_to_max_range_and_clamps()
+    {
+        // A time-series monitor: fixed 0..max range (so the baseline is stable as the window scrolls),
+        // full width, area fill, no dots. Values above max are clamped into the box.
+        using var t = new TestDoc(
+            "<body><cupri-rolling-chart values=\"0,50,100,200\" max=\"100\"></cupri-rolling-chart></body>",
+            "", null, components: true, width: 400, height: 200);
+
+        var plot = t.FindClass("cupri-rl-plot");
+        Assert.True(plot.Element!.HasAttribute("data-cupri-area"));
+        Assert.False(plot.Element.HasAttribute("data-cupri-dots"));
+
+        var pts = plot.Element.GetAttribute("data-cupri-line")!.Split(' ');
+        Assert.Equal(4, pts.Length);
+        Assert.Equal("0", pts[0].Split(',')[0]);   // full width: first x=0
+        Assert.Equal("1", pts[^1].Split(',')[0]);  // last x=1
+
+        double Y(int i) => double.Parse(pts[i].Split(',')[1], System.Globalization.CultureInfo.InvariantCulture);
+        Assert.True(Y(0) > 0.9);        // value 0 → near the bottom (fixed range, not auto-scaled)
+        Assert.True(Y(2) < 0.1);        // value 100 (== max) → near the top
+        Assert.Equal(Y(2), Y(3), 3);    // value 200 clamped to the same top as 100
+    }
+
+    [Fact]
+    public void Rolling_chart_paints_an_area_polyline()
+    {
+        using var t = new TestDoc(
+            "<body><cupri-rolling-chart values=\"10,20,15,25,30\" max=\"40\"></cupri-rolling-chart></body>",
+            "", null, components: true, width: 400, height: 200);
+        var poly = t.Doc.BuildFrame(400, 200).Commands.OfType<Polyline>().Single();
+        Assert.Equal(10, poly.Points.Count); // 5 points
+        Assert.True(poly.Fill.Alpha > 0);    // area filled
+    }
+
+    [Fact]
     public void Heatmap_lays_out_a_grid_and_tints_cells_by_intensity()
     {
         using var t = new TestDoc(

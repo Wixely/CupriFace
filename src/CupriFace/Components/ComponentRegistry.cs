@@ -79,6 +79,7 @@ public sealed class ComponentRegistry
         .Register(new LineChartComponent())
         .Register(new PointComponent())
         .Register(new SparklineComponent())
+        .Register(new RollingChartComponent())
         .Register(new HeatmapComponent())
         .Register(new HeatCellComponent())
         // Navigation & disclosure
