@@ -1,3 +1,4 @@
+using AngleSharp.Dom;
 using CupriFace.Dom;
 using CupriFace.Style;
 using SkiaSharp;
@@ -35,29 +36,54 @@ public sealed class Painter
         var list = new DisplayList();
         var topLayer = new List<RenderNode>();
 
-        // backdrop-filter on a top-layer scrim (a modal/drawer/shelf) blurs the page BEHIND it. Skia
-        // has no backdrop-capture we can reach, but the top layer paints last — so we blur the whole
-        // main-content pass as one group, and the scrim + panel then paint sharp on top of it.
-        var backdrop = FindBackdropFilter(root);
-        if (backdrop is not null) list.Add(new PushFilter(backdrop));
-        PaintNode(list, root, 0, 0, topLayer, inTopLayer: false);
-        if (backdrop is not null) list.Add(new PopFilter());
+        // backdrop-filter on a top-layer scrim (a modal/drawer/shelf) blurs the page BEHIND it. Skia has
+        // no backdrop-capture we can reach, but the top layer paints last — so we blur the whole
+        // background as one group (the main content AND any OTHER open overlay, e.g. a pinned tooltip),
+        // then paint the modal's own scrim + panel sharp on top. Blurring the other overlays too is what
+        // keeps them from poking through the frost; the modal owns everything under its container element.
+        var backdropNode = FindBackdropNode(root);
+        var modalContainer = backdropNode?.Element?.ParentElement;
 
-        // Overlays: painted last (above everything), ordered by z-index. Their X/Y are
-        // already absolute viewport coordinates, so origin is (0,0).
-        foreach (var overlay in topLayer.OrderBy(n => n.Style.ZIndex))
-            PaintNode(list, overlay, 0, 0, topLayer, inTopLayer: true);
+        if (backdropNode is not null) list.Add(new PushFilter(backdropNode.Style.BackdropFilter!));
+        PaintNode(list, root, 0, 0, topLayer, inTopLayer: false);
+
+        // Overlays paint last (above everything), ordered by z-index. Their X/Y are already absolute
+        // viewport coordinates, so origin is (0,0).
+        var ordered = topLayer.OrderBy(n => n.Style.ZIndex).ToList();
+        if (backdropNode is not null && modalContainer is not null)
+        {
+            foreach (var o in ordered.Where(n => !IsUnder(n, modalContainer))) // background overlays → blurred
+                PaintNode(list, o, 0, 0, topLayer, inTopLayer: true);
+            list.Add(new PopFilter());
+            foreach (var o in ordered.Where(n => IsUnder(n, modalContainer)))  // the modal itself → sharp, on top
+                PaintNode(list, o, 0, 0, topLayer, inTopLayer: true);
+        }
+        else
+        {
+            if (backdropNode is not null) list.Add(new PopFilter());
+            foreach (var o in ordered)
+                PaintNode(list, o, 0, 0, topLayer, inTopLayer: true);
+        }
         return list;
     }
 
     // The first top-layer (fixed) element that requests a backdrop-filter — its filter blurs the page
-    // behind the overlay. Only top-layer scrims qualify (a full-viewport backdrop over the whole page).
-    private static IReadOnlyList<FilterOp>? FindBackdropFilter(RenderNode n)
+    // behind it. Only top-layer scrims qualify (a full-viewport backdrop over the whole page).
+    private static RenderNode? FindBackdropNode(RenderNode n)
     {
-        if (n.IsTopLayer && n.Style.BackdropFilter is { Count: > 0 } bf) return bf;
+        if (n.IsTopLayer && n.Style.BackdropFilter is { Count: > 0 }) return n;
         foreach (var c in n.Children)
-            if (FindBackdropFilter(c) is { } found) return found;
+            if (FindBackdropNode(c) is { } found) return found;
         return null;
+    }
+
+    // Is <paramref name="container"/> an ancestor-or-self of node's element? Used to tell the modal's own
+    // parts (scrim, panel, a popup opened inside it) from unrelated background overlays.
+    private static bool IsUnder(RenderNode node, IElement container)
+    {
+        for (var e = node.Element; e is not null; e = e.ParentElement)
+            if (ReferenceEquals(e, container)) return true;
+        return false;
     }
 
     private void PaintNode(DisplayList list, RenderNode node, float originX, float originY, List<RenderNode> topLayer, bool inTopLayer)

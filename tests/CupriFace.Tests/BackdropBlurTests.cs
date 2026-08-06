@@ -88,6 +88,35 @@ public class BackdropBlurTests
     }
 
     [Fact]
+    public void Another_open_overlay_is_blurred_behind_the_modal_not_on_top()
+    {
+        // A pinned tooltip (a background overlay) with an open, blurred dialog: the tooltip must paint
+        // INSIDE the blur layer (frosted, behind the modal), and the modal panel sharp AFTER it — so it
+        // can't poke through the frost.
+        const string html =
+            "<body><div>page</div>" +
+            "<cupri-tooltip text=\"TIPTEXT\" open=\"true\"><cupri-button>anchor</cupri-button></cupri-tooltip>" +
+            "<cupri-dialog open=\"true\" blur=\"true\"><p>PANELTEXT</p></cupri-dialog></body>";
+        using var t = new TestDoc(html, "", null, components: true, width: 420, height: 400);
+        var cmds = t.Doc.BuildFrame(420, 400).Commands;
+
+        int push = FirstIndex(cmds, c => c is PushFilter);
+        int pop = FirstIndex(cmds, c => c is PopFilter);
+        int tip = FirstIndex(cmds, c => c is TextRun tr && tr.Text.Contains("TIPTEXT"));
+        int panel = FirstIndex(cmds, c => c is TextRun tr && tr.Text.Contains("PANELTEXT"));
+
+        Assert.True(push >= 0 && pop > push, "expected a single blur layer");
+        Assert.InRange(tip, push + 1, pop - 1);   // tooltip painted inside the blur
+        Assert.True(panel > pop, $"the modal panel must paint after the blur closes (pop={pop} panel={panel})");
+    }
+
+    private static int FirstIndex(System.Collections.Generic.IReadOnlyList<PaintCommand> cmds, System.Func<PaintCommand, bool> pred)
+    {
+        for (var i = 0; i < cmds.Count; i++) if (pred(cmds[i])) return i;
+        return -1;
+    }
+
+    [Fact]
     public void Shelf_is_a_full_width_bottom_sheet_that_can_blur()
     {
         using var t = new TestDoc(
