@@ -157,10 +157,22 @@
         <div class="title">Charts</div>
         <p class="sub">Simple data-viz drawn with the same rounded-box + stroke paint — no canvas, no SVG.
           Data comes from a <code>values="…"</code> string (bindable) or child elements.</p>
-        <div class="mlabel">Bar — bound to the model (<code>values="{{Sales}}"</code>)</div>
-        <cupri-bar-chart class="chart" values="{{Sales}}" labels="Mon,Tue,Wed,Thu,Fri,Sat,Sun"></cupri-bar-chart>
-        <div class="mlabel">Line — smooth (curve) + area fill</div>
-        <cupri-line-chart class="chart" values="4,8,5,10,7,12,9,13" labels="W1,W2,W3,W4,W5,W6,W7,W8" area dots curve></cupri-line-chart>
+        <div class="mlabel">Bar — bound to the model, with axis + gridlines (<code>values="{{Sales}}"</code>)</div>
+        <cupri-bar-chart class="chart" axis values="{{Sales}}" labels="Mon,Tue,Wed,Thu,Fri,Sat,Sun"></cupri-bar-chart>
+        <div class="mlabel">Grouped &amp; stacked — multiple series per category</div>
+        <div class="row" style="align-items:flex-start">
+          <cupri-bar-chart class="chart" axis style="flex:1;min-width:230px" labels="Q1,Q2,Q3,Q4">
+            <cupri-series label="2023" values="10,15,12,18" color="#4682B4"></cupri-series>
+            <cupri-series label="2024" values="14,19,16,25" color="#B87333"></cupri-series>
+          </cupri-bar-chart>
+          <cupri-bar-chart class="chart" axis stacked style="flex:1;min-width:230px" labels="Q1,Q2,Q3,Q4">
+            <cupri-series label="Product" values="10,12,11,14" color="#4682B4"></cupri-series>
+            <cupri-series label="Service" values="6,7,8,7" color="#10ac84"></cupri-series>
+            <cupri-series label="Other" values="3,2,4,3" color="#f5b301"></cupri-series>
+          </cupri-bar-chart>
+        </div>
+        <div class="mlabel">Line — smooth (curve) + area fill, with axis</div>
+        <cupri-line-chart class="chart" axis values="4,8,5,10,7,12,9,13" labels="W1,W2,W3,W4,W5,W6,W7,W8" area dots curve></cupri-line-chart>
         <div class="mlabel">Multi-line — three series on one shared axis</div>
         <cupri-line-chart class="chart" curve labels="W1,W2,W3,W4,W5,W6,W7,W8">
           <cupri-line label="Prod" values="4,8,5,10,7,12,9,13"></cupri-line>

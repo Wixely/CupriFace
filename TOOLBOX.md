@@ -450,15 +450,21 @@ the largest value); line/sparkline auto‑scale to the data's range. All are the
 
 | Element | Purpose | Key attributes | Children | role |
 |---------|---------|----------------|----------|------|
-| `<cupri-bar-chart>` | Vertical bar chart | `values`, `labels`, `max` | `<cupri-bar value label color>` | `img` |
-| `<cupri-line-chart>` | Trend line(s): optional area fill, dots, and `curve` (smoothing). Multiple series via `<cupri-line>` children share one axis + get a legend | `values`, `labels`, `area`, `dots`, `curve`, `color` | `<cupri-line values color label>` (multi‑series) or `<cupri-point value label>` (one series) | `img` |
+| `<cupri-bar-chart>` | Vertical bar chart. Multiple series via `<cupri-series>` children draw **grouped** (side‑by‑side) or `stacked`; `axis` adds a y‑axis + gridlines on a tidy `0..max` scale | `values`, `labels`, `max`, `axis`, `stacked` | `<cupri-bar value label color>` (one series) or `<cupri-series values color label>` (multi) | `img` |
+| `<cupri-line-chart>` | Trend line(s): optional area fill, dots, `curve` (smoothing), and `axis` (y‑axis + gridlines, 0‑based). Multiple series via `<cupri-line>` children share one axis + get a legend | `values`, `labels`, `area`, `dots`, `curve`, `axis`, `color` | `<cupri-line values color label>` (multi‑series) or `<cupri-point value label>` (one series) | `img` |
 | `<cupri-sparkline>` | Compact axis‑less trend (inline/stat cards) | `values`, `area`, `dots`, `curve`, `color` | `<cupri-point value>` | `img` |
 | `<cupri-rolling-chart>` | Time‑series monitor (Task‑Manager style): a full‑width area line over a **fixed** `0..max` range, so newer samples scroll in from the right without the baseline jumping | `values`, `max`, `curve`, `color` | `<cupri-point value>` | `img` |
 | `<cupri-heatmap>` | Grid tinted by intensity (contribution‑graph style) | `values`, `columns` (7), `max` | `<cupri-heat value>` | `img` |
 
 ```html
-<cupri-bar-chart values="{{Sales}}" labels="Mon,Tue,Wed,Thu,Fri"></cupri-bar-chart>
-<cupri-line-chart values="4,8,5,10,7" area dots curve></cupri-line-chart>
+<cupri-bar-chart axis values="{{Sales}}" labels="Mon,Tue,Wed,Thu,Fri"></cupri-bar-chart>
+<cupri-line-chart axis values="4,8,5,10,7" area dots curve></cupri-line-chart>
+
+<!-- grouped (or add `stacked`) multi-series bars -->
+<cupri-bar-chart axis labels="Q1,Q2,Q3,Q4">
+  <cupri-series label="2023" values="10,15,12,18" color="#4682B4"></cupri-series>
+  <cupri-series label="2024" values="14,19,16,25" color="#B87333"></cupri-series>
+</cupri-bar-chart>
 
 <!-- multiple lines on one shared axis (with a legend) -->
 <cupri-line-chart curve labels="W1,W2,W3,W4">
