@@ -1,6 +1,12 @@
 body { --cupri-bg:#f4f5f7; --cupri-surface:#ffffff; --cupri-text:#1e2430; --cupri-muted:#48505c;
        --cupri-border:#e6e9f0; --cupri-hover:#eef1f5; --cupri-sidebar:#1e2430; --cupri-sidebar-text:#c8d0dc; --cupri-nav-active:#2f3b4d;
-       background:var(--cupri-bg); }
+       --cupri-accent:#B87333; background:var(--cupri-bg); }
+/* Accent themes — recolour every control by overriding --cupri-accent (components read it). */
+body.theme-ocean  { --cupri-accent:#2f7ed8; }
+body.theme-forest { --cupri-accent:#10a06a; }
+body.theme-grape  { --cupri-accent:#8b5cf6; }
+.swatch { width:30px; height:30px; border-radius:50%; cursor:pointer; border:3px transparent; box-shadow:0 0 0 1px var(--cupri-border); }
+.swatch.on { border:3px var(--cupri-text); }
 body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; --cupri-muted:#8b93a7;
             --cupri-border:#2a3346; --cupri-hover:#273249; --cupri-sidebar:#0b0f18; --cupri-sidebar-text:#aeb6c6; --cupri-nav-active:#243049; }
 .app { display:flex; height:100%; font-family:sans-serif; }

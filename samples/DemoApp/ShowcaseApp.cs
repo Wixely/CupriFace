@@ -33,6 +33,7 @@ public sealed class ShowcaseApp : CupriApp
         doc.OnClick(".nav", e => { if (e.Element.GetAttribute("data-section") is { } s) _model.Section = s; });
         doc.OnClick(".collapse-btn", _ => _model.SidebarCollapsed = !_model.SidebarCollapsed);
         doc.OnClick(".act-submit", _ => _model.FormOk = doc.ValidateAll());
+        doc.OnClick(".swatch", e => { if (e.Element.GetAttribute("data-accent") is { } a) _model.Accent = a; });
         doc.OnReorder(e =>
         {
             var list = _model.Tasks;
@@ -100,6 +101,14 @@ public sealed partial class ShowcaseModel
 
     public bool SidebarCollapsed { get; set; }
     public string SidebarClass => SidebarCollapsed ? "collapsed" : ""; // width transitions to an icon rail
+
+    // Accent theme (recolors the whole app via the --cupri-accent CSS variable).
+    public string Accent { get; set; } = "copper";
+    public string AccentTheme => Accent == "copper" ? "" : "theme-" + Accent;
+    public string SwCopper => Accent == "copper" ? "on" : "";
+    public string SwOcean => Accent == "ocean" ? "on" : "";
+    public string SwForest => Accent == "forest" ? "on" : "";
+    public string SwGrape => Accent == "grape" ? "on" : "";
 
     public int Volume { get; set; } = 60;
     public string Name { get; set; } = "";

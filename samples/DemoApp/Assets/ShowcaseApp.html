@@ -1,4 +1,4 @@
-<body class="{{ThemeClass}}">
+<body class="{{ThemeClass}} {{AccentTheme}}">
   <div class="app">
     <div class="sidebar {{SidebarClass}}">
       <div class="brand-row">
@@ -360,6 +360,13 @@
         <div class="title">Styling</div>
         <p class="sub">Paint-level CSS — <code>filter()</code>, gradients, <code>box-shadow</code> and
           <code>border-style</code> — all compose with the same rounded-box paint used everywhere.</p>
+        <div class="mlabel">Accent theme — one <code>--cupri-accent</code> variable recolours every control</div>
+        <div class="row" style="gap:12px">
+          <div class="swatch {{SwCopper}}" data-accent="copper" style="background:#B87333" role="button" aria-label="Copper theme"></div>
+          <div class="swatch {{SwOcean}}" data-accent="ocean" style="background:#2f7ed8" role="button" aria-label="Ocean theme"></div>
+          <div class="swatch {{SwForest}}" data-accent="forest" style="background:#10a06a" role="button" aria-label="Forest theme"></div>
+          <div class="swatch {{SwGrape}}" data-accent="grape" style="background:#8b5cf6" role="button" aria-label="Grape theme"></div>
+        </div>
         <div class="mlabel">Gradients</div>
         <div class="stage">
           <div class="gbox" style="background:linear-gradient(160deg,#5aa0e0,#2b5f92)">vertical</div>
