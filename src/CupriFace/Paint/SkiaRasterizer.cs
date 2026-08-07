@@ -34,6 +34,40 @@ public sealed class SkiaRasterizer
         return new SKRect(x, y, x + dw, y + dh);
     }
 
+    // Build a Skia gradient shader over the box (g.X,g.Y,g.W,g.H) from a CSS gradient.
+    private static SKShader BuildGradient(GradientRect g)
+    {
+        var grad = g.Gradient;
+        var colors = new SKColor[grad.Stops.Count];
+        var pos = new float[grad.Stops.Count];
+        var explicitPos = false;
+        for (var i = 0; i < grad.Stops.Count; i++)
+        {
+            colors[i] = grad.Stops[i].Color;
+            var p = grad.Stops[i].Position;
+            if (float.IsNaN(p)) pos[i] = grad.Stops.Count == 1 ? 0f : (float)i / (grad.Stops.Count - 1);
+            else { pos[i] = Math.Clamp(p, 0f, 1f); explicitPos = true; }
+        }
+        var positions = explicitPos ? pos : null; // even distribution when none are specified
+
+        if (grad.Kind == GradientKind.Radial)
+        {
+            var center = new SKPoint(g.X + g.W / 2f, g.Y + g.H / 2f);
+            var radius = MathF.Sqrt(g.W * g.W + g.H * g.H) / 2f; // reach the farthest corner
+            return SKShader.CreateRadialGradient(center, MathF.Max(1f, radius), colors, positions, SKShaderTileMode.Clamp);
+        }
+
+        // Linear: the CSS gradient line through the centre at the angle (0=up, clockwise); its length
+        // covers the box so the end stops sit on the far edges.
+        var rad = grad.AngleDeg * MathF.PI / 180f;
+        float dx = MathF.Sin(rad), dy = -MathF.Cos(rad);
+        var len = MathF.Abs(g.W * dx) + MathF.Abs(g.H * dy);
+        float cx = g.X + g.W / 2f, cy = g.Y + g.H / 2f;
+        var start = new SKPoint(cx - dx * len / 2f, cy - dy * len / 2f);
+        var end = new SKPoint(cx + dx * len / 2f, cy + dy * len / 2f);
+        return SKShader.CreateLinearGradient(start, end, colors, positions, SKShaderTileMode.Clamp);
+    }
+
     // Append a chart line to <paramref name="path"/> (already moved to point 0): straight segments, or a
     // smooth Catmull-Rom spline (each segment's cubic control points come from the neighbouring points).
     private static void AppendChartPath(SKPath path, IReadOnlyList<float> p, bool curved)
@@ -68,6 +102,15 @@ public sealed class SkiaRasterizer
                     fill.Color = r.Color;
                     DrawRect(canvas, fill, r.X, r.Y, r.W, r.H, r.Radius);
                     break;
+
+                case GradientRect g:
+                {
+                    using var shader = BuildGradient(g);
+                    fill.Shader = shader;
+                    DrawRect(canvas, fill, g.X, g.Y, g.W, g.H, g.Radius);
+                    fill.Shader = null; // reset for the next FillRect
+                    break;
+                }
 
                 case ShadowRect sh:
                 {

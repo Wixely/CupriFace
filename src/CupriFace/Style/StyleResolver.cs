@@ -219,7 +219,12 @@ public sealed class StyleResolver
                 case "border-style": if (ParseBorderStyle(v) is { } st) s.BorderStyle = st; break;
                 case "border-radius": s.BorderRadius = ParsePx(v); break;
 
-                case "background" or "background-color": if (Colors.TryParse(v, out var bg)) s.Background = bg; break;
+                case "background":
+                    if (ParseGradient(v) is { } bgGrad) { s.BackgroundGradient = bgGrad; s.Background = SKColors.Transparent; }
+                    else if (Colors.TryParse(v, out var bg)) { s.Background = bg; s.BackgroundGradient = null; }
+                    break;
+                case "background-image": s.BackgroundGradient = ParseGradient(v); break; // gradient over bg-color; 'none' clears
+                case "background-color": if (Colors.TryParse(v, out var bgc)) s.Background = bgc; break;
                 case "opacity": s.Opacity = Math.Clamp(ParseNum(v), 0f, 1f); break;
                 case "transform": ParseTransform(s, v); break;
                 case "animation": ParseAnimation(s, v); break;
@@ -462,6 +467,62 @@ public sealed class StyleResolver
     // transition: <prop|all> <duration> [timing] [delay] [, <prop> <duration> …]. A later `transition`
     // declaration replaces the whole list (CSS shorthand semantics). Splitting is paren-aware so a
     // cubic-bezier(...)'s inner commas/spaces don't split the list or tokens.
+    // linear-gradient([<angle>|to <side>], stop, stop, …) / radial-gradient([shape,] stop, …).
+    // A stop is a colour with an optional position ("#f00 40%"). Returns null if v isn't a gradient.
+    private static Gradient? ParseGradient(string v)
+    {
+        v = v.Trim();
+        var lower = v.ToLowerInvariant();
+        GradientKind kind;
+        if (lower.StartsWith("linear-gradient(") && v.EndsWith(')')) kind = GradientKind.Linear;
+        else if (lower.StartsWith("radial-gradient(") && v.EndsWith(')')) kind = GradientKind.Radial;
+        else return null;
+
+        var segs = SplitTopLevel(v[(v.IndexOf('(') + 1)..^1], ',');
+        if (segs.Count < 2) return null;
+
+        var angle = 180f; // CSS default: to bottom
+        var start = 0;
+        if (kind == GradientKind.Linear && ParseAngle(segs[0]) is { } a) { angle = a; start = 1; }
+        else if (kind == GradientKind.Radial && !IsColorStop(segs[0])) start = 1; // skip shape/size prelude
+
+        var stops = new List<GradientStop>();
+        for (var i = start; i < segs.Count; i++)
+        {
+            SKColor? col = null;
+            var pos = float.NaN;
+            foreach (var p in SplitTopLevel(segs[i], ' '))
+            {
+                if (Colors.TryParse(p, out var c)) col = c;
+                else if (p.EndsWith('%') && float.TryParse(p[..^1], out var pct)) pos = pct / 100f;
+            }
+            if (col is { } cc) stops.Add(new GradientStop(cc, pos));
+        }
+        return stops.Count >= 2 ? new Gradient(kind, angle, stops) : null;
+    }
+
+    private static bool IsColorStop(string seg)
+    {
+        var toks = SplitTopLevel(seg, ' ');
+        return toks.Count > 0 && Colors.TryParse(toks[0], out _);
+    }
+
+    // A gradient direction → CSS angle in degrees (0 = to top, 90 = to right). Null if not an angle.
+    private static float? ParseAngle(string seg)
+    {
+        var t = seg.Trim().ToLowerInvariant();
+        if (t.EndsWith("deg") && float.TryParse(t[..^3], out var d)) return d;
+        if (t.StartsWith("to "))
+            return t[3..].Trim() switch
+            {
+                "top" => 0f, "right" => 90f, "bottom" => 180f, "left" => 270f,
+                "top right" or "right top" => 45f, "bottom right" or "right bottom" => 135f,
+                "bottom left" or "left bottom" => 225f, "top left" or "left top" => 315f,
+                _ => null,
+            };
+        return null;
+    }
+
     // box-shadow: [inset] <dx> <dy> [blur] [spread] [color], … (comma-separated layers).
     private static void ParseBoxShadow(ComputedStyle s, string v)
     {

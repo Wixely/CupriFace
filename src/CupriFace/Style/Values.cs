@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using SkiaSharp;
 
 namespace CupriFace.Style;
@@ -97,6 +98,16 @@ public readonly record struct FilterOp(FilterKind Kind, float A, float B, float 
 /// <summary>A CSS <c>box-shadow</c> layer: offset (Dx,Dy), Blur radius, Spread, Color, and Inset (an
 /// inner shadow rather than a drop shadow).</summary>
 public readonly record struct BoxShadow(float Dx, float Dy, float Blur, float Spread, SkiaSharp.SKColor Color, bool Inset);
+
+public enum GradientKind { Linear, Radial }
+
+/// <summary>A gradient colour stop: its <c>Color</c> at <c>Position</c> (0..1), or <c>Position</c> NaN
+/// to auto-distribute it evenly.</summary>
+public readonly record struct GradientStop(SkiaSharp.SKColor Color, float Position);
+
+/// <summary>A CSS <c>linear-gradient()</c> / <c>radial-gradient()</c> background. <c>AngleDeg</c> is the
+/// CSS angle (0 = to top, 90 = to right; ignored for radial).</summary>
+public sealed record Gradient(GradientKind Kind, float AngleDeg, IReadOnlyList<GradientStop> Stops);
 
 public static class Colors
 {

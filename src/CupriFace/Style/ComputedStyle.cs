@@ -69,6 +69,9 @@ public sealed class ComputedStyle
     // Box shadow layers (CSS box-shadow) — outset drop shadows and/or inset inner shadows. Not inherited.
     public List<BoxShadow>? BoxShadow;
 
+    // Background gradient (CSS linear-gradient()/radial-gradient()); painted over Background. Not inherited.
+    public Gradient? BackgroundGradient;
+
     // Transform (applied around the border-box centre at paint time)
     public bool HasTransform;
     public float TranslateX, TranslateY, RotateDeg;

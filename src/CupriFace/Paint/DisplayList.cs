@@ -27,6 +27,9 @@ public sealed record FillRect(float X, float Y, float W, float H, float Radius, 
 public sealed record ShadowRect(float X, float Y, float W, float H, float Radius,
     float Dx, float Dy, float Blur, float Spread, SKColor Color, bool Inset) : PaintCommand;
 
+/// <summary>Fill the (rounded) box (X,Y,W,H,Radius) with a CSS gradient (linear/radial).</summary>
+public sealed record GradientRect(float X, float Y, float W, float H, float Radius, Gradient Gradient) : PaintCommand;
+
 public sealed record BorderRect(
     float X, float Y, float W, float H, float Radius,
     float Top, float Right, float Bottom, float Left, SKColor Color,

@@ -151,6 +151,10 @@ public sealed class Painter
         if (s.Background.Alpha > 0)
             list.Add(new FillRect(absX, absY, node.Width, node.Height, s.BorderRadius, s.Background));
 
+        // Background gradient (CSS linear-/radial-gradient), painted over any solid background colour.
+        if (s.BackgroundGradient is { } grad)
+            list.Add(new GradientRect(absX, absY, node.Width, node.Height, s.BorderRadius, grad));
+
         // Border frame.
         var hasBorder = (node.BorderTopW + node.BorderRightW + node.BorderBottomW + node.BorderLeftW) > 0
                         && s.BorderColor.Alpha > 0 && s.BorderStyle != BorderLineStyle.None;
