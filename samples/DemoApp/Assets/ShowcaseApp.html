@@ -94,6 +94,16 @@
           <span class="lbl">Page</span>
           <cupri-pagination page="{{Page}}" pages="12"></cupri-pagination>
         </div>
+        <div class="mlabel" style="margin-top:10px">Validation — an error appears once you leave a field, or on Submit</div>
+        <div class="vform">
+          <cupri-textfield value="{{SignupName}}" placeholder="Full name" required error="Please tell us your name"></cupri-textfield>
+          <cupri-textfield value="{{SignupEmail}}" placeholder="Email" pattern="[^@ ]+@[^@ ]+\.[^@ ]+" error="Enter a valid email address"></cupri-textfield>
+          <cupri-textfield value="{{SignupPass}}" placeholder="Password (8+ characters)" minlength="8"></cupri-textfield>
+          <div class="row" style="margin:0">
+            <cupri-button class="act-submit">Submit</cupri-button>
+            <span class="ok-msg" style="display:{{SubmitOk}}">✓ Looks good</span>
+          </div>
+        </div>
       </div>
 
       <!-- COMPONENTS -->

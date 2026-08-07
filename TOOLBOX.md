@@ -254,6 +254,14 @@ outside of an input dispatch (e.g. a background timer), call `doc.Refresh()` (or
   (Ctrl+C/X/V), and **undo/redo** (Ctrl+Z / Ctrl+Y or Ctrl+Shift+Z — history is per‑field) on both
   desktop and web. Editing is permissive: the field shows a red border while a value is invalid and
   validates/clamps on blur.
+- **Validation.** A bound field can carry `required`, `pattern="regex"`, `minlength`, and numeric
+  `min`/`max`. The engine shows the red border while a rule fails and injects an inline error message
+  **once the field is left** (blurred) or the form is validated — so it never nags mid‑type. `error="…"`
+  overrides the default message. Call `doc.ValidateAll()` from a submit handler to reveal every field's
+  error at once; it returns whether the form is valid.
+  ```html
+  <cupri-textfield value="{{Email}}" pattern="[^@ ]+@[^@ ]+\.[^@ ]+" error="Enter a valid email"></cupri-textfield>
+  ```
 
 You rarely touch any of this directly — you register `OnClick` for custom actions and let bound
 controls handle their own state.

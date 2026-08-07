@@ -35,6 +35,9 @@ body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; -
 .title { position:sticky; top:0; background:var(--cupri-bg); font-size:22px; font-weight:bold; color:var(--cupri-text);
          padding:2px 0 10px; margin-bottom:8px; border-bottom:1px var(--cupri-border); }
 .sub { color:var(--cupri-muted); font-size:14px; margin-bottom:16px; }
+.vform { display:flex; flex-direction:column; gap:10px; max-width:320px; align-items:flex-start; margin-bottom:14px; }
+.vform cupri-textfield { min-width:300px; }
+.ok-msg { color:#12805c; font-weight:bold; font-size:14px; }
 .row { display:flex; align-items:center; flex-wrap:wrap; gap:14px; margin-bottom:14px; }
 /* Block-level components dropped straight into a section (not wrapped in a .row) have no margin of
    their own, so they'd sit flush against their neighbours — give them the same vertical rhythm. */

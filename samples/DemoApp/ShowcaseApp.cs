@@ -32,6 +32,7 @@ public sealed class ShowcaseApp : CupriApp
     {
         doc.OnClick(".nav", e => { if (e.Element.GetAttribute("data-section") is { } s) _model.Section = s; });
         doc.OnClick(".collapse-btn", _ => _model.SidebarCollapsed = !_model.SidebarCollapsed);
+        doc.OnClick(".act-submit", _ => _model.FormOk = doc.ValidateAll());
         doc.OnReorder(e =>
         {
             var list = _model.Tasks;
@@ -103,6 +104,12 @@ public sealed partial class ShowcaseModel
     public int Volume { get; set; } = 60;
     public string Name { get; set; } = "";
     public string City { get; set; } = "";
+    // Validation demo form.
+    public string SignupName { get; set; } = "";
+    public string SignupEmail { get; set; } = "";
+    public string SignupPass { get; set; } = "";
+    public bool FormOk { get; set; }
+    public string SubmitOk => FormOk ? "inline-block" : "none";
     public string Date { get; set; } = "2026-08-15";
     public bool DateOpen { get; set; }
     public string Time { get; set; } = "14:30";
