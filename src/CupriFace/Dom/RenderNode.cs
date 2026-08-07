@@ -28,6 +28,11 @@ public sealed class RenderNode
     // For text nodes: laid-out lines (set by the text layout pass in M2).
     public List<TextLine>? Lines;
 
+    // For an inline element with a background/border (e.g. a <code> chip): one rounded box per line it
+    // spans, in the block's content coordinates. Set by the inline formatting context; painted behind
+    // the element's text. Null for a plain passthrough inline element.
+    public List<InlineRect>? InlineFragments;
+
     // Collapsed whitespace at this node's edges in the source (incl. whitespace between inline siblings).
     // Used by the inline formatting context to keep spaces between flowed runs (e.g. "text <code>x</code>").
     public bool WsBefore, WsAfter;
@@ -82,3 +87,6 @@ public sealed class TextLine
     public float X, Y;      // baseline-independent top-left, relative to node content box
     public float Width, Height;
 }
+
+/// <summary>One background/border box of an inline element, in the block's content coordinates.</summary>
+public readonly record struct InlineRect(float X, float Y, float W, float H);

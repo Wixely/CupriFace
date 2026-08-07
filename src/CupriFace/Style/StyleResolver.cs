@@ -160,13 +160,16 @@ public sealed class StyleResolver
         {
             case "div" or "p" or "section" or "header" or "footer" or "main" or "article" or "nav" or "ul" or "ol" or "li":
                 s.Display = DisplayType.Block; break;
-            case "span" or "a" or "strong" or "b" or "em" or "i" or "small" or "label":
+            case "span" or "a" or "strong" or "b" or "em" or "i" or "small" or "label"
+                or "code" or "kbd" or "samp" or "mark" or "abbr" or "cite" or "q"
+                or "sub" or "sup" or "time" or "u" or "s" or "del" or "ins" or "var":
                 s.Display = DisplayType.Inline; break;
             case "h1": s.Display = DisplayType.Block; s.FontSize = 32; s.FontWeight = 700; break;
             case "h2": s.Display = DisplayType.Block; s.FontSize = 24; s.FontWeight = 700; break;
             case "h3": s.Display = DisplayType.Block; s.FontSize = 19; s.FontWeight = 700; break;
         }
         if (node.Tag is "strong" or "b") s.FontWeight = 700;
+        if (node.Tag is "code" or "kbd" or "samp" or "var") s.FontFamily = "monospace";
     }
 
     /// <summary>Apply a declaration block onto a style (used by the animation system).</summary>

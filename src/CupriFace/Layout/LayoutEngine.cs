@@ -244,8 +244,9 @@ public sealed class LayoutEngine
         var align = block.Style.TextAlign;
 
         var toks = new List<InlineTok>();
+        var boxes = new List<(RenderNode El, int Start, int End)>(); // inline elements that paint a bg/border
         var wsPending = false;
-        for (var k = start; k < end; k++) CollectInline(kids[k], toks, ref wsPending, contentW, cbH);
+        for (var k = start; k < end; k++) CollectInline(kids[k], toks, boxes, ref wsPending, contentW, cbH);
 
         float penX = 0, penY = 0, lineH = 0;
         var lineItems = new List<InlineTok>();
@@ -261,15 +262,18 @@ public sealed class LayoutEngine
             };
             foreach (var p in lineItems)
             {
+                p.AbsX = insetL + p.PlacedX + off;
+                p.PlacedY = insetT + startY + penY;
+                p.PlacedH = lineH;
                 if (p.Box is { } box)
                 {
-                    box.X = insetL + p.PlacedX + off + box.MarginLeft;
+                    box.X = p.AbsX + box.MarginLeft;
                     box.Y = insetT + startY + penY + (lineH - p.H) / 2f + box.MarginTop;
                 }
                 else
                     p.Owner!.Lines!.Add(new TextLine
                     {
-                        Text = p.Text!, X = insetL + p.PlacedX + off,
+                        Text = p.Text!, X = p.AbsX,
                         Y = insetT + startY + penY, Width = p.W, Height = lineH,
                     });
             }
@@ -281,21 +285,48 @@ public sealed class LayoutEngine
         foreach (var tok in toks)
         {
             var sp = tok.SpaceBefore ? tok.SpaceW : 0f;
-            if (penX > 0 && penX + sp + tok.W > contentW) Finish(); // doesn't fit → wrap
+            var foot = tok.LeadPad + tok.W + tok.TrailPad; // token + the inline padding reserved around it
+            if (penX > 0 && penX + sp + foot > contentW) Finish(); // doesn't fit → wrap
             if (penX > 0) penX += sp;                               // a leading space collapses at line start
+            penX += tok.LeadPad;                                   // reserve an enclosing element's padding-left
             tok.PlacedX = penX;
             lineItems.Add(tok);
-            penX += tok.W;
+            penX += tok.W + tok.TrailPad;
             lineH = MathF.Max(lineH, tok.H);
         }
         Finish();
+
+        // Turn each painting inline element's token range into one background box per line it spans.
+        foreach (var (el, s0, e0) in boxes)
+        {
+            if (e0 <= s0) continue;
+            var frags = new List<InlineRect>();
+            var boxH = el.Style.FontSize * 1.15f + el.PadTop + el.PadBottom; // snug chip, centred in the line
+            var i = s0;
+            while (i < e0)
+            {
+                var y = toks[i].PlacedY;
+                var left = toks[i].AbsX - (i == s0 ? toks[i].LeadPad : 0f); // left padding only on the first line
+                var right = toks[i].AbsX + toks[i].W;
+                var j = i;
+                while (j < e0 && toks[j].PlacedY == y)
+                {
+                    right = toks[j].AbsX + toks[j].W + (j == e0 - 1 ? toks[j].TrailPad : 0f);
+                    j++;
+                }
+                frags.Add(new InlineRect(left, y + (toks[i].PlacedH - boxH) / 2f, MathF.Max(0, right - left), boxH));
+                i = j;
+            }
+            el.InlineFragments = frags;
+        }
         return penY;
     }
 
     // Flatten an inline node into tokens (words / atomic inline-block boxes), preserving inter-run
     // whitespace via wsPending (seeded by WsBefore/WsAfter). Zeroes each text/inline node's box so its
     // fragments carry the position.
-    private void CollectInline(RenderNode node, List<InlineTok> toks, ref bool wsPending, float contentW, float cbH)
+    private void CollectInline(RenderNode node, List<InlineTok> toks,
+        List<(RenderNode El, int Start, int End)> boxes, ref bool wsPending, float contentW, float cbH)
     {
         if (node.IsText)
         {
@@ -322,10 +353,31 @@ public sealed class LayoutEngine
         if (node.Style.Display == DisplayType.Inline)
         {
             node.X = 0; node.Y = 0; node.Width = 0; node.Height = 0; // passthrough; children carry the text
+            node.InlineFragments = null;
             if (node.WsBefore) wsPending = true;
+
+            // A passthrough inline element never runs LayoutNode, so resolve the box metrics we need to
+            // paint a background/border here. Horizontal padding+border reserves flow space around the
+            // element's content (via LeadPad/TrailPad on its first/last token).
+            var st = node.Style;
+            node.PadLeft = st.Padding.Left.Resolve(contentW); node.PadRight = st.Padding.Right.Resolve(contentW);
+            node.PadTop = st.Padding.Top.Resolve(contentW); node.PadBottom = st.Padding.Bottom.Resolve(contentW);
+            node.BorderLeftW = st.BorderLeft; node.BorderRightW = st.BorderRight;
+            node.BorderTopW = st.BorderTop; node.BorderBottomW = st.BorderBottom;
+            var paints = st.Background.Alpha > 0 || st.BackgroundGradient is not null
+                || (st.BorderColor.Alpha > 0 && st.BorderStyle != BorderLineStyle.None
+                    && node.BorderLeftW + node.BorderRightW + node.BorderTopW + node.BorderBottomW > 0);
+
+            var s0 = toks.Count;
             foreach (var c in node.Children)
                 if (c.Style.Display != DisplayType.None && c.Style.Position is not (PositionType.Absolute or PositionType.Fixed))
-                    CollectInline(c, toks, ref wsPending, contentW, cbH);
+                    CollectInline(c, toks, boxes, ref wsPending, contentW, cbH);
+            if (paints && toks.Count > s0)
+            {
+                toks[s0].LeadPad += node.BorderLeftW + node.PadLeft;
+                toks[^1].TrailPad += node.PadRight + node.BorderRightW;
+                boxes.Add((node, s0, toks.Count));
+            }
             if (node.WsAfter) wsPending = true;
             return;
         }
@@ -354,6 +406,8 @@ public sealed class LayoutEngine
         public float W, H, SpaceW;  // token width, line height, space width for the boundary
         public bool SpaceBefore;    // a collapsible space precedes this token
         public float PlacedX;       // x within the content box once placed on a line
+        public float LeadPad, TrailPad; // padding+border reserved before/after (from an enclosing inline element)
+        public float AbsX, PlacedY, PlacedH; // content-box position + line height once placed (for inline bg boxes)
     }
 
     private static void ApplyRelativeOffset(RenderNode n, float cbW, float cbH)

@@ -170,19 +170,34 @@ public sealed class Painter
                         sh.Dx, sh.Dy, sh.Blur, sh.Spread, sh.Color, false));
 
         // Background (fills the border box; drawn under the border).
-        if (s.Background.Alpha > 0)
+        if (s.Background.Alpha > 0 && node.Width > 0)
             list.Add(new FillRect(absX, absY, node.Width, node.Height, s.BorderRadius, s.Background));
 
         // Background gradient (CSS linear-/radial-gradient), painted over any solid background colour.
-        if (s.BackgroundGradient is { } grad)
+        if (s.BackgroundGradient is { } grad && node.Width > 0)
             list.Add(new GradientRect(absX, absY, node.Width, node.Height, s.BorderRadius, grad));
 
         // Border frame.
         var hasBorder = (node.BorderTopW + node.BorderRightW + node.BorderBottomW + node.BorderLeftW) > 0
                         && s.BorderColor.Alpha > 0 && s.BorderStyle != BorderLineStyle.None;
-        if (hasBorder)
+        if (hasBorder && node.Width > 0)
             list.Add(new BorderRect(absX, absY, node.Width, node.Height, s.BorderRadius,
                 node.BorderTopW, node.BorderRightW, node.BorderBottomW, node.BorderLeftW, s.BorderColor, s.BorderStyle));
+
+        // Inline element with a background/border (a <code> chip): one rounded box per line it spans
+        // (Width is 0 — a passthrough inline box), painted behind its text. Coords are in the block's
+        // content box, i.e. relative to the same origin the element's text fragments use.
+        if (node.InlineFragments is { Count: > 0 } inlineBoxes)
+            foreach (var f in inlineBoxes)
+            {
+                if (s.Background.Alpha > 0)
+                    list.Add(new FillRect(absX + f.X, absY + f.Y, f.W, f.H, s.BorderRadius, s.Background));
+                if (s.BackgroundGradient is { } g)
+                    list.Add(new GradientRect(absX + f.X, absY + f.Y, f.W, f.H, s.BorderRadius, g));
+                if (hasBorder)
+                    list.Add(new BorderRect(absX + f.X, absY + f.Y, f.W, f.H, s.BorderRadius,
+                        node.BorderTopW, node.BorderRightW, node.BorderBottomW, node.BorderLeftW, s.BorderColor, s.BorderStyle));
+            }
 
         // Box shadow: inset (inner) shadows paint on top of the background, clipped inside the box.
         if (s.BoxShadow is { Count: > 0 } insetShadows)

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using CupriFace.Dom;
 using Xunit;
 
@@ -93,5 +94,56 @@ public class InlineLayoutTests
         using var t = new TestDoc("<body><div style='width:300px'>just some plain text</div></body>", "", null, width: 400, height: 100);
         Assert.Equal(1, LineCount(t));
         Assert.Equal("just some plain text", Frag(t, "just some plain text").Text);
+    }
+
+    private static RenderNode Tag(TestDoc t, string tag) => t.Find(n => n.Element?.LocalName == tag)!;
+
+    [Fact]
+    public void Inline_element_with_a_background_gets_a_chip_sized_box_behind_its_text()
+    {
+        using var t = new TestDoc(
+            "<body><div style='width:400px'>run <code style='background:#eee;padding:2px 6px'>render()</code> now</div></body>",
+            "", null, width: 500, height: 120);
+
+        var code = Tag(t, "code");
+        Assert.NotNull(code.InlineFragments);
+        var box = Assert.Single(code.InlineFragments!);
+
+        var text = Frag(t, "render()");
+        Assert.InRange(box.W, 30f, 160f);                       // chip-sized, not the full 400px
+        Assert.True(box.X <= text.X && box.X + box.W >= text.X + text.Width, "the box encloses the code text");
+        Assert.True(box.W > text.Width, "horizontal padding makes the box wider than the bare text");
+        Assert.True(box.Y < text.Y + text.Height && box.Y + box.H > text.Y, "box overlaps the code's line vertically");
+    }
+
+    [Fact]
+    public void Inline_padding_reserves_space_so_the_next_word_clears_the_box()
+    {
+        using var t = new TestDoc(
+            "<body><div style='width:400px'>run <code style='background:#eee;padding:2px 6px'>render()</code> now</div></body>",
+            "", null, width: 500, height: 120);
+
+        var box = Tag(t, "code").InlineFragments![0];
+        var now = Frag(t, "now");
+        Assert.True(now.X >= box.X + box.W - 0.5f, $"'now' clears the padded box (now.X={now.X}, box right={box.X + box.W})");
+    }
+
+    [Fact]
+    public void A_wrapping_inline_background_gets_one_box_per_line()
+    {
+        using var t = new TestDoc(
+            "<body><div style='width:120px'>go <code style='background:#eee;padding:1px 4px'>alpha beta gamma delta epsilon</code> end</div></body>",
+            "", null, width: 220, height: 240);
+
+        var frags = Tag(t, "code").InlineFragments!;
+        Assert.True(frags.Count >= 2, $"a wrapping inline bg gets a box per line (got {frags.Count})");
+        Assert.True(frags.Select(f => (int)System.MathF.Round(f.Y)).Distinct().Count() >= 2, "boxes on distinct lines");
+    }
+
+    [Fact]
+    public void A_plain_inline_element_paints_no_background_box()
+    {
+        using var t = new TestDoc("<body><div style='width:400px'>a <b>bold</b> c</div></body>", "", null, width: 500, height: 100);
+        Assert.Null(Tag(t, "b").InlineFragments);       // no background/border → nothing to paint, no boxes
     }
 }
