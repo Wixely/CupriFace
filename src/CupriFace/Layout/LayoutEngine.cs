@@ -209,8 +209,9 @@ public sealed class LayoutEngine
         var insetL = node.ContentLeftInset;
         var insetT = node.ContentTopInset;
 
-        var kids = node.Children.Where(c => c.Style.Display != DisplayType.None
-            && c.Style.Position is not (PositionType.Absolute or PositionType.Fixed)).ToList();
+        // Use the child list directly when nothing is out of flow (the common case) — only materialise a
+        // filtered copy when there's actually something to skip. Runs for every block every frame.
+        var kids = AllInFlow(node.Children) ? node.Children : Filtered(node.Children);
 
         var i = 0;
         while (i < kids.Count)
@@ -457,10 +458,9 @@ public sealed class LayoutEngine
         var crossContainer = horizontal ? contentH : contentW;
         var mainForBasis = horizontal ? contentW : (heightKnown ? contentH : 0f);
 
-        // Flex items: skip absolutely-positioned children (out of flow).
-        var items = node.Children
-            .Where(c => c.Style.Display != DisplayType.None && c.Style.Position != PositionType.Absolute)
-            .ToList();
+        // Flex items: skip absolutely-positioned children (out of flow). Use the list directly when none
+        // are skipped (common) — avoids materialising a copy every frame for every flex container.
+        var items = FlexItems(node.Children);
         var n = items.Count;
         if (n == 0) return 0;
 
@@ -846,6 +846,11 @@ public sealed class LayoutEngine
         var lh = FontService.LineHeightPx(s);
         var text = node.Text ?? "";
 
+        // Reuse the wrapped lines when nothing that affects them changed (the common case each frame during
+        // an animation that isn't resizing this text) — skips the split/measure/TextLine allocations.
+        var key = new TextLayoutKey(text, maxWidth, s.FontSize, s.FontWeight, s.FontFamily, lh, s.WhiteSpace);
+        if (node.Lines is not null && node.TextKey == key) return new Size(node.TextW, node.TextH);
+
         var lines = new List<TextLine>();
 
         // white-space:nowrap — one line, no wrapping (it overflows and is clipped by the field). Report
@@ -855,7 +860,8 @@ public sealed class LayoutEngine
         {
             var full = text.Length == 0 ? 0 : _fonts.MeasureText(s, text);
             node.Lines = [new TextLine { Text = text, X = 0, Y = 0, Width = full, Height = lh }];
-            return new Size(MathF.Min(full, maxWidth), lh);
+            node.TextKey = key; node.TextW = MathF.Min(full, maxWidth); node.TextH = lh;
+            return new Size(node.TextW, node.TextH);
         }
 
         var sb = new StringBuilder();
@@ -885,7 +891,8 @@ public sealed class LayoutEngine
         Flush();
 
         node.Lines = lines;
-        return new Size(maxWidth, lines.Count * lh);
+        node.TextKey = key; node.TextW = maxWidth; node.TextH = lines.Count * lh;
+        return new Size(node.TextW, node.TextH);
     }
 
     // ---- intrinsic sizing ----------------------------------------------------
@@ -902,20 +909,25 @@ public sealed class LayoutEngine
             baseW = s.Width.Value + PadBorderX(s);
         else
         {
+            // Iterate the in-flow children directly — MaxContentWidth recurses the whole subtree and runs
+            // per auto-width item, so materialising a filtered list at each node was the layout pass's
+            // dominant allocation.
             float inner = 0;
             if (s.IsFlexContainer && s.MainIsHorizontal)
             {
-                var kids = InFlowChildren(node);
-                for (var i = 0; i < kids.Count; i++)
+                var first = true;
+                foreach (var c in node.Children)
                 {
-                    inner += MaxContentWidth(kids[i]) + MarginX(kids[i].Style);
-                    if (i > 0) inner += s.ColumnGap;
+                    if (!IsInFlow(c)) continue;
+                    if (!first) inner += s.ColumnGap;
+                    inner += MaxContentWidth(c) + MarginX(c.Style);
+                    first = false;
                 }
             }
             else
             {
-                foreach (var c in InFlowChildren(node))
-                    inner = MathF.Max(inner, MaxContentWidth(c) + MarginX(c.Style));
+                foreach (var c in node.Children)
+                    if (IsInFlow(c)) inner = MathF.Max(inner, MaxContentWidth(c) + MarginX(c.Style));
             }
             baseW = PadBorderX(s) + inner;
         }
@@ -928,9 +940,35 @@ public sealed class LayoutEngine
         return baseW;
     }
 
+    private static bool IsInFlow(RenderNode c) =>
+        c.Style.Display != DisplayType.None && c.Style.Position is not (PositionType.Absolute or PositionType.Fixed);
+
+    private static bool AllInFlow(List<RenderNode> kids)
+    {
+        foreach (var c in kids) if (!IsInFlow(c)) return false;
+        return true;
+    }
+    private static List<RenderNode> Filtered(List<RenderNode> kids)
+    {
+        var outp = new List<RenderNode>(kids.Count);
+        foreach (var c in kids) if (IsInFlow(c)) outp.Add(c);
+        return outp;
+    }
+
     private static List<RenderNode> InFlowChildren(RenderNode node) =>
-        node.Children.Where(c => c.Style.Display != DisplayType.None
-            && c.Style.Position is not (PositionType.Absolute or PositionType.Fixed)).ToList();
+        node.Children.Where(IsInFlow).ToList();
+
+    // Flex items keep position:fixed children (only absolute is out of flow) — a separate, unchanged
+    // predicate. Reuse the child list when nothing is skipped.
+    private static List<RenderNode> FlexItems(List<RenderNode> kids)
+    {
+        var skip = false;
+        foreach (var c in kids) if (c.Style.Display == DisplayType.None || c.Style.Position == PositionType.Absolute) { skip = true; break; }
+        if (!skip) return kids;
+        var outp = new List<RenderNode>(kids.Count);
+        foreach (var c in kids) if (c.Style.Display != DisplayType.None && c.Style.Position != PositionType.Absolute) outp.Add(c);
+        return outp;
+    }
 
     private static float PadBorderX(ComputedStyle s) =>
         s.Padding.Left.Resolve(0) + s.Padding.Right.Resolve(0) + s.BorderLeft + s.BorderRight;

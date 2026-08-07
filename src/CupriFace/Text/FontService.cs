@@ -24,6 +24,7 @@ public sealed class FontService : IDisposable
     private readonly Dictionary<SKTypeface, SKShaper> _shapersByTypeface = new();
     private readonly Dictionary<SKTypeface, SKFont> _probes = new();      // cached font per typeface for glyph checks
     private readonly Dictionary<int, SKTypeface?> _fallbackByCodepoint = new(); // fallback face per missing codepoint
+    private readonly Dictionary<(string, int, int, string), float> _measure = new(); // (family, weight, size-bucket, text) → width
 
     public SKTypeface GetTypeface(string family, int weight)
     {
@@ -129,6 +130,13 @@ public sealed class FontService : IDisposable
     public float MeasureText(string family, int weight, float size, string text)
     {
         if (string.IsNullOrEmpty(text)) return 0f;
+
+        // Cache by (font, text): during animation the same words are re-measured every frame, and each
+        // miss runs run-splitting + HarfBuzz shaping (the layout pass's dominant cost + allocation).
+        // Measurements are deterministic and fonts don't change at runtime, so the cache never invalidates.
+        var key = (family, weight, (int)MathF.Round(size * 4), text);
+        if (_measure.TryGetValue(key, out var cached)) return cached;
+
         var total = 0f;
         foreach (var (segment, tf) in SplitRuns(text, family, weight))
         {
@@ -136,6 +144,7 @@ public sealed class FontService : IDisposable
             try { total += GetShaper(tf).Shape(segment, font).Width; }
             catch { total += font.MeasureText(segment); }
         }
+        _measure[key] = total;
         return total;
     }
 
@@ -154,6 +163,6 @@ public sealed class FontService : IDisposable
         foreach (var t in _typefaces.Values) t.Dispose();
         _shapers.Clear(); _shapersByTypeface.Clear();
         _fonts.Clear(); _fontsByTypeface.Clear(); _probes.Clear();
-        _typefaces.Clear();
+        _typefaces.Clear(); _measure.Clear();
     }
 }

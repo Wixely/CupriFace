@@ -28,6 +28,12 @@ public sealed class RenderNode
     // For text nodes: laid-out lines (set by the text layout pass in M2).
     public List<TextLine>? Lines;
 
+    // Cache of the wrapped text layout: LayoutText reuses Lines when the text, width, and font are all
+    // unchanged (every frame of an animation that isn't resizing this text), skipping the re-split /
+    // re-measure / TextLine allocations. Invalidated automatically — a rebuild makes a fresh node.
+    public TextLayoutKey? TextKey;
+    public float TextW, TextH;
+
     // For an inline element with a background/border (e.g. a <code> chip): one rounded box per line it
     // spans, in the block's content coordinates. Set by the inline formatting context; painted behind
     // the element's text. Null for a plain passthrough inline element.
@@ -105,3 +111,6 @@ public sealed class TextLine
 
 /// <summary>One background/border box of an inline element, in the block's content coordinates.</summary>
 public readonly record struct InlineRect(float X, float Y, float W, float H);
+
+/// <summary>The inputs that determine a text node's wrapped layout — its cache key (see RenderNode.Lines).</summary>
+public readonly record struct TextLayoutKey(string Text, float MaxW, float Size, int Weight, string Family, float LineH, Style.WhiteSpaceMode Wrap);
