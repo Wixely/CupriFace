@@ -83,6 +83,12 @@ public sealed partial class CupriDocument : IDisposable
     private double _reorderAnimT = double.NaN; // previous ease time, for frame-rate-independent smoothing
     private Action<ReorderEvent>? _onReorder;
 
+    // Split pane: the two panels either side of the divider being dragged, the drag axis, the grab point,
+    // and the pair's initial pixel sizes + total flex-grow (kept constant so other panels don't move).
+    private RenderNode? _splitA, _splitB;
+    private bool _splitVertical;
+    private float _splitStart, _splitPA0, _splitPB0, _splitGSum;
+
     /// <summary>A drag-to-reorder drop: the list element and the item's old/new index. Register a handler
     /// with <see cref="OnReorder"/>; it typically reorders the bound model list.</summary>
     public readonly record struct ReorderEvent(IElement List, int From, int To);
@@ -275,7 +281,7 @@ public sealed partial class CupriDocument : IDisposable
 
     // Per-node interaction state preserved across a rebuild, keyed by structural path (child-index
     // chain from root) since the DOM — and thus element identity — is re-parsed each rebuild.
-    private readonly record struct NodeState(float ScrollY, bool AtBottom, bool FollowTail, float? ResizeW, float? ResizeH, float ScrollX, float NaturalHeight, float DisplayHeight);
+    private readonly record struct NodeState(float ScrollY, bool AtBottom, bool FollowTail, float? ResizeW, float? ResizeH, float ScrollX, float NaturalHeight, float DisplayHeight, float? SplitGrow);
 
     // A height transition needs the element's natural (auto) height at Detect time, which runs on the
     // freshly-rebuilt tree before it's laid out — so carry the last measured value across the rebuild.
@@ -295,13 +301,13 @@ public sealed partial class CupriDocument : IDisposable
             var tail = n.Element?.HasAttribute("data-follow-tail") == true;
             var scroll = n.Style.Overflow == OverflowMode.Scroll && (n.ScrollY > 0.01f || tail);
             var hTrans = n.ContentNaturalHeight > 0 && HasHeightTransition(n.Style);
-            if (scroll || n.ResizeW is not null || n.ResizeH is not null || n.ScrollX > 0.01f || hTrans)
+            if (scroll || n.ResizeW is not null || n.ResizeH is not null || n.ScrollX > 0.01f || hTrans || n.SplitGrow is not null)
             {
                 // A node not laid out this cycle (a rebuild landed before the next layout) has a stale 0
                 // height — carry its last real displayed height (PrevHeight) forward instead, so a height
                 // transition doesn't think an open panel collapsed to nothing.
                 var displayH = n.LaidOut ? n.Height : n.PrevHeight;
-                (map ??= new())[PathOf(n)] = new NodeState(n.ScrollY, n.ScrollY >= n.MaxScrollY - 1f, tail, n.ResizeW, n.ResizeH, n.ScrollX, n.ContentNaturalHeight, displayH);
+                (map ??= new())[PathOf(n)] = new NodeState(n.ScrollY, n.ScrollY >= n.MaxScrollY - 1f, tail, n.ResizeW, n.ResizeH, n.ScrollX, n.ContentNaturalHeight, displayH, n.SplitGrow);
             }
             foreach (var c in n.Children) Walk(c);
         }
@@ -323,6 +329,7 @@ public sealed partial class CupriDocument : IDisposable
                 n.ScrollX = s.ScrollX;
                 if (s.NaturalHeight > 0) n.ContentNaturalHeight = s.NaturalHeight; // seed a height transition's auto target
                 n.PrevHeight = s.DisplayHeight;                                     // …and the height it animates from
+                n.SplitGrow = s.SplitGrow;                                          // …and a dragged split ratio
             }
             foreach (var c in n.Children) Walk(c);
         }
@@ -864,6 +871,11 @@ public sealed partial class CupriDocument : IDisposable
         // Grabbing a drag-reorder handle starts a reorder drag (paint-time; doesn't focus/blur).
         for (var n = hit; n is not null; n = n.Parent)
             if (n.Element?.ClassList.Contains("cupri-reorder-handle") == true && StartReorder(n, y))
+                return true;
+
+        // Grabbing a split-pane divider starts a split-resize drag.
+        for (var n = hit; n is not null; n = n.Parent)
+            if (n.Element?.ClassList.Contains("cupri-split-divider") == true && StartSplit(n, x, y))
                 return true;
 
         // :active press feedback — mark the pressed element chain (restyled below; cleared on pointer-up).
@@ -1949,8 +1961,44 @@ public sealed partial class CupriDocument : IDisposable
         return expand == expanded || ActivateFocused(); // already there → consume; else toggle the twist
     }
 
+    // Grab a split divider: find the panels either side of it, and cache their sizes + total grow so the
+    // drag can trade size between just those two while the rest of the split stays put.
+    private bool StartSplit(RenderNode divider, float x, float y)
+    {
+        if (divider.Parent is not { } split) return false;
+        var kids = split.Children;
+        var di = kids.IndexOf(divider);
+        RenderNode? a = null, b = null;
+        for (var i = di - 1; i >= 0; i--) if (kids[i].Element?.ClassList.Contains("cupri-split-panel") == true) { a = kids[i]; break; }
+        for (var i = di + 1; i < kids.Count; i++) if (kids[i].Element?.ClassList.Contains("cupri-split-panel") == true) { b = kids[i]; break; }
+        if (a is null || b is null) return false;
+
+        _splitVertical = split.Element?.ClassList.Contains("vertical") == true;
+        _splitA = a; _splitB = b;
+        _splitStart = _splitVertical ? y : x;
+        _splitPA0 = _splitVertical ? a.Height : a.Width;
+        _splitPB0 = _splitVertical ? b.Height : b.Width;
+        _splitGSum = (a.SplitGrow ?? a.Style.FlexGrow) + (b.SplitGrow ?? b.Style.FlexGrow);
+        return true;
+    }
+
+    // Trade size between the two panels by the drag delta, clamped so neither collapses; re-express as
+    // flex-grow (their sum unchanged) so layout redistributes and everything else holds.
+    private bool MoveSplit(float x, float y)
+    {
+        if (_splitA is not { } a || _splitB is not { } b) return false;
+        var total = _splitPA0 + _splitPB0;
+        if (total <= 1f || _splitGSum <= 0f) return true;
+        var delta = (_splitVertical ? y : x) - _splitStart;
+        var newPA = Math.Clamp(_splitPA0 + delta, 40f, total - 40f);
+        a.SplitGrow = _splitGSum * newPA / total;
+        b.SplitGrow = _splitGSum - a.SplitGrow.Value;
+        return true; // re-layout on repaint; no rebuild
+    }
+
     public bool DispatchPointerMove(float x, float y)
     {
+        if (_splitA is not null) return MoveSplit(x, y);
         if (_reorderItems is not null) return MoveReorder(y);
         if (_resizeDrag is { } rz)
         {
@@ -1992,6 +2040,7 @@ public sealed partial class CupriDocument : IDisposable
     public bool DispatchPointerUp(float x, float y)
     {
         if (_reorderItems is not null) { EndReorder(); return true; }
+        if (_splitA is not null) { _splitA = null; _splitB = null; return true; }
         _dragging = false; _textDrag = false; _scrollDrag = null; _resizeDrag = null; return ClearActive();
     }
 

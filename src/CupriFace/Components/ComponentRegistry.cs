@@ -92,6 +92,8 @@ public sealed class ComponentRegistry
         .Register(new TreeItemComponent())
         .Register(new ReorderComponent())
         .Register(new ReorderItemComponent())
+        .Register(new SplitComponent())
+        .Register(new SplitPanelComponent())
         // Data
         .Register(new TableComponent())
         .Register(new TableRowComponent())

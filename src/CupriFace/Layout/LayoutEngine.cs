@@ -602,9 +602,9 @@ public sealed class LayoutEngine
         if (free > 0)
         {
             float totalGrow = 0;
-            for (var i = start; i < end; i++) totalGrow += items[i].Style.FlexGrow;
+            for (var i = start; i < end; i++) totalGrow += GrowOf(items[i]);
             if (totalGrow > 0)
-                for (var i = 0; i < count; i++) result[i] = baseMain[start + i] + free * items[start + i].Style.FlexGrow / totalGrow;
+                for (var i = 0; i < count; i++) result[i] = baseMain[start + i] + free * GrowOf(items[start + i]) / totalGrow;
         }
         else
         {
@@ -939,6 +939,9 @@ public sealed class LayoutEngine
         if (s.MaxWidth.IsDefinite) baseW = MathF.Min(baseW, s.MaxWidth.Resolve(0) + PadBorderX(s));
         return baseW;
     }
+
+    // A split pane's divider drag overrides a panel's flex-grow (its share of the container).
+    private static float GrowOf(RenderNode n) => n.SplitGrow ?? n.Style.FlexGrow;
 
     private static bool IsInFlow(RenderNode c) =>
         c.Style.Display != DisplayType.None && c.Style.Position is not (PositionType.Absolute or PositionType.Fixed);

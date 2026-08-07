@@ -84,6 +84,10 @@ public sealed class RenderNode
     // Null = use the CSS size. Overrides width/height in layout, then clamped to min/max-*.
     public float? ResizeW, ResizeH;
 
+    // Split pane (interaction state): a flex-grow override set by dragging a divider, so a panel's share
+    // of the split follows the divider. Null = use the CSS flex-grow. Preserved across rebuilds like resize.
+    public float? SplitGrow;
+
     // Drag-to-reorder (interaction state, paint-time): the current Y offset applied to this item, the
     // offset it's easing toward (0, or ±one slot to open the gap), and whether it is the lifted item being
     // dragged (which tracks the pointer directly — DragOffsetY, no easing — and paints on top with a shadow).
