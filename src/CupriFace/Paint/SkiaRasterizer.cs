@@ -88,6 +88,15 @@ public sealed class SkiaRasterizer
         }
     }
 
+    // SaveLayer bounded to (x,y,w,h) — the element's box — so the offscreen is that size, not the whole
+    // canvas. A non-positive width falls back to an unbounded layer (the whole clip), for a full-viewport
+    // backdrop filter.
+    private static void SaveLayer(SKCanvas canvas, SKPaint paint, float x, float y, float w, float h)
+    {
+        if (w > 0 && h > 0) canvas.SaveLayer(new SKRect(x, y, x + w, y + h), paint);
+        else canvas.SaveLayer(paint);
+    }
+
     public void Paint(SKCanvas canvas, DisplayList list)
     {
         using var fill = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
@@ -183,7 +192,7 @@ public sealed class SkiaRasterizer
                 case PushOpacity o:
                     // SaveLayer with an alpha-only paint composites the whole subtree as a group.
                     using (var layer = new SKPaint { Color = new SKColor(0, 0, 0, (byte)(o.Alpha * 255f)) })
-                        canvas.SaveLayer(layer);
+                        SaveLayer(canvas, layer, o.X, o.Y, o.W, o.H);
                     break;
 
                 case PopOpacity:
@@ -192,10 +201,11 @@ public sealed class SkiaRasterizer
 
                 case PushFilter f:
                     // SaveLayer with an image filter applies the CSS filter chain to the whole subtree
-                    // when the layer is composited on the matching PopFilter/Restore.
+                    // when the layer is composited on the matching PopFilter/Restore. Bounding the layer
+                    // to the element's box (not the whole canvas) is what keeps filters cheap.
                     using (var imf = BuildFilter(f.Ops))
                     using (var layer = new SKPaint { ImageFilter = imf })
-                        canvas.SaveLayer(layer);
+                        SaveLayer(canvas, layer, f.X, f.Y, f.W, f.H);
                     break;
 
                 case PopFilter:

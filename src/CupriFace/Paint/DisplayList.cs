@@ -50,14 +50,18 @@ public sealed record PushTransform(
 
 public sealed record PopTransform : PaintCommand;
 
-/// <summary>Composite the wrapped subtree as a group at <paramref name="Alpha"/> (0..1).</summary>
-public sealed record PushOpacity(float Alpha) : PaintCommand;
+/// <summary>Composite the wrapped subtree as a group at <paramref name="Alpha"/> (0..1). Bounds
+/// (X,Y,W,H) size the offscreen layer — the element's box; W ≤ 0 means "use the whole clip".</summary>
+public sealed record PushOpacity(float Alpha, float X, float Y, float W, float H) : PaintCommand;
 
 public sealed record PopOpacity : PaintCommand;
 
 /// <summary>Composite the wrapped subtree through a CSS <c>filter</c> chain (blur / colour-matrix /
-/// drop-shadow). The rasteriser builds the Skia filter from these ops at paint time.</summary>
-public sealed record PushFilter(IReadOnlyList<FilterOp> Ops) : PaintCommand;
+/// drop-shadow). The rasteriser builds the Skia filter from these ops at paint time. Bounds (X,Y,W,H)
+/// size the offscreen layer — the element's box grown by the filter's spread; W ≤ 0 means "whole clip"
+/// (a full-viewport backdrop). Bounding this is critical: an unbounded SaveLayer allocates a
+/// whole-canvas offscreen per filter, which is very slow on the CPU rasteriser.</summary>
+public sealed record PushFilter(IReadOnlyList<FilterOp> Ops, float X, float Y, float W, float H) : PaintCommand;
 
 public sealed record PopFilter : PaintCommand;
 

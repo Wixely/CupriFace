@@ -29,6 +29,18 @@ public class FilterTests
         Assert.True(c.Red < 12 && c.Green < 12 && c.Blue < 12, $"{c}");
     }
 
+    [Fact]
+    public void Blur_halo_extends_beyond_the_box()
+    {
+        // A blurred black box on white must bleed a few px OUTSIDE its box. Guards the (perf-critical)
+        // bounded filter layer — its spread margin — against clipping the halo too tightly.
+        const string css = "body{background:#ffffff} .b{width:80px;height:60px;margin:30px;background:#000000; filter:blur(4px);}";
+        using var t = new TestDoc("<body><div class='b'></div></body>", css, width: 220, height: 160);
+        using var bmp = t.Render(SKColors.White);
+        var outside = bmp.GetPixel(114, 60); // ~4px right of the box's right edge (x=110), within the halo
+        Assert.True(outside.Red < 235, $"blur halo should darken just outside the box; got {outside}");
+    }
+
     [Theory]
     [InlineData("brightness(0.5)", true)]   // darker
     [InlineData("brightness(1.5)", false)]  // lighter

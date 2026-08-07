@@ -44,7 +44,9 @@ public sealed class Painter
         var backdropNode = FindBackdropNode(root);
         var modalContainer = backdropNode?.Element?.ParentElement;
 
-        if (backdropNode is not null) list.Add(new PushFilter(backdropNode.Style.BackdropFilter!));
+        // A backdrop filter blurs the whole page behind it, so its layer must span the viewport — pass
+        // W/H ≤ 0 to leave it unbounded (the whole clip).
+        if (backdropNode is not null) list.Add(new PushFilter(backdropNode.Style.BackdropFilter!, 0, 0, 0, 0));
         PaintNode(list, root, 0, 0, topLayer, inTopLayer: false);
 
         // Overlays paint last (above everything), ordered by z-index. Their X/Y are already absolute
@@ -65,6 +67,21 @@ public sealed class Painter
                 PaintNode(list, o, 0, 0, topLayer, inTopLayer: true);
         }
         return list;
+    }
+
+    // How far a filter's result spreads beyond the element's box (blur halo, shadow offset+blur), so the
+    // bounded layer doesn't clip it. Colour-matrix ops (grayscale/…) don't spread.
+    private static float FilterMargin(IReadOnlyList<FilterOp> ops)
+    {
+        var m = 0f;
+        foreach (var op in ops)
+            m = op.Kind switch
+            {
+                FilterKind.Blur => MathF.Max(m, op.A * 3f),
+                FilterKind.DropShadow => MathF.Max(m, MathF.Abs(op.A) + MathF.Abs(op.B) + op.C * 3f),
+                _ => m,
+            };
+        return m;
     }
 
     // The first top-layer (fixed) element that requests a backdrop-filter — its filter blurs the page
@@ -125,13 +142,18 @@ public sealed class Painter
             return;
         }
 
-        // Filter wraps the whole subtree (outermost — the filter sees the composited element).
+        // Filter wraps the whole subtree (outermost — the filter sees the composited element). The layer
+        // is bounded to the element's box grown by the filter's spread, so the offscreen stays small.
         var filtered = s.Filter is { Count: > 0 };
-        if (filtered) list.Add(new PushFilter(s.Filter!));
+        if (filtered)
+        {
+            var m = FilterMargin(s.Filter!);
+            list.Add(new PushFilter(s.Filter!, absX - m, absY - m, node.Width + 2 * m, node.Height + 2 * m));
+        }
 
         // Opacity composites the whole subtree as a group (wrapping any transform).
         var faded = s.Opacity < 1f;
-        if (faded) list.Add(new PushOpacity(Math.Clamp(s.Opacity, 0f, 1f)));
+        if (faded) list.Add(new PushOpacity(Math.Clamp(s.Opacity, 0f, 1f), absX, absY, node.Width, node.Height));
 
         // Transform wraps the node's whole subtree, applied around its centre.
         var transformed = s.HasTransform;
