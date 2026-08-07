@@ -298,6 +298,14 @@ controls handle their own state.
   .glass  { filter: blur(6px); }
   .raised { filter: drop-shadow(2px 4px 6px #0006); }
   ```
+- **`box-shadow`.** `[inset] <x> <y> [blur] [spread] [color]`, comma‑separated for multiple layers —
+  outset drop shadows (soft elevation) and `inset` inner shadows. The first‑party cards and overlays
+  (dialog, drawer, shelf, menu, select, popover, tooltip, toast, pickers) ship with sensible shadows.
+  ```css
+  .card    { box-shadow: 0 1px 2px #0000001a, 0 4px 12px #00000014; }
+  .modal   { box-shadow: 0 18px 50px #00000040; }
+  .pressed { box-shadow: inset 0 2px 6px #00000033; }
+  ```
 - **`backdrop-filter`.** Frosts what's painted *behind* an element instead of the element itself —
   used by the modal/drawer/shelf scrims (`<cupri-dialog blur>` etc.). Honoured only on a full‑viewport
   **top‑layer** element (`position:fixed` covering the page): it blurs the whole page behind the

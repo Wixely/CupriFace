@@ -40,7 +40,8 @@ public sealed class CardComponent : ComponentBase
     public override string Tag => "cupri-card";
     public override string DefaultCss => """
         .cupri-card { display:block; background:var(--cupri-surface, white); border-radius:12px;
-                      padding:18px; border:1px var(--cupri-border, #e6e9f0); }
+                      padding:18px; border:1px var(--cupri-border, #e6e9f0);
+                      box-shadow:0 1px 2px #0000001a, 0 4px 12px #00000014; }
         """;
 
     public override void Expand(IElement el) => el.ClassList.Add("cupri-card");

@@ -22,7 +22,8 @@ public sealed class TimePickerComponent : ComponentBase
         .cupri-tp-trigger[data-hover] { border:2px #98a2b3; }
         .cupri-tp-ph { color:#98a2b3; }
         .cupri-tp-popup { position:fixed; display:flex; gap:6px; background:var(--cupri-surface, white);
-                          border-radius:10px; padding:8px; z-index:30; border:1px var(--cupri-border, #e6e9f0); }
+                          border-radius:10px; padding:8px; z-index:30; border:1px var(--cupri-border, #e6e9f0);
+                          box-shadow:0 10px 28px #00000026; }
         .cupri-tp-col { height:180px; overflow:scroll; width:56px; }
         .cupri-tp-opt { text-align:center; padding:7px 0; border-radius:6px; font-size:14px; color:var(--cupri-text, #1e2430); }
         .cupri-tp-opt[data-hover] { background:var(--cupri-hover, #eef1f5); }

@@ -18,7 +18,7 @@ public sealed class PopoverComponent : ComponentBase
                              background:#eef1f5; color:#1e2430; border-radius:8px; font-weight:bold; font-size:14px; }
         .cupri-pop-panel { position:fixed; background:var(--cupri-surface, white); border-radius:10px; padding:14px;
                            z-index:35; border:1px var(--cupri-border, #e6e9f0); max-width:280px;
-                           color:var(--cupri-text, #1e2430); font-size:14px; }
+                           color:var(--cupri-text, #1e2430); font-size:14px; box-shadow:0 10px 30px #00000026; }
         """;
 
     public override void Expand(IElement el)
@@ -47,7 +47,7 @@ public sealed class DrawerComponent : ComponentBase
     public override string DefaultCss => """
         .cupri-drawer { display:block; }
         .cupri-drawer-panel { position:fixed; top:0; height:100%; width:300px; background:var(--cupri-surface, white);
-                              padding:22px; z-index:15; color:var(--cupri-text, #1e2430); }
+                              padding:22px; z-index:15; color:var(--cupri-text, #1e2430); box-shadow:0 0 40px #00000033; }
         .cupri-drawer-panel.right { right:0; }
         .cupri-drawer-panel.left  { left:0; }
         """;
@@ -81,7 +81,7 @@ public sealed class ShelfComponent : ComponentBase
         .cupri-shelf { display:block; }
         .cupri-shelf-panel { position:fixed; left:0; bottom:0; width:100%; max-height:72%; overflow:auto;
                              background:var(--cupri-surface, white); color:var(--cupri-text, #1e2430);
-                             border-radius:18px 18px 0 0; z-index:15; }
+                             border-radius:18px 18px 0 0; z-index:15; box-shadow:0 -8px 30px #0000002e; }
         .cupri-shelf-inner { padding:20px 24px 28px; }
         .cupri-shelf-griprow { display:flex; justify-content:center; margin-bottom:16px; }
         .cupri-shelf-grip { width:44px; height:5px; border-radius:3px; background:var(--cupri-border, #cbd2dc); }
@@ -119,7 +119,7 @@ public sealed class SelectComponent : ComponentBase
                                 color:var(--cupri-text, #1e2430); font-size:15px; }
         .cupri-select-trigger[data-hover] { border:2px #98a2b3; }
         .cupri-select-list { position:fixed; background:var(--cupri-surface, white); border-radius:10px; padding:6px;
-                             z-index:30; border:1px var(--cupri-border, #e6e9f0); min-width:180px; }
+                             z-index:30; border:1px var(--cupri-border, #e6e9f0); min-width:180px; box-shadow:0 10px 28px #00000026; }
         .cupri-option-row { display:flex; align-items:center; justify-content:space-between; gap:8px;
                             padding:9px 12px; border-radius:6px; color:var(--cupri-text, #1e2430); font-size:14px; }
         .cupri-option-row[data-hover] { background:var(--cupri-hover, #eef1f5); }

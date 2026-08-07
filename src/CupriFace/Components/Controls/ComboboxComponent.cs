@@ -23,7 +23,8 @@ public sealed class ComboboxComponent : ComponentBase
         .cupri-cb-input[data-hover] { border:2px #98a2b3; }
         .cupri-cb-input:focus { border:2px #B87333; }
         .cupri-cb-popup { position:fixed; background:var(--cupri-surface, white); border-radius:10px; padding:6px;
-                          z-index:30; border:1px var(--cupri-border, #e6e9f0); min-width:200px; display:none; }
+                          z-index:30; border:1px var(--cupri-border, #e6e9f0); min-width:200px; display:none;
+                          box-shadow:0 10px 28px #00000026; }
         .cupri-cb-input:focus ~ .cupri-cb-popup { display:block; } /* reveal while the field is focused */
         .cupri-cb-option { display:block; padding:9px 12px; border-radius:6px; color:var(--cupri-text, #1e2430); font-size:14px; }
         .cupri-cb-option[data-hover], .cupri-cb-option[data-highlight] { background:var(--cupri-hover, #eef1f5); }

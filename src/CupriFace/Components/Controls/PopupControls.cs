@@ -14,7 +14,7 @@ public sealed class MenuComponent : ComponentBase
         .cupri-menu-trigger { display:inline-flex; align-items:center; gap:6px; padding:9px 14px;
                               background:#eef1f5; color:#1e2430; border-radius:8px; font-weight:bold; font-size:14px; }
         .cupri-menu-popup { position:fixed; background:white; border-radius:10px; padding:6px; z-index:30;
-                            border:1px #e6e9f0; }
+                            border:1px #e6e9f0; box-shadow:0 10px 28px #00000026; }
         """;
 
     public override void Expand(IElement el)
@@ -66,7 +66,7 @@ public sealed class TooltipComponent : ComponentBase
         .cupri-tooltip { display:inline-block; }
         .cupri-tt-anchor { display:inline-block; }
         .cupri-tt-bubble { position:fixed; background:#1e2430; color:white; padding:6px 10px;
-                           border-radius:6px; font-size:12px; z-index:40; display:none; }
+                           border-radius:6px; font-size:12px; z-index:40; display:none; box-shadow:0 4px 14px #00000033; }
         .cupri-tooltip:hover .cupri-tt-bubble { display:inline-block; } /* reveal on hover */
         .cupri-tt-bubble.cupri-tt-open { display:inline-block; }        /* open="true" pins it */
         """;

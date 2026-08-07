@@ -17,7 +17,7 @@ public sealed class DialogComponent : ComponentBase
         .cupri-backdrop { position:fixed; top:0; left:0; width:100%; height:100%; background:#00000099; }
         .cupri-backdrop.blurred { background:#00000055; backdrop-filter:blur(9px); }
         .cupri-dialog-panel { position:fixed; width:360px; background:white; border-radius:14px;
-                              padding:24px; z-index:10; }
+                              padding:24px; z-index:10; box-shadow:0 18px 50px #00000040; }
         """;
 
     public override void Expand(IElement el)
@@ -46,7 +46,8 @@ public sealed class ToastComponent : ComponentBase
     public override string Tag => "cupri-toast";
     public override string DefaultCss => """
         .cupri-toast { position:fixed; bottom:24px; right:24px; max-width:320px; z-index:20;
-                       background:#1e2430; color:white; padding:14px 18px; border-radius:10px; font-size:14px; }
+                       background:#1e2430; color:white; padding:14px 18px; border-radius:10px; font-size:14px;
+                       box-shadow:0 10px 28px #00000040; }
         """;
 
     public override void Expand(IElement el)
