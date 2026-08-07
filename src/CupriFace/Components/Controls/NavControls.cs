@@ -77,7 +77,7 @@ public sealed class AccordionItemComponent : ComponentBase
         /* Height animates 0 ↔ auto so the panel slides. The panel is always present (only its height
            changes), overflow:hidden clips the sliding content, and the inner wrapper carries the padding
            so a collapsed panel is genuinely 0-height. */
-        .cupri-acc-panel { height:0; overflow:hidden; transition:height 0.25s ease; }
+        .cupri-acc-panel { height:0; overflow:hidden; transition:height 0.6s ease; }
         .cupri-acc-panel.open { height:auto; }
         .cupri-acc-inner { padding:2px 16px 15px 16px; color:var(--cupri-muted, #4a5262); font-size:14px; }
         """;
