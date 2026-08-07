@@ -291,16 +291,19 @@ controls handle their own state.
 - **Motion.** `@keyframes` (looping animations) and **`transition`** are both supported. A `transition`
   eases a property from its old value to its new one whenever that value changes — on `[data-hover]`,
   `:focus`, a state/class change, a model update, or the theme toggle. Animatable: `opacity`,
-  `background`/`color`/`border-color`, `transform` (translate/scale/rotate), `filter` (op‑by‑op), and
-  **`height`** — including to/from `auto`, so a panel can collapse/expand (`<cupri-accordion>` uses it).
-  Timing: `linear`/`ease`/`ease-in`/`ease-out`/`ease-in-out` or `cubic-bezier(x1,y1,x2,y2)` (overshoot
-  allowed). All but `height` are paint‑only (cheap); a `height` transition re‑lays‑out each frame, so the
-  element and everything below it reflow as it animates.
+  `background`/`color`/`border-color`, `transform` (translate/scale/rotate), `filter` (op‑by‑op), and the
+  box sizes **`height`** and **`width`** — a `height` animates to/from `auto` too (a panel collapse/expand,
+  as `<cupri-accordion>` does); `width` animates between definite sizes (a sidebar collapsing to an icon
+  rail). Timing: `linear`/`ease`/`ease-in`/`ease-out`/`ease-in-out` or `cubic-bezier(x1,y1,x2,y2)`
+  (overshoot allowed). All but `height`/`width` are paint‑only (cheap); a size transition re‑lays‑out each
+  frame, so the element and everything around it reflow as it animates.
   ```css
   .nav  { transition: background-color 0.2s ease, color 0.2s ease; }   /* smooth hover highlight */
   .card { transition: transform 0.25s ease-out; }
   .card:hover { transform: translateY(-6px); }                          /* lift on hover */
   .surface { transition: background-color 0.35s ease; }                 /* light/dark cross-fade */
+  .rail { width:200px; overflow:hidden; transition: width 0.28s ease; }
+  .rail.collapsed { width:64px; }                                       /* sidebar → icon rail, content reflows */
   .panel { height:0; overflow:hidden; transition: height 0.25s ease; }
   .panel.open { height:auto; }                                          /* slide a panel open, content reflows */
   ```

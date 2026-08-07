@@ -6,9 +6,10 @@ namespace CupriFace.Style;
 
 /// <summary>The properties a CSS <c>transition</c> can animate, read/written on <see cref="ComputedStyle"/>.
 /// Most are paint-only (a transition re-paints without re-laying-out, like <c>@keyframes</c>); the
-/// exception is <see cref="TransProp.Height"/>, which is written as a definite height before layout so the
-/// element (and everything below it) reflows each frame — a real layout animation (collapse/expand).</summary>
-public enum TransProp { Opacity, Background, Color, BorderColor, Transform, Filter, Height }
+/// exceptions are <see cref="TransProp.Height"/> and <see cref="TransProp.Width"/>, written as a definite
+/// size before layout so the element (and everything around it) reflows each frame — a real layout
+/// animation (collapse/expand a panel, or a sidebar).</summary>
+public enum TransProp { Opacity, Background, Color, BorderColor, Transform, Filter, Height, Width }
 
 public enum EasingKind { Linear, Bezier }
 
@@ -86,7 +87,7 @@ public sealed class TransitionEngine
         public bool Seen;
     }
 
-    private static readonly TransProp[] AllProps = [TransProp.Opacity, TransProp.Background, TransProp.Color, TransProp.BorderColor, TransProp.Transform, TransProp.Filter, TransProp.Height];
+    private static readonly TransProp[] AllProps = [TransProp.Opacity, TransProp.Background, TransProp.Color, TransProp.BorderColor, TransProp.Transform, TransProp.Filter, TransProp.Height, TransProp.Width];
     private readonly Dictionary<string, St> _states = new();
 
     /// <summary>True while any transition is mid-flight (drives the host's continuous repaint).</summary>
@@ -116,6 +117,7 @@ public sealed class TransitionEngine
 
                 if (p == TransProp.Filter) { DetectFilter(n.Style, key, spec); continue; }
                 if (p == TransProp.Height) { DetectHeight(n, key, spec); continue; }
+                if (p == TransProp.Width) { DetectWidth(n, key, spec); continue; }
 
                 var target = Read(n.Style, p);
                 if (_states.TryGetValue(key, out var st))
@@ -196,8 +198,44 @@ public sealed class TransitionEngine
         TransProp.BorderColor => "border-color",
         TransProp.Filter => "filter",
         TransProp.Height => "height",
+        TransProp.Width => "width",
         _ => "transform",
     };
+
+    // Width transitions animate a definite width (px/%): a target change animates from the current
+    // interpolated value, like the paint props. `auto` (shrink-to-fit) has no measured natural width, so
+    // it snaps rather than animating — kept simple because layout collapses (sidebars, rails) use a
+    // definite collapsed width. Written before layout, so the element and its neighbours reflow.
+    private void DetectWidth(RenderNode n, string key, TransitionSpec spec)
+    {
+        if (n.Style.Width.IsAuto)
+        {
+            if (_states.TryGetValue(key, out var s0)) { s0.Seen = true; s0.Duration = spec.Duration; s0.Delay = spec.Delay; s0.Easing = spec.Easing; }
+            return;
+        }
+        var target = n.Style.Width.Resolve(n.Parent?.ContentBoxWidth ?? 0f);
+        if (_states.TryGetValue(key, out var st))
+        {
+            st.Seen = true;
+            st.Duration = spec.Duration; st.Delay = spec.Delay; st.Easing = spec.Easing;
+            var to = st.To.Length > 0 ? st.To[0] : target;
+            if (MathF.Abs(target - to) > 0.5f) // target changed → animate from the current displayed width
+            {
+                st.From = st.Current.Length > 0 ? st.Current : [target];
+                st.To = [target]; st.Start = double.NaN;
+                st.Active = spec.Duration > 0;
+                if (!st.Active) st.Current = [target];
+            }
+        }
+        else // first sight → baseline at the current width, no animation
+        {
+            _states[key] = new St
+            {
+                From = [target], To = [target], Current = [target], Seen = true,
+                Duration = spec.Duration, Delay = spec.Delay, Easing = spec.Easing,
+            };
+        }
+    }
 
     // The px height layout would give this node: an explicit height as-is, or (for `auto`) the measured
     // natural height from the last layout — so a transition can animate a collapse/expand to/from auto.
@@ -246,6 +284,7 @@ public sealed class TransitionEngine
     private static void WriteProp(RenderNode n, TransProp p, float[] v)
     {
         if (p == TransProp.Height) n.Style.Height = new Length(LengthUnit.Px, MathF.Max(0f, v[0]));
+        else if (p == TransProp.Width) n.Style.Width = new Length(LengthUnit.Px, MathF.Max(0f, v[0]));
         else Write(n.Style, p, v);
     }
 
