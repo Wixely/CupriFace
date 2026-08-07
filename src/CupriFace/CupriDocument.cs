@@ -252,7 +252,16 @@ public sealed partial class CupriDocument : IDisposable
 
     // Per-node interaction state preserved across a rebuild, keyed by structural path (child-index
     // chain from root) since the DOM — and thus element identity — is re-parsed each rebuild.
-    private readonly record struct NodeState(float ScrollY, bool AtBottom, bool FollowTail, float? ResizeW, float? ResizeH, float ScrollX);
+    private readonly record struct NodeState(float ScrollY, bool AtBottom, bool FollowTail, float? ResizeW, float? ResizeH, float ScrollX, float NaturalHeight, float DisplayHeight);
+
+    // A height transition needs the element's natural (auto) height at Detect time, which runs on the
+    // freshly-rebuilt tree before it's laid out — so carry the last measured value across the rebuild.
+    private static bool HasHeightTransition(Style.ComputedStyle s)
+    {
+        if (s.Transitions is not { Count: > 0 } specs) return false;
+        foreach (var sp in specs) if (sp.Property is "height" or "all") return true;
+        return false;
+    }
 
     private Dictionary<string, NodeState>? CaptureScroll()
     {
@@ -262,8 +271,9 @@ public sealed partial class CupriDocument : IDisposable
         {
             var tail = n.Element?.HasAttribute("data-follow-tail") == true;
             var scroll = n.Style.Overflow == OverflowMode.Scroll && (n.ScrollY > 0.01f || tail);
-            if (scroll || n.ResizeW is not null || n.ResizeH is not null || n.ScrollX > 0.01f)
-                (map ??= new())[PathOf(n)] = new NodeState(n.ScrollY, n.ScrollY >= n.MaxScrollY - 1f, tail, n.ResizeW, n.ResizeH, n.ScrollX);
+            var hTrans = n.ContentNaturalHeight > 0 && HasHeightTransition(n.Style);
+            if (scroll || n.ResizeW is not null || n.ResizeH is not null || n.ScrollX > 0.01f || hTrans)
+                (map ??= new())[PathOf(n)] = new NodeState(n.ScrollY, n.ScrollY >= n.MaxScrollY - 1f, tail, n.ResizeW, n.ResizeH, n.ScrollX, n.ContentNaturalHeight, n.Height);
             foreach (var c in n.Children) Walk(c);
         }
         Walk(_root);
@@ -282,6 +292,8 @@ public sealed partial class CupriDocument : IDisposable
                 n.ResizeW = s.ResizeW;
                 n.ResizeH = s.ResizeH;
                 n.ScrollX = s.ScrollX;
+                if (s.NaturalHeight > 0) n.ContentNaturalHeight = s.NaturalHeight; // seed a height transition's auto target
+                n.PrevHeight = s.DisplayHeight;                                     // …and the height it animates from
             }
             foreach (var c in n.Children) Walk(c);
         }
@@ -295,8 +307,9 @@ public sealed partial class CupriDocument : IDisposable
         return sb.ToString();
     }
 
-    /// <summary>Advance @keyframes animations and in-flight CSS transitions to the given elapsed time
-    /// (paint-only — neither affects layout). Returns true if anything animated this frame.</summary>
+    /// <summary>Advance @keyframes animations and in-flight CSS transitions to the given elapsed time.
+    /// Mostly paint-only; a <c>transition: height</c> writes a definite height that the following layout
+    /// honours, so the element and its siblings reflow. Returns true if anything animated this frame.</summary>
     public bool Animate(double timeSeconds)
     {
         var any = false;

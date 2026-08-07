@@ -59,6 +59,16 @@ public sealed class RenderNode
 
     public float ContentBoxWidth => Width - HorizontalInsets;
 
+    // Natural (content-sized) border-box height from the last layout, computed before any explicit
+    // height/resize constraint is applied. Lets a height transition animate to/from `height:auto`
+    // (the target when auto = this), and it stays correct even while the node is height-constrained.
+    public float ContentNaturalHeight;
+
+    // The actual laid-out height shown last frame, carried across the rebuild (like scroll state). A
+    // height transition animates FROM this — the truth on screen — so a collapse/expand starts from where
+    // the element visibly is, even the first time and even from an initially-expanded state.
+    public float PrevHeight;
+
     // User-dragged size (CSS resize) — interaction state, preserved across rebuilds like ScrollY.
     // Null = use the CSS size. Overrides width/height in layout, then clamped to min/max-*.
     public float? ResizeW, ResizeH;

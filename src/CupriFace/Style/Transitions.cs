@@ -4,10 +4,11 @@ using SkiaSharp;
 
 namespace CupriFace.Style;
 
-/// <summary>The paint-only properties a CSS <c>transition</c> can animate. All are read/written on
-/// <see cref="ComputedStyle"/> and none affect layout, so a transition re-paints without re-laying-out
-/// (like <c>@keyframes</c>).</summary>
-public enum TransProp { Opacity, Background, Color, BorderColor, Transform, Filter }
+/// <summary>The properties a CSS <c>transition</c> can animate, read/written on <see cref="ComputedStyle"/>.
+/// Most are paint-only (a transition re-paints without re-laying-out, like <c>@keyframes</c>); the
+/// exception is <see cref="TransProp.Height"/>, which is written as a definite height before layout so the
+/// element (and everything below it) reflows each frame — a real layout animation (collapse/expand).</summary>
+public enum TransProp { Opacity, Background, Color, BorderColor, Transform, Filter, Height }
 
 public enum EasingKind { Linear, Bezier }
 
@@ -85,7 +86,7 @@ public sealed class TransitionEngine
         public bool Seen;
     }
 
-    private static readonly TransProp[] AllProps = [TransProp.Opacity, TransProp.Background, TransProp.Color, TransProp.BorderColor, TransProp.Transform, TransProp.Filter];
+    private static readonly TransProp[] AllProps = [TransProp.Opacity, TransProp.Background, TransProp.Color, TransProp.BorderColor, TransProp.Transform, TransProp.Filter, TransProp.Height];
     private readonly Dictionary<string, St> _states = new();
 
     /// <summary>True while any transition is mid-flight (drives the host's continuous repaint).</summary>
@@ -114,6 +115,7 @@ public sealed class TransitionEngine
                 var key = $"{path}|{(int)p}";
 
                 if (p == TransProp.Filter) { DetectFilter(n.Style, key, spec); continue; }
+                if (p == TransProp.Height) { DetectHeight(n, key, spec); continue; }
 
                 var target = Read(n.Style, p);
                 if (_states.TryGetValue(key, out var st))
@@ -162,10 +164,10 @@ public sealed class TransitionEngine
 
                 if (p == TransProp.Filter) { ApplyFilter(n.Style, st, u); continue; }
 
-                if (u <= 0f) { Write(n.Style, p, st.From); continue; }      // delay phase: hold the start value
-                if (u >= 1f) { st.Current = st.To; st.Active = false; Write(n.Style, p, st.To); continue; }
+                if (u <= 0f) { WriteProp(n, p, st.From); continue; }        // delay phase: hold the start value
+                if (u >= 1f) { st.Current = st.To; st.Active = false; WriteProp(n, p, st.To); continue; }
                 st.Current = Lerp(st.From, st.To, st.Easing.Eval(u));
-                Write(n.Style, p, st.Current);
+                WriteProp(n, p, st.Current);
             }
         }
         foreach (var c in n.Children) ApplyWalk(c, now);
@@ -193,8 +195,59 @@ public sealed class TransitionEngine
         TransProp.Color => "color",
         TransProp.BorderColor => "border-color",
         TransProp.Filter => "filter",
+        TransProp.Height => "height",
         _ => "transform",
     };
+
+    // The px height layout would give this node: an explicit height as-is, or (for `auto`) the measured
+    // natural height from the last layout — so a transition can animate a collapse/expand to/from auto.
+    private static float HeightTarget(RenderNode n)
+    {
+        var h = n.Style.Height;
+        return h.IsAuto ? n.ContentNaturalHeight
+                        : h.Resolve(n.Parent?.ContentBoxHeight ?? 0f, n.ContentNaturalHeight);
+    }
+
+    // Height is driven off the laid-out height, not a style value: animate whenever the target layout
+    // wants (explicit height, or measured natural for auto) differs from what's actually on screen
+    // (n.PrevHeight, carried across the rebuild). Detecting against the displayed height — not the stored
+    // target — makes a collapse/expand animate every time, including the first collapse of an element
+    // that started expanded (whose natural height wasn't measurable at its first, pre-layout, detect).
+    private void DetectHeight(RenderNode n, string key, TransitionSpec spec)
+    {
+        var displayed = n.PrevHeight;
+        var target = HeightTarget(n);
+        if (_states.TryGetValue(key, out var st))
+        {
+            st.Seen = true;
+            st.Duration = spec.Duration; st.Delay = spec.Delay; st.Easing = spec.Easing;
+            var to = st.To.Length > 0 ? st.To[0] : target;
+            var retarget = MathF.Abs(target - to) > 0.5f;                 // layout wants a different height
+            var divergedIdle = !st.Active && MathF.Abs(displayed - target) > 0.5f; // shown height flipped while idle
+            if (retarget || divergedIdle)
+            {
+                st.From = [displayed]; st.To = [target]; st.Start = double.NaN;
+                st.Active = spec.Duration > 0 && MathF.Abs(displayed - target) > 0.5f;
+                if (!st.Active) st.Current = [target];
+            }
+        }
+        else // first sight → baseline at the current target, no animation
+        {
+            _states[key] = new St
+            {
+                From = [target], To = [target], Current = [target], Seen = true,
+                Duration = spec.Duration, Delay = spec.Delay, Easing = spec.Easing,
+            };
+        }
+    }
+
+    // Write an interpolated value onto the node's style. Height becomes a definite px height that layout
+    // then honours (reflowing the element and its siblings); the rest are the paint-only Write below.
+    private static void WriteProp(RenderNode n, TransProp p, float[] v)
+    {
+        if (p == TransProp.Height) n.Style.Height = new Length(LengthUnit.Px, MathF.Max(0f, v[0]));
+        else Write(n.Style, p, v);
+    }
 
     // ---- filter transitions (structured: a list of ops, interpolated op-by-op) --------------------
 

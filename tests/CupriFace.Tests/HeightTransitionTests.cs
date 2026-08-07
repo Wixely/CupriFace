@@ -1,0 +1,82 @@
+using Xunit;
+
+namespace CupriFace.Tests;
+
+/// <summary>A `transition: height` animates the laid-out height — a real layout animation: the element
+/// resizes each frame and everything below it reflows. Covers auto (measured natural height) and
+/// explicit-px targets, expand and collapse.</summary>
+public class HeightTransitionTests
+{
+    // A panel that's 40px tall collapsed and expands to fit a 160px child (height:auto) on hover, with a
+    // marker below it so we can watch the reflow. Move to a far corner to un-hover (collapse).
+    private const string Css = """
+        body { background:#ffffff; }
+        .panel { width:240px; height:40px; overflow:hidden; background:#eeeeee;
+                 transition: height 0.3s linear; }
+        .panel:hover { height:auto; }
+        .tall { height:160px; background:#4682B4; }
+        .after { height:20px; background:#B87333; }
+        """;
+    private const string Html = "<body><div class='panel'><div class='tall'>c</div></div><div class='after'>a</div></body>";
+
+    // Height after applying the transition at `sec`, then laying out (host order: Animate → BuildFrame).
+    private static float HeightAt(TestDoc t, string cls, double sec) { t.Doc.Animate(sec); t.Layout(); return t.FindClass(cls).Height; }
+    private static float TopAt(TestDoc t, string cls, double sec) { t.Doc.Animate(sec); t.Layout(); return t.FindClass(cls).Y; }
+
+    [Fact]
+    public void Height_animates_from_collapsed_to_the_measured_auto_height()
+    {
+        using var t = new TestDoc(Html, Css, null, width: 400, height: 400);
+        Assert.Equal(40f, t.FindClass("panel").Height, 0.5);   // collapsed
+
+        t.HoverClass("panel");
+        Assert.True(t.Doc.HasActiveTransitions);               // hover flipped height:40 → auto
+
+        Assert.Equal(40f, HeightAt(t, "panel", 0.0), 1.0);     // t=0 holds the start
+        Assert.InRange(HeightAt(t, "panel", 0.15), 70f, 130f); // linear halfway between 40 and 160
+        Assert.Equal(160f, HeightAt(t, "panel", 0.4), 1.0);    // settles at the natural (auto) height
+        Assert.False(t.Doc.HasActiveTransitions);              // done
+    }
+
+    [Fact]
+    public void Expanding_reflows_the_content_below_it()
+    {
+        using var t = new TestDoc(Html, Css, null, width: 400, height: 400);
+        t.HoverClass("panel");
+
+        var closed = TopAt(t, "after", 0.0);                   // marker sits just under the 40px panel
+        var open = TopAt(t, "after", 0.4);                     // …and is pushed down as the panel grows
+        Assert.Equal(40f, closed, 1.0);
+        Assert.Equal(160f, open, 1.0);
+        Assert.True(open > closed + 100f, $"the marker below reflowed down ({closed} → {open})");
+    }
+
+    [Fact]
+    public void Un_hover_collapses_back_down()
+    {
+        using var t = new TestDoc(Html, Css, null, width: 400, height: 400);
+        t.HoverClass("panel");
+        HeightAt(t, "panel", 0.0); HeightAt(t, "panel", 0.4);  // settle open (160)
+
+        t.Move(390, 390);                                      // far corner → un-hover
+        Assert.True(t.Doc.HasActiveTransitions);
+        HeightAt(t, "panel", 0.5);                             // first frame stamps the collapse start
+        Assert.InRange(HeightAt(t, "panel", 0.65), 70f, 130f); // 0.15 into the collapse, back through the middle
+        Assert.Equal(40f, HeightAt(t, "panel", 0.9), 1.0);     // fully collapsed again
+    }
+
+    [Fact]
+    public void Explicit_px_height_targets_animate_too()
+    {
+        const string css = """
+            body { background:#ffffff; }
+            .d { width:120px; height:50px; overflow:hidden; background:#eeeeee; transition: height 0.4s linear; }
+            .d:hover { height:150px; }
+            """;
+        using var t = new TestDoc("<body><div class='d'>x</div></body>", css, null, width: 300, height: 300);
+        t.HoverClass("d");
+        Assert.Equal(50f, HeightAt(t, "d", 0.0), 1.0);
+        Assert.Equal(100f, HeightAt(t, "d", 0.2), 3.0);        // linear halfway 50 → 150
+        Assert.Equal(150f, HeightAt(t, "d", 0.4), 1.0);
+    }
+}

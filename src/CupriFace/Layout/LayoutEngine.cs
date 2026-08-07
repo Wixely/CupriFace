@@ -156,6 +156,7 @@ public sealed class LayoutEngine
             var ww = wDef ? contentW : (hDef ? hh * aspect : px.W);
             node.Width = ClampW(s, ww, cbW) + node.HorizontalInsets;
             node.Height = ClampH(s, hh, cbH) + node.VerticalInsets;
+            node.ContentNaturalHeight = node.Height;
             return new Size(node.Width, node.Height);
         }
 
@@ -175,6 +176,10 @@ public sealed class LayoutEngine
         }
         else
             usedH = LayoutBlock(node, contentW, cbH);
+
+        // Natural border-box height (content-sized, before any explicit/resize/transition constraint) —
+        // the target a `transition: height` uses when the CSS height is `auto`.
+        node.ContentNaturalHeight = usedH + node.VerticalInsets;
 
         float contentH;
         if (node.ResizeH is { } rh && forceContentH is null) contentH = rh - node.VerticalInsets; // user-dragged size
