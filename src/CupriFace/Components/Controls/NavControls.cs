@@ -177,8 +177,10 @@ public sealed class ReorderItemComponent : ComponentBase
     {
         var body = el.InnerHtml;
         el.ClassList.Add("cupri-reorder-item");
+        // The grip is a focusable button so the list is keyboard-operable: Tab to a grip, then ↑/↓ move
+        // the row (see CupriDocument's arrow handling), matching the mouse drag.
         el.InnerHtml =
-            $"<div class='cupri-reorder-handle'>{IconMarkup("drag", 18)}</div>" +
+            $"<div class='cupri-reorder-handle' role='button' tabindex='0' aria-label='Reorder (use up and down arrows)'>{IconMarkup("drag", 18)}</div>" +
             $"<div class='cupri-reorder-body'>{body}</div>";
     }
 }

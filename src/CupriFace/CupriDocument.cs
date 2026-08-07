@@ -1238,7 +1238,16 @@ public sealed partial class CupriDocument : IDisposable
                 };
             }
 
-            var role = CurrentFocusNode()?.Element?.GetAttribute("role");
+            var focused = CurrentFocusNode();
+            var role = focused?.Element?.GetAttribute("role");
+
+            // Reorder: ↑/↓ on a focused grip moves the row a slot (the keyboard equivalent of the drag).
+            if (focused?.Element?.ClassList.Contains("cupri-reorder-handle") == true && key is EditKey.Up or EditKey.Down)
+                return KeyboardReorder(focused, key == EditKey.Up ? -1 : +1);
+            // Tree: →/← expand/collapse a focused tree item (ARIA tree pattern).
+            if (focused?.Element?.ClassList.Contains("cupri-tree-twist") == true && key is EditKey.Left or EditKey.Right)
+                return TreeExpand(focused, key == EditKey.Right);
+
             switch (key)
             {
                 case EditKey.Enter or EditKey.Space: return ActivateFocused();
@@ -1836,6 +1845,58 @@ public sealed partial class CupriDocument : IDisposable
         var (from, to) = (_reorderFrom, _reorderTo);
         _reorderList = null; _reorderItems = null; _reorderMids = null;
         if (to != from && el is not null) { _onReorder?.Invoke(new ReorderEvent(el, from, to)); Refresh(); }
+    }
+
+    // Keyboard reorder: move the focused row's item one slot (↑ up / ↓ down), commit via OnReorder, and
+    // keep focus on the moved row so repeated presses keep moving it — the keyboard equivalent of the drag.
+    private bool KeyboardReorder(RenderNode handle, int dir)
+    {
+        RenderNode? item = handle;
+        while (item is not null && item.Element?.ClassList.Contains("cupri-reorder-item") != true) item = item.Parent;
+        if (item?.Parent is not { } list || list.Element is not { } listEl) return false;
+
+        var items = new List<RenderNode>();
+        foreach (var c in list.Children) if (c.Element?.ClassList.Contains("cupri-reorder-item") == true) items.Add(c);
+        var from = items.IndexOf(item);
+        var to = Math.Clamp(from + dir, 0, items.Count - 1);
+        if (from < 0 || to == from) return true; // already at an edge — consume the key
+
+        _onReorder?.Invoke(new ReorderEvent(listEl, from, to));
+        Refresh();
+        FocusReorderGrip(to);
+        return true;
+    }
+
+    // After a keyboard move + rebuild, put focus back on the grip of the row now at slot `nth`.
+    private void FocusReorderGrip(int nth)
+    {
+        RenderNode? container = null;
+        void FindC(RenderNode n) { if (container is null && n.Element?.ClassList.Contains("cupri-reorder") == true) container = n; foreach (var c in n.Children) FindC(c); }
+        FindC(_root);
+        if (container is null) return;
+
+        var rows = new List<RenderNode>();
+        foreach (var c in container.Children) if (c.Element?.ClassList.Contains("cupri-reorder-item") == true) rows.Add(c);
+        if (nth < 0 || nth >= rows.Count) return;
+
+        RenderNode? grip = null;
+        void FindG(RenderNode n) { if (grip is null && n.Element?.ClassList.Contains("cupri-reorder-handle") == true) grip = n; foreach (var c in n.Children) FindG(c); }
+        FindG(rows[nth]);
+        if (grip is null) return;
+
+        var idx = Focusables().FindIndex(n => ReferenceEquals(n, grip));
+        if (idx >= 0) { _kbIndex = idx; _focusVisible = true; }
+    }
+
+    // Tree: expand/collapse the focused item by toggling its twist, but only when it isn't already in the
+    // requested state (→ expands a closed item, ← collapses an open one; otherwise the key is consumed).
+    private bool TreeExpand(RenderNode twist, bool expand)
+    {
+        RenderNode? item = twist;
+        while (item is not null && item.Element?.HasAttribute("aria-expanded") != true) item = item.Parent;
+        if (item?.Element is not { } el) return true;
+        var expanded = el.GetAttribute("aria-expanded") == "true";
+        return expand == expanded || ActivateFocused(); // already there → consume; else toggle the twist
     }
 
     public bool DispatchPointerMove(float x, float y)
