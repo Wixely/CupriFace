@@ -133,6 +133,10 @@
             <cupri-row><cupri-cell>Linus</cupri-cell><cupri-cell>Owner</cupri-cell></cupri-row>
           </cupri-table>
         </div>
+        <div class="mlabel">Drag a row by its grip to reorder</div>
+        <cupri-reorder style="max-width:360px">
+          <cupri-reorder-item data-repeat="Tasks">{{.}}</cupri-reorder-item>
+        </cupri-reorder>
         <div class="row">
           <cupri-icon name="home"></cupri-icon><cupri-icon name="search"></cupri-icon>
           <cupri-icon name="bell"></cupri-icon><cupri-icon name="user"></cupri-icon>

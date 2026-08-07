@@ -442,6 +442,7 @@ to the bottom as new lines arrive (logging), *unless* the user has scrolled up:
 | `<cupri-tabs>` | Tab strip; one panel at a time | `value` = active tab `id` | `value` | `<cupri-tab id="…" label="…">panel…</cupri-tab>` | `tablist`/`tab`/`tabpanel` |
 | `<cupri-accordion>` | Collapsible sections | — | — | `<cupri-accordion-item label="…" open="{{…}}">…</cupri-accordion-item>` | item hdr `button` |
 | `<cupri-tree>` | Hierarchical tree | — | — | nested `<cupri-tree-item label="…" open="{{…}}">…</cupri-tree-item>` | `tree`/`treeitem` |
+| `<cupri-reorder>` | Drag‑to‑reorder list: drag a row by its grip and the others slide to open a gap; on drop, the document's `OnReorder(e => …)` fires with the item's old/new index (typically reorders the bound model list) | — | — | `<cupri-reorder-item>…</cupri-reorder-item>` (often `data-repeat="List"`) | — |
 
 ```html
 <cupri-tabs value="{{Tab}}">

@@ -32,6 +32,16 @@ public sealed class ShowcaseApp : CupriApp
     {
         doc.OnClick(".nav", e => { if (e.Element.GetAttribute("data-section") is { } s) _model.Section = s; });
         doc.OnClick(".collapse-btn", _ => _model.SidebarCollapsed = !_model.SidebarCollapsed);
+        doc.OnReorder(e =>
+        {
+            var list = _model.Tasks;
+            if (e.From >= 0 && e.From < list.Count && e.To >= 0 && e.To < list.Count)
+            {
+                var item = list[e.From];
+                list.RemoveAt(e.From);
+                list.Insert(e.To, item);
+            }
+        });
         doc.OnClick(".act-dialog", _ => _model.DialogOpen = true);
         doc.OnClick(".act-drawer", _ => _model.DrawerOpen = true);
         doc.OnClick(".act-shelf", _ => _model.ShelfOpen = true);
@@ -126,6 +136,7 @@ public sealed partial class ShowcaseModel
     public string Notes { get; set; } = "";
     public bool Acc1 { get; set; } = true;
     public bool Acc2 { get; set; }
+    public List<string> Tasks { get; set; } = new() { "Draft the release notes", "Review the layout perf PR", "Reply to the design thread", "Plan next week's sprint" };
     public bool TreeOpen { get; set; } = true;
     public bool PopOpen { get; set; }
 
