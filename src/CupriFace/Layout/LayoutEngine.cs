@@ -122,6 +122,7 @@ public sealed class LayoutEngine
     private Size LayoutNode(RenderNode node, float cbW, float cbH, float? forceContentW = null, float? forceContentH = null)
     {
         var s = node.Style;
+        node.LaidOut = true; // this node got a real layout pass this frame (see CaptureScroll)
 
         node.MarginTop = s.Margin.Top.Resolve(cbW);
         node.MarginRight = s.Margin.Right.Resolve(cbW);

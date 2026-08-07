@@ -1,3 +1,6 @@
+using System.Collections.Generic;
+using CupriFace.Dom;
+using CupriFace.Interaction;
 using Xunit;
 
 namespace CupriFace.Tests;
@@ -63,6 +66,41 @@ public class HeightTransitionTests
         HeightAt(t, "panel", 0.5);                             // first frame stamps the collapse start
         Assert.InRange(HeightAt(t, "panel", 0.65), 70f, 130f); // 0.15 into the collapse, back through the middle
         Assert.Equal(40f, HeightAt(t, "panel", 0.9), 1.0);     // fully collapsed again
+    }
+
+    private sealed class TwoPanels { public bool A { get; set; } = true; public bool B { get; set; } }
+
+    private static List<RenderNode> ByClass(RenderNode n, string c, List<RenderNode>? a = null)
+    { a ??= new(); if (n.Element?.ClassList.Contains(c) == true) a.Add(n); foreach (var k in n.Children) ByClass(k, c, a); return a; }
+
+    [Fact]
+    public void An_open_panel_is_not_disturbed_by_toggling_a_sibling_with_mouse_movement()
+    {
+        // Regression: A stays open while B is toggled. A hover-update fires right after the click's rebuild
+        // but before layout, so its capture saw an unlaid (0-height) tree — A's displayed height was read
+        // as 0 while its natural height stayed correct, and A spuriously animated open from nothing.
+        var m = new TwoPanels(); // A open, B closed
+        const string html = "<body><cupri-accordion>" +
+            "<cupri-accordion-item label='A' open='{{A}}'>alpha beta gamma delta epsilon zeta eta theta iota</cupri-accordion-item>" +
+            "<cupri-accordion-item label='B' open='{{B}}'>one two three four five six seven eight nine ten eleven</cupri-accordion-item>" +
+            "</cupri-accordion></body>";
+        using var t = new TestDoc(html, "", m, width: 400, height: 500, components: true);
+
+        float PanelA() => ByClass(t.Root, "cupri-acc-panel")[0].Height;
+        var stable = PanelA();
+        Assert.True(stable > 10f, "A starts open");
+
+        var b = HitTesting.AbsoluteBox(ByClass(t.Root, "cupri-acc-header")[1]); // B's header (A above is fixed)
+        float bx = b.X + b.W / 2, by = b.Y + b.H / 2;
+        t.Doc.DispatchPointerMove(bx, by); t.Layout();
+
+        for (var i = 0; i < 8; i++)
+        {
+            t.Doc.DispatchClick(bx, by, 1);        // toggle B → rebuild (fresh tree, not yet laid out)
+            t.Doc.DispatchPointerMove(bx, by);     // hover-update lands on that unlaid tree
+            t.Doc.Animate(i * 0.05); t.Layout();
+            Assert.InRange(PanelA(), stable - 1f, stable + 1f); // A must not move
+        }
     }
 
     [Fact]

@@ -273,7 +273,13 @@ public sealed partial class CupriDocument : IDisposable
             var scroll = n.Style.Overflow == OverflowMode.Scroll && (n.ScrollY > 0.01f || tail);
             var hTrans = n.ContentNaturalHeight > 0 && HasHeightTransition(n.Style);
             if (scroll || n.ResizeW is not null || n.ResizeH is not null || n.ScrollX > 0.01f || hTrans)
-                (map ??= new())[PathOf(n)] = new NodeState(n.ScrollY, n.ScrollY >= n.MaxScrollY - 1f, tail, n.ResizeW, n.ResizeH, n.ScrollX, n.ContentNaturalHeight, n.Height);
+            {
+                // A node not laid out this cycle (a rebuild landed before the next layout) has a stale 0
+                // height — carry its last real displayed height (PrevHeight) forward instead, so a height
+                // transition doesn't think an open panel collapsed to nothing.
+                var displayH = n.LaidOut ? n.Height : n.PrevHeight;
+                (map ??= new())[PathOf(n)] = new NodeState(n.ScrollY, n.ScrollY >= n.MaxScrollY - 1f, tail, n.ResizeW, n.ResizeH, n.ScrollX, n.ContentNaturalHeight, displayH);
+            }
             foreach (var c in n.Children) Walk(c);
         }
         Walk(_root);

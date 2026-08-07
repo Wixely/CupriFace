@@ -69,6 +69,11 @@ public sealed class RenderNode
     // the element visibly is, even the first time and even from an initially-expanded state.
     public float PrevHeight;
 
+    // True once LayoutNode has laid this node out. A rebuild makes fresh nodes (false) and doesn't lay
+    // them out, so a second rebuild before the next layout (a hover-update right after a click) must NOT
+    // read this node's 0 height as its displayed height — CaptureScroll carries PrevHeight forward instead.
+    public bool LaidOut;
+
     // User-dragged size (CSS resize) — interaction state, preserved across rebuilds like ScrollY.
     // Null = use the CSS size. Overrides width/height in layout, then clamped to min/max-*.
     public float? ResizeW, ResizeH;
