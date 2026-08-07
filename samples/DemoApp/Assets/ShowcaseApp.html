@@ -274,6 +274,24 @@
           <code>&lt;code&gt;</code> chip flows with the words and takes its own rounded box on each line it
           wraps across. You can <mark>highlight a phrase</mark> mid-sentence or drop a
           <span class="pill">rounded pill</span> straight into the run, and the words reflow around them.</p>
+        <p class="sub" style="margin-top:22px">Split pane — drag a divider to resize (nested, both orientations)</p>
+        <cupri-split style="height:200px; border:1px var(--cupri-border); border-radius:10px; overflow:hidden">
+          <cupri-split-panel size="1" style="background:var(--cupri-surface); padding:12px 14px">
+            <div style="font-weight:bold; margin-bottom:6px">Files</div>
+            <div style="color:var(--cupri-muted); font-size:13px; line-height:1.7">src/<br>&nbsp;&nbsp;CupriFace<br>&nbsp;&nbsp;Shell<br>tests/</div>
+          </cupri-split-panel>
+          <cupri-split-panel size="2">
+            <cupri-split vertical style="height:100%">
+              <cupri-split-panel size="2" style="padding:12px 14px">
+                <div style="font-weight:bold; margin-bottom:6px">Editor</div>
+                <div style="color:var(--cupri-muted); font-size:13px">Grab any divider — the panels trade space and everything else holds.</div>
+              </cupri-split-panel>
+              <cupri-split-panel size="1" style="background:var(--cupri-surface); padding:12px 14px">
+                <div style="color:var(--cupri-muted); font-size:13px">Output ▸ build succeeded</div>
+              </cupri-split-panel>
+            </cupri-split>
+          </cupri-split-panel>
+        </cupri-split>
       </div>
 
       <!-- SETTINGS -->
