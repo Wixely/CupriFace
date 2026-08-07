@@ -42,8 +42,14 @@ public class ReorderTests
 
         t.Doc.DispatchPointerMove(hx, targetY);     // drag down over row 2
         Assert.True(items[0].DragOffsetY > 1f, $"lifted row follows the pointer: off={items[0].DragOffsetY}");
-        Assert.True(items[1].DragOffsetY < -1f, $"row 1 slides up: off={items[1].DragOffsetY}");
-        Assert.True(items[2].DragOffsetY < -1f, $"row 2 slides up: off={items[2].DragOffsetY}");
+        Assert.True(items[1].DragTargetY < -1f, $"row 1 targets the gap: {items[1].DragTargetY}"); // slides up
+        Assert.True(items[2].DragTargetY < -1f, $"row 2 targets the gap: {items[2].DragTargetY}");
+        Assert.True(t.Doc.HasActiveTransitions, "the slide keeps the frame loop ticking");
+        Assert.True(items[1].DragOffsetY > items[1].DragTargetY + 1f, "hasn't snapped — it eases");
+
+        for (var tm = 0.0; tm <= 0.4; tm += 0.03) t.Doc.Animate(tm);   // let the slide ease in
+        Assert.Equal(items[1].DragTargetY, items[1].DragOffsetY, 1.0);  // arrived
+        Assert.False(t.Doc.HasActiveTransitions, "settled");
 
         t.Doc.DispatchPointerUp(hx, targetY);       // drop
         Assert.Equal((0, 2), drop);

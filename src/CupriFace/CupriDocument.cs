@@ -75,6 +75,7 @@ public sealed partial class CupriDocument : IDisposable
     private float[]? _reorderMids;
     private int _reorderFrom, _reorderTo;
     private float _reorderY0, _reorderShift;
+    private double _reorderAnimT = double.NaN; // previous ease time, for frame-rate-independent smoothing
     private Action<ReorderEvent>? _onReorder;
 
     /// <summary>A drag-to-reorder drop: the list element and the item's old/new index. Register a handler
@@ -345,6 +346,7 @@ public sealed partial class CupriDocument : IDisposable
             }
             any = true;
         }
+        if (EaseReorder(timeSeconds)) any = true; // slide reorder rows into their gap
         return any;
     }
 
@@ -357,14 +359,14 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>True while a CSS transition is mid-flight (a continuous host should keep calling
     /// <see cref="Animate"/> and repainting until it settles). Also true while a masked field is
     /// peeking its last-typed char, so the host keeps ticking until <see cref="Animate"/> re-masks it.</summary>
-    public bool HasActiveTransitions => _transitions.Active || MaskPeeking;
+    public bool HasActiveTransitions => _transitions.Active || MaskPeeking || ReorderEasing;
 
     /// <summary>True only if a *visible* node is currently animating (display:none subtrees are
     /// absent from the render tree). Lets a host render continuously only when it must, instead
     /// of every frame — critical for the CPU-rendered web host. Cached per rebuild (the animated
     /// set only changes when the tree does), so a host may poll it every frame for free. Also true
     /// while a masked field peeks its last-typed char (see <see cref="HasActiveTransitions"/>).</summary>
-    public bool HasActiveAnimations => _hasActiveAnim || _transitions.Active || MaskPeeking;
+    public bool HasActiveAnimations => _hasActiveAnim || _transitions.Active || MaskPeeking || ReorderEasing;
     private bool _hasActiveAnim;
 
     private static bool AnyAnimated(RenderNode n)
@@ -1763,6 +1765,7 @@ public sealed partial class CupriDocument : IDisposable
         _reorderList = list; _reorderItems = items; _reorderMids = mids;
         _reorderFrom = from; _reorderTo = from; _reorderY0 = y;
         _reorderShift = items.Count >= 2 ? MathF.Abs(mids[1] - mids[0]) : item.Height + 8f;
+        _reorderAnimT = double.NaN;
         item.Dragging = true;
         return true;
     }
@@ -1783,12 +1786,44 @@ public sealed partial class CupriDocument : IDisposable
 
         for (var i = 0; i < items.Count; i++)
         {
-            if (i == from) { items[i].DragOffsetY = delta; continue; }
-            items[i].DragOffsetY = to > from && i > from && i <= to ? -_reorderShift
+            if (i == from) { items[i].DragOffsetY = delta; continue; }   // lifted row tracks the pointer
+            items[i].DragTargetY = to > from && i > from && i <= to ? -_reorderShift  // others ease toward the gap
                                  : to < from && i >= to && i < from ? _reorderShift
                                  : 0f;
         }
         return true;
+    }
+
+    // Ease each shifting row toward its target offset (the lifted row is skipped — it tracks the pointer).
+    // Returns true while any row is still moving, which keeps the host's frame loop ticking mid-drag.
+    private bool EaseReorder(double now)
+    {
+        if (_reorderItems is not { } items) return false;
+        var dt = double.IsNaN(_reorderAnimT) ? 0 : Math.Clamp(now - _reorderAnimT, 0, 0.1);
+        _reorderAnimT = now;
+        var f = (float)(1 - Math.Exp(-dt * 18)); // frame-rate-independent smoothing
+        var moving = false;
+        foreach (var it in items)
+        {
+            if (it.Dragging) continue;
+            var diff = it.DragTargetY - it.DragOffsetY;
+            if (MathF.Abs(diff) < 0.4f) { it.DragOffsetY = it.DragTargetY; continue; }
+            it.DragOffsetY += diff * f;
+            moving = true;
+        }
+        return moving;
+    }
+
+    /// <summary>True while a reorder drag's rows are still sliding toward their gap — keeps the host
+    /// rendering between pointer moves so the slide eases instead of snapping.</summary>
+    public bool ReorderEasing
+    {
+        get
+        {
+            if (_reorderItems is not { } items) return false;
+            foreach (var it in items) if (!it.Dragging && MathF.Abs(it.DragTargetY - it.DragOffsetY) > 0.4f) return true;
+            return false;
+        }
     }
 
     // Drop: clear the offsets and, if the slot changed, fire the reorder event (which reorders the model
@@ -1796,7 +1831,7 @@ public sealed partial class CupriDocument : IDisposable
     private void EndReorder()
     {
         if (_reorderItems is { } items)
-            foreach (var it in items) { it.DragOffsetY = 0f; it.Dragging = false; }
+            foreach (var it in items) { it.DragOffsetY = 0f; it.DragTargetY = 0f; it.Dragging = false; }
         var el = _reorderList?.Element;
         var (from, to) = (_reorderFrom, _reorderTo);
         _reorderList = null; _reorderItems = null; _reorderMids = null;
