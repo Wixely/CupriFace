@@ -279,6 +279,15 @@ controls handle their own state.
   The default accent is copper `#B87333` (hence *Cupri*). Controls that don't read a variable can
   still be restyled through their class hooks.
 - `@media (width ...)` is supported and re‑resolves on viewport change, so layouts can be responsive.
+- **Inline formatting.** A run of text and inline elements (`<code> <b> <em> <mark> <span> …`) flows into
+  wrapping line boxes. An inline element with a `background`/`border`/`border-radius` + horizontal
+  `padding` paints as a chip that flows with the words and gets its own rounded box on **each line it wraps
+  across** — e.g. inline `<code>`. The standard inline tags default to `display:inline` (`code`, `kbd`,
+  `mark`, `sub`, `sup`, `abbr`, `cite`, `time`, …); `code`/`kbd`/`samp`/`var` also default to monospace.
+  ```css
+  code { background: var(--cupri-hover); border: 1px solid var(--cupri-border);
+         border-radius: 5px; padding: 1px 5px; }   /* an inline code chip */
+  ```
 - **Motion.** `@keyframes` (looping animations) and **`transition`** are both supported. A `transition`
   eases a property from its old value to its new one whenever that value changes — on `[data-hover]`,
   `:focus`, a state/class change, a model update, or the theme toggle. Animatable: `opacity`,
