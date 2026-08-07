@@ -50,6 +50,11 @@ public sealed partial class CupriDocument : IDisposable
     private int _maskRevealPos = -1;          // index of a masked char being briefly "peeked" after typing; -1 = none
     private double _maskRevealStart = double.NaN; // Animate() clock time the peek began (NaN = not yet stamped)
     private double? _focusMin, _focusMax; // numeric field bounds (for validation/clamping)
+    private bool _focusRequired;          // focused field's validation rules (for the mid-edit red border)
+    private string? _focusPattern;
+    private int? _focusMinLen;
+    private readonly HashSet<string> _touched = new(); // fields visited (blurred) → their error text may show
+    private bool _validateAll;            // set by ValidateAll() (form submit) → show every field's error
     private string? _editBuffer; // raw text being edited (permissive); validated/committed on blur
     private int _caret;
     private int _selAnchor;      // selection anchor; selection is [min(anchor,caret), max]. anchor==caret ⇒ none.
@@ -255,6 +260,9 @@ public sealed partial class CupriDocument : IDisposable
         _rules = _cachedRules;
         _keyframes = _cachedKeyframes!;
         Mark("parse-css");
+
+        ApplyValidation(dom); // inject inline error messages before the tree is built
+        Mark("validate");
 
         _hoverChain.Clear();
         _root = new StyleResolver(_rules, _viewportWidth).BuildTree(dom);
@@ -1189,6 +1197,9 @@ public sealed partial class CupriDocument : IDisposable
         _maskRevealPos = -1; _maskRevealStart = double.NaN; // the last-typed peek is per-field
         _focusMin = double.TryParse(field?.GetAttribute("data-min"), out var mn) ? mn : null;
         _focusMax = double.TryParse(field?.GetAttribute("data-max"), out var mx) ? mx : null;
+        _focusRequired = field?.HasAttribute("required") == true;
+        _focusPattern = field?.GetAttribute("pattern");
+        _focusMinLen = int.TryParse(field?.GetAttribute("minlength"), out var mlen) ? mlen : null;
         _editBuffer = key is null ? null : BindingEngine.Resolve(_model, key)?.ToString() ?? "";
         _caret = _editBuffer?.Length ?? 0;
         _selAnchor = _caret;
@@ -1705,9 +1716,13 @@ public sealed partial class CupriDocument : IDisposable
     // Is the buffer currently valid for its field? Plain text: always. Numeric: parseable + in range.
     private bool BufferValid(string buf)
     {
-        if (!_focusNumeric) return true;
-        if (!double.TryParse(buf, out var n)) return false;
-        return !(_focusMin is { } mn && n < mn) && !(_focusMax is { } mx && n > mx);
+        if (_focusNumeric)
+        {
+            if (!double.TryParse(buf, out var n)) return false;
+            if ((_focusMin is { } mn && n < mn) || (_focusMax is { } mx && n > mx)) return false;
+        }
+        // required / pattern / minlength drive the red border mid-edit too, not just numeric range.
+        return FieldValidation.Check(_focusRequired, _focusPattern, _focusMinLen, null, null, buf, null) is null;
     }
 
     // The value to write on commit, or null to leave the model unchanged (revert an unparseable buffer).
@@ -1720,13 +1735,48 @@ public sealed partial class CupriDocument : IDisposable
         return n == Math.Floor(n) ? ((long)n).ToString() : n.ToString();
     }
 
-    // Validate and commit the current edit buffer to the model, then clear it (blur).
+    // Validate and commit the current edit buffer to the model, then clear it (blur). Marks the field
+    // "touched" so its inline error can show now that the user has left it.
     private void CommitBuffer()
     {
         if (_focusKey is not null && _editBuffer is not null && _model is not null
             && BufferCommit(_editBuffer) is { } committed)
             BindingEngine.TrySet(_model, _focusKey, committed);
+        if (_focusKey is not null) _touched.Add(_focusKey);
         _editBuffer = null;
+    }
+
+    // Inline validation: for each bound field with rules that is invalid AND has been visited (or the form
+    // was submitted), flag it invalid and inject an error message after it. The focused field is left to
+    // its mid-edit red border (no message while you're still typing in it).
+    private void ApplyValidation(IDocument dom)
+    {
+        foreach (var field in dom.QuerySelectorAll("[data-bind-value]"))
+        {
+            if (!FieldValidation.HasRules(field)) continue;
+            var key = field.GetAttribute("data-bind-value")!;
+            if (key == _focusKey || (!_validateAll && !_touched.Contains(key))) continue;
+            if (FieldValidation.Evaluate(field, field.GetAttribute("value") ?? "") is not { } error) continue;
+
+            field.SetAttribute("data-invalid", "");
+            var msg = dom.CreateElement("div");
+            msg.ClassName = "cupri-field-error";
+            msg.TextContent = error;
+            field.Parent?.InsertBefore(msg, field.NextSibling);
+        }
+    }
+
+    /// <summary>Reveal every validated field's inline error (mark all fields touched) and re-render — call
+    /// from a form's submit handler. Returns true when every field is currently valid.</summary>
+    public bool ValidateAll()
+    {
+        _validateAll = true;
+        Rebuild();
+        if (_dom is null) return true;
+        foreach (var field in _dom.QuerySelectorAll("[data-bind-value]"))
+            if (FieldValidation.HasRules(field) && FieldValidation.Evaluate(field, field.GetAttribute("value") ?? "") is not null)
+                return false;
+        return true;
     }
 
     // Begin a slider interaction: cache its geometry so drag-moves don't need the node.

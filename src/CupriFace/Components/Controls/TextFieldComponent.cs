@@ -22,6 +22,8 @@ public sealed class TextFieldComponent : ComponentBase
         .cupri-textfield[data-invalid] { border:2px #d92d20; }
         .cupri-tf-text { color:var(--cupri-text, #1e2430); }
         .cupri-tf-ph { color:#98a2b3; }
+        /* Inline validation message the engine injects after an invalid, visited field. */
+        .cupri-field-error { display:block; color:#d92d20; font-size:13px; margin:5px 0 2px; }
         """;
 
     public override void Expand(IElement el)
