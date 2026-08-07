@@ -113,8 +113,8 @@
         </div>
         <cupri-textarea value="{{Notes}}" placeholder="Write a note…"></cupri-textarea>
         <cupri-accordion>
-          <cupri-accordion-item label="What is CupriFace?" open="{{Acc1}}">A managed HTML+CSS UI runtime — no browser, no JS engine.</cupri-accordion-item>
-          <cupri-accordion-item label="How does binding work?" open="{{Acc2}}">Two-way bindings link elements to a C# model.</cupri-accordion-item>
+          <cupri-accordion-item label="What is CupriFace?" open="{{Acc1}}">A managed HTML + CSS UI runtime — no browser and no JavaScript engine, just SkiaSharp and a DOM. It lays out and paints the same markup you'd write for the web, entirely in .NET. Click a header to collapse or expand a panel: the height animates and everything below it reflows to match.</cupri-accordion-item>
+          <cupri-accordion-item label="How does binding work?" open="{{Acc2}}">Two-way bindings link elements to a plain C# model with mustache-style placeholders. Editing a field, toggling a switch, or clicking this very header writes straight back to the model, and only the affected parts re-render on the next frame.</cupri-accordion-item>
         </cupri-accordion>
         <div class="row" style="align-items:flex-start">
           <cupri-tree style="width:190px">

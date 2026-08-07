@@ -74,7 +74,12 @@ public sealed class AccordionItemComponent : ComponentBase
         .cupri-acc-header { display:flex; align-items:center; justify-content:space-between; cursor:pointer;
                             padding:13px 16px; color:var(--cupri-text, #1e2430); font-weight:bold; font-size:15px; }
         .cupri-acc-header[data-hover] { background:var(--cupri-hover, #f0f2f5); }
-        .cupri-acc-panel { padding:2px 16px 15px 16px; color:var(--cupri-muted, #4a5262); font-size:14px; }
+        /* Height animates 0 ↔ auto so the panel slides. The panel is always present (only its height
+           changes), overflow:hidden clips the sliding content, and the inner wrapper carries the padding
+           so a collapsed panel is genuinely 0-height. */
+        .cupri-acc-panel { height:0; overflow:hidden; transition:height 0.25s ease; }
+        .cupri-acc-panel.open { height:auto; }
+        .cupri-acc-inner { padding:2px 16px 15px 16px; color:var(--cupri-muted, #4a5262); font-size:14px; }
         """;
 
     public override void Expand(IElement el)
@@ -86,7 +91,8 @@ public sealed class AccordionItemComponent : ComponentBase
         el.InnerHtml =
             $"<div class='cupri-acc-header' role='button' aria-expanded='{(open ? "true" : "false")}' data-cupri-toggle=\"1\">" +
                 $"<span>{Str(el, "label")}</span>{chevron}</div>" +
-            (open ? $"<div class='cupri-acc-panel'>{body}</div>" : "");
+            $"<div class='cupri-acc-panel{(open ? " open" : "")}' aria-hidden='{(open ? "false" : "true")}'>" +
+                $"<div class='cupri-acc-inner'>{body}</div></div>";
     }
 }
 

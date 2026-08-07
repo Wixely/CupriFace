@@ -291,14 +291,18 @@ controls handle their own state.
 - **Motion.** `@keyframes` (looping animations) and **`transition`** are both supported. A `transition`
   eases a property from its old value to its new one whenever that value changes — on `[data-hover]`,
   `:focus`, a state/class change, a model update, or the theme toggle. Animatable: `opacity`,
-  `background`/`color`/`border-color`, `transform` (translate/scale/rotate), and `filter` (op‑by‑op).
+  `background`/`color`/`border-color`, `transform` (translate/scale/rotate), `filter` (op‑by‑op), and
+  **`height`** — including to/from `auto`, so a panel can collapse/expand (`<cupri-accordion>` uses it).
   Timing: `linear`/`ease`/`ease-in`/`ease-out`/`ease-in-out` or `cubic-bezier(x1,y1,x2,y2)` (overshoot
-  allowed). It's paint‑only (no reflow), so it's cheap.
+  allowed). All but `height` are paint‑only (cheap); a `height` transition re‑lays‑out each frame, so the
+  element and everything below it reflow as it animates.
   ```css
   .nav  { transition: background-color 0.2s ease, color 0.2s ease; }   /* smooth hover highlight */
   .card { transition: transform 0.25s ease-out; }
   .card:hover { transform: translateY(-6px); }                          /* lift on hover */
   .surface { transition: background-color 0.35s ease; }                 /* light/dark cross-fade */
+  .panel { height:0; overflow:hidden; transition: height 0.25s ease; }
+  .panel.open { height:auto; }                                          /* slide a panel open, content reflows */
   ```
 - **`filter`.** `blur() brightness() contrast() grayscale() saturate() sepia() invert() opacity()
   drop-shadow()` are supported and compose left-to-right (applied to the element and its subtree).
