@@ -34,7 +34,14 @@ public sealed class MenuComponent : ComponentBase
     }
 }
 
-/// <summary><c>&lt;cupri-menu-item&gt;</c> — a row inside a menu; keeps its label.</summary>
+/// <summary>
+/// <c>&lt;cupri-menu-item&gt;</c> — a row inside a menu. A plain row keeps its label; a row that
+/// <b>contains its own <c>&lt;cupri-menu-item&gt;</c>s</b> becomes a fly-out submenu: it shows a
+/// chevron and, on hover, reveals its children in a panel to the right (give the row a
+/// <c>label</c> for its own text). The panel is <c>position:absolute</c> inside the menu popup, so
+/// it paints and hit-tests within the popup with no extra plumbing; <c>left:100%</c> keeps it flush
+/// (no gap to fall through and dismiss the menu). Nesting works to any depth.
+/// </summary>
 public sealed class MenuItemComponent : ComponentBase
 {
     public override string Tag => "cupri-menu-item";
@@ -42,6 +49,12 @@ public sealed class MenuItemComponent : ComponentBase
         .cupri-menu-item { display:flex; align-items:center; gap:8px; padding:9px 12px; border-radius:6px;
                            color:#1e2430; font-size:14px; }
         .cupri-menu-item:hover { background:#eef1f5; }
+        .cupri-menu-label { flex:1; }                         /* push the chevron to the far edge */
+        .cupri-menu-parent { position:relative; }
+        .cupri-submenu { position:absolute; left:100%; top:-7px; display:none; min-width:170px;
+                         background:white; border-radius:10px; padding:6px; z-index:31;
+                         border:1px #e6e9f0; box-shadow:0 10px 28px #00000026; }
+        .cupri-menu-parent:hover > .cupri-submenu { display:block; } /* fly out while the row (or its panel) is hovered */
         """;
 
     public override void Expand(IElement el)
@@ -49,6 +62,32 @@ public sealed class MenuItemComponent : ComponentBase
         el.SetAttribute("role", "menuitem");
         el.ClassList.Add("cupri-menu-item");
         var icon = Str(el, "icon");
+
+        // A row that holds its own menu items opens a fly-out submenu.
+        var subItems = el.Children
+            .Where(c => string.Equals(c.LocalName, "cupri-menu-item", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (subItems.Count > 0)
+        {
+            el.ClassList.Add("cupri-menu-parent");
+            el.SetAttribute("aria-haspopup", "menu");
+
+            // Move (not copy) the nested items into the fly-out panel so they keep their identity and
+            // still get expanded by this same pass; AppendChild relocates an existing child.
+            var flyout = el.Owner!.CreateElement("div");
+            flyout.ClassName = "cupri-submenu";
+            flyout.SetAttribute("role", "menu");
+            foreach (var s in subItems) flyout.AppendChild(s);
+
+            // The row's own label: the `label` attribute, else whatever text is left after the move.
+            var label = Str(el, "label");
+            if (label.Length == 0) label = el.TextContent.Trim();
+            el.InnerHtml = (icon.Length > 0 ? IconMarkup(icon, 18) : "") +
+                           $"<span class='cupri-menu-label'>{label}</span>" + IconMarkup("chevron-right", 16);
+            el.AppendChild(flyout);
+            return;
+        }
+
         if (icon.Length > 0) el.InnerHtml = IconMarkup(icon, 18) + el.InnerHtml;
     }
 }

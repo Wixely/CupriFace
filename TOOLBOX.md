@@ -549,7 +549,7 @@ blur, see Styling). Bind it to a switch inside the panel to let the user toggle 
 | `<cupri-drawer>` | Slide‑in edge panel | `open`, `side` (`left`\|`right`), `blur` | `open`, `blur` | content | `dialog` (modal) |
 | `<cupri-shelf>` | Bottom sheet — full‑width panel that rises from the bottom edge, rounded top + grab handle | `open`, `blur` | `open`, `blur` | content | `dialog` (modal) |
 | `<cupri-popover>` | Anchored panel below a trigger | `label` (“More”), `open` | `open` | panel content | panel `dialog` |
-| `<cupri-menu>` | Dropdown menu | `label` (“Menu”), `open` | `open` | `<cupri-menu-item icon="…">Label</cupri-menu-item>` | `menu`/`menuitem` |
+| `<cupri-menu>` | Dropdown menu (rows fly out into submenus — see below) | `label` (“Menu”), `open` | `open` | `<cupri-menu-item icon="…">Label</cupri-menu-item>` | `menu`/`menuitem` |
 | `<cupri-tooltip>` | Anchored bubble — shows on **hover** by default; `open="true"` pins it | `text`, `open` | `open` | trigger element(s) | bubble `tooltip` |
 | `<cupri-toast>` | Transient corner message | — | — | message | `status` |
 
@@ -561,6 +561,24 @@ blur, see Styling). Bind it to a switch inside the panel to let the user toggle 
 ```
 ```csharp
 doc.OnClick(".open-dlg", _ => { model.DialogOpen = true; }); // handler mutates the bound flag
+```
+
+**Fly-out submenus.** A `<cupri-menu-item>` that contains its own `<cupri-menu-item>`s becomes a
+submenu: it shows a chevron and, on hover, reveals its children in a panel to the right. Give the
+parent row a `label` for its own text (its children are the panel, not the label). Nesting works to
+any depth. The panel opens on hover alone — no `open` flag or handler — and is flush to the row, so
+there's no gap to fall through and dismiss it.
+
+```html
+<cupri-menu label="File">
+  <cupri-menu-item icon="download">Download</cupri-menu-item>
+  <cupri-menu-item icon="layers" label="Move to">   <!-- has children ⇒ flies out -->
+    <cupri-menu-item icon="home">Home</cupri-menu-item>
+    <cupri-menu-item icon="clock" label="Recent">   <!-- nests further -->
+      <cupri-menu-item>This week</cupri-menu-item>
+    </cupri-menu-item>
+  </cupri-menu-item>
+</cupri-menu>
 ```
 
 ---
