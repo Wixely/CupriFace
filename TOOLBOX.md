@@ -279,6 +279,14 @@ controls handle their own state.
   The default accent is copper `#B87333` (hence *Cupri*). Controls that don't read a variable can
   still be restyled through their class hooks.
 - `@media (width ...)` is supported and re‑resolves on viewport change, so layouts can be responsive.
+- **`position: sticky`.** An element flows normally, but while its scroll container is scrolled it holds
+  at the top (its `top` offset from the scrollport) instead of scrolling away — pinning a section header —
+  and releases when its containing block scrolls out. It paints above the content that slides under it, so
+  give it an opaque background. (`relative`/`absolute`/`fixed` are also supported; `fixed` lifts to the
+  top layer over the page.)
+  ```css
+  .section-title { position: sticky; top: 0; background: var(--cupri-bg); border-bottom: 1px solid #ddd; }
+  ```
 - **Inline formatting.** A run of text and inline elements (`<code> <b> <em> <mark> <span> …`) flows into
   wrapping line boxes. An inline element with a `background`/`border`/`border-radius` + horizontal
   `padding` paints as a chip that flows with the words and gets its own rounded box on **each line it wraps

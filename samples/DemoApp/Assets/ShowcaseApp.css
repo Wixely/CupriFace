@@ -30,7 +30,10 @@ body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; -
 /* Bounded to the window height (flex-stretched), so a tall section scrolls (wheel + thumb) instead
    of overflowing off-screen. The scrollbar only appears when a section is taller than the viewport. */
 .content { flex:1; padding:26px; background:var(--cupri-bg); color:var(--cupri-text); transition: background-color 0.35s ease; overflow:scroll; }
-.title { font-size:22px; font-weight:bold; color:var(--cupri-text); margin-bottom:14px; }
+/* Sticky section header: stays pinned to the top of the scrolling content as you scroll a tall section.
+   Needs an opaque background (theme var) to cover what scrolls under it, and a divider for separation. */
+.title { position:sticky; top:0; background:var(--cupri-bg); font-size:22px; font-weight:bold; color:var(--cupri-text);
+         padding:2px 0 10px; margin-bottom:8px; border-bottom:1px var(--cupri-border); }
 .sub { color:var(--cupri-muted); font-size:14px; margin-bottom:16px; }
 .row { display:flex; align-items:center; flex-wrap:wrap; gap:14px; margin-bottom:14px; }
 /* Block-level components dropped straight into a section (not wrapped in a .row) have no margin of
