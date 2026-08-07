@@ -19,7 +19,7 @@ public sealed class SplitComponent : ComponentBase
         .cupri-split-panel { flex:1 1 0; overflow:auto; min-width:0; min-height:0; }
         .cupri-split-divider { flex:none; width:7px; align-self:stretch; background:var(--cupri-border, #e6e9f0); cursor:col-resize; }
         .cupri-split.vertical > .cupri-split-divider { width:auto; height:7px; cursor:row-resize; }
-        .cupri-split-divider[data-hover] { background:#B87333; }
+        .cupri-split-divider[data-hover] { background:var(--cupri-accent,#B87333); }
         """;
 
     public override void Expand(IElement el)

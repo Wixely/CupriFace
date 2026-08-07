@@ -24,7 +24,7 @@ public sealed class AvatarComponent : ComponentBase
     public override string Tag => "cupri-avatar";
     public override string DefaultCss => """
         .cupri-avatar { display:inline-flex; align-items:center; justify-content:center; width:40px; height:40px;
-                        border-radius:20px; background:#B87333; color:white; font-weight:bold; font-size:15px; }
+                        border-radius:20px; background:var(--cupri-accent,#B87333); color:white; font-weight:bold; font-size:15px; }
         """;
 
     public override void Expand(IElement el)

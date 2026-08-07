@@ -123,8 +123,8 @@ public sealed class SelectComponent : ComponentBase
         .cupri-option-row { display:flex; align-items:center; justify-content:space-between; gap:8px;
                             padding:9px 12px; border-radius:6px; color:var(--cupri-text, #1e2430); font-size:14px; }
         .cupri-option-row[data-hover] { background:var(--cupri-hover, #eef1f5); }
-        .cupri-option-row.selected { color:#B87333; font-weight:bold; }
-        .cupri-option-check { width:16px; height:16px; color:#B87333; }
+        .cupri-option-row.selected { color:var(--cupri-accent,#B87333); font-weight:bold; }
+        .cupri-option-check { width:16px; height:16px; color:var(--cupri-accent,#B87333); }
         """;
 
     public override void Expand(IElement el)

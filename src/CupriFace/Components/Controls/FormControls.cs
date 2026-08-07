@@ -9,7 +9,7 @@ public sealed class CheckboxComponent : ComponentBase
     public override string DefaultCss => """
         .cupri-checkbox { display:inline-flex; align-items:center; justify-content:center;
                           width:20px; height:20px; border:2px #98a2b3; border-radius:5px; }
-        .cupri-checkbox.on { background:#B87333; border:2px #B87333; color:white; }
+        .cupri-checkbox.on { background:var(--cupri-accent,#B87333); border:2px var(--cupri-accent,#B87333); color:white; }
         """;
 
     public override void Expand(IElement el)
@@ -34,8 +34,8 @@ public sealed class RadioComponent : ComponentBase
     public override string DefaultCss => """
         .cupri-radio { display:inline-flex; align-items:center; justify-content:center;
                        width:20px; height:20px; border:2px #98a2b3; border-radius:10px; }
-        .cupri-radio.on { border:2px #B87333; }
-        .cupri-radio-dot { width:10px; height:10px; background:#B87333; border-radius:5px; }
+        .cupri-radio.on { border:2px var(--cupri-accent,#B87333); }
+        .cupri-radio-dot { width:10px; height:10px; background:var(--cupri-accent,#B87333); border-radius:5px; }
         """;
 
     public override void Expand(IElement el)

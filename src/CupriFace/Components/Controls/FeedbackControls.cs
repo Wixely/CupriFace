@@ -31,7 +31,7 @@ public sealed class SpinnerComponent : ComponentBase
 {
     public override string Tag => "cupri-spinner";
     public override string DefaultCss => """
-        .cupri-spinner { display:inline-block; width:24px; height:24px; color:#B87333;
+        .cupri-spinner { display:inline-block; width:24px; height:24px; color:var(--cupri-accent,#B87333);
                          animation: cupri-spin 0.9s linear infinite; }
         @keyframes cupri-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         """;

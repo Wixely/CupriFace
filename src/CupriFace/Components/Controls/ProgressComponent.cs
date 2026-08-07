@@ -13,7 +13,7 @@ public sealed class ProgressComponent : ComponentBase
     // fully styleable via a stylesheet while the value itself stays data-driven.
     public override string DefaultCss => """
         .cupri-progress { display:block; height:12px; background:#e2e6ec; border-radius:6px; }
-        .cupri-progress-fill { height:12px; background:#B87333; border-radius:6px; width:var(--cupri-fill, 0%); }
+        .cupri-progress-fill { height:12px; background:var(--cupri-accent,#B87333); border-radius:6px; width:var(--cupri-fill, 0%); }
         """;
 
     public override void Expand(IElement el)

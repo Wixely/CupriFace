@@ -12,8 +12,8 @@ public sealed class ButtonComponent : ComponentBase
 
     public override string DefaultCss => """
         .cupri-button { display:inline-block; padding:10px 18px; border-radius:8px;
-                        background:#B87333; color:white; font-weight:bold; font-size:15px; }
-        .cupri-button.ghost { background:transparent; color:#B87333; border:2px #B87333; }
+                        background:var(--cupri-accent,#B87333); color:white; font-weight:bold; font-size:15px; }
+        .cupri-button.ghost { background:transparent; color:var(--cupri-accent,#B87333); border:2px var(--cupri-accent,#B87333); }
         """;
 
     public override void Expand(IElement el)

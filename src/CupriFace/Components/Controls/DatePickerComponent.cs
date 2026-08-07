@@ -36,7 +36,7 @@ public sealed class DatePickerComponent : ComponentBase
         .cupri-dp-day, .cupri-dp-pad { text-align:center; font-size:13px; height:16px; padding:7px 0; }
         .cupri-dp-day { border-radius:6px; color:var(--cupri-text, #1e2430); }
         .cupri-dp-day[data-hover], .cupri-dp-day[data-highlight] { background:var(--cupri-hover, #eef1f5); }
-        .cupri-dp-day.selected { background:#B87333; color:white; font-weight:bold; }
+        .cupri-dp-day.selected { background:var(--cupri-accent,#B87333); color:white; font-weight:bold; }
         """;
 
     private static readonly string[] Dow = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];

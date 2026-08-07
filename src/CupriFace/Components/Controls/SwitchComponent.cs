@@ -12,7 +12,7 @@ public sealed class SwitchComponent : ComponentBase
     public override string DefaultCss => """
         .cupri-switch { display:block; position:relative; width:46px; height:26px;
                         background:#cbd2dc; border-radius:13px; }
-        .cupri-switch.on { background:#B87333; }
+        .cupri-switch.on { background:var(--cupri-accent,#B87333); }
         .cupri-switch-knob { position:absolute; top:3px; left:3px; width:20px; height:20px;
                              background:white; border-radius:10px; }
         .cupri-switch.on .cupri-switch-knob { left:23px; }

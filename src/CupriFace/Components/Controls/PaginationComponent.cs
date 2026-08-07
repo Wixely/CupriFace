@@ -22,7 +22,7 @@ public sealed class PaginationComponent : ComponentBase
                                        font-size:14px; display:inline-flex; align-items:center; justify-content:center;
                                        color:var(--cupri-text, #1e2430); }
         .cupri-page[data-hover], .cupri-page-nav[data-hover] { background:var(--cupri-hover, #eef1f5); }
-        .cupri-page.active { background:#B87333; color:white; font-weight:bold; }
+        .cupri-page.active { background:var(--cupri-accent,#B87333); color:white; font-weight:bold; }
         .cupri-page-ell { color:var(--cupri-muted, #98a2b3); }
         .cupri-page-nav.disabled { color:var(--cupri-border, #cbd2dc); }
         """;

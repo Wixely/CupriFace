@@ -17,7 +17,7 @@ public sealed class TextAreaComponent : ComponentBase
                           background:var(--cupri-surface, white);
                           border:2px var(--cupri-border, #cbd2dc); border-radius:8px; padding:10px 12px; font-size:15px; }
         .cupri-textarea[data-hover] { border:2px #98a2b3; }
-        .cupri-textarea:focus { border:2px #B87333; }
+        .cupri-textarea:focus { border:2px var(--cupri-accent,#B87333); }
         .cupri-textarea[data-invalid] { border:2px #d92d20; }
         .cupri-ta-body { color:var(--cupri-text, #1e2430); }
         .cupri-ta-line { display:block; }

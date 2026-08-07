@@ -17,7 +17,7 @@ public sealed class TabsComponent : ComponentBase
         .cupri-tab-h { padding:9px 16px; color:var(--cupri-muted, #667085); font-weight:bold; font-size:14px;
                        border-bottom:2px transparent; margin-bottom:-2px; }
         .cupri-tab-h[data-hover] { color:var(--cupri-text, #1e2430); }
-        .cupri-tab-h.active { color:#B87333; border-bottom:2px #B87333; }
+        .cupri-tab-h.active { color:var(--cupri-accent,#B87333); border-bottom:2px var(--cupri-accent,#B87333); }
         .cupri-tabpanel { padding:16px 2px; color:var(--cupri-text, #1e2430); }
         """;
 

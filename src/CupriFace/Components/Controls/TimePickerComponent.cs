@@ -27,7 +27,7 @@ public sealed class TimePickerComponent : ComponentBase
         .cupri-tp-col { height:180px; overflow:scroll; width:56px; }
         .cupri-tp-opt { text-align:center; padding:7px 0; border-radius:6px; font-size:14px; color:var(--cupri-text, #1e2430); }
         .cupri-tp-opt[data-hover] { background:var(--cupri-hover, #eef1f5); }
-        .cupri-tp-opt.selected { background:#B87333; color:white; font-weight:bold; }
+        .cupri-tp-opt.selected { background:var(--cupri-accent,#B87333); color:white; font-weight:bold; }
         """;
 
     public override void Expand(IElement el)
