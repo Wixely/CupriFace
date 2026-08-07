@@ -243,8 +243,12 @@ outside of an input dispatch (e.g. a background timer), call `doc.Refresh()` (or
 - **Control labels are clickable.** Clicking the text label next to a `cupri-checkbox` /
   `cupri-radio` / `cupri-switch` toggles/selects it (like HTML `<label>`), whether the label sits
   before or after the control.
-- **Keyboard & focus.** Tab / Shift+Tab move focus across interactive controls; Space/Enter activate;
-  arrows drive sliders and groups. Focus is trapped inside an open overlay (dialog/menu/drawer).
+- **Keyboard & focus.** Tab / Shift+Tab move focus across interactive controls (a focus ring shows after
+  Tab, not after a mouse click); Space/Enter activate; Escape dismisses an overlay. Arrows drive the
+  control they're in: nudge a slider, move+select within a radio group, navigate a date grid or a select
+  /combobox list, **→/← expand or collapse a focused tree item**, and **↑/↓ move a focused `<cupri-reorder>`
+  row** (the keyboard equivalent of dragging it). Focus is trapped inside an open overlay (dialog/menu
+  /drawer).
 - **Text editing.** `cupri-textfield` / `cupri-textarea` / `cupri-number` support caret placement,
   selection (drag, double‑click word, triple‑click line, Shift+arrows, Ctrl+A), clipboard
   (Ctrl+C/X/V), and **undo/redo** (Ctrl+Z / Ctrl+Y or Ctrl+Shift+Z — history is per‑field) on both
