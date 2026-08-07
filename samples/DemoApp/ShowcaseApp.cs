@@ -31,6 +31,7 @@ public sealed class ShowcaseApp : CupriApp
     public override void Configure(CupriDocument doc)
     {
         doc.OnClick(".nav", e => { if (e.Element.GetAttribute("data-section") is { } s) _model.Section = s; });
+        doc.OnClick(".collapse-btn", _ => _model.SidebarCollapsed = !_model.SidebarCollapsed);
         doc.OnClick(".act-dialog", _ => _model.DialogOpen = true);
         doc.OnClick(".act-drawer", _ => _model.DrawerOpen = true);
         doc.OnClick(".act-shelf", _ => _model.ShelfOpen = true);
@@ -85,6 +86,9 @@ public sealed partial class ShowcaseModel
     public string Scaling { get; set; } = "hybrid";
     public int ZoomPct { get; set; } = 100;
     public string ThemeClass => DarkMode ? "dark" : "";
+
+    public bool SidebarCollapsed { get; set; }
+    public string SidebarClass => SidebarCollapsed ? "collapsed" : ""; // width transitions to an icon rail
 
     public int Volume { get; set; } = 60;
     public string Name { get; set; } = "";

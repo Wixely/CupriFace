@@ -1,20 +1,23 @@
 <body class="{{ThemeClass}}">
   <div class="app">
-    <div class="sidebar">
-      <div class="brand">CupriFace</div>
-      <div class="nav {{NavControls}}" data-section="controls">Inputs</div>
-      <div class="nav {{NavComponents}}" data-section="components">Components</div>
-      <div class="nav {{NavCharts}}" data-section="charts">Charts</div>
-      <div class="nav {{NavImages}}" data-section="images">Images</div>
-      <div class="nav {{NavOverlays}}" data-section="overlays">Overlays</div>
-      <div class="nav {{NavLayout}}" data-section="layout">Layout</div>
-      <div class="nav {{NavMotion}}" data-section="motion">Motion</div>
-      <div class="nav {{NavStyling}}" data-section="styling">Styling</div>
-      <div class="nav {{NavSettings}}" data-section="settings">Settings</div>
-      <div class="nav {{NavDiag}}" data-section="diag">Diagnostics</div>
+    <div class="sidebar {{SidebarClass}}">
+      <div class="brand-row">
+        <div class="collapse-btn" role="button" aria-label="Toggle sidebar"><cupri-icon name="menu" size="22"></cupri-icon></div>
+        <span class="brand-label">CupriFace</span>
+      </div>
+      <div class="nav {{NavControls}}" data-section="controls"><cupri-icon name="edit" size="20"></cupri-icon><span class="nav-label">Inputs</span></div>
+      <div class="nav {{NavComponents}}" data-section="components"><cupri-icon name="menu" size="20"></cupri-icon><span class="nav-label">Components</span></div>
+      <div class="nav {{NavCharts}}" data-section="charts"><cupri-icon name="bar-chart" size="20"></cupri-icon><span class="nav-label">Charts</span></div>
+      <div class="nav {{NavImages}}" data-section="images"><cupri-icon name="image" size="20"></cupri-icon><span class="nav-label">Images</span></div>
+      <div class="nav {{NavOverlays}}" data-section="overlays"><cupri-icon name="layers" size="20"></cupri-icon><span class="nav-label">Overlays</span></div>
+      <div class="nav {{NavLayout}}" data-section="layout"><cupri-icon name="dashboard" size="20"></cupri-icon><span class="nav-label">Layout</span></div>
+      <div class="nav {{NavMotion}}" data-section="motion"><cupri-icon name="autorenew" size="20"></cupri-icon><span class="nav-label">Motion</span></div>
+      <div class="nav {{NavStyling}}" data-section="styling"><cupri-icon name="palette" size="20"></cupri-icon><span class="nav-label">Styling</span></div>
+      <div class="nav {{NavSettings}}" data-section="settings"><cupri-icon name="settings" size="20"></cupri-icon><span class="nav-label">Settings</span></div>
+      <div class="nav {{NavDiag}}" data-section="diag"><cupri-icon name="memory" size="20"></cupri-icon><span class="nav-label">Diagnostics</span></div>
       <div class="side-bottom">
-        <div class="side-toggle"><span>Dark mode</span><cupri-switch checked="{{DarkMode}}"></cupri-switch></div>
-        <div class="tip">Resize the window to see scaling</div>
+        <div class="side-toggle"><cupri-icon name="eye" size="18"></cupri-icon><span class="nav-label">Dark mode</span><cupri-switch checked="{{DarkMode}}"></cupri-switch></div>
+        <div class="tip nav-label">Resize the window to see scaling</div>
       </div>
     </div>
 
