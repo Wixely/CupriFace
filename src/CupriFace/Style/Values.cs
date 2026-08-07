@@ -74,7 +74,7 @@ public enum FlexWrapMode { NoWrap, Wrap }
 public enum JustifyContent { FlexStart, Center, FlexEnd, SpaceBetween, SpaceAround, SpaceEvenly }
 public enum AlignItems { Stretch, FlexStart, Center, FlexEnd }
 public enum TextAlign { Left, Center, Right }
-public enum PositionType { Static, Relative, Absolute, Fixed }
+public enum PositionType { Static, Relative, Absolute, Fixed, Sticky }
 public enum OverflowMode { Visible, Hidden, Scroll }
 
 /// <summary>CSS <c>white-space</c> (the supported subset). <c>NoWrap</c> lays text out on a single

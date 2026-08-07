@@ -122,12 +122,21 @@ public sealed class Painter
         return false;
     }
 
-    private void PaintNode(DisplayList list, RenderNode node, float originX, float originY, List<RenderNode> topLayer, bool inTopLayer)
+    private void PaintNode(DisplayList list, RenderNode node, float originX, float originY, List<RenderNode> topLayer, bool inTopLayer,
+        List<StickyItem>? stickyCollect = null, float scrollTop = float.NegativeInfinity)
     {
         // Lift a top-layer (fixed) node out of the normal walk; paint it in the deferred pass.
         if (!inTopLayer && node.IsTopLayer)
         {
             topLayer.Add(node);
+            return;
+        }
+
+        // A position:sticky node inside a scroll container is deferred to a pass after the container's
+        // normal content — so a stuck header paints ON TOP of what scrolls under it. Record where it is.
+        if (stickyCollect is not null && node.Style.Position == PositionType.Sticky)
+        {
+            stickyCollect.Add(new StickyItem(node, originX, originY));
             return;
         }
 
@@ -272,12 +281,28 @@ public sealed class Painter
         var bandTop = node.ContentTopInset + scrollY - CullMargin;
         var bandBottom = node.ContentTopInset + scrollY + node.ContentBoxHeight + CullMargin;
 
+        // A scroll container collects the sticky nodes in its subtree; they paint in a deferred pass below
+        // (sticking to the top of its content box). A non-scroll node just passes the collector through.
+        var stickyOwn = node.IsScrollable ? new List<StickyItem>() : null;
+        var childSticky = node.IsScrollable ? stickyOwn : stickyCollect;
+        // Sticky pins to the scrollport (padding-box) top, not the content box — content scrolls under the
+        // padding, so a `top:0` header sits flush at the very top and covers it.
+        var childScrollTop = node.IsScrollable ? absY + node.BorderTopW : scrollTop;
+
         foreach (var child in node.Children)
         {
             if (child.Style.Display == DisplayType.None) continue;
-            if (cull && !child.IsTopLayer && (child.Y + child.Height < bandTop || child.Y > bandBottom)) continue;
-            PaintNode(list, child, absX - scrollX, absY - scrollY, topLayer, inTopLayer);
+            // Sticky children are never culled — a stuck header's natural box may be scrolled out of band.
+            if (cull && !child.IsTopLayer && child.Style.Position != PositionType.Sticky
+                && (child.Y + child.Height < bandTop || child.Y > bandBottom)) continue;
+            PaintNode(list, child, absX - scrollX, absY - scrollY, topLayer, inTopLayer, childSticky, childScrollTop);
         }
+
+        // Sticky pass: each deferred sticky node paints at its stuck position (clamped to its containing
+        // block), on top of the scrolled content but still inside this container's clip.
+        if (stickyOwn is { Count: > 0 })
+            foreach (var it in stickyOwn)
+                PaintSticky(list, it, childScrollTop, topLayer, inTopLayer);
 
         if (clip) list.Add(new PopClip());
 
@@ -309,6 +334,22 @@ public sealed class Painter
         if (transformed) list.Add(new PopTransform());
         if (faded) list.Add(new PopOpacity());
         if (filtered) list.Add(new PopFilter());
+    }
+
+    // A collected position:sticky node and the origin it was reached at (its parent's painted top-left).
+    private readonly record struct StickyItem(RenderNode Node, float OriginX, float OriginY);
+
+    // Paint a sticky node at its stuck position: it sticks `top` px below the scroll container's content
+    // top, but never scrolls above its natural place, and never past its containing block's bottom (so it
+    // rides out with the parent). scrollTop is the container's absolute content-box top.
+    private void PaintSticky(DisplayList list, StickyItem it, float scrollTop, List<RenderNode> topLayer, bool inTopLayer)
+    {
+        var n = it.Node;
+        var natural = it.OriginY + n.Y;                                     // where the node scrolled to
+        var top = n.Style.Top.IsDefinite ? n.Style.Top.Resolve(0f) : 0f;
+        var parentBottom = it.OriginY + (n.Parent?.Height ?? n.Height);     // its containing block's bottom
+        var stuck = MathF.Min(MathF.Max(natural, scrollTop + top), parentBottom - n.Height);
+        PaintNode(list, n, it.OriginX, it.OriginY + (stuck - natural), topLayer, inTopLayer);
     }
 
     private static void PaintText(DisplayList list, RenderNode node, float absX, float absY)
