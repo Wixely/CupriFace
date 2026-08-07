@@ -90,6 +90,8 @@ public sealed class ComponentRegistry
         .Register(new AccordionItemComponent())
         .Register(new TreeComponent())
         .Register(new TreeItemComponent())
+        .Register(new ReorderComponent())
+        .Register(new ReorderItemComponent())
         // Data
         .Register(new TableComponent())
         .Register(new TableRowComponent())

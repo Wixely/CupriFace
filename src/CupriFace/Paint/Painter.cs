@@ -140,9 +140,10 @@ public sealed class Painter
             return;
         }
 
-        // node.X/Y are relative to the parent's border-box origin.
+        // node.X/Y are relative to the parent's border-box origin. DragOffsetY shifts a reorder item
+        // (and its subtree) at paint time while it's being dragged / making room for the dragged one.
         var absX = originX + node.X;
-        var absY = originY + node.Y;
+        var absY = originY + node.Y + node.DragOffsetY;
         var s = node.Style;
 
         if (node.IsText)
@@ -289,13 +290,24 @@ public sealed class Painter
         // padding, so a `top:0` header sits flush at the very top and covers it.
         var childScrollTop = node.IsScrollable ? absY + node.BorderTopW : scrollTop;
 
+        RenderNode? dragged = null; // the lifted reorder item — painted last so it sits on top of its siblings
         foreach (var child in node.Children)
         {
             if (child.Style.Display == DisplayType.None) continue;
+            if (child.Dragging) { dragged = child; continue; }
             // Sticky children are never culled — a stuck header's natural box may be scrolled out of band.
             if (cull && !child.IsTopLayer && child.Style.Position != PositionType.Sticky
                 && (child.Y + child.Height < bandTop || child.Y > bandBottom)) continue;
             PaintNode(list, child, absX - scrollX, absY - scrollY, topLayer, inTopLayer, childSticky, childScrollTop);
+        }
+        if (dragged is not null)
+        {
+            // A soft drop-shadow under the lifted item, then the item on top of everything.
+            var dy = absY - scrollY + dragged.Y + dragged.DragOffsetY;
+            var dx = absX - scrollX + dragged.X;
+            list.Add(new ShadowRect(dx, dy, dragged.Width, dragged.Height, dragged.Style.BorderRadius,
+                0, 4, 16, 0, new SKColor(0, 0, 0, 0x33), false));
+            PaintNode(list, dragged, absX - scrollX, absY - scrollY, topLayer, inTopLayer, childSticky, childScrollTop);
         }
 
         // Sticky pass: each deferred sticky node paints at its stuck position (clamped to its containing

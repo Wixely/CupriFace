@@ -83,6 +83,11 @@ public sealed class RenderNode
     // User-dragged size (CSS resize) — interaction state, preserved across rebuilds like ScrollY.
     // Null = use the CSS size. Overrides width/height in layout, then clamped to min/max-*.
     public float? ResizeW, ResizeH;
+
+    // Drag-to-reorder (interaction state, paint-time): a Y offset applied to this item, and whether it is
+    // the lifted item currently being dragged (painted on top of its siblings with a shadow).
+    public float DragOffsetY;
+    public bool Dragging;
     public float ContentBoxHeight => Height - VerticalInsets;
     public float MaxScrollY => MathF.Max(0, ScrollContentHeight - ContentBoxHeight);
     public bool IsScrollable => MaxScrollY > 0.5f;

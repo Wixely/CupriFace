@@ -68,6 +68,20 @@ public sealed partial class CupriDocument : IDisposable
     private RenderNode? _resizeDrag;    // node whose resize grip is being dragged
     private float _resizeX0, _resizeY0, _resizeW0, _resizeH0;
 
+    // Drag-to-reorder: the list being reordered, its item nodes, the source/target slot, the grab Y, each
+    // item's original mid-line (for slot hit-testing), and the per-slot shift distance.
+    private RenderNode? _reorderList;
+    private List<RenderNode>? _reorderItems;
+    private float[]? _reorderMids;
+    private int _reorderFrom, _reorderTo;
+    private float _reorderY0, _reorderShift;
+    private Action<ReorderEvent>? _onReorder;
+
+    /// <summary>A drag-to-reorder drop: the list element and the item's old/new index. Register a handler
+    /// with <see cref="OnReorder"/>; it typically reorders the bound model list.</summary>
+    public readonly record struct ReorderEvent(IElement List, int From, int To);
+    public CupriDocument OnReorder(Action<ReorderEvent> handler) { _onReorder = handler; return this; }
+
     // Right-click context menu (Cut/Copy/Paste/Select-all) over a text field. The engine owns
     // opening/positioning/rendering/dismissing it; the host performs the chosen clipboard action.
     private bool _ctxOpen;
@@ -833,9 +847,14 @@ public sealed partial class CupriDocument : IDisposable
         for (var n = hit; n is not null; n = n.Parent)
             if (ThumbRect(n) is { } tr && x >= tr.X - 6 && x <= tr.X + tr.W + 8 && y >= tr.Y && y <= tr.Y + tr.H)
             {
-                _scrollDrag = n; _scrollDragY0 = y; _scrollDragScroll0 = Math.Clamp(n.ScrollY, 0, n.MaxScrollY);
+                _scrollDrag = n; _scrollDragScroll0 = Math.Clamp(n.ScrollY, 0, n.MaxScrollY); _scrollDragY0 = y;
                 return true;
             }
+
+        // Grabbing a drag-reorder handle starts a reorder drag (paint-time; doesn't focus/blur).
+        for (var n = hit; n is not null; n = n.Parent)
+            if (n.Element?.ClassList.Contains("cupri-reorder-handle") == true && StartReorder(n, y))
+                return true;
 
         // :active press feedback — mark the pressed element chain (restyled below; cleared on pointer-up).
         SetActive(hit.Element);
@@ -1725,8 +1744,68 @@ public sealed partial class CupriDocument : IDisposable
     }
 
     /// <summary>Pointer move: drag a slider, or update :hover. Returns true if a repaint is needed.</summary>
+    // Grab a reorder item by its handle: record the list, its items, the source slot, and each item's
+    // original mid-line (for slot hit-testing as it's dragged).
+    private bool StartReorder(RenderNode handle, float y)
+    {
+        RenderNode? item = handle;
+        while (item is not null && item.Element?.ClassList.Contains("cupri-reorder-item") != true) item = item.Parent;
+        if (item?.Parent is not { } list) return false;
+
+        var items = new List<RenderNode>();
+        foreach (var c in list.Children) if (c.Element?.ClassList.Contains("cupri-reorder-item") == true) items.Add(c);
+        var from = items.IndexOf(item);
+        if (from < 0) return false;
+
+        var mids = new float[items.Count];
+        for (var i = 0; i < items.Count; i++) { var b = HitTesting.AbsoluteBox(items[i]); mids[i] = b.Y + b.H / 2f; }
+
+        _reorderList = list; _reorderItems = items; _reorderMids = mids;
+        _reorderFrom = from; _reorderTo = from; _reorderY0 = y;
+        _reorderShift = items.Count >= 2 ? MathF.Abs(mids[1] - mids[0]) : item.Height + 8f;
+        item.Dragging = true;
+        return true;
+    }
+
+    // Dragging: the lifted item follows the pointer; the items between its source and current target slot
+    // slide one place to open the gap. All paint-time (no rebuild) until the drop.
+    private bool MoveReorder(float y)
+    {
+        if (_reorderItems is not { } items || _reorderMids is not { } mids) return false;
+        var from = _reorderFrom;
+        var delta = y - _reorderY0;
+        var center = mids[from] + delta;
+
+        var to = from;
+        for (var i = from + 1; i < items.Count && center > mids[i]; i++) to = i;
+        for (var i = from - 1; i >= 0 && center < mids[i]; i--) to = i;
+        _reorderTo = to;
+
+        for (var i = 0; i < items.Count; i++)
+        {
+            if (i == from) { items[i].DragOffsetY = delta; continue; }
+            items[i].DragOffsetY = to > from && i > from && i <= to ? -_reorderShift
+                                 : to < from && i >= to && i < from ? _reorderShift
+                                 : 0f;
+        }
+        return true;
+    }
+
+    // Drop: clear the offsets and, if the slot changed, fire the reorder event (which reorders the model
+    // and rebuilds). A no-op move just repaints away the offsets.
+    private void EndReorder()
+    {
+        if (_reorderItems is { } items)
+            foreach (var it in items) { it.DragOffsetY = 0f; it.Dragging = false; }
+        var el = _reorderList?.Element;
+        var (from, to) = (_reorderFrom, _reorderTo);
+        _reorderList = null; _reorderItems = null; _reorderMids = null;
+        if (to != from && el is not null) { _onReorder?.Invoke(new ReorderEvent(el, from, to)); Refresh(); }
+    }
+
     public bool DispatchPointerMove(float x, float y)
     {
+        if (_reorderItems is not null) return MoveReorder(y);
         if (_resizeDrag is { } rz)
         {
             var mode = rz.Style.Resize;
@@ -1764,7 +1843,11 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>Pointer up: end any slider drag, scrollbar drag, or text drag-select.</summary>
     /// <summary>Pointer released: end any drag and clear the :active press. Returns true if the press
     /// state cleared (→ repaint needed to un-press).</summary>
-    public bool DispatchPointerUp(float x, float y) { _dragging = false; _textDrag = false; _scrollDrag = null; _resizeDrag = null; return ClearActive(); }
+    public bool DispatchPointerUp(float x, float y)
+    {
+        if (_reorderItems is not null) { EndReorder(); return true; }
+        _dragging = false; _textDrag = false; _scrollDrag = null; _resizeDrag = null; return ClearActive();
+    }
 
     /// <summary>Scroll wheel: scroll the nearest scrollable element under the pointer by pixels.</summary>
     public bool DispatchWheel(float x, float y, float pixelDelta)

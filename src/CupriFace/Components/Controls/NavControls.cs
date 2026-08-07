@@ -145,3 +145,40 @@ public sealed class TreeItemComponent : ComponentBase
             (hasChildren && open ? $"<div class='cupri-tree-children' role='group'>{body}</div>" : "");
     }
 }
+
+/// <summary>
+/// <c>&lt;cupri-reorder&gt;…&lt;cupri-reorder-item&gt;…&lt;/cupri-reorder-item&gt;…&lt;/cupri-reorder&gt;</c>
+/// — a vertical list whose rows you drag by their grip handle to reorder. The engine previews the drop
+/// (the lifted row follows the pointer, the others slide to open a gap); on drop it raises the document's
+/// <c>OnReorder</c> event with the item's old/new index, which typically reorders the bound model list.
+/// </summary>
+public sealed class ReorderComponent : ComponentBase
+{
+    public override string Tag => "cupri-reorder";
+    public override string DefaultCss => """
+        .cupri-reorder { display:flex; flex-direction:column; gap:8px; }
+        """;
+    public override void Expand(IElement el) => el.ClassList.Add("cupri-reorder");
+}
+
+/// <summary><c>&lt;cupri-reorder-item&gt;…&lt;/cupri-reorder-item&gt;</c> — one draggable row: a grip
+/// handle followed by the item's content. Dragging the grip reorders the list.</summary>
+public sealed class ReorderItemComponent : ComponentBase
+{
+    public override string Tag => "cupri-reorder-item";
+    public override string DefaultCss => """
+        .cupri-reorder-item { display:flex; align-items:center; gap:11px; padding:11px 13px; font-size:14px;
+                              background:var(--cupri-surface, #ffffff); color:var(--cupri-text, #1e2430);
+                              border:1px var(--cupri-border, #e6e9f0); border-radius:9px; }
+        .cupri-reorder-handle { flex:none; display:flex; color:var(--cupri-muted, #8b93a7); cursor:grab; }
+        .cupri-reorder-body { flex:1; }
+        """;
+    public override void Expand(IElement el)
+    {
+        var body = el.InnerHtml;
+        el.ClassList.Add("cupri-reorder-item");
+        el.InnerHtml =
+            $"<div class='cupri-reorder-handle'>{IconMarkup("drag", 18)}</div>" +
+            $"<div class='cupri-reorder-body'>{body}</div>";
+    }
+}
