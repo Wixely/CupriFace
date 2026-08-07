@@ -203,17 +203,157 @@ public sealed class LayoutEngine
         var insetL = node.ContentLeftInset;
         var insetT = node.ContentTopInset;
 
-        foreach (var child in node.Children)
+        var kids = node.Children.Where(c => c.Style.Display != DisplayType.None
+            && c.Style.Position is not (PositionType.Absolute or PositionType.Fixed)).ToList();
+
+        var i = 0;
+        while (i < kids.Count)
         {
-            if (child.Style.Display == DisplayType.None) continue;
-            if (child.Style.Position is PositionType.Absolute or PositionType.Fixed) continue; // out of flow
+            // A run of ≥2 consecutive inline-level children forms an inline formatting context (text +
+            // inline/inline-block elements flow into wrapping lines). Everything else — a block child, or
+            // a lone inline child — stacks as its own box (the original behaviour, untouched).
+            if (IsInlineLevel(kids[i]))
+            {
+                var j = i + 1;
+                while (j < kids.Count && IsInlineLevel(kids[j])) j++;
+                if (j - i >= 2) { cursorY += LayoutInline(node, kids, i, j, contentW, cbH, cursorY); i = j; continue; }
+            }
+            var child = kids[i];
             LayoutNode(child, contentW, cbH);
             child.X = insetL + child.MarginLeft;
             child.Y = insetT + cursorY + child.MarginTop;
             if (child.Style.Position == PositionType.Relative) ApplyRelativeOffset(child, contentW, cbH);
             cursorY += child.MarginTop + child.Height + child.MarginBottom;
+            i++;
         }
         return cursorY;
+    }
+
+    private static bool IsInlineLevel(RenderNode n) =>
+        n.IsText || n.Style.Display is DisplayType.Inline or DisplayType.InlineBlock;
+
+    // Inline formatting context: flow kids[start..end) (text + inline/inline-block) into wrapping line
+    // boxes, starting at startY within the block's content box. Text/inline elements are positioned via
+    // their fragments (their own X/Y are zeroed, so the fragment coords work through any nesting);
+    // inline-blocks are placed as atomic boxes. Returns the total height used.
+    private float LayoutInline(RenderNode block, List<RenderNode> kids, int start, int end,
+        float contentW, float cbH, float startY)
+    {
+        var insetL = block.ContentLeftInset;
+        var insetT = block.ContentTopInset;
+        var align = block.Style.TextAlign;
+
+        var toks = new List<InlineTok>();
+        var wsPending = false;
+        for (var k = start; k < end; k++) CollectInline(kids[k], toks, ref wsPending, contentW, cbH);
+
+        float penX = 0, penY = 0, lineH = 0;
+        var lineItems = new List<InlineTok>();
+
+        void Finish()
+        {
+            if (lineItems.Count == 0) return;
+            var off = align switch
+            {
+                TextAlign.Center => MathF.Max(0, (contentW - penX) / 2f),
+                TextAlign.Right => MathF.Max(0, contentW - penX),
+                _ => 0f,
+            };
+            foreach (var p in lineItems)
+            {
+                if (p.Box is { } box)
+                {
+                    box.X = insetL + p.PlacedX + off + box.MarginLeft;
+                    box.Y = insetT + startY + penY + (lineH - p.H) / 2f + box.MarginTop;
+                }
+                else
+                    p.Owner!.Lines!.Add(new TextLine
+                    {
+                        Text = p.Text!, X = insetL + p.PlacedX + off,
+                        Y = insetT + startY + penY, Width = p.W, Height = lineH,
+                    });
+            }
+            penY += lineH;
+            penX = 0; lineH = 0;
+            lineItems.Clear();
+        }
+
+        foreach (var tok in toks)
+        {
+            var sp = tok.SpaceBefore ? tok.SpaceW : 0f;
+            if (penX > 0 && penX + sp + tok.W > contentW) Finish(); // doesn't fit → wrap
+            if (penX > 0) penX += sp;                               // a leading space collapses at line start
+            tok.PlacedX = penX;
+            lineItems.Add(tok);
+            penX += tok.W;
+            lineH = MathF.Max(lineH, tok.H);
+        }
+        Finish();
+        return penY;
+    }
+
+    // Flatten an inline node into tokens (words / atomic inline-block boxes), preserving inter-run
+    // whitespace via wsPending (seeded by WsBefore/WsAfter). Zeroes each text/inline node's box so its
+    // fragments carry the position.
+    private void CollectInline(RenderNode node, List<InlineTok> toks, ref bool wsPending, float contentW, float cbH)
+    {
+        if (node.IsText)
+        {
+            node.X = 0; node.Y = 0;
+            node.Lines = new List<TextLine>();
+            var st = node.Style;
+            var sw = _fonts.MeasureText(st, " ");
+            var lh = FontService.LineHeightPx(st);
+            if (node.WsBefore) wsPending = true;
+            var words = (node.Text ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            for (var w = 0; w < words.Length; w++)
+            {
+                toks.Add(new InlineTok
+                {
+                    Owner = node, Text = words[w], W = _fonts.MeasureText(st, words[w]),
+                    H = lh, SpaceW = sw, SpaceBefore = w == 0 ? wsPending : true,
+                });
+                wsPending = false;
+            }
+            wsPending = node.WsAfter;
+            return;
+        }
+
+        if (node.Style.Display == DisplayType.Inline)
+        {
+            node.X = 0; node.Y = 0; node.Width = 0; node.Height = 0; // passthrough; children carry the text
+            if (node.WsBefore) wsPending = true;
+            foreach (var c in node.Children)
+                if (c.Style.Display != DisplayType.None && c.Style.Position is not (PositionType.Absolute or PositionType.Fixed))
+                    CollectInline(c, toks, ref wsPending, contentW, cbH);
+            if (node.WsAfter) wsPending = true;
+            return;
+        }
+
+        // inline-block (or a stray block-level node in the run): an atomic box on the line, shrunk to its
+        // content width when it has no explicit width (so a chip is chip-sized, not full width).
+        if (node.WsBefore) wsPending = true;
+        float? forceW = node.Style.Width.IsAuto
+            ? MathF.Min(contentW, MathF.Max(0, MaxContentWidth(node) - PadBorderX(node.Style)))
+            : null;
+        LayoutNode(node, contentW, cbH, forceW);
+        toks.Add(new InlineTok
+        {
+            Box = node, W = node.Width + node.MarginLeft + node.MarginRight,
+            H = node.Height + node.MarginTop + node.MarginBottom,
+            SpaceW = _fonts.MeasureText(node.Style, " "), SpaceBefore = wsPending,
+        });
+        wsPending = node.WsAfter;
+    }
+
+    private sealed class InlineTok
+    {
+        public RenderNode? Owner;   // text node this word belongs to (null for a box)
+        public string? Text;        // the word (null for a box)
+        public RenderNode? Box;     // an atomic inline-block (null for a word)
+        public float W, H, SpaceW;  // token width, line height, space width for the boundary
+        public bool SpaceBefore;    // a collapsible space precedes this token
+        public float PlacedX;       // x within the content box once placed on a line
     }
 
     private static void ApplyRelativeOffset(RenderNode n, float cbW, float cbH)

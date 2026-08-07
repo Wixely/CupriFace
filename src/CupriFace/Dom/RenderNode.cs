@@ -28,6 +28,10 @@ public sealed class RenderNode
     // For text nodes: laid-out lines (set by the text layout pass in M2).
     public List<TextLine>? Lines;
 
+    // Collapsed whitespace at this node's edges in the source (incl. whitespace between inline siblings).
+    // Used by the inline formatting context to keep spaces between flowed runs (e.g. "text <code>x</code>").
+    public bool WsBefore, WsAfter;
+
     // For icon nodes: an SVG path (24×24 viewBox) filled with the computed color.
     public string? IconPath;
 

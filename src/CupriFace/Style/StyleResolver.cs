@@ -62,6 +62,12 @@ public sealed class StyleResolver
 
     private void BuildChildren(RenderNode parentNode, IElement parentEl)
     {
+        // Track collapsed whitespace between siblings so the inline formatting context keeps the space
+        // between flowed runs (e.g. the space in "text <code>x</code>" or between <b>a</b> <b>b</b>).
+        // Whitespace-only text isn't added as a node (so flex/grid children are unchanged); instead it
+        // flags the previous node's WsAfter and the next node's WsBefore.
+        RenderNode? prev = null;
+        var pendingWs = false;
         foreach (var child in parentEl.ChildNodes)
         {
             switch (child)
@@ -69,7 +75,7 @@ public sealed class StyleResolver
                 case IElement el:
                     var tag = el.LocalName.ToLowerInvariant();
                     if (tag is "script" or "style" or "head" or "meta" or "link" or "title") continue;
-                    var node = new RenderNode { Tag = tag, Element = el };
+                    var node = new RenderNode { Tag = tag, Element = el, WsBefore = pendingWs };
                     parentNode.AddChild(node);
                     ResolveStyle(node, parentNode.Style);
                     node.IconPath = el.GetAttribute("data-cupri-icon"); // set by icon-bearing components
@@ -77,16 +83,28 @@ public sealed class StyleResolver
                     node.ChartLine = el.GetAttribute("data-cupri-line"); // set by <cupri-line-chart>/<cupri-sparkline>
                     if (node.Style.Display != DisplayType.None)
                         BuildChildren(node, el);
+                    prev = node; pendingWs = false;
                     break;
 
                 case IText t:
                     var text = t.Text;
-                    if (string.IsNullOrWhiteSpace(text)) continue;
-                    var textNode = new RenderNode { Tag = "#text", Text = CollapseWhitespace(text) };
+                    if (string.IsNullOrWhiteSpace(text)) // whitespace-only: a separator, not a node
+                    {
+                        if (prev is not null) prev.WsAfter = true;
+                        pendingWs = true;
+                        continue;
+                    }
+                    var textNode = new RenderNode
+                    {
+                        Tag = "#text", Text = CollapseWhitespace(text),
+                        WsBefore = pendingWs || char.IsWhiteSpace(text[0]),
+                        WsAfter = char.IsWhiteSpace(text[^1]),
+                    };
                     parentNode.AddChild(textNode);
                     // Text inherits the parent's computed style directly.
                     textNode.Style.InheritFrom(parentNode.Style);
                     textNode.Style.Display = DisplayType.Inline;
+                    prev = textNode; pendingWs = false;
                     break;
             }
         }
