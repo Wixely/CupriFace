@@ -241,6 +241,14 @@
           <cupri-menu label="Menu" open="{{MenuOpen}}">
             <cupri-menu-item icon="download">Download</cupri-menu-item>
             <cupri-menu-item icon="edit">Rename</cupri-menu-item>
+            <cupri-menu-item icon="layers" label="Move to">   <!-- a row with its own items flies out on hover -->
+              <cupri-menu-item icon="home">Home</cupri-menu-item>
+              <cupri-menu-item icon="star">Favourites</cupri-menu-item>
+              <cupri-menu-item icon="clock" label="Recent">   <!-- and nests to any depth -->
+                <cupri-menu-item>This week</cupri-menu-item>
+                <cupri-menu-item>Earlier</cupri-menu-item>
+              </cupri-menu-item>
+            </cupri-menu-item>
             <cupri-menu-item icon="trash">Delete</cupri-menu-item>
           </cupri-menu>
           <cupri-popover label="Popover" open="{{PopOpen}}">A popover panel with rich content, anchored to its trigger.</cupri-popover>
