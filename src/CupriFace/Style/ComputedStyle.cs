@@ -66,6 +66,9 @@ public sealed class ComputedStyle
     // full-viewport top-layer element (a modal/drawer/shelf scrim) — it blurs the page behind it.
     public List<FilterOp>? BackdropFilter;
 
+    // Box shadow layers (CSS box-shadow) — outset drop shadows and/or inset inner shadows. Not inherited.
+    public List<BoxShadow>? BoxShadow;
+
     // Transform (applied around the border-box centre at paint time)
     public bool HasTransform;
     public float TranslateX, TranslateY, RotateDeg;

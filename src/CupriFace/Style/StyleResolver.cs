@@ -228,6 +228,7 @@ public sealed class StyleResolver
                 case "transition": ParseTransition(s, v); break;
                 case "filter": ParseFilter(s, v); break;
                 case "backdrop-filter" or "-webkit-backdrop-filter": s.BackdropFilter = ParseFilterOps(v); break;
+                case "box-shadow": ParseBoxShadow(s, v); break;
 
                 case "color": if (Colors.TryParse(v, out var col)) s.Color = col; break;
                 case "font-size": s.FontSize = ParsePx(v, s.FontSize); break;
@@ -461,6 +462,30 @@ public sealed class StyleResolver
     // transition: <prop|all> <duration> [timing] [delay] [, <prop> <duration> …]. A later `transition`
     // declaration replaces the whole list (CSS shorthand semantics). Splitting is paren-aware so a
     // cubic-bezier(...)'s inner commas/spaces don't split the list or tokens.
+    // box-shadow: [inset] <dx> <dy> [blur] [spread] [color], … (comma-separated layers).
+    private static void ParseBoxShadow(ComputedStyle s, string v)
+    {
+        if (v.Trim().Equals("none", StringComparison.OrdinalIgnoreCase)) { s.BoxShadow = null; return; }
+        var list = new List<BoxShadow>();
+        foreach (var seg in SplitTopLevel(v, ','))
+        {
+            var inset = false;
+            var color = new SKColor(0, 0, 0, 0x40); // default when a layer omits its colour
+            var lens = new List<float>();
+            foreach (var tok in SplitTopLevel(seg, ' '))
+            {
+                if (tok.Equals("inset", StringComparison.OrdinalIgnoreCase)) inset = true;
+                else if (Colors.TryParse(tok, out var c)) color = c;
+                else lens.Add(ParsePx(tok));
+            }
+            if (lens.Count < 2) continue; // need at least offset-x and offset-y
+            list.Add(new BoxShadow(lens[0], lens[1],
+                lens.Count > 2 ? MathF.Max(0, lens[2]) : 0f,
+                lens.Count > 3 ? lens[3] : 0f, color, inset));
+        }
+        s.BoxShadow = list.Count > 0 ? list : null;
+    }
+
     private static void ParseTransition(ComputedStyle s, string v)
     {
         var list = new List<TransitionSpec>();

@@ -94,6 +94,10 @@ public enum FilterKind { Blur, Brightness, Contrast, Grayscale, Saturate, Sepia,
 
 public readonly record struct FilterOp(FilterKind Kind, float A, float B, float C, SkiaSharp.SKColor Color);
 
+/// <summary>A CSS <c>box-shadow</c> layer: offset (Dx,Dy), Blur radius, Spread, Color, and Inset (an
+/// inner shadow rather than a drop shadow).</summary>
+public readonly record struct BoxShadow(float Dx, float Dy, float Blur, float Spread, SkiaSharp.SKColor Color, bool Inset);
+
 public static class Colors
 {
     private static readonly Dictionary<string, SKColor> Named = new(StringComparer.OrdinalIgnoreCase)

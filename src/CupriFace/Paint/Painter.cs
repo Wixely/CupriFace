@@ -140,6 +140,13 @@ public sealed class Painter
                 absX + node.Width / 2f, absY + node.Height / 2f,
                 s.TranslateX, s.TranslateY, s.ScaleX, s.ScaleY, s.RotateDeg));
 
+        // Box shadow: outset (drop) shadows paint BEHIND the background.
+        if (s.BoxShadow is { Count: > 0 } shadows)
+            foreach (var sh in shadows)
+                if (!sh.Inset)
+                    list.Add(new ShadowRect(absX, absY, node.Width, node.Height, s.BorderRadius,
+                        sh.Dx, sh.Dy, sh.Blur, sh.Spread, sh.Color, false));
+
         // Background (fills the border box; drawn under the border).
         if (s.Background.Alpha > 0)
             list.Add(new FillRect(absX, absY, node.Width, node.Height, s.BorderRadius, s.Background));
@@ -150,6 +157,13 @@ public sealed class Painter
         if (hasBorder)
             list.Add(new BorderRect(absX, absY, node.Width, node.Height, s.BorderRadius,
                 node.BorderTopW, node.BorderRightW, node.BorderBottomW, node.BorderLeftW, s.BorderColor, s.BorderStyle));
+
+        // Box shadow: inset (inner) shadows paint on top of the background, clipped inside the box.
+        if (s.BoxShadow is { Count: > 0 } insetShadows)
+            foreach (var sh in insetShadows)
+                if (sh.Inset)
+                    list.Add(new ShadowRect(absX, absY, node.Width, node.Height, s.BorderRadius,
+                        sh.Dx, sh.Dy, sh.Blur, sh.Spread, sh.Color, true));
 
         // Icon: fill an SVG path in the content box with the current color.
         if (node.IconPath is { Length: > 0 } iconPath)

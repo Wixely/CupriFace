@@ -69,6 +69,41 @@ public sealed class SkiaRasterizer
                     DrawRect(canvas, fill, r.X, r.Y, r.W, r.H, r.Radius);
                     break;
 
+                case ShadowRect sh:
+                {
+                    // CSS blur-radius ≈ 2σ; a mask-filter blur softens the shadow edge.
+                    var sigma = sh.Blur * 0.5f;
+                    using var shPaint = new SKPaint
+                    {
+                        Color = sh.Color, IsAntialias = true,
+                        MaskFilter = sigma > 0.01f ? SKMaskFilter.CreateBlur(SKBlurStyle.Normal, sigma) : null,
+                    };
+                    if (!sh.Inset)
+                    {
+                        // Outset: the box grown by spread, offset, drawn behind the element's background.
+                        var rr = new SKRect(sh.X + sh.Dx - sh.Spread, sh.Y + sh.Dy - sh.Spread,
+                                            sh.X + sh.W + sh.Dx + sh.Spread, sh.Y + sh.H + sh.Dy + sh.Spread);
+                        var rad = MathF.Max(0, sh.Radius + sh.Spread);
+                        canvas.DrawRoundRect(rr, rad, rad, shPaint);
+                    }
+                    else
+                    {
+                        // Inset: clip to the box, then fill (outer ∖ inner) with even-odd so the blurred
+                        // inner edge falls inside the box (inner = the box offset by Dx/Dy, inset by spread).
+                        canvas.Save();
+                        canvas.ClipRoundRect(new SKRoundRect(new SKRect(sh.X, sh.Y, sh.X + sh.W, sh.Y + sh.H), sh.Radius), antialias: true);
+                        var pad = sh.Blur * 2f + MathF.Abs(sh.Spread) + MathF.Max(MathF.Abs(sh.Dx), MathF.Abs(sh.Dy)) + 24f;
+                        using var path = new SKPath { FillType = SKPathFillType.EvenOdd };
+                        path.AddRect(new SKRect(sh.X - pad, sh.Y - pad, sh.X + sh.W + pad, sh.Y + sh.H + pad));
+                        var inner = new SKRect(sh.X + sh.Dx + sh.Spread, sh.Y + sh.Dy + sh.Spread,
+                                              sh.X + sh.W + sh.Dx - sh.Spread, sh.Y + sh.H + sh.Dy - sh.Spread);
+                        path.AddRoundRect(new SKRoundRect(inner, MathF.Max(0, sh.Radius - sh.Spread)));
+                        canvas.DrawPath(path, shPaint);
+                        canvas.Restore();
+                    }
+                    break;
+                }
+
                 case BorderRect b:
                     stroke.Color = b.Color;
                     DrawBorder(canvas, stroke, b);

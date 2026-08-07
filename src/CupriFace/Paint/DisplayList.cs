@@ -21,6 +21,12 @@ public abstract record PaintCommand;
 
 public sealed record FillRect(float X, float Y, float W, float H, float Radius, SKColor Color) : PaintCommand;
 
+/// <summary>A CSS <c>box-shadow</c> layer for the (rounded) box (X,Y,W,H,Radius): an outset drop shadow
+/// behind the box, or an <paramref name="Inset"/> inner shadow clipped inside it. Offset by (Dx,Dy),
+/// softened by <paramref name="Blur"/>, grown/shrunk by <paramref name="Spread"/>.</summary>
+public sealed record ShadowRect(float X, float Y, float W, float H, float Radius,
+    float Dx, float Dy, float Blur, float Spread, SKColor Color, bool Inset) : PaintCommand;
+
 public sealed record BorderRect(
     float X, float Y, float W, float H, float Radius,
     float Top, float Right, float Bottom, float Left, SKColor Color,
