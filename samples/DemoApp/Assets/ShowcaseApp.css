@@ -53,6 +53,11 @@ code { display:inline; font-family:monospace; color:var(--cupri-text); }
 
 .mlabel { color:var(--cupri-muted); font-size:12px; font-weight:bold; letter-spacing:0.5px;
           margin:2px 0 12px 0; }
+/* Styling section: gradient + shadow demo tiles. */
+.gbox { width:110px; height:78px; border-radius:14px; display:flex; align-items:center; justify-content:center;
+        color:white; font-weight:bold; font-size:13px; }
+.sbox { width:96px; height:70px; border-radius:14px; background:var(--cupri-surface); display:flex;
+        align-items:center; justify-content:center; color:var(--cupri-muted); font-weight:bold; font-size:13px; }
 /* Charts: cap the width so they don't stretch the whole pane; sparklines sit beside a stat value.
    No `display` here — each chart keeps its own (block for bar/line, grid for the heatmap). */
 .chart { max-width:580px; margin-bottom:22px; }

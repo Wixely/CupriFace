@@ -298,6 +298,15 @@ controls handle their own state.
   .glass  { filter: blur(6px); }
   .raised { filter: drop-shadow(2px 4px 6px #0006); }
   ```
+- **Gradients.** `background: linear-gradient([<angle>|to <side>], <stop>, …)` and
+  `radial-gradient([shape,] <stop>, …)`, where a stop is a colour with an optional position
+  (`#4682B4 60%`). Angles are CSS (`0deg` = up, `90deg` = right); `to right`/`to bottom right`/… work
+  too. Paints over `background-color`; also settable via `background-image`.
+  ```css
+  .hero { background: linear-gradient(135deg, #B87333, #4682B4); }
+  .bar  { background: linear-gradient(#5aa0e0, #2b5f92); }
+  .glow { background: radial-gradient(#ffd39a, #B87333); }
+  ```
 - **`box-shadow`.** `[inset] <x> <y> [blur] [spread] [color]`, comma‑separated for multiple layers —
   outset drop shadows (soft elevation) and `inset` inner shadows. The first‑party cards and overlays
   (dialog, drawer, shelf, menu, select, popover, tooltip, toast, pickers) ship with sensible shadows.

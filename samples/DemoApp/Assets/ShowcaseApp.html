@@ -306,8 +306,22 @@
       <!-- STYLING -->
       <div class="section" style="display:{{SecStyling}}">
         <div class="title">Styling</div>
-        <p class="sub">Paint-level CSS: <code>filter()</code> effects and <code>border-style</code> — both
-          compose with the same rounded-box paint used everywhere.</p>
+        <p class="sub">Paint-level CSS — filters, gradients, box-shadow and border styles — all compose
+          with the same rounded-box paint used everywhere.</p>
+        <div class="mlabel">Gradients</div>
+        <div class="stage">
+          <div class="gbox" style="background:linear-gradient(160deg,#5aa0e0,#2b5f92)">vertical</div>
+          <div class="gbox" style="background:linear-gradient(90deg,#B87333,#e0a060)">90deg</div>
+          <div class="gbox" style="background:linear-gradient(90deg,#10ac84,#f5b301,#e0245e)">3 stops</div>
+          <div class="gbox" style="background:radial-gradient(#ffd39a,#B87333)">radial</div>
+        </div>
+        <div class="mlabel">Shadows</div>
+        <div class="stage">
+          <div class="sbox" style="box-shadow:0 4px 14px #0000001f">soft</div>
+          <div class="sbox" style="box-shadow:0 12px 30px #00000033">strong</div>
+          <div class="sbox" style="box-shadow:0 8px 22px #B8733355">tinted</div>
+          <div class="sbox" style="box-shadow:inset 0 3px 8px #00000030">inset</div>
+        </div>
         <div class="mlabel">Filters</div>
         <div class="stage">
           <div class="fbox" style="filter:blur(2px)">blur</div>
