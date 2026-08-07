@@ -78,47 +78,166 @@ internal static class ChartData
     internal static string Fmt(double v) => v.ToString("0.####", CultureInfo.InvariantCulture);
     internal static double Parse(string? v) => double.TryParse((v ?? "").Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var d) ? d : 0;
     internal static string Esc(string s) => s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
+    internal static List<double> Vals(string? csv) => Split(csv).Select(Parse).ToList();
     private static string[] Split(string? v) => (v ?? "").Split(',', System.StringSplitOptions.RemoveEmptyEntries);
+
+    // A "nice" axis top + tick step for 0..dataMax: round the step to 1/2/5×10^n so gridlines land on
+    // tidy numbers, and round the top up to a whole number of steps.
+    internal static (double Max, double Step) NiceAxis(double dataMax, int ticks = 4)
+    {
+        if (dataMax <= 0) return (1, 1);
+        var raw = dataMax / ticks;
+        var mag = System.Math.Pow(10, System.Math.Floor(System.Math.Log10(raw)));
+        var norm = raw / mag;
+        var nice = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10;
+        var step = nice * mag;
+        return (System.Math.Ceiling(dataMax / step) * step, step);
+    }
+
+    // The y-axis labels (top→bottom) + horizontal gridlines for a 0..axisMax scale. The plot then scales
+    // its bars/line to axisMax so they line up with the gridlines.
+    internal static (string YAxis, string Grid, double AxisMax) Axis(double dataMax)
+    {
+        var (axisMax, step) = NiceAxis(dataMax);
+        var n = (int)System.Math.Round(axisMax / step);
+        var ya = new StringBuilder("<div class='cupri-yaxis'>");
+        var grid = new StringBuilder();
+        for (var i = n; i >= 0; i--) // top (max) down to 0
+        {
+            ya.Append($"<span>{Fmt(i * step)}</span>");
+            grid.Append($"<div class='cupri-gridline' style='top:{Fmt((1 - (double)i / n) * 100)}%'></div>");
+        }
+        ya.Append("</div>");
+        return (ya.ToString(), grid.ToString(), axisMax);
+    }
 }
 
 /// <summary>
-/// <c>&lt;cupri-bar-chart values="12,19,7" labels="Mon,Tue,Wed"&gt;</c> (or <c>&lt;cupri-bar value label
-/// color&gt;</c> children) — a vertical bar chart. Bars scale to <c>max</c> (or the largest datum).
+/// <c>&lt;cupri-bar-chart values="12,19,7" labels="Mon,Tue,Wed"&gt;</c> — a vertical bar chart. A single
+/// series comes from <c>values="…"</c> or <c>&lt;cupri-bar value label color&gt;</c> children; MULTIPLE
+/// series from <c>&lt;cupri-series values="…" color label&gt;</c> children, shown side-by-side (grouped)
+/// or summed (<c>stacked</c>). Add <c>axis</c> for a y-axis + gridlines on a tidy 0..max scale.
 /// </summary>
 public sealed class BarChartComponent : ComponentBase
 {
     public override string Tag => "cupri-bar-chart";
     public override string DefaultCss => """
         .cupri-bar-chart { display:block; }
-        .cupri-bc-plot { display:flex; align-items:flex-end; gap:8px; height:150px;
-                         border-bottom:2px solid var(--cupri-border, #cbd2dc); }
+        .cupri-bc-plot { display:flex; align-items:flex-end; gap:8px; height:150px; }
+        .cupri-bc-plot.baseline { border-bottom:2px solid var(--cupri-border, #cbd2dc); }
         .cupri-bc-bar { flex:1; min-height:2px; border-radius:5px 5px 0 0; }
+        .cupri-bc-group { flex:1; display:flex; align-items:flex-end; gap:3px; height:100%; }
+        .cupri-bc-stack { flex:1; display:flex; flex-direction:column-reverse; height:100%; }
+        .cupri-bc-seg { width:100%; min-height:1px; }
         .cupri-bc-labels { display:flex; gap:8px; margin-top:7px; }
         .cupri-bc-labels > span { flex:1; text-align:center; font-size:12px; color:var(--cupri-muted, #98a2b3); }
+        /* y-axis + gridlines, shared with the line chart. */
+        .cupri-chart-row { display:flex; }
+        .cupri-yaxis { display:flex; flex-direction:column; justify-content:space-between; width:34px; height:150px;
+                       padding-right:7px; text-align:right; }
+        .cupri-yaxis > span { font-size:11px; color:var(--cupri-muted, #98a2b3); line-height:1; }
+        .cupri-plot { position:relative; flex:1; height:150px; }
+        .cupri-gridline { position:absolute; left:0; width:100%; height:1px; background:var(--cupri-border, #e6e9f0); }
         """;
 
     public override void Expand(IElement el)
     {
-        var series = ChartData.Read(el, "cupri-bar");
-        var max = ChartData.Max(el, series);
         el.SetAttribute("role", "img");
         el.ClassList.Add("cupri-bar-chart");
+        var axis = Flag(el, "axis");
+        var stacked = Flag(el, "stacked");
 
-        var sb = new StringBuilder("<div class='cupri-bc-plot'>");
-        foreach (var p in series)
+        var seriesEls = el.Children.Where(c => c.LocalName == "cupri-series").ToList();
+        double dataMax;
+        string bars;
+        List<string> labels;
+        List<(string Label, string Color)>? legend = null;
+
+        if (seriesEls.Count > 0) // grouped / stacked: one <cupri-series> per data series
         {
-            var pct = System.Math.Clamp(p.Value / max * 100.0, 0, 100);
-            var color = p.Color ?? ChartData.Accent;
-            sb.Append($"<div class='cupri-bc-bar' style='height:{ChartData.Fmt(pct)}%;background:{color}'></div>");
+            var series = seriesEls.Select((c, i) => (
+                Vals: ChartData.Vals(c.GetAttribute("values")),
+                Color: c.GetAttribute("color") is { Length: > 0 } col ? col : ChartData.Palette(i),
+                Label: c.GetAttribute("label") ?? "")).ToList();
+            var cats = series.Max(s => s.Vals.Count);
+            dataMax = stacked
+                ? Enumerable.Range(0, cats).Select(ci => series.Sum(s => ci < s.Vals.Count ? s.Vals[ci] : 0)).DefaultIfEmpty(0).Max()
+                : series.SelectMany(s => s.Vals).DefaultIfEmpty(0).Max();
+            var max = Scale(el, axis, dataMax);
+            var sb = new StringBuilder();
+            for (var ci = 0; ci < cats; ci++)
+            {
+                sb.Append(stacked ? "<div class='cupri-bc-stack'>" : "<div class='cupri-bc-group'>");
+                foreach (var s in series)
+                {
+                    var v = ci < s.Vals.Count ? s.Vals[ci] : 0;
+                    var pct = max > 0 ? System.Math.Clamp(v / max * 100.0, 0, 100) : 0;
+                    sb.Append($"<div class='{(stacked ? "cupri-bc-seg" : "cupri-bc-bar")}' style='height:{ChartData.Fmt(pct)}%;background:{s.Color}'></div>");
+                }
+                sb.Append("</div>");
+            }
+            bars = sb.ToString();
+            labels = LabelList(el, cats);
+            legend = series.Select(s => (s.Label, s.Color)).ToList();
         }
-        sb.Append("</div>");
-        if (series.Any(p => p.Label.Length > 0))
+        else // single series
         {
-            sb.Append("<div class='cupri-bc-labels'>");
-            foreach (var p in series) sb.Append($"<span>{ChartData.Esc(p.Label)}</span>");
-            sb.Append("</div>");
+            var pts = ChartData.Read(el, "cupri-bar");
+            dataMax = pts.Count > 0 ? pts.Max(p => p.Value) : 1;
+            var max = Scale(el, axis, dataMax);
+            var sb = new StringBuilder();
+            foreach (var p in pts)
+            {
+                var pct = max > 0 ? System.Math.Clamp(p.Value / max * 100.0, 0, 100) : 0;
+                sb.Append($"<div class='cupri-bc-bar' style='height:{ChartData.Fmt(pct)}%;background:{p.Color ?? ChartData.Accent}'></div>");
+            }
+            bars = sb.ToString();
+            labels = LabelList(el, pts.Count);
+            if (labels.All(l => l.Length == 0)) labels = pts.Select(p => p.Label).ToList();
         }
-        el.InnerHtml = sb.ToString();
+
+        var plot = $"<div class='cupri-bc-plot{(axis ? "" : " baseline")}'>{bars}</div>";
+        var body = new StringBuilder();
+        if (axis)
+        {
+            var (ya, grid, _) = ChartData.Axis(dataMax);
+            body.Append($"<div class='cupri-chart-row'>{ya}<div class='cupri-plot'>{grid}{plot}</div></div>");
+            AppendLabels(body, labels, 34);
+        }
+        else
+        {
+            body.Append(plot);
+            AppendLabels(body, labels, 0);
+        }
+        if (legend is { } lg && lg.Any(s => s.Label.Length > 0))
+        {
+            body.Append("<div class='cupri-lc-legend'>");
+            foreach (var (lab, col) in lg)
+                body.Append($"<span class='cupri-lc-key'><span class='cupri-lc-swatch' style='background:{col}'></span>{ChartData.Esc(lab)}</span>");
+            body.Append("</div>");
+        }
+        el.InnerHtml = body.ToString();
+    }
+
+    private static void AppendLabels(StringBuilder body, List<string> labels, int padLeft)
+    {
+        if (!labels.Any(l => l.Length > 0)) return;
+        body.Append(padLeft > 0 ? $"<div class='cupri-bc-labels' style='padding-left:{padLeft}px'>" : "<div class='cupri-bc-labels'>");
+        foreach (var l in labels) body.Append($"<span>{ChartData.Esc(l)}</span>");
+        body.Append("</div>");
+    }
+
+    // The bar-scaling denominator: a tidy axis max when `axis` is on, else the `max` attr, else the data.
+    private static double Scale(IElement el, bool axis, double dataMax) => axis
+        ? ChartData.NiceAxis(dataMax).Max
+        : (double.TryParse(el.GetAttribute("max"), NumberStyles.Float, CultureInfo.InvariantCulture, out var m) && m > 0 ? m : System.Math.Max(1e-6, dataMax));
+
+    private static List<string> LabelList(IElement el, int count)
+    {
+        var raw = (el.GetAttribute("labels") ?? "").Split(',');
+        var list = new List<string>();
+        for (var i = 0; i < count; i++) list.Add(i < raw.Length ? raw[i].Trim() : "");
+        return list;
     }
 }
 
@@ -126,6 +245,15 @@ public sealed class BarChartComponent : ComponentBase
 public sealed class BarComponent : ComponentBase
 {
     public override string Tag => "cupri-bar";
+    public override string DefaultCss => "";
+    public override void Expand(IElement el) { }
+}
+
+/// <summary>A data series inside <c>&lt;cupri-bar-chart&gt;</c> (values / color / label) for grouped or
+/// stacked bars; consumed by the parent.</summary>
+public sealed class SeriesComponent : ComponentBase
+{
+    public override string Tag => "cupri-series";
     public override string DefaultCss => "";
     public override void Expand(IElement el) { }
 }
@@ -154,6 +282,7 @@ public sealed class LineChartComponent : ComponentBase
     {
         el.SetAttribute("role", "img");
         el.ClassList.Add("cupri-line-chart");
+        var axis = Flag(el, "axis");
 
         // Multiple series (<cupri-line …> children) or a single series (values / <cupri-point> children).
         var lineEls = el.Children.Where(c => c.LocalName == "cupri-line").ToList();
@@ -163,18 +292,29 @@ public sealed class LineChartComponent : ComponentBase
                 Label: c.GetAttribute("label") ?? "")).ToList()
             : new() { (ChartData.Read(el, "cupri-point"), Str(el, "color", ChartData.Line), "") };
 
-        // One shared Y range across every series so the lines are directly comparable.
+        // With `axis`, scale to a tidy 0..max so the line lines up with the gridlines; otherwise auto-scale
+        // to the data's own range (a tighter trend). One shared range across all series either way.
         var all = series.SelectMany(s => s.Pts).ToList();
-        double min = all.Count > 0 ? all.Min(p => p.Value) : 0, max = all.Count > 0 ? all.Max(p => p.Value) : 1;
+        var dataMax = all.Count > 0 ? all.Max(p => p.Value) : 1;
+        double min = axis ? 0 : (all.Count > 0 ? all.Min(p => p.Value) : 0);
+        var max = axis ? ChartData.NiceAxis(dataMax).Max : dataMax;
 
         var flags = (Flag(el, "area") ? " data-cupri-area" : "")
                   + (Flag(el, "dots") ? " data-cupri-dots" : "")
                   + (Flag(el, "curve") ? " data-cupri-curve" : "");
 
-        var sb = new StringBuilder("<div class='cupri-lc-plot'>"); // each series overlays as an absolute line
+        var lines = new StringBuilder(); // each series overlays as an absolute line
         foreach (var s in series)
-            sb.Append($"<div class='cupri-lc-line' data-cupri-line='{ChartData.Points(s.Pts, fullWidth: false, fixedMin: min, fixedMax: max)}'{flags} style='color:{s.Color}'></div>");
-        sb.Append("</div>");
+            lines.Append($"<div class='cupri-lc-line' data-cupri-line='{ChartData.Points(s.Pts, fullWidth: false, fixedMin: min, fixedMax: max)}'{flags} style='color:{s.Color}'></div>");
+        var plot = $"<div class='cupri-lc-plot'>{lines}</div>";
+
+        var body = new StringBuilder();
+        if (axis)
+        {
+            var (ya, grid, _) = ChartData.Axis(dataMax);
+            body.Append($"<div class='cupri-chart-row'>{ya}<div class='cupri-plot'>{grid}{plot}</div></div>");
+        }
+        else body.Append(plot);
 
         // x-axis labels: the `labels` attr, else the first series' point labels.
         var labels = Str(el, "labels") is { Length: > 0 } lab
@@ -182,20 +322,20 @@ public sealed class LineChartComponent : ComponentBase
             : series[0].Pts.Select(p => p.Label).ToList();
         if (labels.Any(l => l.Length > 0))
         {
-            sb.Append("<div class='cupri-lc-labels'>");
-            foreach (var l in labels) sb.Append($"<span>{ChartData.Esc(l)}</span>");
-            sb.Append("</div>");
+            body.Append(axis ? "<div class='cupri-lc-labels' style='padding-left:34px'>" : "<div class='cupri-lc-labels'>");
+            foreach (var l in labels) body.Append($"<span>{ChartData.Esc(l)}</span>");
+            body.Append("</div>");
         }
 
         // Legend for multiple named series.
         if (series.Count > 1 && series.Any(s => s.Label.Length > 0))
         {
-            sb.Append("<div class='cupri-lc-legend'>");
+            body.Append("<div class='cupri-lc-legend'>");
             foreach (var s in series)
-                sb.Append($"<span class='cupri-lc-key'><span class='cupri-lc-swatch' style='background:{s.Color}'></span>{ChartData.Esc(s.Label)}</span>");
-            sb.Append("</div>");
+                body.Append($"<span class='cupri-lc-key'><span class='cupri-lc-swatch' style='background:{s.Color}'></span>{ChartData.Esc(s.Label)}</span>");
+            body.Append("</div>");
         }
-        el.InnerHtml = sb.ToString();
+        el.InnerHtml = body.ToString();
     }
 }
 

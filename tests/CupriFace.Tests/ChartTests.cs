@@ -165,6 +165,57 @@ public class ChartTests
     }
 
     [Fact]
+    public void Bar_axis_adds_gridlines_and_a_tidy_zero_based_scale()
+    {
+        using var t = new TestDoc(
+            "<body><cupri-bar-chart axis values=\"12,19,7,22\" labels=\"a,b,c,d\"></cupri-bar-chart></body>",
+            "", null, components: true, width: 420, height: 240);
+
+        Assert.NotEmpty(All(t, n => n.Element?.ClassList.Contains("cupri-yaxis") == true));
+        Assert.True(All(t, n => n.Element?.ClassList.Contains("cupri-gridline") == true).Count >= 3);
+
+        // Data max 22 → tidy axis max 30, so the tallest bar is ~22/30 of the 150px plot, not full height.
+        var tallest = 0f;
+        foreach (var b in Bars(t)) tallest = System.MathF.Max(tallest, b.Height);
+        Assert.InRange(tallest, 90f, 130f); // 22/30*150 ≈ 110; a full-scale bar would be ~150
+    }
+
+    [Fact]
+    public void Grouped_bars_draw_one_bar_per_series_in_each_category()
+    {
+        using var t = new TestDoc(
+            "<body><cupri-bar-chart labels=\"A,B,C\">" +
+            "<cupri-series label=\"x\" values=\"1,2,3\" color=\"#111111\"></cupri-series>" +
+            "<cupri-series label=\"y\" values=\"4,5,6\"></cupri-series></cupri-bar-chart></body>",
+            "", null, components: true, width: 420, height: 220);
+
+        var groups = All(t, n => n.Element?.ClassList.Contains("cupri-bc-group") == true);
+        Assert.Equal(3, groups.Count);                       // one group per category
+        foreach (var g in groups)
+            Assert.Equal(2, g.Children.Count(c => c.Element?.ClassList.Contains("cupri-bc-bar") == true));
+        Assert.Equal(2, All(t, n => n.Element?.ClassList.Contains("cupri-lc-key") == true).Count); // legend
+    }
+
+    [Fact]
+    public void Stacked_bars_sum_segments_and_taller_categories_stack_higher()
+    {
+        using var t = new TestDoc(
+            "<body><cupri-bar-chart stacked labels=\"A,B\">" +
+            "<cupri-series values=\"10,20\"></cupri-series>" +
+            "<cupri-series values=\"10,20\"></cupri-series></cupri-bar-chart></body>",
+            "", null, components: true, width: 420, height: 220);
+
+        var stacks = All(t, n => n.Element?.ClassList.Contains("cupri-bc-stack") == true);
+        Assert.Equal(2, stacks.Count);
+        bool Seg(RenderNode c) => c.Element?.ClassList.Contains("cupri-bc-seg") == true;
+        var a = stacks[0].Children.Where(Seg).ToList(); // A = 10+10 = 20
+        var b = stacks[1].Children.Where(Seg).ToList(); // B = 20+20 = 40 (of a 40 max → full)
+        Assert.Equal(2, a.Count);
+        Assert.Equal(2, b.Count);
+        Assert.True(b[0].Height > a[0].Height * 1.5f);   // B's segments are ~2x A's (20 vs 10)
+    }
+
+    [Fact]
     public void Heatmap_lays_out_a_grid_and_tints_cells_by_intensity()
     {
         using var t = new TestDoc(
