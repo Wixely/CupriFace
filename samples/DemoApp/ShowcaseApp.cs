@@ -51,7 +51,11 @@ public sealed class ShowcaseApp : CupriApp
         doc.OnClick(".act-dialog", _ => _model.DialogOpen = true);
         doc.OnClick(".act-drawer", _ => _model.DrawerOpen = true);
         doc.OnClick(".act-shelf", _ => _model.ShelfOpen = true);
-        doc.OnClick(".act-toast", _ => _model.ShowToast = !_model.ShowToast);
+        doc.OnClick(".act-toast", e =>
+        {
+            var kind = e.Element.GetAttribute("data-toast-kind") ?? "";
+            doc.Toast(kind switch { "success" => "Changes saved", "error" => "Couldn't reach the server", _ => "Heads up — something happened" }, kind);
+        });
         doc.OnClick(".act-gc", _ => GC.Collect());
         // Zoom via buttons — a slider would fight the live re-scale it triggers.
         doc.OnClick(".zoom-dec", _ => _model.ZoomPct = Math.Clamp(_model.ZoomPct - 10, 80, 200));
@@ -155,8 +159,6 @@ public sealed partial class ShowcaseModel
     public bool ShelfOpen { get; set; }
     public bool ShelfBlur { get; set; } = true;
     public bool MenuOpen { get; set; }
-    public bool ShowToast { get; set; }
-    public string ToastDisplay => ShowToast ? "block" : "none";
 
     // Components section
     public string Tab { get; set; } = "one";

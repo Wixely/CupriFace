@@ -276,7 +276,9 @@
           <cupri-tooltip text="Shown on hover">
             <cupri-button variant="ghost">Hover me</cupri-button>
           </cupri-tooltip>
-          <cupri-button variant="ghost" class="act-toast">Toggle toast</cupri-button>
+          <cupri-button variant="ghost" class="act-toast" data-toast-kind="">Toast</cupri-button>
+          <cupri-button variant="ghost" class="act-toast" data-toast-kind="success">Success</cupri-button>
+          <cupri-button variant="ghost" class="act-toast" data-toast-kind="error">Error</cupri-button>
         </div>
         <div class="mlabel" style="margin-top:24px">Right-click menu — attach a menu (fly-out submenus included) to any region</div>
         <div class="row" style="align-items:center; gap:16px">
@@ -464,7 +466,6 @@
     <div class="row"><cupri-switch checked="{{DialogBlur}}"></cupri-switch><span class="lbl">Blur background</span></div>
     <div class="dlg-actions"><cupri-button data-cupri-dismiss="true">OK</cupri-button></div>
   </cupri-dialog>
-  <cupri-toast style="display:{{ToastDisplay}}">Toast shown — click “Toggle toast” to hide.</cupri-toast>
   <cupri-drawer open="{{DrawerOpen}}" side="right" blur="{{DrawerBlur}}">
     <div class="dlg-title">Drawer</div>
     <div class="dlg-body">An edge-pinned panel in the top layer. Click the backdrop to dismiss.</div>
