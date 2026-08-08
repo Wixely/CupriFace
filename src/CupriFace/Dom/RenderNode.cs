@@ -90,8 +90,9 @@ public sealed class RenderNode
 
     // Drag-to-reorder (interaction state, paint-time): the current Y offset applied to this item, the
     // offset it's easing toward (0, or ±one slot to open the gap), and whether it is the lifted item being
-    // dragged (which tracks the pointer directly — DragOffsetY, no easing — and paints on top with a shadow).
-    public float DragOffsetY, DragTargetY;
+    // dragged (which tracks the pointer directly — DragOffsetX/Y, no easing — and paints on top with a shadow).
+    // DragOffsetX is only set on the lifted card, so it can follow the pointer across kanban columns.
+    public float DragOffsetY, DragTargetY, DragOffsetX;
     public bool Dragging;
     public float ContentBoxHeight => Height - VerticalInsets;
     public float MaxScrollY => MathF.Max(0, ScrollContentHeight - ContentBoxHeight);

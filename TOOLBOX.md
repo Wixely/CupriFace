@@ -455,6 +455,7 @@ to the bottom as new lines arrive (logging), *unless* the user has scrolled up:
 | `<cupri-accordion>` | Collapsible sections | — | — | `<cupri-accordion-item label="…" open="{{…}}">…</cupri-accordion-item>` | item hdr `button` |
 | `<cupri-tree>` | Hierarchical tree | — | — | nested `<cupri-tree-item label="…" open="{{…}}">…</cupri-tree-item>` | `tree`/`treeitem` |
 | `<cupri-reorder>` | Drag‑to‑reorder list: drag a row by its grip and the others slide to open a gap; on drop, the document's `OnReorder(e => …)` fires with the item's old/new index (typically reorders the bound model list) | — | — | `<cupri-reorder-item>…</cupri-reorder-item>` (often `data-repeat="List"`) | — |
+| `<cupri-board>` | Kanban: a row of `<cupri-reorder>` columns. Drag a card's grip within a column or across to another (source closes its gap, target opens one, the card follows the pointer); `OnReorder` carries the source `List`/`From` and target `ToList`/`To` | — | — | column wrappers, each holding a `<cupri-reorder>` | — |
 | `<cupri-split>` | Resizable panels with draggable dividers (auto‑inserted between panels); drag a divider to grow one panel and shrink its neighbour. `vertical` stacks them; nestable. Give it a bounded size | `vertical` | — | `<cupri-split-panel size="N">…</cupri-split-panel>` (`size` = initial share) | — |
 
 ```html

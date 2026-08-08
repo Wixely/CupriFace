@@ -161,6 +161,23 @@ public sealed class ReorderComponent : ComponentBase
     public override void Expand(IElement el) => el.ClassList.Add("cupri-reorder");
 }
 
+/// <summary>
+/// <c>&lt;cupri-board&gt;…&lt;cupri-reorder&gt;…&lt;/cupri-board&gt;</c> — a kanban board: a row of columns, each a
+/// <c>&lt;cupri-reorder&gt;</c> list. Dragging a card's grip moves it within a column or across to another
+/// column (the source closes its gap, the target opens one, the card follows the pointer). On drop the
+/// document's <c>OnReorder</c> fires with the source and target list elements, so the handler moves the item
+/// between the two bound model lists. Wrap each column's header + list however you like; the board just
+/// groups every <c>&lt;cupri-reorder&gt;</c> beneath it and lays the columns out in a row.
+/// </summary>
+public sealed class BoardComponent : ComponentBase
+{
+    public override string Tag => "cupri-board";
+    public override string DefaultCss => """
+        .cupri-board { display:flex; gap:16px; align-items:flex-start; }
+        """;
+    public override void Expand(IElement el) => el.ClassList.Add("cupri-board");
+}
+
 /// <summary><c>&lt;cupri-reorder-item&gt;…&lt;/cupri-reorder-item&gt;</c> — one draggable row: a grip
 /// handle followed by the item's content. Dragging the grip reorders the list.</summary>
 public sealed class ReorderItemComponent : ComponentBase

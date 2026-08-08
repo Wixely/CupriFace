@@ -75,11 +75,16 @@ public sealed partial class CupriDocument : IDisposable
 
     // Drag-to-reorder: the list being reordered, its item nodes, the source/target slot, the grab Y, each
     // item's original mid-line (for slot hit-testing), and the per-slot shift distance.
-    private RenderNode? _reorderList;
-    private List<RenderNode>? _reorderItems;
-    private float[]? _reorderMids;
-    private int _reorderFrom, _reorderTo;
-    private float _reorderY0, _reorderShift;
+    // Drag-to-reorder — one list, or several columns of a kanban board (all .cupri-reorder lists under a
+    // shared .cupri-board). The lifted card follows the pointer across columns; the source column closes
+    // its gap and the target column opens one; on drop OnReorder carries the source + target lists.
+    private RenderNode? _reorderList;      // the source column the drag started in
+    private RenderNode? _reorderCard;      // the lifted card (Dragging = true)
+    private List<RenderNode>? _reorderItems; // every card across the group's columns (for the ease pass)
+    private readonly record struct ReorderCol(RenderNode List, List<RenderNode> Items, float[] Mids, float Left, float Right);
+    private List<ReorderCol>? _reorderCols; // per-column geometry for target/gap computation
+    private int _reorderFromCol, _reorderToCol, _reorderFrom, _reorderTo;
+    private float _reorderX0, _reorderY0, _reorderShift;
     private double _reorderAnimT = double.NaN; // previous ease time, for frame-rate-independent smoothing
     private Action<ReorderEvent>? _onReorder;
 
@@ -89,9 +94,11 @@ public sealed partial class CupriDocument : IDisposable
     private bool _splitVertical;
     private float _splitStart, _splitPA0, _splitPB0, _splitGSum;
 
-    /// <summary>A drag-to-reorder drop: the list element and the item's old/new index. Register a handler
-    /// with <see cref="OnReorder"/>; it typically reorders the bound model list.</summary>
-    public readonly record struct ReorderEvent(IElement List, int From, int To);
+    /// <summary>A drag-to-reorder drop: the source list, the item's index in it (<see cref="From"/>), and the
+    /// target index (<see cref="To"/>) in <see cref="ToList"/>. For a single list (or a within-column move)
+    /// <see cref="ToList"/> equals <see cref="List"/>; across kanban columns they differ. Register a handler
+    /// with <see cref="OnReorder"/>; it moves the item from the source list to the target.</summary>
+    public readonly record struct ReorderEvent(IElement List, int From, int To, IElement ToList);
     public CupriDocument OnReorder(Action<ReorderEvent> handler) { _onReorder = handler; return this; }
 
     // Right-click context menu (Cut/Copy/Paste/Select-all) over a text field. The engine owns
@@ -898,7 +905,7 @@ public sealed partial class CupriDocument : IDisposable
 
         // Grabbing a drag-reorder handle starts a reorder drag (paint-time; doesn't focus/blur).
         for (var n = hit; n is not null; n = n.Parent)
-            if (n.Element?.ClassList.Contains("cupri-reorder-handle") == true && StartReorder(n, y))
+            if (n.Element?.ClassList.Contains("cupri-reorder-handle") == true && StartReorder(n, x, y))
                 return true;
 
         // Grabbing a split-pane divider starts a split-resize drag.
@@ -1899,52 +1906,109 @@ public sealed partial class CupriDocument : IDisposable
     }
 
     /// <summary>Pointer move: drag a slider, or update :hover. Returns true if a repaint is needed.</summary>
-    // Grab a reorder item by its handle: record the list, its items, the source slot, and each item's
-    // original mid-line (for slot hit-testing as it's dragged).
-    private bool StartReorder(RenderNode handle, float y)
+    // Grab a card by its handle: record the source column, every column in its board group (all
+    // .cupri-reorder lists under a shared .cupri-board — else just this list), each column's cards and
+    // their mid-lines + X-span for hit-testing which column/slot the pointer is over as it's dragged.
+    private bool StartReorder(RenderNode handle, float x, float y)
     {
         RenderNode? item = handle;
         while (item is not null && item.Element?.ClassList.Contains("cupri-reorder-item") != true) item = item.Parent;
         if (item?.Parent is not { } list) return false;
 
-        var items = new List<RenderNode>();
-        foreach (var c in list.Children) if (c.Element?.ClassList.Contains("cupri-reorder-item") == true) items.Add(c);
-        var from = items.IndexOf(item);
-        if (from < 0) return false;
+        RenderNode? board = list;
+        while (board is not null && board.Element?.ClassList.Contains("cupri-board") != true) board = board.Parent;
+        var lists = new List<RenderNode>();
+        if (board is not null) CollectReorderLists(board, lists); else lists.Add(list);
 
-        var mids = new float[items.Count];
-        for (var i = 0; i < items.Count; i++) { var b = HitTesting.AbsoluteBox(items[i]); mids[i] = b.Y + b.H / 2f; }
+        var cols = new List<ReorderCol>();
+        var all = new List<RenderNode>();
+        int fromCol = -1, from = -1;
+        for (var ci = 0; ci < lists.Count; ci++)
+        {
+            var items = new List<RenderNode>();
+            foreach (var c in lists[ci].Children) if (c.Element?.ClassList.Contains("cupri-reorder-item") == true) items.Add(c);
+            var mids = new float[items.Count];
+            for (var i = 0; i < items.Count; i++) { var b = HitTesting.AbsoluteBox(items[i]); mids[i] = b.Y + b.H / 2f; }
+            var lb = HitTesting.AbsoluteBox(lists[ci]);
+            cols.Add(new ReorderCol(lists[ci], items, mids, lb.X, lb.X + lb.W));
+            all.AddRange(items);
+            var idx = items.IndexOf(item);
+            if (idx >= 0) { fromCol = ci; from = idx; }
+        }
+        if (fromCol < 0) return false;
 
-        _reorderList = list; _reorderItems = items; _reorderMids = mids;
-        _reorderFrom = from; _reorderTo = from; _reorderY0 = y;
-        _reorderShift = items.Count >= 2 ? MathF.Abs(mids[1] - mids[0]) : item.Height + 8f;
+        _reorderCols = cols; _reorderItems = all; _reorderList = list; _reorderCard = item;
+        _reorderFromCol = _reorderToCol = fromCol; _reorderFrom = _reorderTo = from;
+        _reorderX0 = x; _reorderY0 = y;
+        _reorderShift = cols[fromCol].Items.Count >= 2 ? MathF.Abs(cols[fromCol].Mids[1] - cols[fromCol].Mids[0]) : item.Height + 8f;
         _reorderAnimT = double.NaN;
         item.Dragging = true;
         return true;
     }
 
-    // Dragging: the lifted item follows the pointer; the items between its source and current target slot
-    // slide one place to open the gap. All paint-time (no rebuild) until the drop.
-    private bool MoveReorder(float y)
+    // Every .cupri-reorder list under a board (a found list is a column — don't descend into its cards).
+    private static void CollectReorderLists(RenderNode n, List<RenderNode> outp)
     {
-        if (_reorderItems is not { } items || _reorderMids is not { } mids) return false;
-        var from = _reorderFrom;
-        var delta = y - _reorderY0;
-        var center = mids[from] + delta;
+        foreach (var c in n.Children)
+            if (c.Element?.ClassList.Contains("cupri-reorder") == true) outp.Add(c);
+            else CollectReorderLists(c, outp);
+    }
 
-        var to = from;
-        for (var i = from + 1; i < items.Count && center > mids[i]; i++) to = i;
-        for (var i = from - 1; i >= 0 && center < mids[i]; i--) to = i;
-        _reorderTo = to;
+    // Dragging: the lifted card follows the pointer (both axes, so it can cross columns); the column under
+    // the pointer opens a gap at the drop slot and the source column closes the one the card left. Paint-time.
+    private bool MoveReorder(float x, float y)
+    {
+        if (_reorderCols is not { } cols || _reorderCard is not { } card) return false;
+        card.DragOffsetX = x - _reorderX0;
+        card.DragOffsetY = y - _reorderY0;
 
-        for (var i = 0; i < items.Count; i++)
+        // Target column: the one whose X-span holds the pointer, else the nearest by centre.
+        var toCol = _reorderFromCol; var best = float.MaxValue;
+        for (var ci = 0; ci < cols.Count; ci++)
         {
-            if (i == from) { items[i].DragOffsetY = delta; continue; }   // lifted row tracks the pointer
-            items[i].DragTargetY = to > from && i > from && i <= to ? -_reorderShift  // others ease toward the gap
-                                 : to < from && i >= to && i < from ? _reorderShift
-                                 : 0f;
+            if (x >= cols[ci].Left && x < cols[ci].Right) { toCol = ci; best = -1; break; }
+            var d = MathF.Abs(x - (cols[ci].Left + cols[ci].Right) / 2f);
+            if (best >= 0 && d < best) { best = d; toCol = ci; }
         }
+
+        // Target slot in that column, from the pointer's Y against the column's card mid-lines.
+        var mids = cols[toCol].Mids;
+        int to;
+        if (toCol == _reorderFromCol)
+        {
+            to = _reorderFrom;                                                   // within the source column
+            for (var i = _reorderFrom + 1; i < mids.Length && y > mids[i]; i++) to = i;
+            for (var i = _reorderFrom - 1; i >= 0 && y < mids[i]; i--) to = i;
+        }
+        else { to = 0; for (var i = 0; i < mids.Length; i++) if (y > mids[i]) to = i + 1; } // into another column
+        _reorderToCol = toCol; _reorderTo = to;
+
+        ApplyReorderGaps();
         return true;
+    }
+
+    // Slide each card toward its gap target: within the source column the cards between the source and target
+    // slots shift one place; across columns the source closes (cards after the origin move up) and the target
+    // opens (cards at/after the drop move down). The lifted card is skipped — it tracks the pointer.
+    private void ApplyReorderGaps()
+    {
+        if (_reorderCols is not { } cols) return;
+        for (var ci = 0; ci < cols.Count; ci++)
+        {
+            var items = cols[ci].Items;
+            for (var i = 0; i < items.Count; i++)
+            {
+                if (items[i].Dragging) continue;
+                float t;
+                if (ci == _reorderFromCol && ci == _reorderToCol)
+                    t = _reorderTo > _reorderFrom && i > _reorderFrom && i <= _reorderTo ? -_reorderShift
+                      : _reorderTo < _reorderFrom && i >= _reorderTo && i < _reorderFrom ? _reorderShift : 0f;
+                else if (ci == _reorderFromCol) t = i > _reorderFrom ? -_reorderShift : 0f;   // source closes
+                else if (ci == _reorderToCol)   t = i >= _reorderTo ? _reorderShift : 0f;      // target opens
+                else t = 0f;
+                items[i].DragTargetY = t;
+            }
+        }
     }
 
     // Ease each shifting row toward its target offset (the lifted row is skipped — it tracks the pointer).
@@ -1989,22 +2053,26 @@ public sealed partial class CupriDocument : IDisposable
     // its node, so it must survive a rebuild.
     private void CancelOrphanedPointerDrags()
     {
-        _reorderList = null; _reorderItems = null; _reorderMids = null;
+        _reorderList = null; _reorderItems = null; _reorderCols = null; _reorderCard = null;
         _splitA = _splitB = null;
         _resizeDrag = null;
         _scrollDrag = null;
     }
 
-    // Drop: clear the offsets and, if the slot changed, fire the reorder event (which reorders the model
-    // and rebuilds). A no-op move just repaints away the offsets.
+    // Drop: clear the offsets and, if the card landed in a new column/slot, fire the reorder event (which
+    // moves it in the model and rebuilds). A no-op drop just repaints the offsets away.
     private void EndReorder()
     {
         if (_reorderItems is { } items)
-            foreach (var it in items) { it.DragOffsetY = 0f; it.DragTargetY = 0f; it.Dragging = false; }
-        var el = _reorderList?.Element;
-        var (from, to) = (_reorderFrom, _reorderTo);
-        _reorderList = null; _reorderItems = null; _reorderMids = null;
-        if (to != from && el is not null) { _onReorder?.Invoke(new ReorderEvent(el, from, to)); Refresh(); }
+            foreach (var it in items) { it.DragOffsetX = 0f; it.DragOffsetY = 0f; it.DragTargetY = 0f; it.Dragging = false; }
+        var cols = _reorderCols;
+        var (fromCol, from, toCol, to) = (_reorderFromCol, _reorderFrom, _reorderToCol, _reorderTo);
+        _reorderList = null; _reorderItems = null; _reorderCols = null; _reorderCard = null;
+        if (cols is null) return;
+        var fromEl = cols[fromCol].List.Element;
+        var toEl = cols[toCol].List.Element;
+        if ((toCol != fromCol || to != from) && fromEl is not null && toEl is not null)
+        { _onReorder?.Invoke(new ReorderEvent(fromEl, from, to, toEl)); Refresh(); }
     }
 
     // Keyboard reorder: move the focused row's item one slot (↑ up / ↓ down), commit via OnReorder, and
@@ -2021,7 +2089,7 @@ public sealed partial class CupriDocument : IDisposable
         var to = Math.Clamp(from + dir, 0, items.Count - 1);
         if (from < 0 || to == from) return true; // already at an edge — consume the key
 
-        _onReorder?.Invoke(new ReorderEvent(listEl, from, to));
+        _onReorder?.Invoke(new ReorderEvent(listEl, from, to, listEl)); // keyboard reorder stays within one list
         Refresh();
         FocusReorderGrip(to);
         return true;
@@ -2097,7 +2165,7 @@ public sealed partial class CupriDocument : IDisposable
     public bool DispatchPointerMove(float x, float y)
     {
         if (_splitA is not null) return MoveSplit(x, y);
-        if (_reorderItems is not null) return MoveReorder(y);
+        if (_reorderItems is not null) return MoveReorder(x, y);
         if (_resizeDrag is { } rz)
         {
             var mode = rz.Style.Resize;

@@ -140,9 +140,9 @@ public sealed class Painter
             return;
         }
 
-        // node.X/Y are relative to the parent's border-box origin. DragOffsetY shifts a reorder item
+        // node.X/Y are relative to the parent's border-box origin. DragOffsetX/Y shift a reorder item
         // (and its subtree) at paint time while it's being dragged / making room for the dragged one.
-        var absX = originX + node.X;
+        var absX = originX + node.X + node.DragOffsetX;
         var absY = originY + node.Y + node.DragOffsetY;
         var s = node.Style;
 
@@ -304,7 +304,7 @@ public sealed class Painter
         {
             // A soft drop-shadow under the lifted item, then the item on top of everything.
             var dy = absY - scrollY + dragged.Y + dragged.DragOffsetY;
-            var dx = absX - scrollX + dragged.X;
+            var dx = absX - scrollX + dragged.X + dragged.DragOffsetX;
             list.Add(new ShadowRect(dx, dy, dragged.Width, dragged.Height, dragged.Style.BorderRadius,
                 0, 4, 16, 0, new SKColor(0, 0, 0, 0x33), false));
             PaintNode(list, dragged, absX - scrollX, absY - scrollY, topLayer, inTopLayer, childSticky, childScrollTop);
