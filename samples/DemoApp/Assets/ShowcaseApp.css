@@ -11,11 +11,11 @@ body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; -
             --cupri-border:#2a3346; --cupri-hover:#273249; --cupri-sidebar:#0b0f18; --cupri-sidebar-text:#aeb6c6; --cupri-nav-active:#243049; }
 .app { display:flex; height:100%; font-family:sans-serif; }
 /* Colour transitions make the light/dark toggle cross-fade instead of snapping. The width transition
-   animates the collapse to an icon rail — overflow:hidden + nowrap clip the labels as it narrows, and the
-   labels also fade via opacity so the whole thing reads cleanly. */
+   animates the collapse to an icon rail; overflow:hidden + nowrap clip the labels as it narrows, and
+   the collapsed state (below) takes them out of layout entirely so the icons centre cleanly. */
 .sidebar { width:190px; background:var(--cupri-sidebar); padding:18px 14px; display:flex; flex-direction:column; gap:6px;
            overflow:hidden; white-space:nowrap; transition: background-color 0.35s ease, width 0.28s ease; }
-.sidebar.collapsed { width:64px; padding-left:12px; padding-right:12px; }
+.sidebar.collapsed { width:60px; padding-left:10px; padding-right:10px; }
 .brand-row { display:flex; align-items:center; gap:8px; margin-bottom:16px; }
 .collapse-btn { flex:none; display:flex; color:var(--cupri-sidebar-text); cursor:pointer; padding:4px; border-radius:7px;
                 transition: background-color 0.2s ease, color 0.2s ease; }
@@ -27,13 +27,22 @@ body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; -
 .nav cupri-icon, .collapse-btn cupri-icon, .side-toggle cupri-icon { flex:none; }
 .nav:hover { background:var(--cupri-nav-active); color:white; }
 .nav.active { background:var(--cupri-nav-active); color:white; font-weight:bold; }
-.nav-label, .brand-label { transition: opacity 0.18s ease; }
-.sidebar.collapsed .nav-label, .sidebar.collapsed .brand-label { opacity:0; }
-/* Responsive: below a narrow width the sidebar auto-collapses to the icon rail — the same collapsed
-   state, driven by @media instead of the toggle, and the width transition animates the change. */
+/* Collapsed icon rail — via the toggle (.collapsed) or auto below a narrow width (@media, further
+   down). Both take the text OUT of layout (display:none, so nothing squishes) and centre the icons;
+   the width transition still animates the narrowing. The switch has no room in the rail, so it hides
+   too — expand the sidebar to reach it. */
+.sidebar.collapsed .nav-label, .sidebar.collapsed .brand-label, .sidebar.collapsed .tip { display:none; }
+.sidebar.collapsed .nav, .sidebar.collapsed .brand-row,
+.sidebar.collapsed .side-toggle { justify-content:center; gap:0; padding-left:0; padding-right:0; }
+.sidebar.collapsed .side-toggle cupri-switch { display:none; }
+/* Responsive: auto-collapse to the icon rail below a narrow width — the same look as .collapsed,
+   driven by @media instead of the toggle, and the width transition animates the change. */
 @media (max-width: 760px) {
-  .sidebar { width:64px; padding-left:12px; padding-right:12px; }
-  .sidebar .nav-label, .sidebar .brand-label { opacity:0; }
+  .sidebar { width:60px; padding-left:10px; padding-right:10px; }
+  .sidebar .nav-label, .sidebar .brand-label, .sidebar .tip { display:none; }
+  .sidebar .nav, .sidebar .brand-row,
+  .sidebar .side-toggle { justify-content:center; gap:0; padding-left:0; padding-right:0; }
+  .sidebar .side-toggle cupri-switch { display:none; }
 }
 /* Pinned to the bottom of the sidebar so the dark-mode toggle is visible from any section. */
 .side-bottom { margin-top:auto; display:flex; flex-direction:column; gap:12px; padding-top:12px; }
