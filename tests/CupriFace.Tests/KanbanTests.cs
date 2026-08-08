@@ -1,5 +1,8 @@
+using System;
+using System.Linq;
 using CupriFace.Dom;
 using CupriFace.Interaction;
+using CupriFace.Paint;
 using Xunit;
 
 namespace CupriFace.Tests;
@@ -57,6 +60,39 @@ public class KanbanTests
         Assert.Equal(0, drop.Value.F);
         Assert.Equal("done", drop.Value.To);                     // landed in a different column
         Assert.Equal(0, drop.Value.T);                           // at the top slot
+    }
+
+    // Index of the FillRect that paints a card's background (at its dragged/eased position).
+    private static int CardFillIndex(System.Collections.Generic.List<PaintCommand> cmds, RenderNode card)
+    {
+        var b = HitTesting.AbsoluteBox(card);
+        float px = b.X + card.DragOffsetX, py = b.Y + card.DragOffsetY;
+        for (var i = 0; i < cmds.Count; i++)
+            if (cmds[i] is FillRect f && Math.Abs(f.X - px) < 1.5f && Math.Abs(f.Y - py) < 1.5f && Math.Abs(f.W - card.Width) < 1.5f)
+                return i;
+        return -1;
+    }
+
+    [Fact]
+    public void The_lifted_card_paints_on_top_of_a_later_column()
+    {
+        using var t = new TestDoc(Html, "", null, width: 500, height: 300, components: true);
+        var handle = t.Find(n => n.Element?.ClassList.Contains("cupri-reorder-handle") == true)!; // "todo" card A's grip
+        var (hx, hy) = TestDoc.Center(handle);
+        t.Doc.DispatchClick(hx, hy, 1);                       // grab A
+        var done = HitTesting.AbsoluteBox(Col(t, "done"));
+        t.Doc.DispatchPointerMove(done.X + done.W / 2f, done.Y + 8f); // drag it over the "done" column
+        t.Layout();
+
+        var cmds = t.Doc.BuildFrame(500, 300).Commands.ToList();
+        var dragged = t.Find(n => n.Dragging)!;
+        var doneCard = t.Find(n => n.Element?.ClassList.Contains("cupri-reorder-item") == true
+                                   && n.Element.TextContent.Contains("X"))!; // the card already in "done"
+
+        var di = CardFillIndex(cmds, dragged);
+        var oi = CardFillIndex(cmds, doneCard);
+        Assert.True(di >= 0 && oi >= 0, $"found both cards' fills (dragged={di}, done={oi})");
+        Assert.True(di > oi, $"the lifted card (paint #{di}) must paint after the done column's card (#{oi}) — on top");
     }
 
     [Fact]

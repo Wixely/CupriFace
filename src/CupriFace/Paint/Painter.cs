@@ -19,6 +19,12 @@ public sealed class Painter
     /// of the normal paint. Toggled via <c>CupriDocument.DebugOverlay</c>.</summary>
     public bool DebugOutline;
 
+    // The lifted reorder/kanban card, deferred to a global layer painted last (over other columns and any
+    // content below the board) — a per-container defer would leave it behind whatever paints after its
+    // column. Node + the origin it was reached at; reset each Build.
+    private RenderNode? _dragCard;
+    private float _dragOx, _dragOy;
+
     private const float CullMargin = 60f; // paint a little past the viewport so scrolling never flashes blank
     private static readonly SKColor _dbgBox = new(0xE0, 0x2F, 0x8A, 0x66);    // magenta box outline
     private static readonly SKColor _dbgScroll = new(0x2F, 0x8A, 0xE0, 0x99); // blue for scroll containers
@@ -35,6 +41,7 @@ public sealed class Painter
     {
         var list = new DisplayList();
         var topLayer = new List<RenderNode>();
+        _dragCard = null;
 
         // backdrop-filter on a top-layer scrim (a modal/drawer/shelf) blurs the page BEHIND it. Skia has
         // no backdrop-capture we can reach, but the top layer paints last — so we blur the whole
@@ -65,6 +72,15 @@ public sealed class Painter
             if (backdropNode is not null) list.Add(new PopFilter());
             foreach (var o in ordered)
                 PaintNode(list, o, 0, 0, topLayer, inTopLayer: true);
+        }
+
+        // The lifted card floats above everything — its shadow, then the card at its dragged offset.
+        if (_dragCard is { } d)
+        {
+            var dx = _dragOx + d.X + d.DragOffsetX;
+            var dy = _dragOy + d.Y + d.DragOffsetY;
+            list.Add(new ShadowRect(dx, dy, d.Width, d.Height, d.Style.BorderRadius, 0, 4, 16, 0, new SKColor(0, 0, 0, 0x33), false));
+            PaintNode(list, d, _dragOx, _dragOy, topLayer, inTopLayer: false);
         }
         return list;
     }
@@ -300,15 +316,9 @@ public sealed class Painter
                 && (child.Y + child.Height < bandTop || child.Y > bandBottom)) continue;
             PaintNode(list, child, absX - scrollX, absY - scrollY, topLayer, inTopLayer, childSticky, childScrollTop);
         }
-        if (dragged is not null)
-        {
-            // A soft drop-shadow under the lifted item, then the item on top of everything.
-            var dy = absY - scrollY + dragged.Y + dragged.DragOffsetY;
-            var dx = absX - scrollX + dragged.X + dragged.DragOffsetX;
-            list.Add(new ShadowRect(dx, dy, dragged.Width, dragged.Height, dragged.Style.BorderRadius,
-                0, 4, 16, 0, new SKColor(0, 0, 0, 0x33), false));
-            PaintNode(list, dragged, absX - scrollX, absY - scrollY, topLayer, inTopLayer, childSticky, childScrollTop);
-        }
+        // Defer the lifted card to a single global layer (painted after everything, incl. other columns and
+        // whatever sits below the board), so it floats on top instead of hiding behind a later-painted sibling.
+        if (dragged is not null) { _dragCard = dragged; _dragOx = absX - scrollX; _dragOy = absY - scrollY; }
 
         // Sticky pass: each deferred sticky node paints at its stuck position (clamped to its containing
         // block), on top of the scrolled content but still inside this container's clip.
