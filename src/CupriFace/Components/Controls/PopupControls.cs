@@ -12,9 +12,10 @@ public sealed class MenuComponent : ComponentBase
     public override string DefaultCss => """
         .cupri-menu { display:inline-block; }
         .cupri-menu-trigger { display:inline-flex; align-items:center; gap:6px; padding:9px 14px;
-                              background:#eef1f5; color:#1e2430; border-radius:8px; font-weight:bold; font-size:14px; }
-        .cupri-menu-popup { position:fixed; background:white; border-radius:10px; padding:6px; z-index:30;
-                            border:1px #e6e9f0; box-shadow:0 10px 28px #00000026; }
+                              background:var(--cupri-hover,#eef1f5); color:var(--cupri-text,#1e2430);
+                              border-radius:8px; font-weight:bold; font-size:14px; }
+        .cupri-menu-popup { position:fixed; background:var(--cupri-surface,white); border-radius:10px; padding:6px; z-index:30;
+                            border:1px var(--cupri-border,#e6e9f0); box-shadow:0 10px 28px #00000026; }
         """;
 
     public override void Expand(IElement el)
@@ -46,8 +47,8 @@ public sealed class ContextMenuComponent : ComponentBase
     public override string Tag => "cupri-context-menu";
     public override string DefaultCss => """
         .cupri-ctx-host { display:block; }
-        .cupri-ctx-menu { position:fixed; display:none; background:white; border-radius:10px; padding:6px;
-                          min-width:180px; z-index:60; border:1px #e6e9f0; box-shadow:0 10px 28px #00000026; }
+        .cupri-ctx-menu { position:fixed; display:none; background:var(--cupri-surface,white); border-radius:10px; padding:6px;
+                          min-width:180px; z-index:60; border:1px var(--cupri-border,#e6e9f0); box-shadow:0 10px 28px #00000026; }
         """;
 
     public override void Expand(IElement el)
@@ -84,13 +85,13 @@ public sealed class MenuItemComponent : ComponentBase
     public override string Tag => "cupri-menu-item";
     public override string DefaultCss => """
         .cupri-menu-item { display:flex; align-items:center; gap:8px; padding:9px 12px; border-radius:6px;
-                           color:#1e2430; font-size:14px; }
-        .cupri-menu-item:hover { background:#eef1f5; }
+                           color:var(--cupri-text,#1e2430); font-size:14px; }
+        .cupri-menu-item:hover { background:var(--cupri-hover,#eef1f5); }
         .cupri-menu-label { flex:1; }                         /* push the chevron to the far edge */
         .cupri-menu-parent { position:relative; }
         .cupri-submenu { position:absolute; left:100%; top:-7px; display:none; min-width:170px;
-                         background:white; border-radius:10px; padding:6px; z-index:31;
-                         border:1px #e6e9f0; box-shadow:0 10px 28px #00000026; }
+                         background:var(--cupri-surface,white); border-radius:10px; padding:6px; z-index:31;
+                         border:1px var(--cupri-border,#e6e9f0); box-shadow:0 10px 28px #00000026; }
         .cupri-menu-parent:hover > .cupri-submenu { display:block; } /* fly out while the row (or its panel) is hovered */
         """;
 

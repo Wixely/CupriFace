@@ -15,7 +15,8 @@ public sealed class PopoverComponent : ComponentBase
     public override string DefaultCss => """
         .cupri-popover { display:inline-block; }
         .cupri-pop-trigger { display:inline-flex; align-items:center; gap:6px; padding:9px 14px;
-                             background:#eef1f5; color:#1e2430; border-radius:8px; font-weight:bold; font-size:14px; }
+                             background:var(--cupri-hover,#eef1f5); color:var(--cupri-text,#1e2430);
+                             border-radius:8px; font-weight:bold; font-size:14px; }
         .cupri-pop-panel { position:fixed; background:var(--cupri-surface, white); border-radius:10px; padding:14px;
                            z-index:35; border:1px var(--cupri-border, #e6e9f0); max-width:280px;
                            color:var(--cupri-text, #1e2430); font-size:14px; box-shadow:0 10px 30px #00000026; }

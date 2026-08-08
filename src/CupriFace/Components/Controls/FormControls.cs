@@ -56,8 +56,8 @@ public sealed class IconButtonComponent : ComponentBase
 {
     public override string Tag => "cupri-icon-button";
     public override string DefaultCss => """
-        .cupri-icon-button { display:inline-flex; align-items:center; justify-content:center;
-                             width:38px; height:38px; border-radius:8px; background:#eef1f5; color:#48505c; }
+        .cupri-icon-button { display:inline-flex; align-items:center; justify-content:center; width:38px; height:38px;
+                             border-radius:8px; background:var(--cupri-hover,#eef1f5); color:var(--cupri-muted,#48505c); }
         """;
 
     public override void Expand(IElement el)
