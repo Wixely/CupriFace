@@ -197,6 +197,7 @@ public sealed partial class CupriDocument : IDisposable
         // A rebuild re-parses the DOM, so scroll offsets on the fresh tree would reset — carry them
         // over (keyed by structural path, since element identity isn't stable across re-parse).
         var scroll = CaptureScroll();
+        CancelOrphanedPointerDrags(); // any node the pointer was dragging is about to be orphaned
 
         _dom?.Dispose();
         var dom = new HtmlParser().ParseDocument(_templateHtml);
@@ -1895,6 +1896,22 @@ public sealed partial class CupriDocument : IDisposable
             foreach (var it in items) if (!it.Dragging && MathF.Abs(it.DragTargetY - it.DragOffsetY) > 0.4f) return true;
             return false;
         }
+    }
+
+    // A rebuild replaces every RenderNode, so any node the pointer was mid-drag on is now orphaned. The
+    // paint-time drags (reorder / split / resize / scrollbar) hold references to those dead nodes — drop
+    // them, or pointer-moves keep routing to a drag that no longer paints (the reorder row looks stuck or
+    // stacked on its neighbours and :hover stops updating) until some unrelated event clears it. This is
+    // the safety net for a missed pointer-up (released off-window) or a rebuild landing mid-drag. Any
+    // committed size/ratio was already carried across by CaptureScroll, so nothing visible is lost. The
+    // slider drag (_dragging) is deliberately NOT reset: it rebuilds on every move by design and re-finds
+    // its node, so it must survive a rebuild.
+    private void CancelOrphanedPointerDrags()
+    {
+        _reorderList = null; _reorderItems = null; _reorderMids = null;
+        _splitA = _splitB = null;
+        _resizeDrag = null;
+        _scrollDrag = null;
     }
 
     // Drop: clear the offsets and, if the slot changed, fire the reorder event (which reorders the model

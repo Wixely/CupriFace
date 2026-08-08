@@ -56,6 +56,37 @@ public class ReorderTests
     }
 
     [Fact]
+    public void A_rebuild_mid_drag_abandons_the_drag_so_the_pointer_is_not_stuck()
+    {
+        // A drag holds references to render nodes; a rebuild (a background refresh, or a pointer-up
+        // missed because the button was released off-window) replaces them. If the stale drag isn't
+        // dropped, every later move keeps routing to the dead drag — the row looks stuck/stacked and
+        // :hover stops updating — until some unrelated event clears it.
+        using var t = new TestDoc(Html, ".cupri-reorder-item:hover { color:#ff0000; }", null,
+            width: 300, height: 500, components: true);
+
+        var handle = t.Find(n => n.Element?.ClassList.Contains("cupri-reorder-handle") == true)!;
+        var (hx, hy) = TestDoc.Center(handle);
+        t.Doc.DispatchClick(hx, hy, 1);                 // grab row 0
+        t.Doc.DispatchPointerMove(hx, hy + 30f);        // …and start dragging it
+        Assert.True(Items(t)[0].Dragging, "drag is active");
+
+        t.Doc.Refresh();                                // a rebuild lands mid-drag
+        t.Layout();
+
+        // Moving the pointer now must update :hover, proving the drag was abandoned (not still eating moves).
+        var second = Items(t)[1];
+        var (bx, by) = TestDoc.Center(second);
+        t.Doc.DispatchPointerMove(bx, by);
+        t.Layout();
+
+        var hovered = t.Find(n => n.Element?.ClassList.Contains("cupri-reorder-item") == true
+                                  && n.Element.HasAttribute("data-hover"));
+        Assert.NotNull(hovered);                        // hover works ⇒ not stuck in a phantom drag
+        foreach (var it in Items(t)) Assert.Equal(0f, it.DragOffsetY);  // nothing left lifted/stacked
+    }
+
+    [Fact]
     public void A_grab_and_release_without_moving_is_not_a_reorder()
     {
         var fired = false;
