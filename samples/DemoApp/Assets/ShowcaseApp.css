@@ -48,6 +48,10 @@ body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; -
 .side-bottom { margin-top:auto; display:flex; flex-direction:column; gap:12px; padding-top:12px; }
 .side-toggle { display:flex; align-items:center; gap:8px; color:var(--cupri-sidebar-text); font-size:14px; padding:2px; }
 .tip { color:#6b7688; font-size:12px; }
+/* A right-click target region for the <cupri-context-menu> demo. */
+.ctx-card { width:260px; height:110px; display:flex; align-items:center; justify-content:center;
+            background:var(--cupri-surface,#fff); color:var(--cupri-muted,#6b7688);
+            border:1px var(--cupri-border); border-radius:10px; font-size:14px; }
 /* Bounded to the window height (flex-stretched), so a tall section scrolls (wheel + thumb) instead
    of overflowing off-screen. The scrollbar only appears when a section is taller than the viewport. */
 .content { flex:1; padding:26px; background:var(--cupri-bg); color:var(--cupri-text); transition: background-color 0.35s ease; overflow:scroll; }

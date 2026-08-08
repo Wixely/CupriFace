@@ -34,6 +34,7 @@ public sealed class ShowcaseApp : CupriApp
         doc.OnClick(".collapse-btn", _ => _model.SidebarCollapsed = !_model.SidebarCollapsed);
         doc.OnClick(".act-submit", _ => _model.FormOk = doc.ValidateAll());
         doc.OnClick(".swatch", e => { if (e.Element.GetAttribute("data-accent") is { } a) _model.Accent = a; });
+        doc.OnClick(".ctx-act", e => { if (e.Element.GetAttribute("data-action") is { } a) _model.CtxAction = a; });
         doc.OnReorder(e =>
         {
             var list = _model.Tasks;
@@ -109,6 +110,10 @@ public sealed partial class ShowcaseModel
     public string SwOcean => Accent == "ocean" ? "on" : "";
     public string SwForest => Accent == "forest" ? "on" : "";
     public string SwGrape => Accent == "grape" ? "on" : "";
+
+    // Last item chosen from the right-click <cupri-context-menu> demo.
+    public string CtxAction { get; set; } = "";
+    public string CtxActionLabel => CtxAction.Length == 0 ? "Pick an item from the menu…" : "Last action: " + CtxAction;
 
     public int Volume { get; set; } = 60;
     public string Name { get; set; } = "";
