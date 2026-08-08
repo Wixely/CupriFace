@@ -35,6 +35,8 @@ public sealed class ShowcaseApp : CupriApp
         doc.OnClick(".act-submit", _ => _model.FormOk = doc.ValidateAll());
         doc.OnClick(".swatch", e => { if (e.Element.GetAttribute("data-accent") is { } a) _model.Accent = a; });
         doc.OnClick(".ctx-act", e => { if (e.Element.GetAttribute("data-action") is { } a) _model.CtxAction = a; });
+        doc.OnClick(".search-btn", _ => { _model.PaletteQuery = ""; _model.PaletteOpen = true; }); // open the command palette
+
         doc.OnReorder(e =>
         {
             var list = _model.Tasks;
@@ -114,6 +116,10 @@ public sealed partial class ShowcaseModel
     // Last item chosen from the right-click <cupri-context-menu> demo.
     public string CtxAction { get; set; } = "";
     public string CtxActionLabel => CtxAction.Length == 0 ? "Pick an item from the menu…" : "Last action: " + CtxAction;
+
+    // Command palette (opened from the sidebar search button; commands navigate via Section / toggle DarkMode).
+    public bool PaletteOpen { get; set; }
+    public string PaletteQuery { get; set; } = "";
 
     public int Volume { get; set; } = 60;
     public string Name { get; set; } = "";

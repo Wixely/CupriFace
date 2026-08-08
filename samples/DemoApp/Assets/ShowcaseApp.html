@@ -5,6 +5,9 @@
         <div class="collapse-btn" role="button" aria-label="Toggle sidebar"><cupri-icon name="menu" size="22"></cupri-icon></div>
         <span class="brand-label">CupriFace</span>
       </div>
+      <div class="search-btn" role="button" aria-label="Open command palette">
+        <cupri-icon name="search" size="16"></cupri-icon><span class="nav-label">Search commands…</span>
+      </div>
       <div class="nav {{NavControls}}" data-section="controls"><cupri-icon name="edit" size="20"></cupri-icon><span class="nav-label">Inputs</span></div>
       <div class="nav {{NavComponents}}" data-section="components"><cupri-icon name="menu" size="20"></cupri-icon><span class="nav-label">Components</span></div>
       <div class="nav {{NavCharts}}" data-section="charts"><cupri-icon name="bar-chart" size="20"></cupri-icon><span class="nav-label">Charts</span></div>
@@ -460,4 +463,20 @@
     <div class="dlg-body">A bottom sheet that rises from the edge. Click the backdrop to dismiss.</div>
     <div class="row"><cupri-switch checked="{{ShelfBlur}}"></cupri-switch><span class="lbl">Blur background</span></div>
   </cupri-shelf>
+
+  <!-- Global command palette: the sidebar "Search" button opens it; type to filter, ↑/↓ + Enter to run. -->
+  <cupri-command-palette open="{{PaletteOpen}}" value="{{PaletteQuery}}">
+    <cupri-command icon="edit"      data-set-path="Section" data-set-value="controls">Go to Inputs</cupri-command>
+    <cupri-command icon="menu"      data-set-path="Section" data-set-value="components">Go to Components</cupri-command>
+    <cupri-command icon="bar-chart" data-set-path="Section" data-set-value="charts">Go to Charts</cupri-command>
+    <cupri-command icon="image"     data-set-path="Section" data-set-value="images">Go to Images</cupri-command>
+    <cupri-command icon="layers"    data-set-path="Section" data-set-value="overlays">Go to Overlays</cupri-command>
+    <cupri-command icon="dashboard" data-set-path="Section" data-set-value="layout">Go to Layout</cupri-command>
+    <cupri-command icon="autorenew" data-set-path="Section" data-set-value="motion">Go to Motion</cupri-command>
+    <cupri-command icon="palette"   data-set-path="Section" data-set-value="styling">Go to Styling</cupri-command>
+    <cupri-command icon="settings"  data-set-path="Section" data-set-value="settings">Go to Settings</cupri-command>
+    <cupri-command icon="memory"    data-set-path="Section" data-set-value="diag">Go to Diagnostics</cupri-command>
+    <cupri-command icon="eye"       data-set-path="DarkMode" data-set-value="true">Enable dark mode</cupri-command>
+    <cupri-command icon="eye-off"   data-set-path="DarkMode" data-set-value="false">Disable dark mode</cupri-command>
+  </cupri-command-palette>
 </body>

@@ -27,12 +27,17 @@ body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; -
 .nav cupri-icon, .collapse-btn cupri-icon, .side-toggle cupri-icon { flex:none; }
 .nav:hover { background:var(--cupri-nav-active); color:white; }
 .nav.active { background:var(--cupri-nav-active); color:white; font-weight:bold; }
+/* Command-palette trigger, pinned above the nav. */
+.search-btn { display:flex; align-items:center; gap:10px; margin-bottom:10px; padding:9px 12px; border-radius:8px;
+              background:var(--cupri-nav-active); color:var(--cupri-sidebar-text); font-size:14px; cursor:pointer; }
+.search-btn:hover { color:white; }
+.search-btn cupri-icon { flex:none; }
 /* Collapsed icon rail — via the toggle (.collapsed) or auto below a narrow width (@media, further
    down). Both take the text OUT of layout (display:none, so nothing squishes) and centre the icons;
    the width transition still animates the narrowing. The switch has no room in the rail, so it hides
    too — expand the sidebar to reach it. */
 .sidebar.collapsed .nav-label, .sidebar.collapsed .brand-label, .sidebar.collapsed .tip { display:none; }
-.sidebar.collapsed .nav, .sidebar.collapsed .brand-row,
+.sidebar.collapsed .nav, .sidebar.collapsed .brand-row, .sidebar.collapsed .search-btn,
 .sidebar.collapsed .side-toggle { justify-content:center; gap:0; padding-left:0; padding-right:0; }
 .sidebar.collapsed .side-toggle cupri-switch { display:none; }
 /* Responsive: auto-collapse to the icon rail below a narrow width — the same look as .collapsed,
@@ -40,7 +45,7 @@ body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; -
 @media (max-width: 760px) {
   .sidebar { width:60px; padding-left:10px; padding-right:10px; }
   .sidebar .nav-label, .sidebar .brand-label, .sidebar .tip { display:none; }
-  .sidebar .nav, .sidebar .brand-row,
+  .sidebar .nav, .sidebar .brand-row, .sidebar .search-btn,
   .sidebar .side-toggle { justify-content:center; gap:0; padding-left:0; padding-right:0; }
   .sidebar .side-toggle cupri-switch { display:none; }
 }
