@@ -150,6 +150,18 @@
         <cupri-reorder style="max-width:360px">
           <cupri-reorder-item data-repeat="Tasks">{{.}}</cupri-reorder-item>
         </cupri-reorder>
+        <div class="mlabel" style="margin-top:22px">Kanban — drag a card by its grip within a column or across to another</div>
+        <cupri-board>
+          <div class="kb-col"><div class="kb-head">To do</div>
+            <cupri-reorder data-col="todo"><cupri-reorder-item data-repeat="KbTodo">{{.}}</cupri-reorder-item></cupri-reorder>
+          </div>
+          <div class="kb-col"><div class="kb-head">In progress</div>
+            <cupri-reorder data-col="doing"><cupri-reorder-item data-repeat="KbDoing">{{.}}</cupri-reorder-item></cupri-reorder>
+          </div>
+          <div class="kb-col"><div class="kb-head">Done</div>
+            <cupri-reorder data-col="done"><cupri-reorder-item data-repeat="KbDone">{{.}}</cupri-reorder-item></cupri-reorder>
+          </div>
+        </cupri-board>
         <div class="row">
           <cupri-icon name="home"></cupri-icon><cupri-icon name="search"></cupri-icon>
           <cupri-icon name="bell"></cupri-icon><cupri-icon name="user"></cupri-icon>

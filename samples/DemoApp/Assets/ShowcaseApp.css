@@ -57,6 +57,10 @@ body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; -
 .ctx-card { width:260px; height:110px; display:flex; align-items:center; justify-content:center;
             background:var(--cupri-surface,#fff); color:var(--cupri-muted,#6b7688);
             border:1px var(--cupri-border); border-radius:10px; font-size:14px; }
+/* Kanban columns: a tinted lane holding white cards. */
+.kb-col { width:230px; background:var(--cupri-hover); border-radius:12px; padding:12px; }
+.kb-head { font-weight:bold; color:var(--cupri-muted); font-size:13px; margin-bottom:10px; padding:0 2px; }
+.kb-col .cupri-reorder-item { background:var(--cupri-surface); box-shadow:0 1px 3px #00000014; }
 /* Bounded to the window height (flex-stretched), so a tall section scrolls (wheel + thumb) instead
    of overflowing off-screen. The scrollbar only appears when a section is taller than the viewport. */
 .content { flex:1; padding:26px; background:var(--cupri-bg); color:var(--cupri-text); transition: background-color 0.35s ease; overflow:scroll; }

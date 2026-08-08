@@ -39,13 +39,14 @@ public sealed class ShowcaseApp : CupriApp
 
         doc.OnReorder(e =>
         {
-            var list = _model.Tasks;
-            if (e.From >= 0 && e.From < list.Count && e.To >= 0 && e.To < list.Count)
-            {
-                var item = list[e.From];
-                list.RemoveAt(e.From);
-                list.Insert(e.To, item);
-            }
+            // The kanban columns carry data-col; the standalone Tasks list doesn't. Move the card from the
+            // source list to the target (same list for a within-column/list reorder).
+            var from = _model.ReorderList(e.List.GetAttribute("data-col"));
+            var to = _model.ReorderList(e.ToList.GetAttribute("data-col"));
+            if (from is null || to is null || e.From < 0 || e.From >= from.Count) return;
+            var card = from[e.From];
+            from.RemoveAt(e.From);
+            to.Insert(Math.Clamp(e.To, 0, to.Count), card);
         });
         doc.OnClick(".act-dialog", _ => _model.DialogOpen = true);
         doc.OnClick(".act-drawer", _ => _model.DrawerOpen = true);
@@ -164,6 +165,16 @@ public sealed partial class ShowcaseModel
     public bool Acc1 { get; set; } = true;
     public bool Acc2 { get; set; }
     public List<string> Tasks { get; set; } = new() { "Draft the release notes", "Review the layout perf PR", "Reply to the design thread", "Plan next week's sprint" };
+
+    // Kanban board: three columns of cards, dragged within a column or across to another.
+    public List<string> KbTodo { get; set; } = new() { "Design the empty states", "Write the changelog", "Reply to the design thread" };
+    public List<string> KbDoing { get; set; } = new() { "Wire the command palette" };
+    public List<string> KbDone { get; set; } = new() { "Ship the context menu", "Fix the collapsed sidebar" };
+    // Map a reorder list's data-col (null = the standalone Tasks list) to its backing list.
+    public List<string>? ReorderList(string? col) => col switch
+    {
+        null => Tasks, "todo" => KbTodo, "doing" => KbDoing, "done" => KbDone, _ => null,
+    };
     public bool TreeOpen { get; set; } = true;
     public bool PopOpen { get; set; }
 
