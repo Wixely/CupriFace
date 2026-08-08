@@ -551,6 +551,7 @@ blur, see Styling). Bind it to a switch inside the panel to let the user toggle 
 | `<cupri-popover>` | Anchored panel below a trigger | `label` (“More”), `open` | `open` | panel content | panel `dialog` |
 | `<cupri-menu>` | Dropdown menu (rows fly out into submenus — see below) | `label` (“Menu”), `open` | `open` | `<cupri-menu-item icon="…">Label</cupri-menu-item>` | `menu`/`menuitem` |
 | `<cupri-context-menu>` | Right-click menu on a region (opens at the pointer; same items + submenus) | — | — | region content + `<cupri-menu-item>`s | `menu`/`menuitem` |
+| `<cupri-command-palette>` | Modal fuzzy-search over commands; auto-focus, type-to-filter, ↑/↓ + Enter | `open`, `value` (query) | `open`, `value` | `<cupri-command data-set-path="…" data-set-value="…">`s | `dialog`/`option` |
 | `<cupri-tooltip>` | Anchored bubble — shows on **hover** by default; `open="true"` pins it | `text`, `open` | `open` | trigger element(s) | bubble `tooltip` |
 | `<cupri-toast>` | Transient corner message | — | — | message | `status` |
 
@@ -596,6 +597,19 @@ and closes the menu. An outside click, Escape, or a scroll dismisses it.
 ```
 ```csharp
 doc.OnClick(".rename", _ => { /* … */ });           // items are ordinary clickable rows
+```
+
+**Command palette.** `<cupri-command-palette open value>` is a modal fuzzy-search over commands. Bind
+`open` (a button toggles it) and `value` (the query); when it opens the search auto-focuses, typing
+filters the `<cupri-command>`s (substring on their label), ↑/↓ move a highlight and Enter runs it,
+clicking runs it — each command's `data-set-path`/`data-set-value` navigates or sets a model field the
+app reacts to, and running one closes the palette. Escape or the backdrop dismisses it.
+
+```html
+<cupri-command-palette open="{{PaletteOpen}}" value="{{PaletteQuery}}">
+  <cupri-command icon="bar-chart" data-set-path="Section" data-set-value="charts">Go to Charts</cupri-command>
+  <cupri-command icon="eye" data-set-path="DarkMode" data-set-value="true">Enable dark mode</cupri-command>
+</cupri-command-palette>
 ```
 
 ---

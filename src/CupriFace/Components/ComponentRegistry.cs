@@ -108,6 +108,7 @@ public sealed class ComponentRegistry
         .Register(new MenuComponent())
         .Register(new MenuItemComponent())
         .Register(new ContextMenuComponent())
+        .Register(new CommandPaletteComponent())
         .Register(new TooltipComponent())
         .Register(new PopoverComponent())
         .Register(new DrawerComponent())

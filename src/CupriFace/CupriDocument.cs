@@ -217,8 +217,21 @@ public sealed partial class CupriDocument : IDisposable
         // Re-apply text focus across the rebuild (typing rebuilds the DOM each keystroke), and
         // paint the raw edit buffer (which may be invalid) over the bound value, flagging
         // data-invalid so the field can show a red border while the user is mid-edit.
-        if (_focusKey is not null &&
-            dom.QuerySelector($"[data-bind-value=\"{_focusKey}\"]") is { } focusEl)
+        var focusEl = _focusKey is not null ? dom.QuerySelector($"[data-bind-value=\"{_focusKey}\"]") : null;
+
+        // Auto-focus a field that asked for it (e.g. a command palette's search) when no text field is
+        // already focused — so opening the palette lands the caret in the search box, ready to type. Only
+        // present while its overlay is open, so it never steals focus otherwise.
+        if (focusEl is null && dom.QuerySelector("[data-autofocus][data-bind-value]") is { } af)
+        {
+            _focusKey = af.GetAttribute("data-bind-value");
+            _editBuffer = null;
+            var qlen = (_model is not null ? BindingEngine.Resolve(_model, _focusKey!)?.ToString() : null)?.Length ?? 0;
+            _caret = _selAnchor = qlen; // caret at the end of any existing text
+            focusEl = af;
+        }
+
+        if (focusEl is not null)
         {
             focusEl.SetAttribute("data-focus", "");
             if (_editBuffer is not null)
@@ -1316,9 +1329,14 @@ public sealed partial class CupriDocument : IDisposable
             }
             if (_listHi >= 0 && _listHi < lb.Count && lb[_listHi].GetAttribute("data-set-path") is { Length: > 0 } sp)
             {
-                var picked = lb[_listHi].GetAttribute("data-set-value") ?? "";
+                var row = lb[_listHi];                     // capture before the blur below resets _listHi
+                var picked = row.GetAttribute("data-set-value") ?? "";
                 UpdateFocus(null);                         // blur (commits the typed buffer)…
                 BindingEngine.TrySet(_model, sp, picked);  // …then overwrite with the chosen suggestion
+                // Close the enclosing overlay if the row lives in one (a command palette) — mirrors the
+                // click path's SetNearestOpen; a plain combobox has no data-bind-open ancestor, so this no-ops.
+                for (var e = row; e is not null; e = e.ParentElement)
+                    if (e.GetAttribute("data-bind-open") is { Length: > 0 } op) { BindingEngine.TrySet(_model, op, false); break; }
                 Refresh();
                 return true;
             }
