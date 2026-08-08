@@ -56,3 +56,25 @@ public sealed class ToastComponent : ComponentBase
         el.ClassList.Add("cupri-toast");
     }
 }
+
+/// <summary>
+/// Styling for the engine-owned toast <b>stack</b> raised via <c>doc.Toast("…")</c>: a bottom-right
+/// column of messages that slide in, sit for a few seconds, then slide out and are removed. This
+/// component carries no markup of its own — its CSS is always available (component CSS is aggregated
+/// regardless of use), so the injected toasts have their look + enter/exit transition. Pass a kind
+/// (<c>"success"</c>/<c>"error"</c>) to <c>doc.Toast</c> to tint one.
+/// </summary>
+public sealed class ToasterComponent : ComponentBase
+{
+    public override string Tag => "cupri-toaster";
+    public override string DefaultCss => """
+        .cupri-toaster { position:fixed; bottom:24px; right:24px; display:flex; flex-direction:column;
+                         gap:10px; align-items:flex-end; z-index:80; }
+        .cupri-toast-item { background:#1e2430; color:white; padding:13px 18px; border-radius:10px; font-size:14px;
+                            max-width:340px; box-shadow:0 10px 28px #00000040;
+                            transition: transform 0.34s ease, opacity 0.34s ease; }
+        .cupri-toast-item.success { background:#12805c; }
+        .cupri-toast-item.error { background:#b23c3c; }
+        """;
+    public override void Expand(IElement el) { } // CSS-only; toasts are injected by the engine (doc.Toast)
+}

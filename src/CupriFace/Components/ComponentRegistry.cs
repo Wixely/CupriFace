@@ -106,6 +106,7 @@ public sealed class ComponentRegistry
         // Overlays
         .Register(new DialogComponent())
         .Register(new ToastComponent())
+        .Register(new ToasterComponent())
         .Register(new MenuComponent())
         .Register(new MenuItemComponent())
         .Register(new ContextMenuComponent())

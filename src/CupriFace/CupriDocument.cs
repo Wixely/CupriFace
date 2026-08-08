@@ -116,6 +116,23 @@ public sealed partial class CupriDocument : IDisposable
     /// its own clipboard), keeping platform clipboard code out of the engine.</summary>
     public event Action<Interaction.ContextCommand>? ContextRequested;
 
+    // Engine-owned toast stack (doc.Toast). Each toast slides in, waits, then slides out and is removed —
+    // driven by Animate. Entering/Leaving render off-screen; the flip to/from Shown is what the transition
+    // engine animates (paint-only). Rendered bottom-right by InjectToaster + the ToasterComponent's CSS.
+    private enum ToastPhase { Entering, Shown, Leaving }
+    private sealed class ToastEntry { public string Msg = ""; public string Kind = ""; public ToastPhase Phase; public double T = double.NaN; }
+    private readonly List<ToastEntry> _toasts = new();
+    private const double ToastShowSeconds = 3.6, ToastExitSeconds = 0.36;
+    private bool ToastsPending => _toasts.Count > 0;
+
+    /// <summary>Raise a transient toast (bottom-right stack). <paramref name="kind"/> may be
+    /// <c>"success"</c> or <c>"error"</c> to tint it. It slides in, sits a few seconds, then slides out.</summary>
+    public void Toast(string message, string kind = "")
+    {
+        _toasts.Add(new ToastEntry { Msg = message, Kind = kind });
+        Rebuild(); // render it (off-screen); Animate flips it in on the next frame
+    }
+
     // Per-field undo/redo history (cleared on focus change). A snapshot of the edit buffer + caret.
     private readonly record struct EditState(string Buffer, int Caret, int Anchor);
     private readonly List<EditState> _undo = new();
@@ -265,6 +282,7 @@ public sealed partial class CupriDocument : IDisposable
         // from the template each time) while it's open — same approach as focus re-application.
         if (_ctxOpen) InjectContextMenu(dom);
         if (_ctxCustomIndex >= 0) RevealCustomContextMenu(dom); // a <cupri-context-menu>'s popup, opened at the pointer
+        if (_toasts.Count > 0) InjectToaster(dom);              // the engine-owned toast stack (doc.Toast)
 
         // CSS rules + @keyframes come from immutable sources (component CSS, author CSS, template
         // <style> tags), so parse them ONCE and reuse across rebuilds — a rebuild happens on every
@@ -374,6 +392,10 @@ public sealed partial class CupriDocument : IDisposable
     public bool Animate(double timeSeconds)
     {
         var any = false;
+        // Advance the toast stack first: a phase flip rebuilds and Detects a new opacity/transform target,
+        // so the transition below applies it the SAME frame — the toast starts from its off-screen state
+        // instead of flashing at the target for one frame before the transition kicks in.
+        if (_toasts.Count > 0 && StepToasts(timeSeconds)) any = true;
         if (_keyframes.Count > 0) { Animation.Apply(_root, _keyframes, timeSeconds); any = true; }
         if (_transitions.Apply(_root, timeSeconds)) any = true; // interpolate transitions over @keyframes
         if (_maskRevealPos >= 0) // a masked field is peeking its last-typed char — time it out
@@ -399,14 +421,14 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>True while a CSS transition is mid-flight (a continuous host should keep calling
     /// <see cref="Animate"/> and repainting until it settles). Also true while a masked field is
     /// peeking its last-typed char, so the host keeps ticking until <see cref="Animate"/> re-masks it.</summary>
-    public bool HasActiveTransitions => _transitions.Active || MaskPeeking || ReorderEasing;
+    public bool HasActiveTransitions => _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending;
 
     /// <summary>True only if a *visible* node is currently animating (display:none subtrees are
     /// absent from the render tree). Lets a host render continuously only when it must, instead
     /// of every frame — critical for the CPU-rendered web host. Cached per rebuild (the animated
     /// set only changes when the tree does), so a host may poll it every frame for free. Also true
     /// while a masked field peeks its last-typed char (see <see cref="HasActiveTransitions"/>).</summary>
-    public bool HasActiveAnimations => _hasActiveAnim || _transitions.Active || MaskPeeking || ReorderEasing;
+    public bool HasActiveAnimations => _hasActiveAnim || _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending;
     private bool _hasActiveAnim;
 
     private static bool AnyAnimated(RenderNode n)
@@ -1606,6 +1628,48 @@ public sealed partial class CupriDocument : IDisposable
                 return !n.Element.ClassList.Contains("cupri-menu-parent");
         return false;
     }
+
+    // ---- toast stack (doc.Toast) ------------------------------------------------------------------
+
+    // Inject the current toasts at the body end. Entering/Leaving render off-screen (translated + faded);
+    // the .cupri-toast-item transition animates the flip to/from the shown state as Animate advances phases.
+    private void InjectToaster(IDocument dom)
+    {
+        if (dom.Body is not { } body || _toasts.Count == 0) return;
+        var sb = new System.Text.StringBuilder("<div class='cupri-toaster'>");
+        foreach (var t in _toasts)
+        {
+            var off = t.Phase != ToastPhase.Shown; // Entering + Leaving sit off to the right, transparent
+            var kind = t.Kind.Length > 0 ? " " + t.Kind : "";
+            sb.Append($"<div class='cupri-toast-item{kind}' role='status' style='opacity:{(off ? "0" : "1")};")
+              .Append($"transform:translateX({(off ? "120%" : "0")})'>")
+              .Append(EscapeHtml(t.Msg)).Append("</div>");
+        }
+        sb.Append("</div>");
+        body.Insert(AngleSharp.Dom.AdjacentPosition.BeforeEnd, sb.ToString());
+    }
+
+    // Advance each toast: Entering → Shown (flip in) on its first tick; Shown → Leaving (flip out) once it
+    // has sat for ToastShowSeconds; Leaving → removed once the exit slide has run. Rebuilds on any change so
+    // the transition engine sees the new target. Returns true while any toast remains (keeps the loop alive).
+    private bool StepToasts(double t)
+    {
+        var changed = false;
+        for (var i = _toasts.Count - 1; i >= 0; i--)
+        {
+            var e = _toasts[i];
+            switch (e.Phase)
+            {
+                case ToastPhase.Entering: e.Phase = ToastPhase.Shown; e.T = t; changed = true; break;
+                case ToastPhase.Shown when t - e.T >= ToastShowSeconds: e.Phase = ToastPhase.Leaving; e.T = t; changed = true; break;
+                case ToastPhase.Leaving when t - e.T >= ToastExitSeconds: _toasts.RemoveAt(i); changed = true; break;
+            }
+        }
+        if (changed) Rebuild();
+        return _toasts.Count > 0;
+    }
+
+    private static string EscapeHtml(string s) => s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
 
     /// <summary>Undo the last edit in the focused field (Ctrl+Z). Returns true if it changed anything.</summary>
     public bool Undo()

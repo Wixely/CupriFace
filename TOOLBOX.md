@@ -554,7 +554,8 @@ blur, see Styling). Bind it to a switch inside the panel to let the user toggle 
 | `<cupri-context-menu>` | Right-click menu on a region (opens at the pointer; same items + submenus) | — | — | region content + `<cupri-menu-item>`s | `menu`/`menuitem` |
 | `<cupri-command-palette>` | Modal fuzzy-search over commands; auto-focus, type-to-filter, ↑/↓ + Enter | `open`, `value` (query) | `open`, `value` | `<cupri-command data-set-path="…" data-set-value="…">`s | `dialog`/`option` |
 | `<cupri-tooltip>` | Anchored bubble — shows on **hover** by default; `open="true"` pins it | `text`, `open` | `open` | trigger element(s) | bubble `tooltip` |
-| `<cupri-toast>` | Transient corner message | — | — | message | `status` |
+| `<cupri-toast>` | A single transient corner message (bind its visibility) | — | — | message | `status` |
+| *`doc.Toast("…")`* | Engine-owned toast **stack**: raise from code; each slides in bottom-right, stacks, auto-dismisses | — (call `doc.Toast(msg, kind)`) | — | — | `status` |
 
 ```html
 <cupri-button class="open-dlg">Open</cupri-button>
@@ -611,6 +612,14 @@ app reacts to, and running one closes the palette. Escape or the backdrop dismis
   <cupri-command icon="bar-chart" data-set-path="Section" data-set-value="charts">Go to Charts</cupri-command>
   <cupri-command icon="eye" data-set-path="DarkMode" data-set-value="true">Enable dark mode</cupri-command>
 </cupri-command-palette>
+```
+
+**Toast stack.** For fire-and-forget notifications, call `doc.Toast(message, kind)` from code — no markup
+or model flag. Each toast slides into the bottom-right corner, stacks under any already showing, sits a
+few seconds, then slides out and is removed. `kind` may be `"success"` or `"error"` to tint it.
+
+```csharp
+doc.OnClick(".save", _ => { Save(); doc.Toast("Changes saved", "success"); });
 ```
 
 ---
