@@ -961,15 +961,18 @@ public sealed class LayoutEngine
     private static List<RenderNode> InFlowChildren(RenderNode node) =>
         node.Children.Where(IsInFlow).ToList();
 
-    // Flex items keep position:fixed children (only absolute is out of flow) — a separate, unchanged
-    // predicate. Reuse the child list when nothing is skipped.
+    // Out-of-flow children (display:none, position:absolute *and* fixed) don't take a slot in the flex
+    // line — matching IsInFlow and block layout. A fixed popup (menu/tooltip/context menu) is sized and
+    // placed by LayoutFixedNodes, so counting it here only reserved a phantom slot that shoved its
+    // siblings (e.g. centred text jumping aside when a context menu opened over its region). Reuse the
+    // child list when nothing is skipped.
     private static List<RenderNode> FlexItems(List<RenderNode> kids)
     {
         var skip = false;
-        foreach (var c in kids) if (c.Style.Display == DisplayType.None || c.Style.Position == PositionType.Absolute) { skip = true; break; }
+        foreach (var c in kids) if (!IsInFlow(c)) { skip = true; break; }
         if (!skip) return kids;
         var outp = new List<RenderNode>(kids.Count);
-        foreach (var c in kids) if (c.Style.Display != DisplayType.None && c.Style.Position != PositionType.Absolute) outp.Add(c);
+        foreach (var c in kids) if (IsInFlow(c)) outp.Add(c);
         return outp;
     }
 
