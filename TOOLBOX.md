@@ -550,6 +550,7 @@ blur, see Styling). Bind it to a switch inside the panel to let the user toggle 
 | `<cupri-shelf>` | Bottom sheet — full‑width panel that rises from the bottom edge, rounded top + grab handle | `open`, `blur` | `open`, `blur` | content | `dialog` (modal) |
 | `<cupri-popover>` | Anchored panel below a trigger | `label` (“More”), `open` | `open` | panel content | panel `dialog` |
 | `<cupri-menu>` | Dropdown menu (rows fly out into submenus — see below) | `label` (“Menu”), `open` | `open` | `<cupri-menu-item icon="…">Label</cupri-menu-item>` | `menu`/`menuitem` |
+| `<cupri-context-menu>` | Right-click menu on a region (opens at the pointer; same items + submenus) | — | — | region content + `<cupri-menu-item>`s | `menu`/`menuitem` |
 | `<cupri-tooltip>` | Anchored bubble — shows on **hover** by default; `open="true"` pins it | `text`, `open` | `open` | trigger element(s) | bubble `tooltip` |
 | `<cupri-toast>` | Transient corner message | — | — | message | `status` |
 
@@ -579,6 +580,22 @@ there's no gap to fall through and dismiss it.
     </cupri-menu-item>
   </cupri-menu-item>
 </cupri-menu>
+```
+
+**Right-click menus.** `<cupri-context-menu>` attaches a menu to a region: its non-item children **are**
+the region, and its `<cupri-menu-item>`s (fly-out submenus included) open at the pointer on right-click.
+Wire an item the usual way — a class + `OnClick`, or `data-set-path`; picking a leaf row runs its action
+and closes the menu. An outside click, Escape, or a scroll dismisses it.
+
+```html
+<cupri-context-menu>
+  <div class="card">Right-click me</div>            <!-- the region -->
+  <cupri-menu-item class="rename" icon="edit">Rename</cupri-menu-item>
+  <cupri-menu-item class="del" icon="trash">Delete</cupri-menu-item>
+</cupri-context-menu>
+```
+```csharp
+doc.OnClick(".rename", _ => { /* … */ });           // items are ordinary clickable rows
 ```
 
 ---

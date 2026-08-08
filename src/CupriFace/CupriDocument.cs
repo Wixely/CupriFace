@@ -100,6 +100,9 @@ public sealed partial class CupriDocument : IDisposable
     private float _ctxX, _ctxY;
     private bool _ctxHasSelection;  // enables Cut/Copy
     private bool _ctxHasText;       // enables Select All
+    // A custom <cupri-context-menu> region's menu, opened at (_ctxX,_ctxY). Identified by the host's
+    // document-order index (stable across rebuilds; element identity and generated ids are not). -1 = none.
+    private int _ctxCustomIndex = -1;
 
     /// <summary>Raised when a context-menu item is chosen. The host performs the clipboard action
     /// (via <see cref="CopySelection"/>/<see cref="CutSelection"/>/<see cref="DispatchKey"/> +
@@ -241,6 +244,7 @@ public sealed partial class CupriDocument : IDisposable
         // The context menu is engine-owned, so re-inject it on every rebuild (the DOM re-parses
         // from the template each time) while it's open — same approach as focus re-application.
         if (_ctxOpen) InjectContextMenu(dom);
+        if (_ctxCustomIndex >= 0) RevealCustomContextMenu(dom); // a <cupri-context-menu>'s popup, opened at the pointer
 
         // CSS rules + @keyframes come from immutable sources (component CSS, author CSS, template
         // <style> tags), so parse them ONCE and reuse across rebuilds — a rebuild happens on every
@@ -838,6 +842,16 @@ public sealed partial class CupriDocument : IDisposable
             _ctxOpen = false; Refresh(); return true; // outside → dismiss
         }
 
+        // A custom <cupri-context-menu>: a click outside dismisses it; a click on a leaf row closes it
+        // AND runs the row's action via the normal flow below; a click on a submenu parent keeps it open.
+        if (_ctxCustomIndex >= 0)
+        {
+            var ctxHit = HitTesting.HitTest(_root, x, y);
+            if (!InCustomContextMenu(ctxHit)) { _ctxCustomIndex = -1; Refresh(); return true; } // outside → dismiss
+            if (!OnLeafMenuItem(ctxHit)) return true;                                            // parent/padding → keep open
+            _ctxCustomIndex = -1;                                                                // leaf → close, then fall through
+        }
+
         var hit = HitTesting.HitTest(_root, x, y);
 
         // Click-away: close any open bound-flag popup (picker/select/popover) the click landed outside.
@@ -1231,7 +1245,7 @@ public sealed partial class CupriDocument : IDisposable
         ReconcileScope(); // reflect any overlay that opened/closed since the last event
 
         // Any keystroke dismisses an open context menu; Escape only closes it (swallowed).
-        if (_ctxOpen) { _ctxOpen = false; Refresh(); if (key == EditKey.Escape) return true; }
+        if (_ctxOpen || _ctxCustomIndex >= 0) { _ctxOpen = false; _ctxCustomIndex = -1; Refresh(); if (key == EditKey.Escape) return true; }
 
         // Normalize pasted/typed line endings to '\n' (a textarea's internal newline). Windows
         // clipboards deliver "\r\n"; the stray '\r' would otherwise render as a collapsed empty line.
@@ -1442,14 +1456,24 @@ public sealed partial class CupriDocument : IDisposable
     public bool DispatchContextMenu(float x, float y)
     {
         var hit = HitTesting.HitTest(_root, x, y);
+
+        // A <cupri-context-menu> region under the pointer opens its own menu at the pointer.
+        for (var n = hit; n is not null; n = n.Parent)
+            if (n.Element is { } hostEl && hostEl.HasAttribute("data-cupri-ctx-host") && HostIndex(hostEl) is >= 0 and var idx)
+            {
+                _ctxOpen = false; _ctxCustomIndex = idx; _ctxX = x; _ctxY = y;
+                Refresh(); // the rebuild reveals the menu at (x,y)
+                return true;
+            }
+
         RenderNode? field = hit;
         while (field is not null && field.Element?.GetAttribute("role") is not ("textbox" or "spinbutton"))
             field = field.Parent;
 
-        if (field is null) // not over an editable → close any open menu, otherwise nothing to do
+        if (field is null) // not over an editable or a custom region → close any open menu, else nothing to do
         {
-            if (!_ctxOpen) return false;
-            _ctxOpen = false; Refresh(); return true;
+            if (!_ctxOpen && _ctxCustomIndex < 0) return false;
+            _ctxOpen = false; _ctxCustomIndex = -1; Refresh(); return true;
         }
 
         // Focus the field (does nothing if already focused — so an existing selection is kept).
@@ -1517,6 +1541,45 @@ public sealed partial class CupriDocument : IDisposable
             + "</div>";
 
         body.Insert(AngleSharp.Dom.AdjacentPosition.BeforeEnd, menu);
+    }
+
+    // ---- custom <cupri-context-menu> --------------------------------------------------------------
+
+    // Document-order index of a context-menu host, so the open one can be re-found after a rebuild.
+    private int HostIndex(IElement host)
+    {
+        if (_dom is null) return -1;
+        var hosts = _dom.QuerySelectorAll("[data-cupri-ctx-host]");
+        for (var i = 0; i < hosts.Length; i++) if (ReferenceEquals(hosts[i], host)) return i;
+        return -1;
+    }
+
+    // Reveal the open custom menu at the pointer: flip its popup to display:block, place it at (x,y),
+    // and mark it data-ctx-clamp so layout keeps it on-screen (same clamp the text menu uses).
+    private void RevealCustomContextMenu(IDocument dom)
+    {
+        var hosts = dom.QuerySelectorAll("[data-cupri-ctx-host]");
+        if (_ctxCustomIndex >= hosts.Length) { _ctxCustomIndex = -1; return; } // host went away since the click
+        if (hosts[_ctxCustomIndex].QuerySelector(".cupri-ctx-menu") is not { } menu) { _ctxCustomIndex = -1; return; }
+        var x = _ctxX.ToString(CultureInfo.InvariantCulture);
+        var y = _ctxY.ToString(CultureInfo.InvariantCulture);
+        menu.SetAttribute("data-ctx-clamp", "");
+        menu.SetAttribute("style", $"display:block;left:{x}px;top:{y}px;"); // position:fixed + look come from .cupri-ctx-menu
+    }
+
+    private static bool InCustomContextMenu(RenderNode? n)
+    {
+        for (; n is not null; n = n.Parent) if (n.Element?.HasAttribute("data-cupri-ctx-menu") == true) return true;
+        return false;
+    }
+
+    // The pointer is over an actionable (leaf) row — not a submenu parent or the popup's own padding.
+    private static bool OnLeafMenuItem(RenderNode? n)
+    {
+        for (; n is not null; n = n.Parent)
+            if (n.Element?.ClassList.Contains("cupri-menu-item") == true)
+                return !n.Element.ClassList.Contains("cupri-menu-parent");
+        return false;
     }
 
     /// <summary>Undo the last edit in the focused field (Ctrl+Z). Returns true if it changed anything.</summary>
@@ -2064,7 +2127,7 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>Scroll wheel: scroll the nearest scrollable element under the pointer by pixels.</summary>
     public bool DispatchWheel(float x, float y, float pixelDelta)
     {
-        if (_ctxOpen) { _ctxOpen = false; Refresh(); } // scrolling dismisses the context menu
+        if (_ctxOpen || _ctxCustomIndex >= 0) { _ctxOpen = false; _ctxCustomIndex = -1; Refresh(); } // scrolling dismisses the context menu
         var hit = HitTesting.HitTest(_root, x, y);
         for (var n = hit; n is not null; n = n.Parent)
         {

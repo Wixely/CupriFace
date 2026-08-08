@@ -35,6 +35,43 @@ public sealed class MenuComponent : ComponentBase
 }
 
 /// <summary>
+/// <c>&lt;cupri-context-menu&gt;…&lt;cupri-menu-item&gt;…&lt;/cupri-context-menu&gt;</c> — attaches a
+/// right-click menu to a region. The element's non-item children <b>are</b> the region; its
+/// <c>&lt;cupri-menu-item&gt;</c>s (fly-out submenus and all) are moved into a popup that opens at the
+/// pointer on right-click and dismisses on an outside click, Escape, or scroll. Wire an item's action
+/// the usual way (a class + <c>OnClick</c>, or <c>data-set-path</c>); picking it also closes the menu.
+/// </summary>
+public sealed class ContextMenuComponent : ComponentBase
+{
+    public override string Tag => "cupri-context-menu";
+    public override string DefaultCss => """
+        .cupri-ctx-host { display:block; }
+        .cupri-ctx-menu { position:fixed; display:none; background:white; border-radius:10px; padding:6px;
+                          min-width:180px; z-index:60; border:1px #e6e9f0; box-shadow:0 10px 28px #00000026; }
+        """;
+
+    public override void Expand(IElement el)
+    {
+        el.ClassList.Add("cupri-ctx-host");
+        el.SetAttribute("data-cupri-ctx-host", ""); // the engine finds this region on right-click
+
+        // The direct <cupri-menu-item>s are the menu; everything else stays put as the target region.
+        var items = el.Children
+            .Where(c => string.Equals(c.LocalName, "cupri-menu-item", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (items.Count == 0) return;
+
+        var menu = el.Owner!.CreateElement("div");
+        menu.ClassName = "cupri-ctx-menu";
+        menu.SetAttribute("role", "menu");
+        menu.SetAttribute("data-cupri-ctx-menu", "");
+        menu.SetAttribute("data-focus-scope", "");
+        foreach (var it in items) menu.AppendChild(it); // relocate (keeps identity, still gets expanded)
+        el.AppendChild(menu);
+    }
+}
+
+/// <summary>
 /// <c>&lt;cupri-menu-item&gt;</c> — a row inside a menu. A plain row keeps its label; a row that
 /// <b>contains its own <c>&lt;cupri-menu-item&gt;</c>s</b> becomes a fly-out submenu: it shows a
 /// chevron and, on hover, reveals its children in a panel to the right (give the row a

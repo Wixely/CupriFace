@@ -107,6 +107,7 @@ public sealed class ComponentRegistry
         .Register(new ToastComponent())
         .Register(new MenuComponent())
         .Register(new MenuItemComponent())
+        .Register(new ContextMenuComponent())
         .Register(new TooltipComponent())
         .Register(new PopoverComponent())
         .Register(new DrawerComponent())
