@@ -399,6 +399,7 @@ static config unless noted.
 | `<cupri-pagination>` | 1‑based page navigator: ‹ prev, first/last, a fixed‑width window around the current page (with … gaps), next › — constant width, so it doesn't shift as you page | `page`, `pages` | `page` | — | `navigation` |
 | `<cupri-table sort>` | Add `sort="{{Sort}}"` and the header cells become click‑to‑sort triggers (numeric or text, asc↔desc, ▲/▼) that reorder the body rows | `sort` | `sort` | `<cupri-row>` / `<cupri-cell>` | `table` |
 | `<cupri-table select>` | Add `select="{{Set}}"` and body rows are multi‑selectable — a click toggles the row's index in the bound comma‑set (e.g. `"0,3"`) and highlights it. Give the table `height`+`overflow:scroll` and the header row **sticks** to the top while the body scrolls | `select` | `select` | `<cupri-row>` / `<cupri-cell>` | `table` |
+| `<cupri-table resize>` | Add `resize="{{Cols}}"` and columns become drag‑resizable — drag a header cell's right boundary and that column's content width (px) is written into the bound comma‑list (e.g. `"160,90"`) and applied to every row's matching cell, so columns stay aligned. The last column is left flexible so the table keeps filling its box | `resize` | `resize` | `<cupri-row>` / `<cupri-cell>` | `table` |
 
 ```html
 <!-- Radio group: each option shares the bound `group`; clicking sets the group's value -->

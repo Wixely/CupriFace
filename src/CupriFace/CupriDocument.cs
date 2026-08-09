@@ -97,6 +97,14 @@ public sealed partial class CupriDocument : IDisposable
     private bool _splitVertical;
     private float _splitStart, _splitPA0, _splitPB0, _splitGSum;
 
+    // Table column resize: the bound width-list path, the dragged column, the grab origin (its content
+    // width + pointer x), and the list as it stood when the drag began. All value types (the width list is
+    // written to the model each move, which rebuilds), so nothing here dangles across the per-move rebuild.
+    private string? _colPath;
+    private int _colIndex;
+    private float _colStartW, _colStartX;
+    private string[] _colList = [];
+
     /// <summary>A drag-to-reorder drop: the source list, the item's index in it (<see cref="From"/>), and the
     /// target index (<see cref="To"/>) in <see cref="ToList"/>. For a single list (or a within-column move)
     /// <see cref="ToList"/> equals <see cref="List"/>; across kanban columns they differ. Register a handler
@@ -932,6 +940,10 @@ public sealed partial class CupriDocument : IDisposable
                 _resizeW0 = n.ResizeW ?? n.Width; _resizeH0 = n.ResizeH ?? n.Height;
                 return true;
             }
+
+        // Grabbing a resizable table's column boundary (a header cell's right edge) starts a column drag.
+        for (var n = hit; n is not null; n = n.Parent)
+            if (StartColumnResize(n, x)) return true;
 
         // Grabbing a scrollbar thumb starts a scroll-drag (takes priority; doesn't focus/blur).
         for (var n = hit; n is not null; n = n.Parent)
@@ -2269,8 +2281,48 @@ public sealed partial class CupriDocument : IDisposable
         return true; // re-layout on repaint; no rebuild
     }
 
+    // Grab a resizable table's column boundary: the press must be on a header cell (of a table marked
+    // data-cupri-colresize), within ~7px of that cell's right edge, and not on the last column (which is
+    // left flexible). Caches the column's content width so the drag is jump-free (flex-basis is content-box).
+    private bool StartColumnResize(RenderNode cell, float x)
+    {
+        if (cell.Element is not { LocalName: "cupri-cell" } ce) return false;
+        if (ce.GetAttribute("data-col") is not { } cs || !int.TryParse(cs, out var col)) return false;
+        if (cell.Parent?.Element?.ClassList.Contains("header") != true) return false;
+
+        RenderNode? table = cell.Parent;
+        while (table is not null && table.Element?.GetAttribute("data-cupri-colresize") is not { Length: > 0 }) table = table.Parent;
+        if (table?.Element?.GetAttribute("data-cupri-colresize") is not { Length: > 0 } path || _model is null) return false;
+
+        var lastCol = cell.Parent!.Children.Count(c => c.Element?.LocalName == "cupri-cell") - 1;
+        if (col >= lastCol) return false;                              // the last column fills remaining width
+
+        var box = HitTesting.AbsoluteBox(cell);
+        if (x < box.X + box.W - 7f || x > box.X + box.W + 7f) return false; // only near the right boundary
+
+        _colPath = path; _colIndex = col; _colStartX = x;
+        _colStartW = cell.ContentBoxWidth;                            // flex-basis we write is content-box
+        _colList = (table.Element!.GetAttribute("resize") ?? "").Split(',');
+        return true;
+    }
+
+    // Write the dragged column's new content width into the bound list and rebuild; Expand re-applies it to
+    // every row's matching cell, so the whole column tracks the pointer in step (like the slider drag).
+    private bool MoveColumnResize(float x)
+    {
+        if (_colPath is null || _model is null) return false;
+        var w = Math.Clamp(_colStartW + (x - _colStartX), 24f, 800f);
+        var list = _colList.ToList();
+        while (list.Count <= _colIndex) list.Add("");
+        list[_colIndex] = ((int)MathF.Round(w)).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        BindingEngine.TrySet(_model, _colPath, string.Join(',', list));
+        Refresh();
+        return true;
+    }
+
     public bool DispatchPointerMove(float x, float y)
     {
+        if (_colPath is not null) return MoveColumnResize(x);
         if (_splitA is not null) return MoveSplit(x, y);
         if (_reorderItems is not null) return MoveReorder(x, y);
         if (_resizeDrag is { } rz)
@@ -2315,6 +2367,7 @@ public sealed partial class CupriDocument : IDisposable
     {
         if (_reorderItems is not null) { EndReorder(); return true; }
         if (_splitA is not null) { _splitA = null; _splitB = null; return true; }
+        if (_colPath is not null) { _colPath = null; return true; }
         _dragging = false; _textDrag = false; _scrollDrag = null; _resizeDrag = null; return ClearActive();
     }
 
