@@ -141,6 +141,8 @@ public sealed partial class ShowcaseModel
     public bool DateOpen { get; set; }
     public string Time { get; set; } = "14:30";
     public bool TimeOpen { get; set; }
+    public string BrandColor { get; set; } = "#B87333"; // <cupri-color> demo — the copper accent as hex
+    public bool BrandOpen { get; set; }
     public string TableSort { get; set; } = "";
     public string TableSel { get; set; } = ""; // comma-set of selected row indices (multi-select)
     public string TableSelLabel => TableSel.Split(',', System.StringSplitOptions.RemoveEmptyEntries).Length is var n && n > 0 ? $"{n} selected" : "none selected";
