@@ -152,6 +152,10 @@ public static class DesktopHost
             case 'v': if (getClip() is { Length: > 0 } pv) doc.DispatchKey(pv, EditKey.None); break;
             case 'z': if (mods.HasFlag(KeyMods.Shift)) doc.Redo(); else doc.Undo(); break; // Ctrl+Shift+Z = redo
             case 'y': doc.Redo(); break;
+            // Anything else is the app's own shortcut (doc.OnShortcut) — e.g. Ctrl+K opening a command
+            // palette. The web host has always forwarded these via KeyChord; the desktop hosts dropped
+            // them, so a documented feature only worked in the browser.
+            default: doc.DispatchKey(ch.ToString(), EditKey.None, mods); break;
         }
     }
 

@@ -179,16 +179,15 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                         var shift = (mod & (ushort)Keymod.Shift) != 0;
                         var ctrl = (mod & ((ushort)Keymod.Ctrl | (ushort)Keymod.Gui)) != 0; // Gui = Cmd (macOS)
                         var mods = (shift ? KeyMods.Shift : 0) | (ctrl ? KeyMods.Ctrl : 0);
-                        if (ctrl)
-                            switch (e.Key.Keysym.Scancode)
-                            {
-                                case Scancode.ScancodeA: Shortcut?.Invoke('a', mods); continue;
-                                case Scancode.ScancodeC: Shortcut?.Invoke('c', mods); continue;
-                                case Scancode.ScancodeX: Shortcut?.Invoke('x', mods); continue;
-                                case Scancode.ScancodeV: Shortcut?.Invoke('v', mods); continue;
-                                case Scancode.ScancodeZ: Shortcut?.Invoke('z', mods); continue;
-                                case Scancode.ScancodeY: Shortcut?.Invoke('y', mods); continue;
-                            }
+                        // Any Ctrl/Cmd + letter is forwarded as a chord — the six clipboard/undo ones the
+                        // host consumes, and every other letter so an app's own OnShortcut (e.g. Ctrl+K
+                        // for a command palette) can fire. Scancodes A..Z are contiguous, so one range
+                        // test replaces a per-letter switch that silently dropped everything unlisted.
+                        if (ctrl && e.Key.Keysym.Scancode is >= Scancode.ScancodeA and <= Scancode.ScancodeZ)
+                        {
+                            Shortcut?.Invoke((char)('a' + (e.Key.Keysym.Scancode - Scancode.ScancodeA)), mods);
+                            continue;
+                        }
                         var ek = e.Key.Keysym.Scancode switch
                         {
                             Scancode.ScancodeBackspace => EditKey.Backspace,

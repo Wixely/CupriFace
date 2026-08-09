@@ -140,16 +140,13 @@ public sealed class SkiaWindow : IDisposable
             {
                 var shift = k.IsKeyPressed(Key.ShiftLeft) || k.IsKeyPressed(Key.ShiftRight);
                 var mods = (shift ? KeyMods.Shift : 0) | (Ctrl(k) ? KeyMods.Ctrl : 0);
-                if (Ctrl(k))
-                    switch (key)
-                    {
-                        case Key.A: Shortcut?.Invoke('a', mods); return;
-                        case Key.C: Shortcut?.Invoke('c', mods); return;
-                        case Key.X: Shortcut?.Invoke('x', mods); return;
-                        case Key.V: Shortcut?.Invoke('v', mods); return;
-                        case Key.Z: Shortcut?.Invoke('z', mods); return;
-                        case Key.Y: Shortcut?.Invoke('y', mods); return;
-                    }
+                // Any Ctrl/Cmd + letter is forwarded as a chord (see the SDL window for why): the host
+                // consumes the clipboard/undo ones, the rest reach the app's own OnShortcut bindings.
+                if (Ctrl(k) && key is >= Key.A and <= Key.Z)
+                {
+                    Shortcut?.Invoke((char)('a' + (key - Key.A)), mods);
+                    return;
+                }
                 var ek = key switch
                 {
                     Key.Backspace => EditKey.Backspace,
