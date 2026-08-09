@@ -1007,6 +1007,16 @@ public sealed partial class CupriDocument : IDisposable
                 return ok;
             }
 
+            // Toggle a value in a bound comma-set (multi-select table rows): add it if absent, else remove it.
+            if (el.GetAttribute("data-set-toggle") is { Length: > 0 } togPath && _model is not null)
+            {
+                var v = el.GetAttribute("data-toggle-value") ?? "";
+                var set = (BindingEngine.Resolve(_model, togPath)?.ToString() ?? "")
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries).ToList();
+                if (!set.Remove(v)) set.Add(v);
+                return BindingEngine.TrySet(_model, togPath, string.Join(",", set));
+            }
+
             // Overlay open/close: dismiss (backdrop/outside) and trigger toggle.
             if (el.HasAttribute("data-cupri-dismiss")) return SetNearestOpen(node, false);
             if (el.HasAttribute("data-cupri-toggle")) return ToggleNearestOpen(node);
@@ -1038,6 +1048,7 @@ public sealed partial class CupriDocument : IDisposable
                                 or "textbox" or "spinbutton" or "button"
         || el.HasAttribute("data-cupri-toggle")
         || el.HasAttribute("data-set-path")
+        || el.HasAttribute("data-set-toggle")
         || el.HasAttribute("data-cupri-step");
 
     private bool IsFocusable(IElement el) =>

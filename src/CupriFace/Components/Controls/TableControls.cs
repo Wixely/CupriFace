@@ -32,20 +32,23 @@ public sealed class TableComponent : ComponentBase
         el.SetAttribute("role", "table");
         el.ClassList.Add("cupri-table");
 
-        var sortPath = el.GetAttribute("data-bind-sort");
-        if (string.IsNullOrEmpty(sortPath)) return; // not sortable → plain table
+        if (el.GetAttribute("data-bind-sort") is { Length: > 0 } sortPath) ApplySort(el, sortPath);
+        if (el.GetAttribute("data-bind-select") is { Length: > 0 } selPath) ApplySelection(el, selPath);
+    }
 
-        // Current sort key: "col:dir" (dir = asc|desc). Empty = unsorted.
+    // Sortable table: header cells become click triggers that set the bound "col:dir" key, and the body
+    // rows are reordered by the chosen column (numeric when both cells parse, else case-insensitive text).
+    private static void ApplySort(IElement el, string sortPath)
+    {
         var sortCol = -1;
         var asc = true;
-        var parts = Str(el, "sort").Split(':', StringSplitOptions.RemoveEmptyEntries);
+        var parts = (el.GetAttribute("sort") ?? "").Split(':', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length > 0 && int.TryParse(parts[0], out var c)) { sortCol = c; asc = parts.Length < 2 || parts[1] != "desc"; }
 
         var rows = el.Children.Where(r => r.LocalName == "cupri-row").ToList();
         var header = rows.FirstOrDefault(r => r.HasAttribute("header"));
         var body = rows.Where(r => r != header).ToList();
 
-        // Header cells → sort triggers (click cycles this column asc → desc → asc).
         if (header is not null)
         {
             var headCells = header.Children.Where(x => x.LocalName == "cupri-cell").ToList();
@@ -58,8 +61,6 @@ public sealed class TableComponent : ComponentBase
                 if (i == sortCol) headCells[i].InnerHtml += asc ? " &#9650;" : " &#9660;"; // ▲ / ▼
             }
         }
-
-        // Reorder the body rows by the chosen column, then relocate them after the header.
         if (sortCol >= 0 && body.Count > 1)
         {
             static string Cell(IElement row, int col)
@@ -69,6 +70,21 @@ public sealed class TableComponent : ComponentBase
             }
             body = body.OrderBy(r => Cell(r, sortCol), new SortComparer(asc)).ToList();
             foreach (var r in body) el.AppendChild(r); // AppendChild relocates an existing child to the end
+        }
+    }
+
+    // Selectable table: each body row toggles its (document-order) index in the bound comma-set on click;
+    // rows already in the set are flagged data-selected for the highlight. Multi-select — click each row.
+    private static void ApplySelection(IElement el, string selPath)
+    {
+        var sel = new HashSet<string>((el.GetAttribute("select") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries));
+        el.SetAttribute("data-cupri-select", "");
+        var body = el.Children.Where(r => r.LocalName == "cupri-row" && !r.HasAttribute("header")).ToList();
+        for (var i = 0; i < body.Count; i++)
+        {
+            body[i].SetAttribute("data-set-toggle", selPath);
+            body[i].SetAttribute("data-toggle-value", i.ToString());
+            if (sel.Contains(i.ToString())) body[i].SetAttribute("data-selected", "");
         }
     }
 
@@ -94,8 +110,12 @@ public sealed class TableRowComponent : ComponentBase
     public override string DefaultCss => """
         .cupri-row { display:flex; border-bottom:1px var(--cupri-border, #eef1f5); }
         .cupri-row:last-child { border-bottom:0px transparent; }
-        .cupri-row.header { background:var(--cupri-hover, #f6f7f9); font-weight:bold; color:var(--cupri-muted, #4a5262); }
+        /* The header pins to the top of a scrolling table (needs an opaque fill to cover rows sliding under). */
+        .cupri-row.header { background:var(--cupri-hover, #f6f7f9); font-weight:bold; color:var(--cupri-muted, #4a5262);
+                            position:sticky; top:0; z-index:1; }
         .cupri-row[data-hover]:not(.header) { background:var(--cupri-hover, #f8f9fb); }
+        .cupri-table[data-cupri-select] .cupri-row:not(.header) { cursor:pointer; }
+        .cupri-row[data-selected] { background:var(--cupri-hover, #eef1f5); box-shadow:inset 3px 0 0 var(--cupri-accent, #B87333); }
         """;
 
     public override void Expand(IElement el)
