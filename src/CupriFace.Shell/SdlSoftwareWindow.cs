@@ -33,6 +33,13 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     private EventFilter? _resizeWatch; // kept alive: fires during the OS modal resize loop
 
     public event Action<RenderContext>? Render;
+
+    /// <summary>Damage-aware alternative to <see cref="Render"/> (used when set): draw into the RETAINED
+    /// bitmap and return the device rect that changed — typically <c>CupriDocument.RenderIncremental</c>'s
+    /// result. Null = the frame is unchanged: nothing is uploaded or presented (unless the window was
+    /// exposed). A rect uploads just that region of the streaming texture.</summary>
+    public Func<RenderContext, SKRectI?>? RenderIncrementalFrame;
+    private bool _presentDirty = true; // (re)present the current texture even without a re-render (expose/restore)
     public event Action<float, float, int>? PointerDown;    // x, y, click count (1/2/3)
     public event Action<float, float>? RightPointerDown;    // right-click → context menu
     public event Action<float, float>? PointerMove;
@@ -203,6 +210,10 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                     case EventType.Windowevent when (WindowEventID)e.Window.Event == WindowEventID.SizeChanged:
                         EnsureSurface(e.Window.Data1, e.Window.Data2);
                         break;
+                    case EventType.Windowevent when (WindowEventID)e.Window.Event
+                        is WindowEventID.Exposed or WindowEventID.Shown or WindowEventID.Restored:
+                        _presentDirty = true; // window contents may be stale — re-present the texture
+                        break;
                 }
             }
             RenderFrame();
@@ -238,12 +249,35 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
 
         var delta = _clock.Elapsed.TotalSeconds - _last;
         _last = _clock.Elapsed.TotalSeconds;
-        _stats.BeginFrame(delta);
-        Render?.Invoke(new RenderContext(_canvas, _width, _height, _stats));
-        _canvas.Flush();
-        _stats.EndFrame();
 
-        _sdl.UpdateTexture(_texture, null, (void*)_bitmap.GetPixels(), _width * 4);
+        if (RenderIncrementalFrame is { } incremental)
+        {
+            // Damage-aware path: the bitmap retains last frame's pixels; the callback repaints only the
+            // changed rect (or nothing). Upload just that region; skip presenting entirely when clean.
+            _stats.BeginFrame(delta);
+            var damage = incremental(new RenderContext(_canvas, _width, _height, _stats));
+            _canvas.Flush();
+            _stats.EndFrame();
+
+            if (damage is { } d && d.Width > 0 && d.Height > 0)
+            {
+                var rect = new Silk.NET.Maths.Rectangle<int>(d.Left, d.Top, d.Width, d.Height);
+                var pixels = (byte*)_bitmap.GetPixels() + d.Top * _width * 4 + d.Left * 4;
+                _sdl.UpdateTexture(_texture, &rect, pixels, _width * 4); // pitch = the full row stride
+                _presentDirty = true;
+            }
+            if (!_presentDirty) return; // unchanged and not exposed — don't even present
+            _presentDirty = false;
+        }
+        else
+        {
+            _stats.BeginFrame(delta);
+            Render?.Invoke(new RenderContext(_canvas, _width, _height, _stats));
+            _canvas.Flush();
+            _stats.EndFrame();
+            _sdl.UpdateTexture(_texture, null, (void*)_bitmap.GetPixels(), _width * 4);
+        }
+
         _sdl.RenderClear(_renderer);
         _sdl.RenderCopy(_renderer, _texture, null, null);
         _sdl.RenderPresent(_renderer);

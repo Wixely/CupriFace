@@ -21,18 +21,32 @@ public static class DesktopHost
         var scale = 1f; // current present scale, for transforming pointer coordinates
         var lastRefresh = 0.0;
 
-        void Draw(RenderContext ctx)
+        // Render-on-demand (same model as the WASM host): input marks the doc dirty only when a
+        // dispatch actually changed something; animation/refresh/image arrival wake it too. A static
+        // window renders nothing at all.
+        var dirty = true;
+        void Mark(bool changed) { if (changed) dirty = true; }
+        bool NeedsRender()
         {
-            var p = app.Present(ctx.Width, ctx.Height);
-            scale = p.Scale <= 0 ? 1f : p.Scale;
-
             // Periodic re-bind so live computed values (e.g. diagnostics) update on their own.
             if (app.RefreshIntervalSeconds > 0 &&
                 clock.Elapsed.TotalSeconds - lastRefresh >= app.RefreshIntervalSeconds)
             {
                 lastRefresh = clock.Elapsed.TotalSeconds;
                 doc.Refresh();
+                dirty = true;
             }
+            if (doc.ConsumeImageArrived()) dirty = true;      // a background image finished loading
+            if (doc.HasActiveAnimations) dirty = true;        // keyframes/transitions/toasts running
+            var d = dirty;
+            dirty = false;
+            return d;
+        }
+
+        void Draw(RenderContext ctx)
+        {
+            var p = app.Present(ctx.Width, ctx.Height);
+            scale = p.Scale <= 0 ? 1f : p.Scale;
 
             // Transparent apps clear to a fully-transparent framebuffer so the desktop shows through
             // (premultiplied output is exactly what the OS compositor wants — no conversion needed).
@@ -49,16 +63,17 @@ public static class DesktopHost
         try
         {
             var window = new SkiaWindow(app.Title, app.Width, app.Height, app.Transparent, app.Frameless, app.TopMost);
+            window.ShouldRender = NeedsRender; // GL: skip draw + swap entirely on clean frames
             window.Render += Draw;
-            window.PointerDown += (x, y, clicks) => { doc.DispatchClick(x / scale, y / scale, clicks); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
-            window.RightPointerDown += (x, y) => doc.DispatchContextMenu(x / scale, y / scale);
-            window.PointerMove += (x, y) => { doc.DispatchPointerMove(x / scale, y / scale); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
-            window.PointerUp += (x, y) => { doc.DispatchPointerUp(x / scale, y / scale); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
-            window.PointerWheel += (x, y, dy) => doc.DispatchWheel(x / scale, y / scale, -dy * 50f); // wheel up → scroll up
-            window.TextEntered += t => doc.DispatchKey(t, EditKey.None);
-            window.EditKeyPressed += (k, mods) => doc.DispatchKey(null, k, mods);
-            window.Shortcut += (ch, mods) => Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v);
-            doc.ContextRequested += cmd => ContextAction(doc, cmd, () => window.ClipboardText, v => window.ClipboardText = v);
+            window.PointerDown += (x, y, clicks) => { Mark(doc.DispatchClick(x / scale, y / scale, clicks)); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
+            window.RightPointerDown += (x, y) => Mark(doc.DispatchContextMenu(x / scale, y / scale));
+            window.PointerMove += (x, y) => { Mark(doc.DispatchPointerMove(x / scale, y / scale)); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
+            window.PointerUp += (x, y) => { Mark(doc.DispatchPointerUp(x / scale, y / scale)); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
+            window.PointerWheel += (x, y, dy) => Mark(doc.DispatchWheel(x / scale, y / scale, -dy * 50f)); // wheel up → scroll up
+            window.TextEntered += t => Mark(doc.DispatchKey(t, EditKey.None));
+            window.EditKeyPressed += (k, mods) => Mark(doc.DispatchKey(null, k, mods));
+            window.Shortcut += (ch, mods) => { Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
+            doc.ContextRequested += cmd => { ContextAction(doc, cmd, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             window.Run();
         }
         catch (Exception ex)
@@ -80,16 +95,39 @@ public static class DesktopHost
                 presenter.Submit(list, ctx.Width, ctx.Height, app.Transparent ? SkiaSharp.SKColors.Transparent : app.Background);
             }
 
-            window.Render += presenter is not null ? DrawThreaded : Draw;
-            window.PointerDown += (x, y, clicks) => { doc.DispatchClick(x / scale, y / scale, clicks); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
-            window.RightPointerDown += (x, y) => doc.DispatchContextMenu(x / scale, y / scale);
-            window.PointerMove += (x, y) => { doc.DispatchPointerMove(x / scale, y / scale); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
-            window.PointerUp += (x, y) => { doc.DispatchPointerUp(x / scale, y / scale); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
-            window.PointerWheel += (x, y, dy) => doc.DispatchWheel(x / scale, y / scale, -dy * 50f); // wheel up → scroll up
-            window.TextEntered += t => doc.DispatchKey(t, EditKey.None);
-            window.EditKeyPressed += (k, mods) => doc.DispatchKey(null, k, mods);
-            window.Shortcut += (ch, mods) => Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v);
-            doc.ContextRequested += cmd => ContextAction(doc, cmd, () => window.ClipboardText, v => window.ClipboardText = v);
+            if (presenter is not null)
+                window.Render += DrawThreaded; // threaded path keeps its own pipeline (no damage/skip)
+            else
+                // Damage-aware render-on-demand: repaint only the changed rect of the retained bitmap;
+                // a clean frame renders, uploads, and presents nothing.
+                window.RenderIncrementalFrame = ctx =>
+                {
+                    if (!NeedsRender()) return null;
+                    var p = app.Present(ctx.Width, ctx.Height);
+                    scale = p.Scale <= 0 ? 1f : p.Scale;
+                    if (doc.HasAnimations || doc.HasActiveTransitions) doc.Animate(clock.Elapsed.TotalSeconds);
+                    var bg = app.Transparent ? SkiaSharp.SKColors.Transparent : app.Background;
+
+                    if (scale == 1f)
+                        return doc.RenderIncremental(ctx.Canvas, p.LogicalWidth, p.LogicalHeight, bg);
+
+                    // Scaled present: damage coords wouldn't map 1:1 onto the device bitmap — full frame.
+                    ctx.Canvas.Clear(bg);
+                    ctx.Canvas.Save();
+                    ctx.Canvas.Scale(scale);
+                    doc.Render(ctx.Canvas, p.LogicalWidth, p.LogicalHeight);
+                    ctx.Canvas.Restore();
+                    return new SkiaSharp.SKRectI(0, 0, ctx.Width, ctx.Height);
+                };
+            window.PointerDown += (x, y, clicks) => { Mark(doc.DispatchClick(x / scale, y / scale, clicks)); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
+            window.RightPointerDown += (x, y) => Mark(doc.DispatchContextMenu(x / scale, y / scale));
+            window.PointerMove += (x, y) => { Mark(doc.DispatchPointerMove(x / scale, y / scale)); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
+            window.PointerUp += (x, y) => { Mark(doc.DispatchPointerUp(x / scale, y / scale)); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
+            window.PointerWheel += (x, y, dy) => Mark(doc.DispatchWheel(x / scale, y / scale, -dy * 50f)); // wheel up → scroll up
+            window.TextEntered += t => Mark(doc.DispatchKey(t, EditKey.None));
+            window.EditKeyPressed += (k, mods) => Mark(doc.DispatchKey(null, k, mods));
+            window.Shortcut += (ch, mods) => { Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
+            doc.ContextRequested += cmd => { ContextAction(doc, cmd, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             window.Run();
         }
     }

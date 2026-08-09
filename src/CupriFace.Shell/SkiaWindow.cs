@@ -62,6 +62,12 @@ public sealed class SkiaWindow : IDisposable
     /// </summary>
     public Func<FrameStats, bool>? ShouldClose { get; set; }
 
+    /// <summary>Render-on-demand gate: consulted each frame; false skips drawing AND swapping, so a
+    /// static UI costs ~nothing (the front buffer stays on screen). Resize/state/focus changes force
+    /// the next frame regardless. Null = render every frame (the old behaviour).</summary>
+    public Func<bool>? ShouldRender { get; set; }
+    private bool _forceRender = true; // first frame, resize, restore, focus — must repaint
+
     public FrameStats Stats => _stats;
 
     public SkiaWindow(string title = "CupriFace", int width = 1024, int height = 768,
@@ -79,6 +85,9 @@ public sealed class SkiaWindow : IDisposable
             TransparentFramebuffer = transparent,
             WindowBorder = frameless ? WindowBorder.Hidden : WindowBorder.Resizable,
             TopMost = topMost,
+            // Render-on-demand: we swap manually, ONLY on frames we actually drew — a skipped frame
+            // must not flip an undrawn back buffer onto the screen.
+            ShouldSwapAutomatically = false,
         };
     }
 
@@ -106,6 +115,10 @@ public sealed class SkiaWindow : IDisposable
             ?? throw new InvalidOperationException("Failed to create Skia GL context.");
 
         _fbSize = _window.FramebufferSize;
+
+        // Being restored/refocused can invalidate what's on screen — repaint on the next frame.
+        _window.StateChanged += _ => _forceRender = true;
+        _window.FocusChanged += _ => _forceRender = true;
 
         _input = _window.CreateInput();
         foreach (var mouse in _input.Mice)
@@ -201,6 +214,7 @@ public sealed class SkiaWindow : IDisposable
         // Surface is recreated lazily on the next frame at the new size.
         _surface?.Dispose(); _surface = null;
         _renderTarget?.Dispose(); _renderTarget = null;
+        _forceRender = true;
         // Repaint immediately so a drag-resize streams rather than snapping on release.
         try { _window?.DoRender(); } catch { /* reentrancy on some platforms — ignore */ }
     }
@@ -223,13 +237,25 @@ public sealed class SkiaWindow : IDisposable
         EnsureSurface();
         if (_surface is null) return;
 
-        _stats.BeginFrame(deltaSeconds);
+        var render = _forceRender || (ShouldRender?.Invoke() ?? true);
+        _forceRender = false;
+        if (render)
+        {
+            _stats.BeginFrame(deltaSeconds);
 
-        Render?.Invoke(new RenderContext(_surface.Canvas, _fbSize.X, _fbSize.Y, _stats));
+            Render?.Invoke(new RenderContext(_surface.Canvas, _fbSize.X, _fbSize.Y, _stats));
 
-        _grContext!.Flush(); // push the recorded draws to the GL framebuffer before swap
+            _grContext!.Flush(); // push the recorded draws to the GL framebuffer before swap
 
-        _stats.EndFrame();
+            _stats.EndFrame();
+            _window!.SwapBuffers(); // manual swap: only drawn frames reach the screen
+        }
+        else
+        {
+            // Nothing changed: the front buffer stays as-is. The vsync wait lives in SwapBuffers,
+            // which we skipped — sleep briefly so an idle window doesn't spin the render loop.
+            System.Threading.Thread.Sleep(8);
+        }
 
         if (ShouldClose?.Invoke(_stats) == true)
             _window!.Close();
