@@ -26,41 +26,60 @@ public sealed class StyleResolver
         return value;
     }
 
-    private readonly List<CssRule> _rules;
+    private readonly SelectorIndex _index;
     private readonly float _viewportWidth;
 
-    // Rules bucketed by their rightmost-compound key. An element is only TESTED against the rules
-    // bucketed under its own tag / classes / id (plus the keyless bucket) — so the whole component
-    // library's CSS costs nothing on elements it can't apply to, and elements inside display:none
-    // subtrees (which BuildChildren prunes) are never matched at all. Matching uses each rule's
-    // selector compiled ONCE at parse time (CssRule.Compiled) — no per-rebuild selector parsing and
-    // no document-wide QuerySelectorAll per rule (which ran on every rebuild AND hover restyle).
-    private readonly Dictionary<string, List<CssRule>> _byClass = new();
-    private readonly Dictionary<string, List<CssRule>> _byId = new();
-    private readonly Dictionary<string, List<CssRule>> _byTag = new();
-    private readonly List<CssRule> _keyless = new();
+    /// <summary>
+    /// Rules bucketed by their rightmost-compound key. An element is only TESTED against the rules
+    /// bucketed under its own tag / classes / id (plus the keyless bucket) — so the whole component
+    /// library's CSS costs nothing on elements it can't apply to, and elements inside display:none
+    /// subtrees (which BuildChildren prunes) are never matched at all. Matching uses each rule's
+    /// selector compiled ONCE at parse time (CssRule.Compiled) — no per-rebuild selector parsing and
+    /// no document-wide QuerySelectorAll per rule (which ran on every rebuild AND hover restyle).
+    ///
+    /// Built once per stylesheet and cached (see <see cref="For"/>): a resolver is constructed on every
+    /// rebuild AND every hover restyle, and re-bucketing there made those costs scale with the SIZE OF
+    /// THE STYLESHEET rather than the page — +800 unused rules doubled a rebuild.
+    /// </summary>
+    private sealed class SelectorIndex
+    {
+        public readonly Dictionary<string, List<CssRule>> ByClass = new();
+        public readonly Dictionary<string, List<CssRule>> ById = new();
+        public readonly Dictionary<string, List<CssRule>> ByTag = new();
+        public readonly List<CssRule> Keyless = new();
+
+        public SelectorIndex(List<CssRule> rules)
+        {
+            foreach (var rule in rules)
+            {
+                if (rule.Compiled is null) continue; // selector the engine couldn't parse — never matches
+                if (rule.KeyClass is { } c) Bucket(ByClass, c, rule);
+                else if (rule.KeyId is { } i) Bucket(ById, i, rule);
+                else if (rule.KeyTag is { } t) Bucket(ByTag, t, rule);
+                else Keyless.Add(rule);
+            }
+        }
+
+        private static void Bucket(Dictionary<string, List<CssRule>> map, string key, CssRule rule)
+        {
+            if (!map.TryGetValue(key, out var list)) map[key] = list = new List<CssRule>();
+            list.Add(rule);
+        }
+    }
+
+    // Keyed by the rule-list instance, which the document parses once and reuses for the life of the
+    // stylesheet; the weak table lets a discarded document's index be collected with it.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<List<CssRule>, SelectorIndex> _indexes = new();
+
+    private static SelectorIndex For(List<CssRule> rules) => _indexes.GetValue(rules, static r => new SelectorIndex(r));
 
     private static readonly Comparison<CssRule> Cascade =
         static (a, b) => a.Specificity != b.Specificity ? a.Specificity - b.Specificity : a.Order - b.Order;
 
     public StyleResolver(List<CssRule> rules, float viewportWidth = 1024f)
     {
-        _rules = rules;
+        _index = For(rules);
         _viewportWidth = viewportWidth;
-        foreach (var rule in rules)
-        {
-            if (rule.Compiled is null) continue; // selector the engine couldn't parse — never matches
-            if (rule.KeyClass is { } c) Bucket(_byClass, c, rule);
-            else if (rule.KeyId is { } i) Bucket(_byId, i, rule);
-            else if (rule.KeyTag is { } t) Bucket(_byTag, t, rule);
-            else _keyless.Add(rule);
-        }
-    }
-
-    private static void Bucket(Dictionary<string, List<CssRule>> map, string key, CssRule rule)
-    {
-        if (!map.TryGetValue(key, out var list)) map[key] = list = new List<CssRule>();
-        list.Add(rule);
     }
 
     public RenderNode BuildTree(IDocument document)
@@ -76,11 +95,11 @@ public sealed class StyleResolver
     private List<CssRule>? MatchRules(IElement el)
     {
         List<CssRule>? matched = null;
-        if (_byTag.TryGetValue(el.LocalName, out var bt)) Test(el, bt, ref matched);
+        if (_index.ByTag.TryGetValue(el.LocalName, out var bt)) Test(el, bt, ref matched);
         foreach (var cls in el.ClassList)
-            if (_byClass.TryGetValue(cls, out var bc)) Test(el, bc, ref matched);
-        if (el.Id is { Length: > 0 } id && _byId.TryGetValue(id, out var bi)) Test(el, bi, ref matched);
-        if (_keyless.Count > 0) Test(el, _keyless, ref matched);
+            if (_index.ByClass.TryGetValue(cls, out var bc)) Test(el, bc, ref matched);
+        if (el.Id is { Length: > 0 } id && _index.ById.TryGetValue(id, out var bi)) Test(el, bi, ref matched);
+        if (_index.Keyless.Count > 0) Test(el, _index.Keyless, ref matched);
         if (matched is { Count: > 1 }) matched.Sort(Cascade); // candidates per element are few
         return matched;
     }
