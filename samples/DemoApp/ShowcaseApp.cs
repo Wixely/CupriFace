@@ -35,7 +35,9 @@ public sealed class ShowcaseApp : CupriApp
         doc.OnClick(".act-submit", _ => _model.FormOk = doc.ValidateAll());
         doc.OnClick(".swatch", e => { if (e.Element.GetAttribute("data-accent") is { } a) _model.Accent = a; });
         doc.OnClick(".ctx-act", e => { if (e.Element.GetAttribute("data-action") is { } a) _model.CtxAction = a; });
-        doc.OnClick(".search-btn", _ => { _model.PaletteQuery = ""; _model.PaletteOpen = true; }); // open the command palette
+        void OpenPalette() { _model.PaletteQuery = ""; _model.PaletteOpen = true; }
+        doc.OnClick(".search-btn", _ => OpenPalette());                           // open the command palette (button)
+        doc.OnShortcut(CupriFace.Interaction.KeyMods.Ctrl, "k", OpenPalette);     // …or Ctrl/Cmd + K
 
         doc.OnReorder(e =>
         {

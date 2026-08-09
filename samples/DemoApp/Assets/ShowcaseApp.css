@@ -32,6 +32,7 @@ body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; -
               background:var(--cupri-nav-active); color:var(--cupri-sidebar-text); font-size:14px; cursor:pointer; }
 .search-btn:hover { color:white; }
 .search-btn cupri-icon { flex:none; }
+.search-btn .kbd { margin-left:auto; font-size:11px; opacity:0.6; }
 /* Collapsed icon rail — via the toggle (.collapsed) or auto below a narrow width (@media, further
    down). Both take the text OUT of layout (display:none, so nothing squishes) and centre the icons;
    the width transition still animates the narrowing. The switch has no room in the rail, so it hides
