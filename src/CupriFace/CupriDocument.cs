@@ -472,6 +472,38 @@ public sealed partial class CupriDocument : IDisposable
         _rasterizer.Paint(canvas, list);
     }
 
+    // The previously-presented frame's commands, for RenderIncremental's damage diff. Only that path
+    // writes these — Render/RenderToImage stay stateless full repaints.
+    private IReadOnlyList<Paint.PaintCommand>? _lastPresented;
+    private float _lastPresentedW, _lastPresentedH;
+
+    /// <summary>Render for a host whose canvas RETAINS its pixels between frames (the SDL software
+    /// bitmap, the WASM staging bitmap): diffs this frame's display list against the last one presented,
+    /// clips the repaint to the damaged rectangle, and returns that rectangle — or <c>null</c> when the
+    /// frame is identical, in which case nothing was drawn and the host can skip presenting entirely.
+    /// The very first call (and any viewport size change) repaints in full. Only valid when every frame
+    /// lands on the SAME retained canvas; one-shot renders should use <see cref="Render"/>.
+    /// The result is visually identical to a full render; anti-aliased pixels of primitives crossing the
+    /// damage boundary may differ from a monolithic render by a couple of least-significant bits (Skia
+    /// computes AA coverage against the clip).</summary>
+    public SKRectI? RenderIncremental(SKCanvas canvas, float width, float height, SKColor background)
+    {
+        var list = BuildFrame(width, height);
+        var prev = _lastPresentedW == width && _lastPresentedH == height ? _lastPresented : null;
+        var damage = Paint.DamageDiff.Compute(prev, list.Commands, width, height);
+        _lastPresented = list.Commands;
+        _lastPresentedW = width; _lastPresentedH = height;
+        if (damage.IsEmpty) return null;                       // identical frame — nothing to present
+
+        var rect = SKRectI.Ceiling(damage);
+        canvas.Save();
+        canvas.ClipRect(rect);
+        canvas.Clear(background);                              // Clear respects the clip
+        _rasterizer.Paint(canvas, list);                       // full list; Skia rejects outside the clip
+        canvas.Restore();
+        return rect;
+    }
+
     /// <summary>The UI-thread half of the commit-snapshot seam: lay out, scroll the caret into view,
     /// and paint the render tree (with caret/selection/focus-ring) into an immutable
     /// <see cref="DisplayList"/> — <b>without rasterising</b>. A threaded host hands this to a render

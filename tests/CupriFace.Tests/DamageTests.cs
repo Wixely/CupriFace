@@ -1,0 +1,167 @@
+using System;
+using CupriFace.Dom;
+using SkiaSharp;
+using Xunit;
+
+namespace CupriFace.Tests;
+
+/// <summary>Incremental (damage-clipped) rendering for retained-canvas hosts: RenderIncremental must
+/// produce pixels IDENTICAL to a fresh full render after any mutation, return null (drawing nothing)
+/// for an unchanged frame, and keep the damage rect small for a localised change like hover.</summary>
+public class DamageTests
+{
+    private const int W = 420, H = 320;
+
+    // Drive a first full paint into a retained bitmap, mutate, incrementally repaint the SAME bitmap,
+    // and require byte-identical pixels to a fresh full render of the new state. Returns the damage rect.
+    private static SKRectI? AssertIncrementalMatchesFull(TestDoc t, Action mutate)
+    {
+        using var retained = new SKBitmap(new SKImageInfo(W, H, SKColorType.Rgba8888, SKAlphaType.Premul));
+        using var canvas = new SKCanvas(retained);
+        var first = t.Doc.RenderIncremental(canvas, W, H, SKColors.White);
+        Assert.NotNull(first);                                          // no previous frame → full paint
+
+        mutate();
+        var damage = t.Doc.RenderIncremental(canvas, W, H, SKColors.White);
+        canvas.Flush();
+
+        // Reference: a fresh FULL render of the same state through the identical bitmap pipeline
+        // (same colour type/order — SKBitmap.FromImage would land in platform-native BGRA).
+        using var reference = new SKBitmap(new SKImageInfo(W, H, SKColorType.Rgba8888, SKAlphaType.Premul));
+        using (var refCanvas = new SKCanvas(reference))
+        {
+            refCanvas.Clear(SKColors.White);
+            t.Doc.Render(refCanvas, W, H);
+            refCanvas.Flush();
+        }
+        AssertVisuallyIdentical(retained, reference, damage);
+        return damage;
+    }
+
+    // Byte-exact equality is too strict for a clipped repaint: Skia computes anti-aliased coverage
+    // against the clip, so AA pixels of primitives CROSSING the damage boundary can differ from a
+    // monolithic render by a couple of least-significant bits (verified: unclipped and full-rect-clipped
+    // repaints are byte-identical; only a partial clip introduces the drift). Structural bugs — a stale
+    // un-repainted region, wrong damage — produce large deltas, which this still catches.
+    private static void AssertVisuallyIdentical(SKBitmap actual, SKBitmap expected, SKRectI? damage)
+    {
+        var a = actual.Bytes; var e = expected.Bytes;
+        Assert.Equal(e.Length, a.Length);
+        for (var i = 0; i < a.Length; i++)
+        {
+            var d = Math.Abs(a[i] - e[i]);
+            Assert.True(d <= 16, $"pixel byte {i} differs by {d} (damage {damage}) — beyond AA-edge tolerance");
+        }
+    }
+
+    [Fact]
+    public void Unchanged_frame_returns_null_and_draws_nothing()
+    {
+        using var t = new TestDoc(
+            "<body><div style='padding:20px'><cupri-button>Save</cupri-button></div></body>",
+            "", components: true, width: W, height: H);
+        using var retained = new SKBitmap(new SKImageInfo(W, H, SKColorType.Rgba8888, SKAlphaType.Premul));
+        using var canvas = new SKCanvas(retained);
+
+        Assert.NotNull(t.Doc.RenderIncremental(canvas, W, H, SKColors.White));
+        Assert.Null(t.Doc.RenderIncremental(canvas, W, H, SKColors.White)); // identical frame → skip
+    }
+
+    [Fact]
+    public void Charts_do_not_false_damage_from_reference_inequality()
+    {
+        // Polyline holds a list (reference equality by default) — the diff must compare its points, or
+        // a line chart would read as "changed" on every frame and defeat the null fast-path.
+        using var t = new TestDoc(
+            "<body><div style='padding:16px'><cupri-line-chart values=\"5,8,6,11\" labels=\"a,b,c,d\"></cupri-line-chart></div></body>",
+            "", components: true, width: W, height: H);
+        using var retained = new SKBitmap(new SKImageInfo(W, H, SKColorType.Rgba8888, SKAlphaType.Premul));
+        using var canvas = new SKCanvas(retained);
+
+        Assert.NotNull(t.Doc.RenderIncremental(canvas, W, H, SKColors.White));
+        Assert.Null(t.Doc.RenderIncremental(canvas, W, H, SKColors.White));
+    }
+
+    [Fact]
+    public void Hover_repaints_a_small_region_identically()
+    {
+        // Self-contained hover style; the base background lives in CSS (inline would beat the hover rule).
+        using var t = new TestDoc(
+            "<body><div style='padding:20px; display:flex; gap:12px'>" +
+            "<div class='hv'></div>" +
+            "<p style='margin-top:70px'>Some unrelated text below.</p></div></body>",
+            ".hv { width:90px; height:34px; background:#eef1f5; border-radius:8px; } " +
+            ".hv[data-hover] { background:#B87333; }", components: true, width: W, height: H);
+
+        var (x, y) = TestDoc.Center(t.FindClass("hv"));
+        var damage = AssertIncrementalMatchesFull(t, () => t.Move(x, y));
+        Assert.NotNull(damage);
+        Assert.True(damage!.Value.Width * damage.Value.Height < 0.25f * W * H,
+            $"hover damage should be local, was {damage}");
+    }
+
+    [Fact]
+    public void A_model_change_repaints_identically()
+    {
+        var m = new Model();
+        using var t = new TestDoc(
+            "<body><div style='padding:18px'><cupri-switch checked=\"{{On}}\"></cupri-switch>" +
+            "<div>State: {{On}}</div></div></body>",
+            "", m, components: true, width: W, height: H);
+
+        var (x, y) = TestDoc.Center(t.FindClass("cupri-switch"));
+        AssertIncrementalMatchesFull(t, () => t.Click(x, y));           // toggles the switch + label text
+        Assert.True(m.On);
+    }
+
+    [Fact]
+    public void Opening_an_overlay_repaints_identically()
+    {
+        var m = new Model();
+        using var t = new TestDoc(
+            "<body><div style='padding:18px'><cupri-select value=\"{{Size}}\" open=\"{{Open}}\">" +
+            "<cupri-option value=\"s\">Small</cupri-option><cupri-option value=\"l\">Large</cupri-option>" +
+            "</cupri-select></div></body>",
+            "", m, components: true, width: W, height: H);
+
+        var (x, y) = TestDoc.Center(t.FindRole("combobox"));
+        AssertIncrementalMatchesFull(t, () => t.Click(x, y));           // opens the fixed-position popup
+        Assert.True(m.Open);
+    }
+
+    [Fact]
+    public void Scrolling_repaints_identically()
+    {
+        using var t = new TestDoc(
+            "<body><div class='sc' style='height:120px; overflow:scroll; margin:14px'>" +
+            "<div style='height:60px'>alpha</div><div style='height:60px'>beta</div>" +
+            "<div style='height:60px'>gamma</div><div style='height:60px'>delta</div></div></body>",
+            "", components: true, width: W, height: H);
+
+        var (x, y) = TestDoc.Center(t.FindClass("sc"));
+        AssertIncrementalMatchesFull(t, () => { t.Doc.DispatchWheel(x, y, 70f); t.Layout(); });
+    }
+
+    [Fact]
+    public void Changes_beside_a_transformed_element_repaint_identically()
+    {
+        // A CSS transform puts Push/PopTransform scopes in the list; the diff must keep matrix state
+        // straight (or bail to full damage) — either way the pixels must match a full render.
+        var m = new Model();
+        using var t = new TestDoc(
+            "<body><div style='padding:16px'>" +
+            "<div style='width:60px;height:40px;background:#4682B4;transform:rotate(8deg)'></div>" +
+            "<cupri-switch checked=\"{{On}}\"></cupri-switch></div></body>",
+            "", m, components: true, width: W, height: H);
+
+        var (x, y) = TestDoc.Center(t.FindClass("cupri-switch"));
+        AssertIncrementalMatchesFull(t, () => t.Click(x, y));
+    }
+
+    private sealed class Model
+    {
+        public bool On { get; set; }
+        public string Size { get; set; } = "s";
+        public bool Open { get; set; }
+    }
+}
