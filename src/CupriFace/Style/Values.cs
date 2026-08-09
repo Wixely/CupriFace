@@ -84,6 +84,16 @@ public enum WhiteSpaceMode { Normal, NoWrap }
 /// <summary>CSS <c>resize</c>: which axes a user can drag the element's size on (via a corner grip).</summary>
 public enum ResizeMode { None, Both, Horizontal, Vertical }
 
+/// <summary>CSS <c>cursor</c> (the supported subset). <c>Auto</c> means "unspecified" — it inherits, and
+/// where nothing sets it the document infers one from the element (pointer over links/buttons, text over
+/// fields, resize arrows over drag boundaries). Hosts map these to their platform cursor (SDL / GLFW / the
+/// canvas <c>style.cursor</c>).</summary>
+public enum CursorType
+{
+    Auto, Default, Pointer, Text, Wait, Progress, Help, Crosshair, Move, NotAllowed,
+    Grab, Grabbing, EwResize, NsResize, NeswResize, NwseResize, None,
+}
+
 /// <summary>CSS <c>border-style</c> (the supported subset). <c>hidden</c> maps to <c>None</c>; other
 /// keywords (double/groove/…) fall back to <c>Solid</c>.</summary>
 public enum BorderLineStyle { Solid, Dashed, Dotted, None }

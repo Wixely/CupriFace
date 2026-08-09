@@ -157,6 +157,31 @@ public sealed class SkiaWindow : IDisposable
         }
     }
 
+    private CupriFace.Style.CursorType _lastCursor = (CupriFace.Style.CursorType)(-1);
+
+    /// <summary>Show the standard cursor matching the engine's <see cref="CupriFace.Style.CursorType"/>
+    /// (from <c>CupriDocument.CursorAt</c>). Synonyms fold onto the nearest GLFW standard cursor
+    /// (grab → hand; wait/progress/help have no distinct shape → the default arrow).</summary>
+    public void SetCursor(CupriFace.Style.CursorType c)
+    {
+        if (c == _lastCursor || _input?.Mice is not { Count: > 0 } mice) return;
+        _lastCursor = c;
+        var shape = c switch
+        {
+            CupriFace.Style.CursorType.Pointer or CupriFace.Style.CursorType.Grab or CupriFace.Style.CursorType.Grabbing => StandardCursor.Hand,
+            CupriFace.Style.CursorType.Text => StandardCursor.IBeam,
+            CupriFace.Style.CursorType.Crosshair => StandardCursor.Crosshair,
+            CupriFace.Style.CursorType.Move => StandardCursor.ResizeAll,
+            CupriFace.Style.CursorType.NotAllowed => StandardCursor.NotAllowed,
+            CupriFace.Style.CursorType.EwResize => StandardCursor.HResize,
+            CupriFace.Style.CursorType.NsResize => StandardCursor.VResize,
+            CupriFace.Style.CursorType.NwseResize => StandardCursor.NwseResize,
+            CupriFace.Style.CursorType.NeswResize => StandardCursor.NeswResize,
+            _ => StandardCursor.Default,
+        };
+        foreach (var m in mice) { m.Cursor.Type = Silk.NET.Input.CursorType.Standard; m.Cursor.StandardCursor = shape; }
+    }
+
     private static bool Ctrl(IKeyboard k) =>
         k.IsKeyPressed(Key.ControlLeft) || k.IsKeyPressed(Key.ControlRight) ||
         k.IsKeyPressed(Key.SuperLeft) || k.IsKeyPressed(Key.SuperRight); // Cmd on macOS

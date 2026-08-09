@@ -359,6 +359,18 @@ controls handle their own state.
   ```css
   .cupri-backdrop.blurred { background:#00000055; backdrop-filter: blur(9px); }
   ```
+- **`cursor`.** Sets the pointer shape and **inherits** like normal CSS. Supported keywords: `default`,
+  `pointer`, `text`, `wait`, `progress`, `help`, `crosshair`, `move`, `not-allowed`, `grab`, `grabbing`,
+  `col-resize`/`ew-resize`, `row-resize`/`ns-resize`, `nwse-resize`, `nesw-resize`, `none` (and `auto` =
+  unspecified). Where nothing sets it, the toolkit **infers** one automatically — `pointer` over links,
+  buttons and anything wired to act on click; `text` over text fields; the resize arrows over a corner
+  resize grip or a resizable table's column edge — so native controls get the right cursor with no CSS.
+  Hosts read `CupriDocument.CursorAt(x,y)` (a `CursorType`; `CursorCss(...)` gives the CSS keyword for
+  web hosts) after each pointer move and apply it; the desktop + WASM hosts already do.
+  ```css
+  .help-badge { cursor: help; }
+  .disabled   { cursor: not-allowed; }
+  ```
 
 ```css
 body { --cupri-surface:#1e2430; --cupri-text:#eef1f5; --cupri-border:#33405a; }  /* a dark theme */

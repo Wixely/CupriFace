@@ -263,9 +263,33 @@ public sealed class StyleResolver
                 case "line-height": s.LineHeight = ParseLineHeight(v); break;
                 case "text-align": s.TextAlign = v.ToLowerInvariant() switch { "center" => TextAlign.Center, "right" => TextAlign.Right, _ => TextAlign.Left }; break;
                 case "white-space": s.WhiteSpace = v.ToLowerInvariant() is "nowrap" or "pre" ? WhiteSpaceMode.NoWrap : WhiteSpaceMode.Normal; break;
+                case "cursor": s.Cursor = ParseCursor(v); break;
             }
         }
     }
+
+    // CSS cursor keyword → the supported subset (synonyms fold together: the diagonal/axis resize
+    // keywords collapse onto the two double-arrows a typical platform cursor set actually provides).
+    private static CursorType ParseCursor(string v) => v.Trim().ToLowerInvariant() switch
+    {
+        "default" => CursorType.Default,
+        "pointer" => CursorType.Pointer,
+        "text" or "vertical-text" => CursorType.Text,
+        "wait" => CursorType.Wait,
+        "progress" => CursorType.Progress,
+        "help" => CursorType.Help,
+        "crosshair" or "cell" => CursorType.Crosshair,
+        "move" or "all-scroll" => CursorType.Move,
+        "not-allowed" or "no-drop" => CursorType.NotAllowed,
+        "grab" => CursorType.Grab,
+        "grabbing" => CursorType.Grabbing,
+        "col-resize" or "e-resize" or "w-resize" or "ew-resize" => CursorType.EwResize,
+        "row-resize" or "n-resize" or "s-resize" or "ns-resize" => CursorType.NsResize,
+        "nwse-resize" or "nw-resize" or "se-resize" => CursorType.NwseResize,
+        "nesw-resize" or "ne-resize" or "sw-resize" => CursorType.NeswResize,
+        "none" => CursorType.None,
+        _ => CursorType.Auto, // auto / unknown → let the document infer
+    };
 
     // ---- value parsers -------------------------------------------------------
     private static DisplayType ParseDisplay(string v) => v.ToLowerInvariant() switch

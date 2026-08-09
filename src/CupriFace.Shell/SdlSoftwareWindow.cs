@@ -66,6 +66,37 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
 
     private float _lastX, _lastY; // wheel events carry no position — use the last move
 
+    // System cursors, created lazily and cached (SDL_CreateSystemCursor is not free), plus the last one
+    // set so a move that doesn't change the cursor is a no-op.
+    private readonly Dictionary<SystemCursor, nint> _cursors = new();
+    private CupriFace.Style.CursorType _lastCursor = (CupriFace.Style.CursorType)(-1);
+
+    /// <summary>Show the platform cursor matching the engine's <see cref="CupriFace.Style.CursorType"/>
+    /// (from <c>CupriDocument.CursorAt</c>). Synonyms without a distinct SDL system cursor fall back to the
+    /// closest one (grab → hand; the diagonal resizes → the two-headed arrows).</summary>
+    public void SetCursor(CupriFace.Style.CursorType c)
+    {
+        if (c == _lastCursor) return;
+        _lastCursor = c;
+        var id = c switch
+        {
+            CupriFace.Style.CursorType.Pointer or CupriFace.Style.CursorType.Grab or CupriFace.Style.CursorType.Grabbing => SystemCursor.SystemCursorHand,
+            CupriFace.Style.CursorType.Text => SystemCursor.SystemCursorIbeam,
+            CupriFace.Style.CursorType.Wait => SystemCursor.SystemCursorWait,
+            CupriFace.Style.CursorType.Progress => SystemCursor.SystemCursorWaitarrow,
+            CupriFace.Style.CursorType.Crosshair => SystemCursor.SystemCursorCrosshair,
+            CupriFace.Style.CursorType.Move => SystemCursor.SystemCursorSizeall,
+            CupriFace.Style.CursorType.NotAllowed => SystemCursor.SystemCursorNo,
+            CupriFace.Style.CursorType.EwResize => SystemCursor.SystemCursorSizewe,
+            CupriFace.Style.CursorType.NsResize => SystemCursor.SystemCursorSizens,
+            CupriFace.Style.CursorType.NwseResize => SystemCursor.SystemCursorSizenwse,
+            CupriFace.Style.CursorType.NeswResize => SystemCursor.SystemCursorSizenesw,
+            _ => SystemCursor.SystemCursorArrow, // Default / Auto / Help / None
+        };
+        if (!_cursors.TryGetValue(id, out var ptr)) _cursors[id] = ptr = (nint)_sdl.CreateSystemCursor(id);
+        _sdl.SetCursor((Cursor*)ptr);
+    }
+
     private readonly bool _frameless, _topMost;
 
     // NOTE: the SDL software path is opaque — its streaming texture blits over the window with no
@@ -220,6 +251,8 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
 
     public void Dispose()
     {
+        foreach (var p in _cursors.Values) _sdl.FreeCursor((Cursor*)p);
+        _cursors.Clear();
         if (_texture is not null) _sdl.DestroyTexture(_texture);
         if (_renderer is not null) _sdl.DestroyRenderer(_renderer);
         if (_window is not null) _sdl.DestroyWindow(_window);

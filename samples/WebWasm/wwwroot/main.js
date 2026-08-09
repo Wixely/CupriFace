@@ -74,6 +74,9 @@ try {
             ctx.putImageData(img, 0, 0);
             window.__paints++;
         },
+        // Cursor: the engine tells us which cursor to show under the pointer (links, text fields,
+        // resize boundaries, …). Only called when it changes.
+        cursor: name => { if (canvas.style.cursor !== name) canvas.style.cursor = name; },
         // Context-menu clipboard (async browser clipboard). Paste reads then feeds the engine.
         clipboardWrite: text => navigator.clipboard.writeText(text).catch(() => {}),
         clipboardPaste: () => navigator.clipboard.readText().then(t => { if (t) I.KeyChar(t); }).catch(() => {}),

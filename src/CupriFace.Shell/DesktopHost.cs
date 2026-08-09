@@ -47,10 +47,10 @@ public static class DesktopHost
         {
             var window = new SkiaWindow(app.Title, app.Width, app.Height, app.Transparent, app.Frameless, app.TopMost);
             window.Render += Draw;
-            window.PointerDown += (x, y, clicks) => doc.DispatchClick(x / scale, y / scale, clicks);
+            window.PointerDown += (x, y, clicks) => { doc.DispatchClick(x / scale, y / scale, clicks); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
             window.RightPointerDown += (x, y) => doc.DispatchContextMenu(x / scale, y / scale);
-            window.PointerMove += (x, y) => doc.DispatchPointerMove(x / scale, y / scale);
-            window.PointerUp += (x, y) => doc.DispatchPointerUp(x / scale, y / scale);
+            window.PointerMove += (x, y) => { doc.DispatchPointerMove(x / scale, y / scale); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
+            window.PointerUp += (x, y) => { doc.DispatchPointerUp(x / scale, y / scale); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
             window.PointerWheel += (x, y, dy) => doc.DispatchWheel(x / scale, y / scale, -dy * 50f); // wheel up → scroll up
             window.TextEntered += t => doc.DispatchKey(t, EditKey.None);
             window.EditKeyPressed += (k, mods) => doc.DispatchKey(null, k, mods);
@@ -78,10 +78,10 @@ public static class DesktopHost
             }
 
             window.Render += presenter is not null ? DrawThreaded : Draw;
-            window.PointerDown += (x, y, clicks) => doc.DispatchClick(x / scale, y / scale, clicks);
+            window.PointerDown += (x, y, clicks) => { doc.DispatchClick(x / scale, y / scale, clicks); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
             window.RightPointerDown += (x, y) => doc.DispatchContextMenu(x / scale, y / scale);
-            window.PointerMove += (x, y) => doc.DispatchPointerMove(x / scale, y / scale);
-            window.PointerUp += (x, y) => doc.DispatchPointerUp(x / scale, y / scale);
+            window.PointerMove += (x, y) => { doc.DispatchPointerMove(x / scale, y / scale); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
+            window.PointerUp += (x, y) => { doc.DispatchPointerUp(x / scale, y / scale); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
             window.PointerWheel += (x, y, dy) => doc.DispatchWheel(x / scale, y / scale, -dy * 50f); // wheel up → scroll up
             window.TextEntered += t => doc.DispatchKey(t, EditKey.None);
             window.EditKeyPressed += (k, mods) => doc.DispatchKey(null, k, mods);

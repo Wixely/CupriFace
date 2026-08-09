@@ -96,6 +96,7 @@ public sealed class ComputedStyle
     public float LineHeight = 1.2f; // multiple of font-size
     public TextAlign TextAlign = TextAlign.Left;
     public WhiteSpaceMode WhiteSpace = WhiteSpaceMode.Normal; // inherited
+    public CursorType Cursor = CursorType.Auto; // inherited; Auto = unspecified (document infers one)
 
     /// <summary>Copy inherited properties down from a parent as the starting point.</summary>
     public void InheritFrom(ComputedStyle parent)
@@ -108,6 +109,7 @@ public sealed class ComputedStyle
         LineHeight = parent.LineHeight;
         TextAlign = parent.TextAlign;
         WhiteSpace = parent.WhiteSpace;
+        Cursor = parent.Cursor;
     }
 
     public bool IsFlexContainer => Display == DisplayType.Flex;

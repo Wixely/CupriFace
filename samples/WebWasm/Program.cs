@@ -136,10 +136,20 @@ public partial class Interop
     // Dispatch* returns whether anything actually changed; only THEN mark dirty for a repaint.
     // (Marking dirty unconditionally repainted the whole 940x720 canvas on every mouse-move —
     // even over empty space where hover didn't change — saturating the CPU while moving.)
-    [JSExport] internal static void PointerDown(double x, double y, int clicks) { if (_doc?.DispatchClick((float)(x / _scale), (float)(y / _scale), clicks) == true) _dirty = true; }
+    [JSExport] internal static void PointerDown(double x, double y, int clicks) { if (_doc?.DispatchClick((float)(x / _scale), (float)(y / _scale), clicks) == true) _dirty = true; UpdateCursor(x, y); }
     [JSExport] internal static void ContextMenu(double x, double y) { if (_doc?.DispatchContextMenu((float)(x / _scale), (float)(y / _scale)) == true) _dirty = true; }
-    [JSExport] internal static void PointerMove(double x, double y) { if (_doc?.DispatchPointerMove((float)(x / _scale), (float)(y / _scale)) == true) _dirty = true; }
-    [JSExport] internal static void PointerUp(double x, double y) { if (_doc?.DispatchPointerUp((float)(x / _scale), (float)(y / _scale)) == true) _dirty = true; }
+    [JSExport] internal static void PointerMove(double x, double y) { if (_doc?.DispatchPointerMove((float)(x / _scale), (float)(y / _scale)) == true) _dirty = true; UpdateCursor(x, y); }
+    [JSExport] internal static void PointerUp(double x, double y) { if (_doc?.DispatchPointerUp((float)(x / _scale), (float)(y / _scale)) == true) _dirty = true; UpdateCursor(x, y); }
+
+    // Push the cursor for the current pointer position to the canvas (only when it changes — setting
+    // canvas.style.cursor every mouse-move is needless DOM churn).
+    private static string _cursor = "";
+    private static void UpdateCursor(double x, double y)
+    {
+        if (_doc is null) return;
+        var css = CupriDocument.CursorCss(_doc.CursorAt((float)(x / _scale), (float)(y / _scale)));
+        if (css != _cursor) { _cursor = css; SetCursor(css); }
+    }
     [JSExport] internal static void Wheel(double x, double y, double dy) { if (_doc?.DispatchWheel((float)(x / _scale), (float)(y / _scale), (float)-dy) == true) _dirty = true; }
     [JSExport] internal static void KeyChar(string text) { if (_doc?.DispatchKey(text, EditKey.None) == true) _dirty = true; }
     [JSExport] internal static void EditKeyPress(int code, int mods) { if (_doc?.DispatchKey(null, (EditKey)code, (KeyMods)mods) == true) _dirty = true; }
@@ -161,6 +171,9 @@ public partial class Interop
     // JS side (module "cupri") copies the pixels into the 2D canvas via putImageData.
     [JSImport("present", "cupri")]
     internal static partial void Present([JSMarshalAs<JSType.MemoryView>] Span<byte> rgba, int width, int height);
+
+    // Set the canvas cursor (JS assigns canvas.style.cursor). Called only when the cursor changes.
+    [JSImport("cursor", "cupri")] internal static partial void SetCursor(string name);
 
     // Clipboard bridge for the context menu (the browser clipboard is async, so it lives in JS).
     [JSImport("clipboardWrite", "cupri")] internal static partial void ClipboardWrite(string text);

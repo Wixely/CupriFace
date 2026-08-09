@@ -873,6 +873,78 @@ public sealed partial class CupriDocument : IDisposable
 
     public RenderNode? HitTest(float x, float y) => HitTesting.HitTest(_root, x, y);
 
+    /// <summary>The cursor the host should show at (x, y). A drag in progress dictates it; otherwise the
+    /// drag affordance under the pointer (a resize grip or a resizable table's column edge) wins, then the
+    /// nearest explicit CSS <c>cursor</c>, then one inferred from the element (pointer over links / buttons /
+    /// clickables, text over text fields). Hosts call this after each move and map it to a platform cursor.</summary>
+    public Style.CursorType CursorAt(float x, float y)
+    {
+        // 1) An active drag owns the cursor regardless of what's under the pointer.
+        if (_colPath is not null) return Style.CursorType.EwResize;
+        if (_splitA is not null) return _splitVertical ? Style.CursorType.NsResize : Style.CursorType.EwResize;
+        if (_reorderItems is not null) return Style.CursorType.Grabbing;
+        if (_resizeDrag is { } rd) return rd.Style.Resize switch
+        {
+            Style.ResizeMode.Horizontal => Style.CursorType.EwResize,
+            Style.ResizeMode.Vertical => Style.CursorType.NsResize,
+            _ => Style.CursorType.NwseResize,
+        };
+
+        var hit = HitTesting.HitTest(_root, x, y);
+        if (hit is null) return Style.CursorType.Default;
+
+        // 2) Drag affordances under the pointer (a corner grip / a column boundary) — before CSS, so they
+        //    beat an inherited cursor the way the grab itself takes priority over a normal click.
+        for (var n = hit; n is not null; n = n.Parent)
+        {
+            if (InResizeGrip(n, x, y)) return n.Style.Resize switch
+            {
+                Style.ResizeMode.Horizontal => Style.CursorType.EwResize,
+                Style.ResizeMode.Vertical => Style.CursorType.NsResize,
+                _ => Style.CursorType.NwseResize,
+            };
+            if (ColumnBoundaryAt(n, x) is not null) return Style.CursorType.EwResize;
+        }
+
+        // 3) The nearest explicit CSS cursor (Auto = unspecified → keep looking up the chain).
+        for (var n = hit; n is not null; n = n.Parent)
+            if (n.Style.Cursor != Style.CursorType.Auto) return n.Style.Cursor;
+
+        // 4) Inferred: text fields → text; links / buttons / anything wired to act on click → pointer.
+        for (var n = hit; n is not null; n = n.Parent)
+        {
+            if (n.Element is not { } el) continue;
+            if (el.GetAttribute("role") is "textbox" or "spinbutton") return Style.CursorType.Text;
+            if (el.GetAttribute("role") is "link" or "button" || el.LocalName is "a" or "button"
+                || el.HasAttribute("data-set-path") || el.HasAttribute("data-set-toggle")
+                || el.HasAttribute("data-cupri-toggle") || el.HasAttribute("data-cupri-dismiss"))
+                return Style.CursorType.Pointer;
+        }
+        return Style.CursorType.Default;
+    }
+
+    /// <summary>The CSS <c>cursor</c> keyword for a <see cref="Style.CursorType"/> — for web hosts that set
+    /// <c>canvas.style.cursor</c> from <see cref="CursorAt"/>.</summary>
+    public static string CursorCss(Style.CursorType c) => c switch
+    {
+        Style.CursorType.Pointer => "pointer",
+        Style.CursorType.Text => "text",
+        Style.CursorType.Wait => "wait",
+        Style.CursorType.Progress => "progress",
+        Style.CursorType.Help => "help",
+        Style.CursorType.Crosshair => "crosshair",
+        Style.CursorType.Move => "move",
+        Style.CursorType.NotAllowed => "not-allowed",
+        Style.CursorType.Grab => "grab",
+        Style.CursorType.Grabbing => "grabbing",
+        Style.CursorType.EwResize => "ew-resize",
+        Style.CursorType.NsResize => "ns-resize",
+        Style.CursorType.NeswResize => "nesw-resize",
+        Style.CursorType.NwseResize => "nwse-resize",
+        Style.CursorType.None => "none",
+        _ => "default",
+    };
+
     /// <summary>Build the platform-neutral semantics tree (§5) at the given size.</summary>
     public Accessibility.AccessibilityNode BuildAccessibilityTree(float width, float height)
     {
@@ -2286,24 +2358,32 @@ public sealed partial class CupriDocument : IDisposable
     // left flexible). Caches the column's content width so the drag is jump-free (flex-basis is content-box).
     private bool StartColumnResize(RenderNode cell, float x)
     {
-        if (cell.Element is not { LocalName: "cupri-cell" } ce) return false;
-        if (ce.GetAttribute("data-col") is not { } cs || !int.TryParse(cs, out var col)) return false;
-        if (cell.Parent?.Element?.ClassList.Contains("header") != true) return false;
+        if (_model is null || ColumnBoundaryAt(cell, x) is not { } at) return false;
+        var (table, col) = at;
+        _colPath = table.Element!.GetAttribute("data-cupri-colresize")!;
+        _colIndex = col; _colStartX = x;
+        _colStartW = cell.ContentBoxWidth;                            // flex-basis we write is content-box
+        _colList = (table.Element.GetAttribute("resize") ?? "").Split(',');
+        return true;
+    }
+
+    // Is the pointer on a resizable table's column boundary — a non-last header cell's right edge (±7px)?
+    // Returns the table node + column index if so. Shared by the grab (StartColumnResize) and CursorAt.
+    private static (RenderNode Table, int Col)? ColumnBoundaryAt(RenderNode cell, float x)
+    {
+        if (cell.Element is not { LocalName: "cupri-cell" } ce) return null;
+        if (ce.GetAttribute("data-col") is not { } cs || !int.TryParse(cs, out var col)) return null;
+        if (cell.Parent?.Element?.ClassList.Contains("header") != true) return null;
 
         RenderNode? table = cell.Parent;
         while (table is not null && table.Element?.GetAttribute("data-cupri-colresize") is not { Length: > 0 }) table = table.Parent;
-        if (table?.Element?.GetAttribute("data-cupri-colresize") is not { Length: > 0 } path || _model is null) return false;
+        if (table is null) return null;
 
         var lastCol = cell.Parent!.Children.Count(c => c.Element?.LocalName == "cupri-cell") - 1;
-        if (col >= lastCol) return false;                              // the last column fills remaining width
+        if (col >= lastCol) return null;                              // the last column fills remaining width
 
         var box = HitTesting.AbsoluteBox(cell);
-        if (x < box.X + box.W - 7f || x > box.X + box.W + 7f) return false; // only near the right boundary
-
-        _colPath = path; _colIndex = col; _colStartX = x;
-        _colStartW = cell.ContentBoxWidth;                            // flex-basis we write is content-box
-        _colList = (table.Element!.GetAttribute("resize") ?? "").Split(',');
-        return true;
+        return x >= box.X + box.W - 7f && x <= box.X + box.W + 7f ? (table, col) : null;
     }
 
     // Write the dragged column's new content width into the bound list and rebuild; Expand re-applies it to
