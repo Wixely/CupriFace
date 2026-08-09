@@ -187,6 +187,24 @@
           <cupri-card style="width:150px"><cupri-stat label="Revenue" value="$8.9k"></cupri-stat></cupri-card>
           <cupri-card style="width:150px"><cupri-stat label="Uptime" value="99.9%"></cupri-stat></cupri-card>
         </div>
+        <div class="mlabel" style="margin-top:22px">Markdown — one element turns a Markdown string into headings, <b>bold</b>, lists, links and code</div>
+        <cupri-card style="max-width:560px; padding:2px 22px">
+          <cupri-markdown>
+# Release notes
+
+**CupriFace** renders Markdown with no browser — just Skia and a DOM. One `&lt;cupri-markdown&gt;`
+element supports:
+
+- headings, `inline code`, and [links](https://example.com)
+- **bold**, *italic* (upright font, so it reads plain), and bullet lists
+- fenced code blocks, kept line-for-line:
+
+```
+doc.UseComponents(ComponentRegistry.Default());
+doc.RenderToImage(800, 600);
+```
+          </cupri-markdown>
+        </cupri-card>
       </div>
 
       <!-- CHARTS -->

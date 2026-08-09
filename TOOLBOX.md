@@ -448,6 +448,7 @@ to the bottom as new lines arrive (logging), *unless* the user has scrolled up:
 | `<cupri-card>` | Padded rounded surface | — | arbitrary | — |
 | `<cupri-divider>` | Horizontal rule | — | — | `separator` |
 | `<cupri-stat>` | Metric value + caption | `value`, `label` | — | — |
+| `<cupri-markdown>` | Renders a Markdown subset — `#`/`##`/`###` headings, `**bold**`, `*italic*`/`_italic_` (upright font, so italic reads plain), inline `` `code` `` + fenced ```` ``` ```` blocks, `-`/`*` bullet lists, `[text](url)` links, blank‑line paragraphs — into the toolkit's own elements (never raw HTML) | `text` (bindable; falls back to the element's own text) | Markdown text (when no `text` attr) | — |
 
 ### Navigation & disclosure
 

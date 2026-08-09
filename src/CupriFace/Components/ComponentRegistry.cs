@@ -73,6 +73,7 @@ public sealed class ComponentRegistry
         .Register(new CardComponent())
         .Register(new DividerComponent())
         .Register(new StatComponent())
+        .Register(new MarkdownComponent())
         // Charts
         .Register(new BarChartComponent())
         .Register(new BarComponent())
