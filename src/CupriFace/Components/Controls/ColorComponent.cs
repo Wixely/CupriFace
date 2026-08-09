@@ -27,9 +27,13 @@ public sealed class ColorComponent : ComponentBase
         .cupri-color-pop { position:fixed; width:278px; background:var(--cupri-surface, white); border-radius:10px;
                            padding:10px; z-index:30; border:1px var(--cupri-border, #e6e9f0); box-shadow:0 10px 28px #00000026; }
         .cupri-color-grid { display:grid; grid-template-columns: repeat(10, 1fr); gap:4px; }
-        .cupri-color-sep { height:9px; }
         .cupri-color-sw { height:22px; border-radius:5px; border:1px solid #00000018; }
+        /* The neutral ramp is the last row of the SAME grid (see Expand) — the gap that sets it apart
+           is a margin, not a second grid, so arrow-key navigation runs through it too. */
+        .cupri-color-sw.neutral { margin-top:9px; }
         .cupri-color-sw[data-hover] { box-shadow:0 0 0 2px var(--cupri-accent, #B87333); }
+        /* The keyboard cursor. Matches the hover ring so arrowing around reads the same as pointing. */
+        .cupri-color-sw[data-highlight] { box-shadow:0 0 0 2px var(--cupri-accent, #B87333); }
         .cupri-color-sw.selected { box-shadow:0 0 0 2px var(--cupri-surface, #fff), 0 0 0 4px var(--cupri-accent, #B87333); }
         """;
 
@@ -50,13 +54,15 @@ public sealed class ColorComponent : ComponentBase
         if (open)
         {
             body.Append($"<div class='cupri-color-pop' role='dialog' data-focus-scope data-cupri-anchor='{id}' data-cupri-placement='bottom'>");
+            // ONE grid: the hue×shade block then the neutral ramp as its final row. Arrow-key
+            // navigation walks a single [data-gridnav] container, so splitting these into two grids
+            // left the greys unreachable from the keyboard — the ramp is separated by a margin instead.
             body.Append("<div class='cupri-color-grid' data-gridnav='10'>");
             foreach (var l in Shades)
                 foreach (var h in Hues)
                     body.Append(Swatch(Hsl(h, 0.72, l), cur, path));
-            body.Append("</div><div class='cupri-color-sep'></div><div class='cupri-color-grid' data-gridnav='10'>");
             foreach (var l in Grays)
-                body.Append(Swatch(Hsl(0, 0, l), cur, path));
+                body.Append(Swatch(Hsl(0, 0, l), cur, path, "neutral"));
             body.Append("</div></div>");
         }
 
@@ -73,11 +79,12 @@ public sealed class ColorComponent : ComponentBase
     }
 
     // One palette cell — sets the bound value (and closes, no data-set-keep) when clicked; ringed if current.
-    private static string Swatch(string hex, string cur, string path)
+    private static string Swatch(string hex, string cur, string path, string extra = "")
     {
         var sel = string.Equals(hex, cur, StringComparison.OrdinalIgnoreCase) ? " selected" : "";
+        var cls = extra.Length > 0 ? " " + extra : "";
         var wire = path.Length > 0 ? $" role='button' data-set-path='{path}' data-set-value='{hex}'" : "";
-        return $"<div class='cupri-color-sw{sel}' style='background:{hex}'{wire} title='{hex}'></div>";
+        return $"<div class='cupri-color-sw{sel}{cls}' style='background:{hex}'{wire} title='{hex}'></div>";
     }
 
     // Accept #rgb / #rrggbb (any case) → canonical #RRGGBB for comparison; anything else stays as-is.

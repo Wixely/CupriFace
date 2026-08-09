@@ -11,11 +11,11 @@ namespace CupriFace.Tests;
 /// columns stay aligned. The last column is left flexible (no handle).</summary>
 public class ColumnResizeTests
 {
-    private sealed class Model { public string Cols { get; set; } = ""; }
+    private sealed class Model { public string Cols { get; set; } = ""; public string Sort { get; set; } = ""; }
 
     private const string Html =
         "<body><div style='padding:10px'>" +
-        "<cupri-table resize=\"{{Cols}}\" style=\"width:360px\">" +
+        "<cupri-table resize=\"{{Cols}}\" sort=\"{{Sort}}\" style=\"width:360px\">" +
         "<cupri-row header><cupri-cell>Name</cupri-cell><cupri-cell>Role</cupri-cell><cupri-cell>City</cupri-cell></cupri-row>" +
         "<cupri-row><cupri-cell>Ada</cupri-cell><cupri-cell>Admin</cupri-cell><cupri-cell>London</cupri-cell></cupri-row>" +
         "<cupri-row><cupri-cell>Linus</cupri-cell><cupri-cell>Owner</cupri-cell><cupri-cell>Oslo</cupri-cell></cupri-row>" +
@@ -75,6 +75,56 @@ public class ColumnResizeTests
         t.Up(b.X + b.W + 57, b.Y + b.H / 2);
 
         Assert.Equal("", m.Cols);                                   // nothing grabbed, nothing written
+    }
+
+    private static void DragBoundary(TestDoc t, int col, float dx)
+    {
+        var b = HitTesting.AbsoluteBox(HeaderCell(t, col));
+        float gx = b.X + b.W - 3, gy = b.Y + b.H / 2;
+        t.Click(gx, gy); t.Move(gx + dx, gy); t.Up(gx + dx, gy);
+    }
+
+    [Fact]
+    public void Dragging_a_boundary_far_left_stops_at_a_usable_minimum()
+    {
+        var m = new Model();
+        using var t = new TestDoc(Html, "", m, components: true, width: 420, height: 240);
+        DragBoundary(t, 0, -400);                                   // way past the left edge
+
+        var h0 = HeaderCell(t, 0);
+        Assert.True(h0.ContentBoxWidth >= 20, $"column collapsed to {h0.ContentBoxWidth}px");
+        Assert.True(h0.Width > 0);                                  // still laid out, still grabbable
+    }
+
+    [Fact]
+    public void Dragging_a_boundary_far_right_keeps_the_columns_inside_the_table()
+    {
+        // A column dragged past the table used to push the row far wider than its container (a 360px
+        // table ended up 828px of columns), collapsing everything else and overflowing.
+        var m = new Model();
+        using var t = new TestDoc(Html, "", m, components: true, width: 420, height: 240);
+        var table = t.Find(n => n.Element?.LocalName == "cupri-table")!;
+        DragBoundary(t, 0, 900);
+
+        var widths = new[] { HeaderCell(t, 0).Width, HeaderCell(t, 1).Width, HeaderCell(t, 2).Width };
+        Assert.True(widths.Sum() <= table.Width + 1,
+            $"columns ({widths.Sum():F0}px) must fit the table ({table.Width:F0}px)");
+        Assert.True(widths[1] > 0 && widths[2] > 0, "the other columns must not vanish");
+    }
+
+    [Fact]
+    public void Widths_survive_sorting_the_table()
+    {
+        var m = new Model();
+        using var t = new TestDoc(Html, "", m, components: true, width: 420, height: 240);
+        DragBoundary(t, 0, 50);
+        var resized = HeaderCell(t, 0).Width;
+
+        var hb = HitTesting.AbsoluteBox(HeaderCell(t, 0));
+        t.Click(hb.X + hb.W / 2, hb.Y + hb.H / 2);                  // the header also sorts
+
+        Assert.Equal("0:asc", m.Sort);                              // sorting happened…
+        Assert.Equal(resized, HeaderCell(t, 0).Width, 0.5);        // …and the width is untouched
     }
 
     [Fact]

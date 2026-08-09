@@ -114,8 +114,11 @@ public sealed partial class CupriDocument : IDisposable
     // written to the model each move, which rebuilds), so nothing here dangles across the per-move rebuild.
     private string? _colPath;
     private int _colIndex;
-    private float _colStartW, _colStartX;
+    private float _colStartW, _colStartX, _colMaxW;
     private string[] _colList = [];
+
+    /// <summary>Narrowest a dragged column may get — enough to stay grabbable and show a little content.</summary>
+    private const float MinColumnW = 24f;
 
     /// <summary>A drag-to-reorder drop: the source list, the item's index in it (<see cref="From"/>), and the
     /// target index (<see cref="To"/>) in <see cref="ToList"/>. For a single list (or a within-column move)
@@ -2521,6 +2524,21 @@ public sealed partial class CupriDocument : IDisposable
         _colIndex = col; _colStartX = x;
         _colStartW = cell.ContentBoxWidth;                            // flex-basis we write is content-box
         _colList = (table.Element.GetAttribute("resize") ?? "").Split(',');
+
+        // How wide this column may become: the table's content box, less what the OTHER columns need —
+        // the ones to its left keep the width they have, the ones to its right keep at least the floor.
+        // Without this a column could be dragged far past the table, collapsing every other column and
+        // overflowing the container (dragging one boundary right made a 360px table 828px wide).
+        var cells = cell.Parent!.Children.Where(c => c.Element?.LocalName == "cupri-cell").ToList();
+        var before = 0f;
+        for (var i = 0; i < col && i < cells.Count; i++) before += cells[i].Width;
+        var after = Math.Max(0, cells.Count - col - 1);
+        // Reserve in BORDER-box terms (what actually occupies the row), then convert the remainder back
+        // to the content width we write as flex-basis. Cells share the component's padding, so this
+        // cell's insets stand in for the others'.
+        var insets = cell.Width - cell.ContentBoxWidth;               // this cell's own padding/border
+        var free = table.ContentBoxWidth - before - after * (MinColumnW + insets);
+        _colMaxW = Math.Max(MinColumnW, free - insets);
         return true;
     }
 
@@ -2548,7 +2566,7 @@ public sealed partial class CupriDocument : IDisposable
     private bool MoveColumnResize(float x)
     {
         if (_colPath is null || _model is null) return false;
-        var w = Math.Clamp(_colStartW + (x - _colStartX), 24f, 800f);
+        var w = Math.Clamp(_colStartW + (x - _colStartX), MinColumnW, _colMaxW);
         var list = _colList.ToList();
         while (list.Count <= _colIndex) list.Add("");
         list[_colIndex] = ((int)MathF.Round(w)).ToString(System.Globalization.CultureInfo.InvariantCulture);
