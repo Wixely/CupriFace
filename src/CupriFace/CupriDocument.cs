@@ -31,6 +31,7 @@ public sealed partial class CupriDocument : IDisposable
     private readonly Paint.ImageStore _images;
 
     private IDocument? _dom;
+    private IDocument? _templateDom; // the template parsed once; each rebuild clones it (see Rebuild)
     private RenderNode _root = null!;
     private List<CssRule> _rules = new();   // reused by ReStyle (hover/active without a full rebuild)
     private Dictionary<string, List<Keyframe>> _keyframes = new();
@@ -244,13 +245,16 @@ public sealed partial class CupriDocument : IDisposable
             t = now;
         }
 
-        // A rebuild re-parses the DOM, so scroll offsets on the fresh tree would reset — carry them
-        // over (keyed by structural path, since element identity isn't stable across re-parse).
+        // A rebuild starts from a fresh DOM, so scroll offsets on the fresh tree would reset — carry
+        // them over (keyed by structural path, since element identity isn't stable across rebuilds).
         var scroll = CaptureScroll();
         CancelOrphanedPointerDrags(); // any node the pointer was dragging is about to be orphaned
 
         _dom?.Dispose();
-        var dom = new HtmlParser().ParseDocument(_templateHtml);
+        // Parse the (immutable) template ONCE; every rebuild — each keystroke — deep-clones the parsed
+        // DOM instead of re-tokenizing the HTML string, which is severalfold cheaper.
+        _templateDom ??= new HtmlParser().ParseDocument(_templateHtml);
+        var dom = (IDocument)_templateDom.Clone();
         Mark("parse-html");
 
         if (_model is not null)
@@ -2649,5 +2653,6 @@ public sealed partial class CupriDocument : IDisposable
         _fonts.Dispose();
         _images.Dispose();
         _dom?.Dispose();
+        _templateDom?.Dispose();
     }
 }
