@@ -97,6 +97,12 @@ public sealed partial class CupriDocument : IDisposable
     private bool _splitVertical;
     private float _splitStart, _splitPA0, _splitPB0, _splitGSum;
 
+    // The last pointer hit-test (from UpdateHover), reused by CursorAt so a host's move→cursor pair costs
+    // one tree walk, not two. Valid only for the exact same coordinates on the SAME tree — _lastHitRoot
+    // guards against a rebuild/restyle having replaced the nodes in between.
+    private RenderNode? _lastHit, _lastHitRoot;
+    private float _lastHitX = float.NaN, _lastHitY = float.NaN;
+
     // Table column resize: the bound width-list path, the dragged column, the grab origin (its content
     // width + pointer x), and the list as it stood when the drag began. All value types (the width list is
     // written to the model each move, which rebuilds), so nothing here dangles across the per-move rebuild.
@@ -896,7 +902,11 @@ public sealed partial class CupriDocument : IDisposable
             _ => Style.CursorType.NwseResize,
         };
 
-        var hit = HitTesting.HitTest(_root, x, y);
+        // Reuse the hit-test the move dispatch just did for these exact coordinates (same tree) — hosts
+        // call CursorAt right after DispatchPointerMove, so this usually saves the second tree walk.
+        var hit = ReferenceEquals(_lastHitRoot, _root) && _lastHitX == x && _lastHitY == y
+            ? _lastHit
+            : HitTesting.HitTest(_root, x, y);
         if (hit is null) return Style.CursorType.Default;
 
         // 2) Drag affordances under the pointer (a corner grip / a column boundary) — before CSS, so they
@@ -2543,6 +2553,7 @@ public sealed partial class CupriDocument : IDisposable
     private bool UpdateHover(float x, float y)
     {
         var hit = HitTesting.HitTest(_root, x, y);
+        _lastHit = hit; _lastHitRoot = _root; _lastHitX = x; _lastHitY = y; // reused by CursorAt
         var target = hit?.Element;
         if (_hoverChain.Count > 0 && ReferenceEquals(_hoverChain[0], target)) return false;
 
