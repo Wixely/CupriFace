@@ -38,6 +38,11 @@ public sealed partial class CupriDocument : IDisposable
     private List<CssRule>? _cachedRules;    // parsed once (CSS is immutable) and reused every rebuild
     private Dictionary<string, List<Keyframe>>? _cachedKeyframes;
     private float _viewportWidth = 1024f;
+    // The last size laid out, and whether the CURRENT tree has been laid out at it. A rebuild/restyle
+    // produces a fresh tree with no geometry; hosts lay out once per frame and then dispatch input, so
+    // input arriving before that frame would hit-test a tree whose boxes are all zero — see EnsureLaidOut.
+    private float _laidOutWidth, _laidOutHeight;
+    private bool _layoutDirty = true;
     private bool _hasMedia;
     private readonly Style.TransitionEngine _transitions = new();
 
@@ -99,8 +104,8 @@ public sealed partial class CupriDocument : IDisposable
     private float _splitStart, _splitPA0, _splitPB0, _splitGSum;
 
     // The last pointer hit-test (from UpdateHover), reused by CursorAt so a host's move→cursor pair costs
-    // one tree walk, not two. Valid only for the exact same coordinates on the SAME tree — _lastHitRoot
-    // guards against a rebuild/restyle having replaced the nodes in between.
+    // one tree walk, not two. Valid only for the same coordinates on the SAME tree — _lastHitRoot guards
+    // against a restyle/rebuild having replaced the nodes in between.
     private RenderNode? _lastHit, _lastHitRoot;
     private float _lastHitX = float.NaN, _lastHitY = float.NaN;
 
@@ -342,6 +347,7 @@ public sealed partial class CupriDocument : IDisposable
 
         _hoverChain.Clear();
         _root = new StyleResolver(_rules, _viewportWidth).BuildTree(dom);
+        _layoutDirty = true; // fresh tree: no geometry until the next layout
         RestoreScroll(scroll);
         _transitions.Detect(_root); // (re)start transitions whose target value changed this rebuild
         Mark("style+tree");
@@ -517,6 +523,7 @@ public sealed partial class CupriDocument : IDisposable
             Rebuild();
         }
         _layout.Layout(_root, width, height);
+        _laidOutWidth = width; _laidOutHeight = height; _layoutDirty = false;
         ScrollCaretIntoView();  // after layout, before paint: keep the caret visible in a scrolled field
         ScrollCaretIntoViewX(); // and horizontally, in a single-line (nowrap) field
 
@@ -881,12 +888,14 @@ public sealed partial class CupriDocument : IDisposable
     }
 
     // ---- interaction (Layer 0 → hit-test → dispatch) -------------------------
-    private readonly List<(string Selector, Action<CupriPointerEvent> Handler)> _clickHandlers = new();
+    // Registered selector → handler. The selector is COMPILED once here (see Matches) rather than
+    // re-parsed on every click, hover and cursor query.
+    private readonly List<(string Selector, AngleSharp.Css.Dom.ISelector? Compiled, Action<CupriPointerEvent> Handler)> _clickHandlers = new();
 
     /// <summary>Register a click handler matched by CSS selector (bubbles from target up).</summary>
     public CupriDocument OnClick(string selector, Action<CupriPointerEvent> handler)
     {
-        _clickHandlers.Add((selector, handler));
+        _clickHandlers.Add((selector, CompileSelector(selector), handler));
         return this;
     }
 
@@ -919,7 +928,21 @@ public sealed partial class CupriDocument : IDisposable
         return this;
     }
 
-    public RenderNode? HitTest(float x, float y) => HitTesting.HitTest(_root, x, y);
+    public RenderNode? HitTest(float x, float y) { EnsureLaidOut(); return HitTesting.HitTest(_root, x, y); }
+
+    /// <summary>Lay out the current tree if it hasn't been, at the last size a frame used. A rebuild or
+    /// restyle throws away the laid-out tree, and hosts render once per frame and dispatch input in
+    /// between — so input arriving after a hover/model change but before the next frame would hit-test a
+    /// tree whose boxes are all zero, and be silently swallowed (a click landing in the same frame as the
+    /// hover that preceded it did nothing). Every hit-testing entry point calls this first. It's a no-op
+    /// on the common path (the frame just laid out), and the work it does is what the next frame would
+    /// have done anyway.</summary>
+    private void EnsureLaidOut()
+    {
+        if (!_layoutDirty || _laidOutWidth <= 0 || _laidOutHeight <= 0) return;
+        _layout.Layout(_root, _laidOutWidth, _laidOutHeight);
+        _layoutDirty = false;
+    }
 
     /// <summary>The cursor the host should show at (x, y). A drag in progress dictates it; otherwise the
     /// drag affordance under the pointer (a resize grip or a resizable table's column edge) wins, then the
@@ -927,10 +950,16 @@ public sealed partial class CupriDocument : IDisposable
     /// clickables, text over text fields). Hosts call this after each move and map it to a platform cursor.</summary>
     public Style.CursorType CursorAt(float x, float y)
     {
-        // 1) An active drag owns the cursor regardless of what's under the pointer.
+        EnsureLaidOut();
+        // 1) An active drag owns the cursor regardless of what's under the pointer — the pointer routinely
+        //    leaves the grabbed control mid-drag, and flickering to whatever it passes over reads as a
+        //    broken drag. Every drag the document can be in is listed here.
         if (_colPath is not null) return Style.CursorType.EwResize;
         if (_splitA is not null) return _splitVertical ? Style.CursorType.NsResize : Style.CursorType.EwResize;
         if (_reorderItems is not null) return Style.CursorType.Grabbing;
+        if (_scrollDrag is not null) return Style.CursorType.Default;  // scrollbar thumb
+        if (_dragging) return Style.CursorType.Pointer;                // slider thumb
+        if (_textDrag) return Style.CursorType.Text;                   // drag-selecting in a field
         if (_resizeDrag is { } rd) return rd.Style.Resize switch
         {
             Style.ResizeMode.Horizontal => Style.CursorType.EwResize,
@@ -938,8 +967,10 @@ public sealed partial class CupriDocument : IDisposable
             _ => Style.CursorType.NwseResize,
         };
 
-        // Reuse the hit-test the move dispatch just did for these exact coordinates (same tree) — hosts
-        // call CursorAt right after DispatchPointerMove, so this usually saves the second tree walk.
+        // Reuse the hit the move dispatch just recorded for these exact coordinates on this same tree —
+        // hosts call CursorAt right after DispatchPointerMove, so this usually saves the second tree walk.
+        // (A restyle/rebuild replaces the tree, which invalidates the cache by identity; EnsureLaidOut
+        // above guarantees the fresh tree has geometry, so re-hit-testing it is correct.)
         var hit = ReferenceEquals(_lastHitRoot, _root) && _lastHitX == x && _lastHitY == y
             ? _lastHit
             : HitTesting.HitTest(_root, x, y);
@@ -962,18 +993,42 @@ public sealed partial class CupriDocument : IDisposable
         for (var n = hit; n is not null; n = n.Parent)
             if (n.Style.Cursor != Style.CursorType.Auto) return n.Style.Cursor;
 
-        // 4) Inferred: text fields → text; links / buttons / anything wired to act on click → pointer.
+        // 4) Inferred: disabled controls → not-allowed; text fields → text; anything that acts on a
+        //    click → pointer. Checked innermost-out, so a disabled control inside a clickable row wins.
         for (var n = hit; n is not null; n = n.Parent)
         {
             if (n.Element is not { } el) continue;
+            if (IsDisabled(el)) return Style.CursorType.NotAllowed;
             if (el.GetAttribute("role") is "textbox" or "spinbutton") return Style.CursorType.Text;
-            if (el.GetAttribute("role") is "link" or "button" || el.LocalName is "a" or "button"
-                || el.HasAttribute("data-set-path") || el.HasAttribute("data-set-toggle")
-                || el.HasAttribute("data-cupri-toggle") || el.HasAttribute("data-cupri-dismiss"))
-                return Style.CursorType.Pointer;
+            if (ActsOnClick(el)) return Style.CursorType.Pointer;
         }
-        return Style.CursorType.Default;
+
+        // 5) A checkbox/radio/switch's text label activates the control (HTML <label> behaviour), so it
+        //    gets the control's cursor — same walk the click uses, so the two always agree.
+        return LabelTargets(hit).Any() ? Style.CursorType.Pointer : Style.CursorType.Default;
     }
+
+    /// <summary>Would a click on this element (not its ancestors) do something? The single definition
+    /// behind the pointer cursor: the interactive roles, links, every built-in <c>data-*</c> activation
+    /// hook, and — the ones easily forgotten — app-registered <see cref="OnClick"/> selectors and
+    /// <see cref="OnAction"/> attributes, which <see cref="ActivateFrom"/> honours and so must show a
+    /// pointer too (a sidebar nav row wired only by <c>OnClick</c> is the canonical case).</summary>
+    private bool ActsOnClick(IElement el) =>
+        el.GetAttribute("role") is "link" or "button" or "switch" or "checkbox" or "radio" or "slider"
+        || el.LocalName is "a" or "button"
+        || el.HasAttribute("data-set-path") || el.HasAttribute("data-set-toggle")
+        || el.HasAttribute("data-cupri-toggle") || el.HasAttribute("data-cupri-dismiss")
+        || el.HasAttribute("data-cupri-step")
+        || _actionHandlers.Exists(h => el.HasAttribute(h.Attr))
+        || _clickHandlers.Exists(h => Matches(el, h.Compiled));
+
+    /// <summary>A control the author marked unavailable (<c>aria-disabled</c>, or the <c>disabled</c>
+    /// class/attribute the components use, e.g. a pagination arrow on the first page). It keeps its role
+    /// for a11y but drops its activation hooks, so the cursor must not promise a click.</summary>
+    private static bool IsDisabled(IElement el) =>
+        el.ClassList.Contains("disabled")
+        || el.HasAttribute("disabled")
+        || el.GetAttribute("aria-disabled") is "true";
 
     /// <summary>The CSS <c>cursor</c> keyword for a <see cref="Style.CursorType"/> — for web hosts that set
     /// <c>canvas.style.cursor</c> from <see cref="CursorAt"/>.</summary>
@@ -1016,6 +1071,7 @@ public sealed partial class CupriDocument : IDisposable
     /// </summary>
     public bool DispatchClick(float x, float y, int clickCount = 1)
     {
+        EnsureLaidOut();
         _textDrag = false;
 
         // An open context menu intercepts the next click: an item runs its command (without
@@ -1188,9 +1244,9 @@ public sealed partial class CupriDocument : IDisposable
                 case "slider": return StartSliderDrag(node, el, x);
                 default:
                     var any = false;
-                    foreach (var (selector, handler) in _clickHandlers)
+                    foreach (var (_, compiled, handler) in _clickHandlers)
                     {
-                        if (!Matches(el, selector)) continue;
+                        if (!Matches(el, compiled)) continue;
                         handler(new CupriPointerEvent(x, y, node, el));
                         any = true;
                     }
@@ -1242,7 +1298,7 @@ public sealed partial class CupriDocument : IDisposable
         || el.HasAttribute("data-cupri-step");
 
     private bool IsFocusable(IElement el) =>
-        IsFocusableRole(el) || _clickHandlers.Exists(h => Matches(el, h.Selector));
+        IsFocusableRole(el) || _clickHandlers.Exists(h => Matches(el, h.Compiled));
 
     // Focusable render nodes in DOM (pre-order) order; skips a matched node's subtree so a
     // control counts once. display:none subtrees are already absent from the render tree. When
@@ -1712,6 +1768,7 @@ public sealed partial class CupriDocument : IDisposable
     /// keeps its selection). Returns true if a menu opened or an open one closed (→ repaint).</summary>
     public bool DispatchContextMenu(float x, float y)
     {
+        EnsureLaidOut();
         var hit = HitTesting.HitTest(_root, x, y);
 
         // A <cupri-context-menu> region under the pointer opens its own menu at the pointer.
@@ -1975,28 +2032,38 @@ public sealed partial class CupriDocument : IDisposable
         el?.GetAttribute("role") is "switch" or "checkbox" or "radio";
 
     /// <summary>
-    /// A click that hit no control but landed on a checkbox/radio/switch's text label activates
-    /// that control (HTML <c>&lt;label&gt;</c> behaviour). Labels are authored as siblings of the
-    /// control, so we look outward from the clicked node: the immediately-adjacent control,
-    /// preferring the one BEFORE the label (the "[box] Label" pattern) then the one AFTER it
-    /// (the "Label [switch]" pattern). A following control is only bound when it has no trailing
-    /// label of its own, so a group heading like "Size" that precedes the first radio doesn't
-    /// hijack it. Returns the activated control, or null.
+    /// The controls a click at <paramref name="hit"/> could activate as a label, nearest first.
+    /// Labels are authored as siblings of the control, so we look outward from the clicked node: the
+    /// immediately-adjacent control, preferring the one BEFORE the label (the "[box] Label" pattern)
+    /// then the one AFTER it (the "Label [switch]" pattern). A following control is only offered when
+    /// it has no trailing label of its own, so a group heading like "Size" that precedes the first
+    /// radio doesn't hijack it. (The whole ancestor chain of <paramref name="hit"/> is non-interactive
+    /// when this runs — ActivateFrom already found no control above it — so walking out to adjacent
+    /// siblings stays on inert text.) Enumerating candidates rather than acting lets <see cref="CursorAt"/>
+    /// and <see cref="ActivateLabel"/> share ONE definition of "this text is a label", so the cursor
+    /// can't promise a click the activation wouldn't honour.
     /// </summary>
-    private IElement? ActivateLabel(RenderNode hit)
+    private static IEnumerable<IElement> LabelTargets(RenderNode hit)
     {
-        // The whole ancestor chain of `hit` is non-interactive here (ActivateFrom already ran and
-        // found no control above the hit), so walking out to adjacent siblings stays on inert text.
         RenderNode? node = hit;
         for (var hops = 0; node is not null && hops < 5; node = node.Parent, hops++)
         {
             if (node.Element is not { } el) continue;
-            if (el.PreviousElementSibling is { } prev && IsLabelableControl(prev) && ActivateControl(prev))
-                return prev;
-            if (el.NextElementSibling is { } next && IsLabelableControl(next)
-                && !HasTrailingLabel(next) && ActivateControl(next))
-                return next;
+            if (el.PreviousElementSibling is { } prev && IsLabelableControl(prev)) yield return prev;
+            if (el.NextElementSibling is { } next && IsLabelableControl(next) && !HasTrailingLabel(next))
+                yield return next;
         }
+    }
+
+    /// <summary>
+    /// A click that hit no control but landed on a checkbox/radio/switch's text label activates
+    /// that control (HTML <c>&lt;label&gt;</c> behaviour). Returns the activated control, or null —
+    /// a candidate that declines to act (e.g. an unbound radio) falls through to the next.
+    /// </summary>
+    private IElement? ActivateLabel(RenderNode hit)
+    {
+        foreach (var control in LabelTargets(hit))
+            if (ActivateControl(control)) return control;
         return null;
     }
 
@@ -2492,6 +2559,7 @@ public sealed partial class CupriDocument : IDisposable
 
     public bool DispatchPointerMove(float x, float y)
     {
+        EnsureLaidOut();
         if (_colPath is not null) return MoveColumnResize(x);
         if (_splitA is not null) return MoveSplit(x, y);
         if (_reorderItems is not null) return MoveReorder(x, y);
@@ -2549,6 +2617,7 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>Scroll wheel: scroll the nearest scrollable element under the pointer by pixels.</summary>
     public bool DispatchWheel(float x, float y, float pixelDelta)
     {
+        EnsureLaidOut();
         if (_ctxOpen || _ctxCustomIndex >= 0) { _ctxOpen = false; _ctxCustomIndex = -1; Refresh(); } // scrolling dismisses the context menu
         var hit = HitTesting.HitTest(_root, x, y);
         for (var n = hit; n is not null; n = n.Parent)
@@ -2635,6 +2704,7 @@ public sealed partial class CupriDocument : IDisposable
         // mouse move over the page snaps a scrolled field back to the top.
         var scroll = CaptureScroll();
         _root = new StyleResolver(_rules, _viewportWidth).BuildTree(_dom);
+        _layoutDirty = true; // fresh tree: no geometry until the next layout
         RestoreScroll(scroll);
         _transitions.Detect(_root); // hover/focus/class change → (re)start any transitions that flipped
     }
@@ -2642,11 +2712,25 @@ public sealed partial class CupriDocument : IDisposable
     private static double ParseAttr(IElement el, string name, double fallback) =>
         double.TryParse(el.GetAttribute(name), CultureInfo.InvariantCulture, out var v) ? v : fallback;
 
-    private static bool Matches(IElement el, string selector)
+    // Selector matching for OnClick handlers.
+    //
+    // NOT `el.Matches(selector)`: that resolves a CSS selector parser off the element's browsing
+    // context at call time, and in a TRIMMED WebAssembly publish that resolution fails — it threw, the
+    // old catch swallowed it, and every selector-registered OnClick silently became a no-op on the web
+    // host (dead sidebar nav, toast buttons, swatches…) while behaving perfectly on desktop. Compiling
+    // the selector up front with CssSelectorParser is the same path the style resolver uses — which
+    // demonstrably survives trimming, since the published build styles the page correctly — and it also
+    // removes a per-click/per-mouse-move parse.
+    private static readonly AngleSharp.Css.Parser.CssSelectorParser SelectorParser = new();
+
+    private static AngleSharp.Css.Dom.ISelector? CompileSelector(string selector)
     {
-        try { return el.Matches(selector); }
-        catch { return false; }
+        try { return SelectorParser.ParseSelector(selector); }
+        catch { return null; } // unparseable selector: the handler simply never matches
     }
+
+    private static bool Matches(IElement el, AngleSharp.Css.Dom.ISelector? compiled) =>
+        compiled is not null && compiled.Match(el, null);
 
     /// <summary>Convenience CPU-raster render to an image (headless/tests).</summary>
     public SKImage RenderToImage(int width, int height, SKColor? clear = null)

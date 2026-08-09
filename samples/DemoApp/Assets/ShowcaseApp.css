@@ -5,7 +5,9 @@ body { --cupri-bg:#f4f5f7; --cupri-surface:#ffffff; --cupri-text:#1e2430; --cupr
 body.theme-ocean  { --cupri-accent:#2f7ed8; }
 body.theme-forest { --cupri-accent:#10a06a; }
 body.theme-grape  { --cupri-accent:#8b5cf6; }
-.swatch { width:30px; height:30px; border-radius:50%; cursor:pointer; border:3px transparent; box-shadow:0 0 0 1px var(--cupri-border); }
+/* Interactive things need no `cursor` here: the engine shows the pointer for anything wired to act on
+   a click, including rows wired only by OnClick (the sidebar nav, these swatches, the palette button). */
+.swatch { width:30px; height:30px; border-radius:50%; border:3px transparent; box-shadow:0 0 0 1px var(--cupri-border); }
 .swatch.on { border:3px var(--cupri-text); }
 body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; --cupri-muted:#8b93a7;
             --cupri-border:#2a3346; --cupri-hover:#273249; --cupri-sidebar:#0b0f18; --cupri-sidebar-text:#aeb6c6; --cupri-nav-active:#243049; }
@@ -17,7 +19,7 @@ body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; -
            overflow:hidden; white-space:nowrap; transition: background-color 0.35s ease, width 0.28s ease; }
 .sidebar.collapsed { width:60px; padding-left:10px; padding-right:10px; }
 .brand-row { display:flex; align-items:center; gap:8px; margin-bottom:16px; }
-.collapse-btn { flex:none; display:flex; color:var(--cupri-sidebar-text); cursor:pointer; padding:4px; border-radius:7px;
+.collapse-btn { flex:none; display:flex; color:var(--cupri-sidebar-text); padding:4px; border-radius:7px;
                 transition: background-color 0.2s ease, color 0.2s ease; }
 .collapse-btn:hover { background:var(--cupri-nav-active); color:white; }
 .brand-label { color:white; font-size:19px; font-weight:bold; }
@@ -29,7 +31,7 @@ body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; -
 .nav.active { background:var(--cupri-nav-active); color:white; font-weight:bold; }
 /* Command-palette trigger, pinned above the nav. */
 .search-btn { display:flex; align-items:center; gap:10px; margin-bottom:10px; padding:9px 12px; border-radius:8px;
-              background:var(--cupri-nav-active); color:var(--cupri-sidebar-text); font-size:14px; cursor:pointer; }
+              background:var(--cupri-nav-active); color:var(--cupri-sidebar-text); font-size:14px; }
 .search-btn:hover { color:white; }
 .search-btn cupri-icon { flex:none; }
 .search-btn .kbd { margin-left:auto; font-size:11px; opacity:0.6; }

@@ -153,7 +153,6 @@ public sealed class TableRowComponent : ComponentBase
         .cupri-row.header { background:var(--cupri-hover, #f6f7f9); font-weight:bold; color:var(--cupri-muted, #4a5262);
                             position:sticky; top:0; z-index:1; }
         .cupri-row[data-hover]:not(.header) { background:var(--cupri-hover, #f8f9fb); }
-        .cupri-table[data-cupri-select] .cupri-row:not(.header) { cursor:pointer; }
         .cupri-row[data-selected] { background:var(--cupri-hover, #eef1f5); box-shadow:inset 3px 0 0 var(--cupri-accent, #B87333); }
         """;
 

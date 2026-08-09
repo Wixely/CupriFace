@@ -71,7 +71,7 @@ public sealed class AccordionItemComponent : ComponentBase
     public override string Tag => "cupri-accordion-item";
     public override string DefaultCss => """
         .cupri-acc-item { display:block; border-bottom:1px var(--cupri-border, #e6e9f0); }
-        .cupri-acc-header { display:flex; align-items:center; justify-content:space-between; cursor:pointer;
+        .cupri-acc-header { display:flex; align-items:center; justify-content:space-between;
                             padding:13px 16px; color:var(--cupri-text, #1e2430); font-weight:bold; font-size:15px; }
         .cupri-acc-header[data-hover] { background:var(--cupri-hover, #f0f2f5); }
         /* Height animates 0 ↔ auto so the panel slides. The panel is always present (only its height
