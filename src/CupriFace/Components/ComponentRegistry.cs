@@ -23,15 +23,25 @@ public sealed class ComponentRegistry
 
     public void Expand(IDocument document)
     {
+        // Expansion runs on EVERY rebuild (each keystroke), so avoid a full-document QuerySelectorAll per
+        // registered component (~60 tag queries, most for components not on the page): ONE walk collects
+        // the registered custom elements present, grouped by tag, and only those expand. A pass that
+        // expanded anything re-walks, so components emitted by other components still expand (next pass).
         const int maxPasses = 8; // supports components that emit other components
         for (var pass = 0; pass < maxPasses; pass++)
         {
+            Dictionary<string, List<IElement>>? byTag = null;
+            if (document.DocumentElement is { } docRoot) Collect(docRoot, ref byTag);
+            if (byTag is null) break;
+
             var any = false;
             foreach (var component in _components.Values)
             {
-                foreach (var el in document.QuerySelectorAll(component.Tag).ToArray())
+                if (!byTag.TryGetValue(component.Tag, out var els)) continue;
+                foreach (var el in els)
                 {
                     if (el.HasAttribute("data-cupri-expanded")) continue;
+                    if (!IsConnected(el, document)) continue; // orphaned by an earlier expansion this pass
                     component.Expand(el);
                     el.SetAttribute("data-cupri-expanded", "");
                     any = true;
@@ -39,6 +49,27 @@ public sealed class ComponentRegistry
             }
             if (!any) break;
         }
+    }
+
+    // Collect registered, not-yet-expanded custom elements in one pre-order walk.
+    private void Collect(IElement el, ref Dictionary<string, List<IElement>>? byTag)
+    {
+        if (_components.ContainsKey(el.LocalName) && !el.HasAttribute("data-cupri-expanded"))
+        {
+            byTag ??= new Dictionary<string, List<IElement>>(StringComparer.OrdinalIgnoreCase);
+            if (!byTag.TryGetValue(el.LocalName, out var list)) byTag[el.LocalName] = list = new List<IElement>();
+            list.Add(el);
+        }
+        foreach (var child in el.Children) Collect(child, ref byTag);
+    }
+
+    // An earlier expansion in this pass may have rewritten an ancestor's InnerHtml, detaching a collected
+    // element — expanding a detached node would be wasted work (and could resurrect stale content).
+    private static bool IsConnected(IElement el, IDocument document)
+    {
+        for (INode? n = el; n is not null; n = n.Parent)
+            if (ReferenceEquals(n, document)) return true;
+        return false;
     }
 
     /// <summary>The first-party control library (DESIGN.md §10.5).</summary>
