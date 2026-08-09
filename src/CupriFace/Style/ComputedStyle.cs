@@ -85,8 +85,21 @@ public sealed class ComputedStyle
     // declares `transition`. Each entry animates one paint property when its target value changes.
     public List<TransitionSpec>? Transitions;
 
-    // CSS custom properties (design tokens). Inherit by default; resolved by var().
+    // CSS custom properties (design tokens). Inherit by default; resolved by var(). Copy-on-write:
+    // InheritFrom SHARES the parent's dictionary (most nodes declare no tokens of their own, and copying
+    // the theme's ~15 tokens for every node dominated rebuild allocations); a node that declares one
+    // clones first via OwnCustomProps().
     public Dictionary<string, string> CustomProps = new();
+    private bool _sharedProps; // CustomProps currently references an ancestor's dictionary
+
+    /// <summary>The node's own (writable) custom-prop dictionary — clones the shared ancestor copy on
+    /// first write. All writers must go through this; writing CustomProps directly while shared would
+    /// corrupt every node inheriting from the same ancestor.</summary>
+    public Dictionary<string, string> OwnCustomProps()
+    {
+        if (_sharedProps) { CustomProps = new Dictionary<string, string>(CustomProps); _sharedProps = false; }
+        return CustomProps;
+    }
 
     // Text (inherited)
     public SKColor Color = SKColors.Black;
@@ -101,7 +114,7 @@ public sealed class ComputedStyle
     /// <summary>Copy inherited properties down from a parent as the starting point.</summary>
     public void InheritFrom(ComputedStyle parent)
     {
-        CustomProps = new Dictionary<string, string>(parent.CustomProps); // custom props inherit
+        CustomProps = parent.CustomProps; _sharedProps = true; // custom props inherit (copy-on-write)
         Color = parent.Color;
         FontSize = parent.FontSize;
         FontWeight = parent.FontWeight;

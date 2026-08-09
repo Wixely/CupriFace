@@ -28,36 +28,70 @@ public sealed class StyleResolver
 
     private readonly List<CssRule> _rules;
     private readonly float _viewportWidth;
-    private readonly Dictionary<IElement, List<CssRule>> _matched = new();
+
+    // Rules bucketed by their rightmost-compound key. An element is only TESTED against the rules
+    // bucketed under its own tag / classes / id (plus the keyless bucket) — so the whole component
+    // library's CSS costs nothing on elements it can't apply to, and elements inside display:none
+    // subtrees (which BuildChildren prunes) are never matched at all. Matching uses each rule's
+    // selector compiled ONCE at parse time (CssRule.Compiled) — no per-rebuild selector parsing and
+    // no document-wide QuerySelectorAll per rule (which ran on every rebuild AND hover restyle).
+    private readonly Dictionary<string, List<CssRule>> _byClass = new();
+    private readonly Dictionary<string, List<CssRule>> _byId = new();
+    private readonly Dictionary<string, List<CssRule>> _byTag = new();
+    private readonly List<CssRule> _keyless = new();
+
+    private static readonly Comparison<CssRule> Cascade =
+        static (a, b) => a.Specificity != b.Specificity ? a.Specificity - b.Specificity : a.Order - b.Order;
 
     public StyleResolver(List<CssRule> rules, float viewportWidth = 1024f)
     {
         _rules = rules;
         _viewportWidth = viewportWidth;
+        foreach (var rule in rules)
+        {
+            if (rule.Compiled is null) continue; // selector the engine couldn't parse — never matches
+            if (rule.KeyClass is { } c) Bucket(_byClass, c, rule);
+            else if (rule.KeyId is { } i) Bucket(_byId, i, rule);
+            else if (rule.KeyTag is { } t) Bucket(_byTag, t, rule);
+            else _keyless.Add(rule);
+        }
+    }
+
+    private static void Bucket(Dictionary<string, List<CssRule>> map, string key, CssRule rule)
+    {
+        if (!map.TryGetValue(key, out var list)) map[key] = list = new List<CssRule>();
+        list.Add(rule);
     }
 
     public RenderNode BuildTree(IDocument document)
     {
-        // Pre-match every rule using AngleSharp's real selector engine.
-        foreach (var rule in _rules)
-        {
-            if (rule.Media is { } m && !m.Matches(_viewportWidth)) continue; // @media gate
-            IHtmlCollection<IElement> hits;
-            try { hits = document.QuerySelectorAll(rule.Selector); }
-            catch { continue; } // skip selectors we can't compile (e.g. exotic pseudos)
-            foreach (var el in hits)
-            {
-                if (!_matched.TryGetValue(el, out var list))
-                    _matched[el] = list = new List<CssRule>();
-                list.Add(rule);
-            }
-        }
-
         var body = document.Body ?? throw new InvalidOperationException("Document has no <body>.");
         var root = new RenderNode { Tag = "body", Element = body };
         ResolveStyle(root, parent: null);
         BuildChildren(root, body);
         return root;
+    }
+
+    /// <summary>The rules matching this element, in cascade order (or null when none match).</summary>
+    private List<CssRule>? MatchRules(IElement el)
+    {
+        List<CssRule>? matched = null;
+        if (_byTag.TryGetValue(el.LocalName, out var bt)) Test(el, bt, ref matched);
+        foreach (var cls in el.ClassList)
+            if (_byClass.TryGetValue(cls, out var bc)) Test(el, bc, ref matched);
+        if (el.Id is { Length: > 0 } id && _byId.TryGetValue(id, out var bi)) Test(el, bi, ref matched);
+        if (_keyless.Count > 0) Test(el, _keyless, ref matched);
+        if (matched is { Count: > 1 }) matched.Sort(Cascade); // candidates per element are few
+        return matched;
+    }
+
+    private void Test(IElement el, List<CssRule> bucket, ref List<CssRule>? matched)
+    {
+        foreach (var rule in bucket)
+        {
+            if (rule.Media is { } m && !m.Matches(_viewportWidth)) continue; // @media gate
+            if (rule.Compiled!.Match(el, null)) (matched ??= new List<CssRule>()).Add(rule);
+        }
     }
 
     private void BuildChildren(RenderNode parentNode, IElement parentEl)
@@ -133,24 +167,27 @@ public sealed class StyleResolver
 
         ApplyUserAgentDefaults(node);
 
-        // Ordered declaration sets: author rules (specificity, order) then inline (wins).
-        var ordered = new List<Dictionary<string, string>>();
-        if (node.Element is { } el && _matched.TryGetValue(el, out var rules))
-            foreach (var rule in rules.OrderBy(r => r.Specificity).ThenBy(r => r.Order))
-                ordered.Add(rule.Declarations);
+        // Author rules in cascade order (matched on the fly, bucketed); inline style wins last.
+        var rules = node.Element is { } el ? MatchRules(el) : null;
+        Dictionary<string, string>? inlineDecls = null;
         var inline = node.Element?.GetAttribute("style");
-        if (!string.IsNullOrWhiteSpace(inline))
-            ordered.Add(CssParser.ParseDeclarations(inline));
+        if (!string.IsNullOrWhiteSpace(inline)) inlineDecls = CssParser.ParseDeclarations(inline);
 
-        // Pass 1: custom properties (--tokens) cascade + inherit into CustomProps.
-        foreach (var decls in ordered)
-            foreach (var (k, v) in decls)
-                if (k.StartsWith("--", StringComparison.Ordinal))
-                    style.CustomProps[k] = ResolveVars(v, style.CustomProps);
+        // Pass 1: custom properties (--tokens) cascade + inherit into CustomProps (copy-on-write:
+        // the parent's dictionary is shared until this node actually declares one).
+        if (rules is not null) foreach (var rule in rules) CollectCustomProps(style, rule.Declarations);
+        if (inlineDecls is not null) CollectCustomProps(style, inlineDecls);
 
         // Pass 2: normal properties, with var() resolved against the final tokens.
-        foreach (var decls in ordered)
-            Apply(style, decls);
+        if (rules is not null) foreach (var rule in rules) Apply(style, rule.Declarations);
+        if (inlineDecls is not null) Apply(style, inlineDecls);
+    }
+
+    private static void CollectCustomProps(ComputedStyle style, Dictionary<string, string> decls)
+    {
+        foreach (var (k, v) in decls)
+            if (k.StartsWith("--", StringComparison.Ordinal))
+                style.OwnCustomProps()[k] = ResolveVars(v, style.CustomProps);
     }
 
     private static void ApplyUserAgentDefaults(RenderNode node)

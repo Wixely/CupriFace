@@ -19,6 +19,15 @@ public sealed class CssRule
     public int Order { get; set; }
     public required Dictionary<string, string> Declarations { get; init; }
     public MediaCondition? Media { get; init; }
+
+    /// <summary>The selector compiled ONCE by AngleSharp's selector engine (rules are parsed once and
+    /// cached across rebuilds). Null = the engine couldn't parse it — the rule never matches.</summary>
+    public AngleSharp.Css.Dom.ISelector? Compiled;
+
+    /// <summary>Bucket key for match candidacy: the rightmost compound's class (preferred), id, or tag.
+    /// An element is only tested against rules bucketed under its own tag/classes/id (plus the keyless
+    /// bucket), so rules for components not on the page cost nothing. All null = test on every element.</summary>
+    public string? KeyClass, KeyId, KeyTag;
 }
 
 /// <summary>
@@ -69,14 +78,17 @@ public static partial class CssParser
                 // Interaction pseudo-classes are matched via marker attributes toggled at runtime.
                 var sel = selRaw.Replace(":hover", "[data-hover]").Replace(":active", "[data-active]")
                                 .Replace(":focus", "[data-focus]");
-                rules.Add(new CssRule
+                var rule = new CssRule
                 {
                     Selector = sel,
                     Specificity = Specificity(sel),
                     Order = rules.Count,
                     Declarations = decls,
                     Media = media,
-                });
+                    Compiled = SelectorParser.ParseSelector(sel),
+                };
+                (rule.KeyClass, rule.KeyId, rule.KeyTag) = RightmostKey(sel);
+                rules.Add(rule);
             }
         }
     }
@@ -100,6 +112,65 @@ public static partial class CssParser
         if (mn.Success) min = float.Parse(mn.Groups[1].Value);
         if (mx.Success) max = float.Parse(mx.Groups[1].Value);
         return new MediaCondition(min, max);
+    }
+
+    private static readonly AngleSharp.Css.Parser.CssSelectorParser SelectorParser = new();
+
+    // The bucket key for a (comma-free) selector: the RIGHTMOST compound's class (preferred — most
+    // selective), else its id, else its tag. Tokens inside parentheses (`:not(.x)`) or attribute
+    // brackets don't identify the subject and are ignored, as are pseudo names. A compound with none
+    // of the three (attribute-only / universal) returns all-null → the rule is tested on every element.
+    private static (string? Class, string? Id, string? Tag) RightmostKey(string sel)
+    {
+        string? cls = null, id = null, tag = null;
+        int paren = 0, bracket = 0;
+        var i = 0;
+        var tagPos = true; // a bare ident here would be a type selector (start / after a combinator)
+        while (i < sel.Length)
+        {
+            var c = sel[i];
+            if (c == '(') { paren++; i++; continue; }
+            if (c == ')') { paren = Math.Max(0, paren - 1); i++; continue; }
+            if (paren > 0) { i++; continue; }
+            if (c == '[') { bracket++; i++; continue; }
+            if (c == ']') { bracket = Math.Max(0, bracket - 1); tagPos = false; i++; continue; }
+            if (bracket > 0) { i++; continue; }
+
+            if (char.IsWhiteSpace(c) || c is '>' or '+' or '~')
+            {
+                cls = id = tag = null; // a combinator: what follows is a NEW rightmost compound
+                tagPos = true;
+                i++;
+                continue;
+            }
+            if (c is '.' or '#')
+            {
+                var start = ++i;
+                while (i < sel.Length && (char.IsLetterOrDigit(sel[i]) || sel[i] is '-' or '_')) i++;
+                if (i > start) { if (c == '.') cls = sel[start..i]; else id = sel[start..i]; }
+                tagPos = false;
+                continue;
+            }
+            if (c == ':') // pseudo-class/element: skip the name; a following `(` is handled above
+            {
+                while (i < sel.Length && sel[i] == ':') i++;
+                while (i < sel.Length && (char.IsLetterOrDigit(sel[i]) || sel[i] is '-' or '_')) i++;
+                tagPos = false;
+                continue;
+            }
+            if (char.IsLetter(c))
+            {
+                var start = i;
+                while (i < sel.Length && (char.IsLetterOrDigit(sel[i]) || sel[i] is '-' or '_')) i++;
+                if (tagPos) tag = sel[start..i].ToLowerInvariant();
+                tagPos = false;
+                continue;
+            }
+            tagPos = false; // '*' or anything unrecognised
+            i++;
+        }
+        // Prefer the most selective key; only ONE is used, so a rule lands in exactly one bucket.
+        return cls is not null ? (cls, null, null) : id is not null ? (null, id, null) : (null, null, tag);
     }
 
     public static Dictionary<string, string> ParseDeclarations(string body)
