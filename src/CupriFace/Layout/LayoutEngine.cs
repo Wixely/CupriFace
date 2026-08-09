@@ -526,26 +526,40 @@ public sealed class LayoutEngine
 
             var finalMain = ResolveFlexibleRange(items, baseMain, free, start, end);
 
-            float lineCross;
-            if (crossKnown && single) lineCross = crossContainer;
-            else
-            {
-                lineCross = 0;
-                for (var i = start; i < end; i++) lineCross = MathF.Max(lineCross, naturalCross[i] + crossMargin[i]);
-            }
-
-            // Re-layout each item at its resolved main (and stretched cross) size.
+            // Re-measure each item at its resolved MAIN size with a content-driven cross, so an item that
+            // re-wraps at its reduced width reports its true (taller) cross. The first pass measured the
+            // cross at the full container width, which underflows a shrunk, wrapping item — e.g. a card body
+            // (flex:1) whose text wraps to a second line only once the grip has taken its share of the row.
+            // A stretched item on a definite-cross line is skipped (it's sized by the stretch pass below,
+            // not by its content), so the common stretch container keeps the same number of layout passes.
+            var contentCross = !(crossKnown && single);      // the line's cross comes from the items' cross sizes
+            var stretch = s.AlignItems == AlignItems.Stretch;
             for (var i = start; i < end; i++)
             {
                 var item = items[i];
-                var crossAuto = horizontal ? item.Style.Height.IsAuto : item.Style.Width.IsAuto;
-                var crossBorder = (s.AlignItems == AlignItems.Stretch && crossAuto)
-                    ? MathF.Max(0, lineCross - crossMargin[i])
-                    : naturalCross[i];
-                var fw = horizontal ? finalMain[i - start] - item.HorizontalInsets : crossBorder - item.HorizontalInsets;
-                var fh = horizontal ? crossBorder - item.VerticalInsets : finalMain[i - start] - item.VerticalInsets;
-                LayoutNode(item, contentW, contentH, MathF.Max(0, fw), MathF.Max(0, fh));
+                var itemStretch = stretch && (horizontal ? item.Style.Height.IsAuto : item.Style.Width.IsAuto);
+                if (!contentCross && itemStretch) continue;
+                var main = MathF.Max(0, finalMain[i - start] - (horizontal ? item.HorizontalInsets : item.VerticalInsets));
+                if (horizontal) LayoutNode(item, contentW, contentH, main, null);
+                else            LayoutNode(item, contentW, contentH, null, main);
+                naturalCross[i] = horizontal ? item.Height : item.Width;
             }
+
+            var lineCross = contentCross ? 0f : crossContainer;
+            if (contentCross)
+                for (var i = start; i < end; i++) lineCross = MathF.Max(lineCross, naturalCross[i] + crossMargin[i]);
+
+            // Stretch auto-cross items up to the line's cross size.
+            if (stretch)
+                for (var i = start; i < end; i++)
+                {
+                    var item = items[i];
+                    if (!(horizontal ? item.Style.Height.IsAuto : item.Style.Width.IsAuto)) continue;
+                    var cross = MathF.Max(0, lineCross - crossMargin[i] - (horizontal ? item.VerticalInsets : item.HorizontalInsets));
+                    var main = MathF.Max(0, finalMain[i - start] - (horizontal ? item.HorizontalInsets : item.VerticalInsets));
+                    if (horizontal) LayoutNode(item, contentW, contentH, main, cross);
+                    else            LayoutNode(item, contentW, contentH, cross, main);
+                }
 
             var totalMain = gap * MathF.Max(0, count - 1);
             for (var i = start; i < end; i++) totalMain += finalMain[i - start] + mainMargin[i];
