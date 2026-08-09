@@ -37,7 +37,8 @@ public sealed record BorderRect(
 
 public sealed record TextRun(
     float X, float Y, float ContainerWidth, float LineWidth, float LineHeight,
-    string Text, string Family, int Weight, float Size, SKColor Color, TextAlign Align) : PaintCommand;
+    string Text, string Family, int Weight, float Size, SKColor Color, TextAlign Align,
+    FontSlant Slant = FontSlant.Normal, TextDecorations Decorations = TextDecorations.None) : PaintCommand;
 
 public sealed record PushClip(float X, float Y, float W, float H, float Radius) : PaintCommand;
 

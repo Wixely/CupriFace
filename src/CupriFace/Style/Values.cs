@@ -81,6 +81,14 @@ public enum OverflowMode { Visible, Hidden, Scroll }
 /// line that overflows instead of wrapping — used by single-line text fields.</summary>
 public enum WhiteSpaceMode { Normal, NoWrap }
 
+/// <summary>CSS <c>font-style</c>. Selects the face's slant; a family with no italic/oblique face
+/// falls back to whatever the platform matches (usually upright), the same as a browser.</summary>
+public enum FontSlant { Normal, Italic, Oblique }
+
+/// <summary>CSS <c>text-decoration-line</c> — combinable, e.g. <c>underline line-through</c>.</summary>
+[Flags]
+public enum TextDecorations { None = 0, Underline = 1, LineThrough = 2, Overline = 4 }
+
 /// <summary>CSS <c>resize</c>: which axes a user can drag the element's size on (via a corner grip).</summary>
 public enum ResizeMode { None, Both, Horizontal, Vertical }
 

@@ -459,6 +459,16 @@ doc.RenderToImage(800, 600);
           <div class="swatch {{SwForest}}" data-accent="forest" style="background:#10a06a" role="button" aria-label="Forest theme"></div>
           <div class="swatch {{SwGrape}}" data-accent="grape" style="background:#8b5cf6" role="button" aria-label="Grape theme"></div>
         </div>
+        <div class="mlabel">Text — <code>font-style</code> and <code>text-decoration</code> (both inherit)</div>
+        <div style="margin-bottom:16px; line-height:1.9">
+          <div>Normal, <em>italic</em>, <strong>bold</strong>, <strong style="font-style:italic">bold italic</strong> —
+            real slanted faces, not a synthesised skew.</div>
+          <div><u>underline</u> · <del>line-through</del> ·
+            <span style="text-decoration:overline">overline</span> ·
+            <span style="text-decoration:underline line-through">combined</span> ·
+            <a href="styling">a link (underlined by default)</a> ·
+            <a href="styling" style="text-decoration:none">or not</a></div>
+        </div>
         <div class="mlabel">Gradients</div>
         <div class="stage">
           <div class="gbox" style="background:linear-gradient(160deg,#5aa0e0,#2b5f92)">vertical</div>

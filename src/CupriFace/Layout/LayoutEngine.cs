@@ -868,7 +868,7 @@ public sealed class LayoutEngine
 
         // Reuse the wrapped lines when nothing that affects them changed (the common case each frame during
         // an animation that isn't resizing this text) — skips the split/measure/TextLine allocations.
-        var key = new TextLayoutKey(text, maxWidth, s.FontSize, s.FontWeight, s.FontFamily, lh, s.WhiteSpace);
+        var key = new TextLayoutKey(text, maxWidth, s.FontSize, s.FontWeight, s.FontFamily, lh, s.WhiteSpace, s.FontStyle);
         if (node.Lines is not null && node.TextKey == key) return new Size(node.TextW, node.TextH);
 
         var lines = new List<TextLine>();

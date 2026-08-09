@@ -378,6 +378,19 @@ controls handle their own state.
   ```css
   .cupri-backdrop.blurred { background:#00000055; backdrop-filter: blur(9px); }
   ```
+- **`font-style` + `text-decoration`.** `font-style: normal | italic | oblique` selects a real slanted
+  face (it measures and shapes in that face, so it composes with `font-weight` — bold italic is a
+  genuine bold-italic face, not a synthesised slant). `text-decoration` (or `text-decoration-line`)
+  supports `underline`, `line-through`, `overline`, combinations, and `none`; extra shorthand words
+  (`wavy`, a colour) are ignored rather than mis-parsed. Both **inherit**. Tag defaults follow the web:
+  `<em> <i> <cite> <dfn> <var> <address>` are italic, `<u>/<ins>` underlined, `<s>/<del>` struck, and
+  **`<a href>` is underlined** — colour alone is not a sufficient cue (WCAG 1.4.1) — which plain CSS
+  overrides.
+  ```css
+  a          { text-decoration: none; }        /* opt out of the default link underline */
+  .price-was { text-decoration: line-through; }
+  blockquote { font-style: italic; }
+  ```
 - **`cursor`.** Sets the pointer shape and **inherits** like normal CSS. Supported keywords: `default`,
   `pointer`, `text`, `wait`, `progress`, `help`, `crosshair`, `move`, `not-allowed`, `grab`, `grabbing`,
   `col-resize`/`ew-resize`, `row-resize`/`ns-resize`, `nwse-resize`, `nesw-resize`, `none` (and `auto` =
@@ -481,7 +494,7 @@ to the bottom as new lines arrive (logging), *unless* the user has scrolled up:
 | `<cupri-card>` | Padded rounded surface | — | arbitrary | — |
 | `<cupri-divider>` | Horizontal rule | — | — | `separator` |
 | `<cupri-stat>` | Metric value + caption | `value`, `label` | — | — |
-| `<cupri-markdown>` | Renders a Markdown subset — `#`/`##`/`###` headings, `**bold**`, `*italic*`/`_italic_` (upright font, so italic reads plain), inline `` `code` `` + fenced ```` ``` ```` blocks, `-`/`*` bullet lists, `[text](url)` links, blank‑line paragraphs — into the toolkit's own elements (never raw HTML) | `text` (bindable; falls back to the element's own text) | Markdown text (when no `text` attr) | — |
+| `<cupri-markdown>` | Renders a Markdown subset — `#`/`##`/`###` headings, `**bold**`, `*italic*`/`_italic_`, inline `` `code` `` + fenced ```` ``` ```` blocks, `-`/`*` bullet lists, `[text](url)` links, blank‑line paragraphs — into the toolkit's own elements (never raw HTML) | `text` (bindable; falls back to the element's own text) | Markdown text (when no `text` attr) | — |
 
 ### Navigation & disclosure
 

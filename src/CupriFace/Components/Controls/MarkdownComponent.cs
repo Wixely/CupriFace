@@ -11,8 +11,7 @@ namespace CupriFace.Components.Controls;
 /// Markdown subset: <c>#</c>/<c>##</c>/<c>###</c> headings, <c>**bold**</c>, <c>*italic*</c>/<c>_italic_</c>,
 /// inline <c>`code`</c> and fenced <c>```</c> code blocks, <c>- </c>/<c>* </c> bullet lists, <c>[text](url)</c>
 /// links, and blank-line-separated paragraphs. It parses to the toolkit's own elements (which then lay out
-/// + paint like any other markup), so no HTML/DOM is injected raw. (The font is upright, so italic reads as
-/// plain text; bold, code, headings, lists and links all render.)
+/// + paint like any other markup), so no HTML/DOM is injected raw.
 /// </summary>
 public sealed partial class MarkdownComponent : ComponentBase
 {

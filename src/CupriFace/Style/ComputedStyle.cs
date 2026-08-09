@@ -110,6 +110,12 @@ public sealed class ComputedStyle
     public TextAlign TextAlign = TextAlign.Left;
     public WhiteSpaceMode WhiteSpace = WhiteSpaceMode.Normal; // inherited
     public CursorType Cursor = CursorType.Auto; // inherited; Auto = unspecified (document infers one)
+    public FontSlant FontStyle = FontSlant.Normal; // inherited
+    // Real CSS doesn't inherit text-decoration; it propagates to in-flow descendants, which a browser
+    // draws as one line across the ancestor's line boxes. We inherit it instead and let each text run
+    // draw its own segment — visually the same for the cases that matter (a link with a <b> inside),
+    // and it means `a { text-decoration: underline }` behaves as authors expect.
+    public TextDecorations Decorations = TextDecorations.None;
 
     /// <summary>Copy inherited properties down from a parent as the starting point.</summary>
     public void InheritFrom(ComputedStyle parent)
@@ -123,6 +129,8 @@ public sealed class ComputedStyle
         TextAlign = parent.TextAlign;
         WhiteSpace = parent.WhiteSpace;
         Cursor = parent.Cursor;
+        FontStyle = parent.FontStyle;
+        Decorations = parent.Decorations;
     }
 
     public bool IsFlexContainer => Display == DisplayType.Flex;

@@ -207,8 +207,16 @@ public sealed class StyleResolver
         }
         if (node.Tag is "strong" or "b") s.FontWeight = 700;
         if (node.Tag is "code" or "kbd" or "samp" or "var") s.FontFamily = "monospace";
-        // A link defaults to the copper accent colour (override in CSS, e.g. `a { color: var(--cupri-accent) }`).
-        if (node.Tag == "a" && node.Element?.HasAttribute("href") == true) s.Color = new SKColor(0xB8, 0x73, 0x33);
+        if (node.Tag is "em" or "i" or "cite" or "address" or "dfn" or "var") s.FontStyle = FontSlant.Italic;
+        if (node.Tag is "u" or "ins") s.Decorations |= TextDecorations.Underline;
+        if (node.Tag is "s" or "del" or "strike") s.Decorations |= TextDecorations.LineThrough;
+        // A link defaults to the copper accent colour AND an underline, as browsers do — colour alone
+        // is not a sufficient cue (WCAG 1.4.1). Both are plain CSS defaults: `a { text-decoration:none }`.
+        if (node.Tag == "a" && node.Element?.HasAttribute("href") == true)
+        {
+            s.Color = new SKColor(0xB8, 0x73, 0x33);
+            s.Decorations |= TextDecorations.Underline;
+        }
     }
 
     /// <summary>Apply a declaration block onto a style (used by the animation system).</summary>
@@ -303,8 +311,35 @@ public sealed class StyleResolver
                 case "text-align": s.TextAlign = v.ToLowerInvariant() switch { "center" => TextAlign.Center, "right" => TextAlign.Right, _ => TextAlign.Left }; break;
                 case "white-space": s.WhiteSpace = v.ToLowerInvariant() is "nowrap" or "pre" ? WhiteSpaceMode.NoWrap : WhiteSpaceMode.Normal; break;
                 case "cursor": s.Cursor = ParseCursor(v); break;
+                case "font-style":
+                    s.FontStyle = v.Trim().ToLowerInvariant() switch
+                    {
+                        "italic" => FontSlant.Italic,
+                        "oblique" => FontSlant.Oblique,
+                        _ => FontSlant.Normal,
+                    };
+                    break;
+                // Shorthand and longhand both land here: we only support the *line* part, so any
+                // colour/style words in the shorthand are ignored rather than mis-parsed.
+                case "text-decoration" or "text-decoration-line": s.Decorations = ParseDecorations(v); break;
             }
         }
+    }
+
+    // "underline", "line-through overline", "none", … → flags. Unknown words are ignored, so the
+    // shorthand's colour/style parts (`underline wavy red`) still yield the right line.
+    private static TextDecorations ParseDecorations(string v)
+    {
+        var d = TextDecorations.None;
+        foreach (var word in v.ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            d |= word switch
+            {
+                "underline" => TextDecorations.Underline,
+                "line-through" => TextDecorations.LineThrough,
+                "overline" => TextDecorations.Overline,
+                _ => TextDecorations.None, // includes "none", which leaves it cleared
+            };
+        return d;
     }
 
     // CSS cursor keyword → the supported subset (synonyms fold together: the diagonal/axis resize

@@ -417,7 +417,7 @@ public sealed class SkiaRasterizer
 
     private void DrawText(SKCanvas canvas, SKPaint paint, TextRun t)
     {
-        var font = _fonts.GetFont(t.Family, t.Weight, t.Size);
+        var font = _fonts.GetFont(t.Family, t.Weight, t.Size, t.Slant);
         paint.Color = t.Color;
 
         var alignOffset = t.Align switch
@@ -438,24 +438,54 @@ public sealed class SkiaRasterizer
         var runs = Bidi.Reorder(t.Text);
         if (runs.Count == 1 && !runs[0].Rtl)
         {
-            DrawRun(canvas, paint, font, t.Family, t.Weight, t.Text, x, baseline);
-            return;
+            DrawRun(canvas, paint, font, t.Family, t.Weight, t.Slant, t.Text, x, baseline);
         }
-        var cursor = x;
-        foreach (var run in runs)
+        else
         {
-            DrawRun(canvas, paint, font, t.Family, t.Weight, run.Text, cursor, baseline);
-            cursor += _fonts.MeasureText(t.Family, t.Weight, t.Size, run.Text);
+            var cursor = x;
+            foreach (var run in runs)
+            {
+                DrawRun(canvas, paint, font, t.Family, t.Weight, t.Slant, run.Text, cursor, baseline);
+                cursor += _fonts.MeasureText(t.Family, t.Weight, t.Size, run.Text, t.Slant);
+            }
         }
+
+        if (t.Decorations != TextDecorations.None) DrawDecorations(canvas, paint, t, font, metrics, x, baseline);
     }
 
-    private void DrawRun(SKCanvas canvas, SKPaint paint, SKFont primaryFont, string family, int weight, string text, float x, float baseline)
+    // Underline / line-through / overline across the run, in the text colour. Uses the face's own
+    // metrics where it publishes them (position + thickness vary a lot between faces) and falls back
+    // to conventional fractions of the em otherwise.
+    private static void DrawDecorations(SKCanvas canvas, SKPaint paint, TextRun t, SKFont font,
+        SKFontMetrics metrics, float x, float baseline)
+    {
+        var thickness = metrics.UnderlineThickness is > 0 ? metrics.UnderlineThickness!.Value : MathF.Max(1f, t.Size / 14f);
+        var x2 = x + t.LineWidth;
+        var wasStroke = paint.Style;
+        paint.Style = SKPaintStyle.Fill;
+
+        void Line(float y) => canvas.DrawRect(SKRect.Create(x, y - thickness / 2f, x2 - x, thickness), paint);
+
+        if (t.Decorations.HasFlag(TextDecorations.Underline))
+            Line(baseline + (metrics.UnderlinePosition is > 0 ? metrics.UnderlinePosition!.Value : t.Size * 0.12f));
+        if (t.Decorations.HasFlag(TextDecorations.LineThrough))
+        {
+            // Strike through the middle of the x-height, not the baseline.
+            var xh = metrics.XHeight > 0 ? metrics.XHeight : t.Size * 0.5f;
+            Line(baseline - xh / 2f);
+        }
+        if (t.Decorations.HasFlag(TextDecorations.Overline))
+            Line(baseline - (metrics.CapHeight > 0 ? metrics.CapHeight : t.Size * 0.7f) - thickness);
+        paint.Style = wasStroke;
+    }
+
+    private void DrawRun(SKCanvas canvas, SKPaint paint, SKFont primaryFont, string family, int weight, FontSlant slant, string text, float x, float baseline)
     {
         // Split into fallback-face runs so glyphs the primary lacks (emoji/CJK/symbols) draw in a
         // face that has them instead of tofu. Each sub-run is HarfBuzz-shaped in its own typeface.
         // (The overwhelmingly common case is one run in the primary face — then we shape once, no
         // extra measuring.)
-        var runs = _fonts.SplitRuns(text, family, weight);
+        var runs = _fonts.SplitRuns(text, family, weight, slant);
         for (var i = 0; i < runs.Count; i++)
         {
             var (segment, tf) = runs[i];
