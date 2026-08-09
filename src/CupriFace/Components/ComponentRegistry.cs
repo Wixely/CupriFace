@@ -51,9 +51,13 @@ public sealed class ComponentRegistry
         }
     }
 
-    // Collect registered, not-yet-expanded custom elements in one pre-order walk.
+    // Collect registered, not-yet-expanded custom elements in one pre-order walk. Subtrees hidden by an
+    // INLINE display:none (e.g. the showcase's switched-off sections, `display:{{Sec}}` resolved at bind
+    // time) are skipped entirely: they can't render, the style pass prunes them anyway, and expanding
+    // them was most of the per-keystroke expansion cost. The rebuild that reveals one expands it then.
     private void Collect(IElement el, ref Dictionary<string, List<IElement>>? byTag)
     {
+        if (HasInlineDisplayNone(el)) return;
         if (_components.ContainsKey(el.LocalName) && !el.HasAttribute("data-cupri-expanded"))
         {
             byTag ??= new Dictionary<string, List<IElement>>(StringComparer.OrdinalIgnoreCase);
@@ -61,6 +65,27 @@ public sealed class ComponentRegistry
             list.Add(el);
         }
         foreach (var child in el.Children) Collect(child, ref byTag);
+    }
+
+    // True when the element's inline style contains `display: none`. String-level (the DOM is restyled
+    // from scratch later anyway); strict about token boundaries so e.g. a `--display-mode` custom
+    // property can never false-positive (which would wrongly hide a visible component).
+    private static bool HasInlineDisplayNone(IElement el)
+    {
+        var s = el.GetAttribute("style");
+        if (s is null) return false;
+        for (var i = s.IndexOf("display", StringComparison.OrdinalIgnoreCase); i >= 0;
+             i = s.IndexOf("display", i + 7, StringComparison.OrdinalIgnoreCase))
+        {
+            if (i > 0 && s[i - 1] is not (';' or ' ' or '\t')) continue;         // mid-identifier: not the property
+            var j = i + 7;
+            while (j < s.Length && char.IsWhiteSpace(s[j])) j++;
+            if (j >= s.Length || s[j] != ':') continue;
+            j++;
+            while (j < s.Length && char.IsWhiteSpace(s[j])) j++;
+            return j + 4 <= s.Length && s.AsSpan(j, 4).Equals("none", StringComparison.OrdinalIgnoreCase);
+        }
+        return false;
     }
 
     // An earlier expansion in this pass may have rewritten an ancestor's InnerHtml, detaching a collected
