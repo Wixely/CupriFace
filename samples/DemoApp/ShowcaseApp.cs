@@ -140,6 +140,8 @@ public sealed partial class ShowcaseModel
     public string Time { get; set; } = "14:30";
     public bool TimeOpen { get; set; }
     public string TableSort { get; set; } = "";
+    public string TableSel { get; set; } = ""; // comma-set of selected row indices (multi-select)
+    public string TableSelLabel => TableSel.Split(',', System.StringSplitOptions.RemoveEmptyEntries).Length is var n && n > 0 ? $"{n} selected" : "none selected";
     public string Query { get; set; } = "";
     public string Sales { get; set; } = "12,19,7,15,22,9,14"; // bound into the bar chart on the Charts page
     public string Password { get; set; } = "";

@@ -139,13 +139,18 @@
               <cupri-tree-item label="Shell"></cupri-tree-item>
             </cupri-tree-item>
           </cupri-tree>
-          <cupri-table style="flex:1" sort="{{TableSort}}">
+          <cupri-table style="flex:1; max-height:172px; overflow:scroll" sort="{{TableSort}}" select="{{TableSel}}">
             <cupri-row header><cupri-cell>Name</cupri-cell><cupri-cell>Role</cupri-cell></cupri-row>
             <cupri-row><cupri-cell>Ada</cupri-cell><cupri-cell>Admin</cupri-cell></cupri-row>
             <cupri-row><cupri-cell>Grace</cupri-cell><cupri-cell>Editor</cupri-cell></cupri-row>
             <cupri-row><cupri-cell>Linus</cupri-cell><cupri-cell>Owner</cupri-cell></cupri-row>
+            <cupri-row><cupri-cell>Katherine</cupri-cell><cupri-cell>Admin</cupri-cell></cupri-row>
+            <cupri-row><cupri-cell>Alan</cupri-cell><cupri-cell>Owner</cupri-cell></cupri-row>
+            <cupri-row><cupri-cell>Margaret</cupri-cell><cupri-cell>Editor</cupri-cell></cupri-row>
+            <cupri-row><cupri-cell>Dennis</cupri-cell><cupri-cell>Admin</cupri-cell></cupri-row>
           </cupri-table>
         </div>
+        <div class="tip" style="margin:-4px 0 14px">Click rows to select (multi) · scroll the table — its header stays put · {{TableSelLabel}}</div>
         <div class="mlabel">Drag a row by its grip to reorder — or Tab to a grip and use ↑ / ↓</div>
         <cupri-reorder style="max-width:360px">
           <cupri-reorder-item data-repeat="Tasks">{{.}}</cupri-reorder-item>
