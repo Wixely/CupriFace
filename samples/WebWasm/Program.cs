@@ -80,11 +80,10 @@ public partial class Interop
 
         if (!_dirty) return false;
         _dirty = false;
-        Paint(width, height, animating);
-        return true;
+        return Paint(width, height, animating);
     }
 
-    private static void Paint(int width, int height, bool animating)
+    private static bool Paint(int width, int height, bool animating)
     {
         var p = _app.Present(width, height);
         _scale = p.Scale <= 0 ? 1f : p.Scale;
@@ -95,17 +94,30 @@ public partial class Interop
             _bitmap = new SKBitmap(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul));
         }
 
+        // The staging bitmap RETAINS last frame's pixels, so the engine repaints only the damaged
+        // rect (and tells us when the frame is identical — then nothing is converted or presented).
+        SKRectI? damage;
         using (var canvas = new SKCanvas(_bitmap))
         {
-            // Overlay apps clear transparent so the HTML page shows through the canvas.
-            canvas.Clear(_transparent ? SKColors.Transparent : _bg);
             if (animating) _doc.Animate(_clock.Elapsed.TotalSeconds); // @keyframes (spinner)
-            canvas.Save();
-            if (_scale != 1f) canvas.Scale(_scale);
-            _doc.Render(canvas, p.LogicalWidth, p.LogicalHeight);
-            canvas.Restore();
+            var bg = _transparent ? SKColors.Transparent : _bg;       // overlays: page shows through
+            if (_scale == 1f)
+            {
+                damage = _doc.RenderIncremental(canvas, p.LogicalWidth, p.LogicalHeight, bg);
+            }
+            else
+            {
+                // Scaled present (hybrid zoom): damage coords wouldn't map 1:1 — full frame.
+                canvas.Clear(bg);
+                canvas.Save();
+                canvas.Scale(_scale);
+                _doc.Render(canvas, p.LogicalWidth, p.LogicalHeight);
+                canvas.Restore();
+                damage = new SKRectI(0, 0, width, height);
+            }
             canvas.Flush();
         }
+        if (damage is not { } d) return false; // identical frame — skip conversion, present, and ARIA
 
         // The buffer we hand JS. Opaque apps present the premultiplied render directly. Transparent
         // apps must present STRAIGHT (non-premultiplied) alpha — that's what the browser's ImageData
@@ -123,17 +135,19 @@ public partial class Interop
         }
 
         // Zero-copy: hand JS a view over the buffer's pixels in WASM memory (no per-frame
-        // allocation or managed→JS copy — .Bytes would allocate + copy 2.7 MB each frame).
+        // allocation or managed→JS copy — .Bytes would allocate + copy 2.7 MB each frame). The
+        // damage rect narrows the putImageData blit to the changed region.
         unsafe
         {
             var span = new Span<byte>((void*)present.GetPixels(), present.ByteCount);
-            Present(span, width, height);
+            Present(span, width, height, d.Left, d.Top, d.Width, d.Height);
         }
 
         // Mirror the semantics tree into the off-screen ARIA DOM so screen readers can read the
         // canvas UI. Only on input-driven repaints (not every animation frame) — the tree only
         // changes on interaction, and re-parsing HTML 30×/s during a spinner would be wasteful.
         if (!animating) A11y(_doc.BuildAriaHtml(p.LogicalWidth, p.LogicalHeight));
+        return true;
     }
 
     // Pointer + wheel + keyboard route through the SAME dispatch the desktop hosts use. Each
@@ -172,9 +186,11 @@ public partial class Interop
     /// transparent and passes pointer events through wherever nothing is drawn.</summary>
     [JSExport] internal static bool IsTransparent() => _transparent;
 
-    // JS side (module "cupri") copies the pixels into the 2D canvas via putImageData.
+    // JS side (module "cupri") copies the pixels into the 2D canvas via putImageData; the damage rect
+    // (dx, dy, dw, dh) narrows the blit to the region this frame actually changed.
     [JSImport("present", "cupri")]
-    internal static partial void Present([JSMarshalAs<JSType.MemoryView>] Span<byte> rgba, int width, int height);
+    internal static partial void Present([JSMarshalAs<JSType.MemoryView>] Span<byte> rgba, int width, int height,
+        int dx, int dy, int dw, int dh);
 
     // Set the canvas cursor (JS assigns canvas.style.cursor). Called only when the cursor changes.
     [JSImport("cursor", "cupri")] internal static partial void SetCursor(string name);

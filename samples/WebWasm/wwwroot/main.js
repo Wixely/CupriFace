@@ -68,10 +68,11 @@ try {
     let img = null;
     window.__paints = 0; // diagnostic: count actual canvas paints (a paint = one full render)
     setModuleImports('cupri', {
-        present: (rgba, w, h) => {
+        // (dx,dy,dw,dh) is the damage rect — only that region changed, so only it is blitted.
+        present: (rgba, w, h, dx, dy, dw, dh) => {
             if (!img || img.width !== w || img.height !== h) img = ctx.createImageData(w, h);
             img.data.set(rgba.slice());
-            ctx.putImageData(img, 0, 0);
+            ctx.putImageData(img, 0, 0, dx, dy, dw, dh);
             window.__paints++;
         },
         // Cursor: the engine tells us which cursor to show under the pointer (links, text fields,
