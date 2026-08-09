@@ -62,6 +62,7 @@ body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; -
             background:var(--cupri-surface,#fff); color:var(--cupri-muted,#6b7688);
             border:1px var(--cupri-border); border-radius:10px; font-size:14px; }
 /* Kanban columns: a tinted lane holding white cards. */
+.cupri-board { margin-bottom:18px; } /* space the lanes off whatever follows (they'd otherwise abut it) */
 .kb-col { width:230px; background:var(--cupri-hover); border-radius:12px; padding:12px; }
 .kb-head { font-weight:bold; color:var(--cupri-muted); font-size:13px; margin-bottom:10px; padding:0 2px; }
 .kb-col .cupri-reorder-item { background:var(--cupri-surface); box-shadow:0 1px 3px #00000014; }
