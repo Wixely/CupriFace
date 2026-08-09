@@ -485,7 +485,8 @@ to the bottom as new lines arrive (logging), *unless* the user has scrolled up:
 Simple data‑viz drawn with the same rounded‑box + stroke paint (no canvas/SVG). Every chart takes its
 data **either** as a `values="1,2,3"` string — bindable to a model, e.g. `values="{{Series}}"` — with an
 optional `labels="…"`, **or** as child elements when you need per‑item control. Bars scale to `max` (or
-the largest value); line/sparkline auto‑scale to the data's range. All are theme‑aware.
+the largest value); line/sparkline auto‑scale to the data's range. All are theme‑aware. Bars, stacked
+segments and heatmap cells show a **value tooltip on hover** (label + value) — nothing to wire up.
 
 | Element | Purpose | Key attributes | Children | role |
 |---------|---------|----------------|----------|------|

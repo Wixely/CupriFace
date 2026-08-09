@@ -78,6 +78,9 @@ internal static class ChartData
     internal static string Fmt(double v) => v.ToString("0.####", CultureInfo.InvariantCulture);
     internal static double Parse(string? v) => double.TryParse((v ?? "").Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var d) ? d : 0;
     internal static string Esc(string s) => s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
+    // A hover tooltip anchored above a chart element (the element must carry the matching id).
+    internal static string Tip(string id, string text) =>
+        $"<div class='cupri-chart-tip' data-cupri-anchor='{id}' data-cupri-placement='top'>{Esc(text)}</div>";
     internal static List<double> Vals(string? csv) => Split(csv).Select(Parse).ToList();
     private static string[] Split(string? v) => (v ?? "").Split(',', System.StringSplitOptions.RemoveEmptyEntries);
 
@@ -138,6 +141,11 @@ public sealed class BarChartComponent : ComponentBase
         .cupri-yaxis > span { font-size:11px; color:var(--cupri-muted, #98a2b3); line-height:1; }
         .cupri-plot { position:relative; flex:1; height:150px; }
         .cupri-gridline { position:absolute; left:0; width:100%; height:1px; background:var(--cupri-border, #e6e9f0); }
+        /* Hover tooltip shared by every element-based chart (bars, stacked segments, heatmap cells): a
+           fixed bubble anchored above the hovered element, revealed by [data-hover] on that element. */
+        .cupri-chart-tip { position:fixed; display:none; background:#1e2430; color:white; padding:5px 9px; border-radius:6px;
+                           font-size:12px; z-index:40; white-space:nowrap; box-shadow:0 4px 14px #00000033; }
+        [data-hover] > .cupri-chart-tip { display:block; }
         """;
 
     public override void Expand(IElement el)
@@ -172,7 +180,9 @@ public sealed class BarChartComponent : ComponentBase
                 {
                     var v = ci < s.Vals.Count ? s.Vals[ci] : 0;
                     var pct = max > 0 ? System.Math.Clamp(v / max * 100.0, 0, 100) : 0;
-                    sb.Append($"<div class='{(stacked ? "cupri-bc-seg" : "cupri-bc-bar")}' style='height:{ChartData.Fmt(pct)}%;background:{s.Color}'></div>");
+                    var id = NextId();
+                    var tip = s.Label.Length > 0 ? $"{s.Label}: {ChartData.Fmt(v)}" : ChartData.Fmt(v);
+                    sb.Append($"<div class='{(stacked ? "cupri-bc-seg" : "cupri-bc-bar")}' id='{id}' style='height:{ChartData.Fmt(pct)}%;background:{s.Color}'>{ChartData.Tip(id, tip)}</div>");
                 }
                 sb.Append("</div>");
             }
@@ -185,15 +195,19 @@ public sealed class BarChartComponent : ComponentBase
             var pts = ChartData.Read(el, "cupri-bar");
             dataMax = pts.Count > 0 ? pts.Max(p => p.Value) : 1;
             var max = Scale(el, axis, dataMax);
-            var sb = new StringBuilder();
-            foreach (var p in pts)
-            {
-                var pct = max > 0 ? System.Math.Clamp(p.Value / max * 100.0, 0, 100) : 0;
-                sb.Append($"<div class='cupri-bc-bar' style='height:{ChartData.Fmt(pct)}%;background:{p.Color ?? ChartData.Accent}'></div>");
-            }
-            bars = sb.ToString();
             labels = LabelList(el, pts.Count);
             if (labels.All(l => l.Length == 0)) labels = pts.Select(p => p.Label).ToList();
+            var sb = new StringBuilder();
+            for (var i = 0; i < pts.Count; i++)
+            {
+                var p = pts[i];
+                var pct = max > 0 ? System.Math.Clamp(p.Value / max * 100.0, 0, 100) : 0;
+                var id = NextId();
+                var lab = i < labels.Count ? labels[i] : "";
+                var tip = lab.Length > 0 ? $"{lab}: {ChartData.Fmt(p.Value)}" : ChartData.Fmt(p.Value);
+                sb.Append($"<div class='cupri-bc-bar' id='{id}' style='height:{ChartData.Fmt(pct)}%;background:{p.Color ?? ChartData.Accent}'>{ChartData.Tip(id, tip)}</div>");
+            }
+            bars = sb.ToString();
         }
 
         var plot = $"<div class='cupri-bc-plot{(axis ? "" : " baseline")}'>{bars}</div>";
@@ -437,7 +451,9 @@ public sealed class HeatmapComponent : ComponentBase
         {
             var t = System.Math.Clamp(p.Value / max, 0, 1);
             var alpha = ChartData.Fmt(0.12 + 0.88 * t); // faint → solid accent
-            sb.Append($"<div class='cupri-hm-cell' style='background:rgba(184,115,51,{alpha})'></div>");
+            var id = NextId();
+            var tip = p.Label.Length > 0 ? $"{p.Label}: {ChartData.Fmt(p.Value)}" : ChartData.Fmt(p.Value);
+            sb.Append($"<div class='cupri-hm-cell' id='{id}' style='background:rgba(184,115,51,{alpha})'>{ChartData.Tip(id, tip)}</div>");
         }
         el.InnerHtml = sb.ToString();
     }
