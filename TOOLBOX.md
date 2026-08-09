@@ -78,7 +78,8 @@ doc.OnClick(".save", _ => Console.WriteLine($"Saved {model.Name}, vol={model.Vol
 | `.OnShortcut(mods, key, handler)` | Register a keyboard shortcut, e.g. `OnShortcut(KeyMods.Ctrl, "k", OpenPalette)` (Cmd maps to Ctrl). A Ctrl/Cmd chord fires anywhere; a plain‑key one only when no field is focused. The Web/Viewer hosts forward Ctrl/Cmd + letter. |
 | `.OnAction("data-…", handler)` | Register a **custom interaction primitive**: when a clicked/keyboard‑activated element carries that `data-*` attribute, the handler runs (`CupriActionEvent` = element, value, model, x/y); return true to consume. Extends the built‑in `data-*` vocabulary without an engine change. |
 | `.Refresh()` | Re‑bind + rebuild (call after you mutate the model from code). |
-| `.Render(canvas, w, h)` | Paint into an `SKCanvas`. |
+| `.Render(canvas, w, h)` | Paint into an `SKCanvas` (a full, stateless repaint). |
+| `.RenderIncremental(canvas, w, h, bg)` | Damage‑tracked repaint for a host whose canvas **retains** its pixels between frames: diffs against the last presented frame, repaints only the changed rectangle, and returns it — or `null` when the frame is identical (skip presenting entirely). First call / size change = full. The desktop software window and the WASM host use this; pair it with the `Dispatch*` return values for render‑on‑demand. |
 | `.RenderToImage(w, h, clear?)` | Convenience CPU raster to an `SKImage` (headless/tests). |
 | `.RenderToPixels(w, h, clear?, straightAlpha?)` | CPU raster to an RGBA8888 `byte[]` — the canonical "embed me in another surface" call (HTML canvas, a game texture). `clear` defaults to **transparent**; set `straightAlpha` for consumers wanting non‑premultiplied alpha (HTML `ImageData`, Unity `RGBA32`). |
 | `.DispatchClick/DispatchPointerMove/DispatchPointerUp/DispatchWheel/DispatchKey(...)` | Feed input. Each returns whether anything changed (drives render‑on‑demand). |
