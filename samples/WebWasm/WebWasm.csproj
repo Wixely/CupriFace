@@ -40,9 +40,12 @@
     <!-- The portable engine + the SAME app the desktop Viewer and Blazor host run. -->
     <ProjectReference Include="..\..\src\CupriFace\CupriFace.csproj" />
     <ProjectReference Include="..\DemoApp\DemoApp.csproj" />
-    <!-- Skia native for the browser (the desktop natives in the engine are ignored here). -->
+    <!-- Skia + HarfBuzz natives for the browser (the desktop natives in the engine are ignored here).
+         BOTH are required: text shaping (FontService → SKShaper) dlopens libHarfBuzzSharp at the first
+         text draw — without the wasm native asset the app boots and then dies rendering its first text. -->
     <PackageReference Include="SkiaSharp" Version="3.116.1" />
     <PackageReference Include="SkiaSharp.NativeAssets.WebAssembly" Version="3.116.1" />
+    <PackageReference Include="HarfBuzzSharp.NativeAssets.WebAssembly" Version="8.3.0.1" />
   </ItemGroup>
 
 </Project>
