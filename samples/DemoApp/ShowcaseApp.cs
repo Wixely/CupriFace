@@ -14,6 +14,11 @@ public sealed class ShowcaseApp : CupriApp
 {
     private readonly ShowcaseModel _model = new();
 
+    // Section ids a <a href="…"> link may route to (mirrors the sidebar nav). An unknown internal href
+    // is ignored rather than blanking every section.
+    private static readonly HashSet<string> KnownSections =
+        ["controls", "components", "charts", "images", "overlays", "layout", "motion", "styling", "settings", "diag"];
+
     public override string Title => "CupriFace — Showcase";
     public override int Width => 940;
     public override int Height => 720;
@@ -31,6 +36,9 @@ public sealed class ShowcaseApp : CupriApp
     public override void Configure(CupriDocument doc)
     {
         doc.OnClick(".nav", e => { if (e.Element.GetAttribute("data-section") is { } s) _model.Section = s; });
+        // Links (<a href>): an internal href routes to that section (like the sidebar); external hrefs are
+        // opened in a browser by the host (DesktopHost / the WASM page). #anchors the engine scrolls itself.
+        doc.Navigated += e => { if (!e.External && KnownSections.Contains(e.Href)) _model.Section = e.Href; };
         doc.OnClick(".collapse-btn", _ => _model.SidebarCollapsed = !_model.SidebarCollapsed);
         doc.OnClick(".act-submit", _ => _model.FormOk = doc.ValidateAll());
         doc.OnClick(".swatch", e => { if (e.Element.GetAttribute("data-accent") is { } a) _model.Accent = a; });

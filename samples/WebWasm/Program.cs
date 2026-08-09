@@ -34,6 +34,10 @@ public partial class Interop
         _bg = _app.Background;
         _transparent = _app.Transparent;
 
+        // External links open in a new browser tab (window.open). Internal routing + #anchors are handled
+        // by the app / engine — same split as the desktop host.
+        _doc.Navigated += e => { if (e.External) OpenUrl(e.Href); };
+
         // Right-click menu → clipboard. The engine raises the chosen command; the browser owns the
         // clipboard (async), so route Copy/Cut/Paste through JS (same as the Ctrl+C/X/V handlers).
         _doc.ContextRequested += cmd =>
@@ -174,6 +178,9 @@ public partial class Interop
 
     // Set the canvas cursor (JS assigns canvas.style.cursor). Called only when the cursor changes.
     [JSImport("cursor", "cupri")] internal static partial void SetCursor(string name);
+
+    // Open an external link in a new tab (JS window.open). Wired from the app's Navigated handler.
+    [JSImport("navigate", "cupri")] internal static partial void OpenUrl(string href);
 
     // Clipboard bridge for the context menu (the browser clipboard is async, so it lives in JS).
     [JSImport("clipboardWrite", "cupri")] internal static partial void ClipboardWrite(string text);

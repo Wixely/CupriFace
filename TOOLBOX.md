@@ -263,6 +263,24 @@ outside of an input dispatch (e.g. a background timer), call `doc.Refresh()` (or
   ```html
   <cupri-textfield value="{{Email}}" pattern="[^@ ]+@[^@ ]+\.[^@ ]+" error="Enter a valid email"></cupri-textfield>
   ```
+- **Links & navigation.** An `<a href="…">` is a real link — focusable (Enter activates), shows the
+  pointer cursor, and defaults to the accent colour. Three href kinds:
+  - **`#anchor`** — the engine scrolls the element with that `id` to the top of its nearest scrollable
+    container. Handled entirely in‑engine.
+  - **internal** (a bare path like `charts`) and **external** (anything with a URL scheme —
+    `https:`, `mailto:`, `tel:`, protocol‑relative `//`) both raise the multicast `doc.Navigated`
+    event as a `NavigateEvent(Href, External)`. The engine opens nothing itself: you route internal
+    hrefs (e.g. switch a view) and the host opens external ones. The desktop + WASM hosts already open
+    external links in a browser, so you typically only wire the internal side.
+  ```csharp
+  doc.Navigated += e => { if (!e.External) model.Section = e.Href; };  // route internal links to a view
+  ```
+  ```html
+  <a href="#pricing">Jump to pricing</a>  <a href="reports">Reports</a>  <a href="https://x.com">Docs ↗</a>
+  ```
+- **Cursors** are automatic for native controls (pointer over links/buttons, text over fields, the resize
+  arrows over drag boundaries) and settable with the CSS `cursor` property (see §5). Hosts read
+  `doc.CursorAt(x,y)` each move.
 
 You rarely touch any of this directly — you register `OnClick` for custom actions and let bound
 controls handle their own state.

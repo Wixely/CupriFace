@@ -170,6 +170,8 @@ public sealed class StyleResolver
         }
         if (node.Tag is "strong" or "b") s.FontWeight = 700;
         if (node.Tag is "code" or "kbd" or "samp" or "var") s.FontFamily = "monospace";
+        // A link defaults to the copper accent colour (override in CSS, e.g. `a { color: var(--cupri-accent) }`).
+        if (node.Tag == "a" && node.Element?.HasAttribute("href") == true) s.Color = new SKColor(0xB8, 0x73, 0x33);
     }
 
     /// <summary>Apply a declaration block onto a style (used by the animation system).</summary>

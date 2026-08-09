@@ -54,6 +54,9 @@ body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; -
 .side-bottom { margin-top:auto; display:flex; flex-direction:column; gap:12px; padding-top:12px; }
 .side-toggle { display:flex; align-items:center; gap:8px; color:var(--cupri-sidebar-text); font-size:14px; padding:2px; }
 .tip { color:#6b7688; font-size:12px; }
+/* Links: the accent colour (themeable), a pointer cursor (automatic for <a href>), and a hover dim. */
+.section a { color:var(--cupri-accent, #B87333); font-weight:600; }
+.section a[data-hover] { opacity:0.7; }
 /* A right-click target region for the <cupri-context-menu> demo. */
 .ctx-card { width:260px; height:110px; display:flex; align-items:center; justify-content:center;
             background:var(--cupri-surface,#fff); color:var(--cupri-muted,#6b7688);

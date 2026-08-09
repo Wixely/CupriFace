@@ -127,6 +127,12 @@ public sealed partial class CupriDocument : IDisposable
     /// its own clipboard), keeping platform clipboard code out of the engine.</summary>
     public event Action<Interaction.ContextCommand>? ContextRequested;
 
+    /// <summary>Raised when a link (<c>&lt;a href&gt;</c>) is activated with a non-anchor href (see
+    /// <see cref="Interaction.NavigateEvent"/>). In-page <c>#anchor</c> links are scrolled into view by the
+    /// engine and do not raise this. Multicast: an app can route internal hrefs (e.g. switch a view) while a
+    /// host opens external ones in a browser — the engine itself opens nothing (that's a host concern).</summary>
+    public event Action<Interaction.NavigateEvent>? Navigated;
+
     // Engine-owned toast stack (doc.Toast). Each toast slides in, waits, then slides out and is removed —
     // driven by Animate. Entering/Leaving render off-screen; the flip to/from Shown is what the transition
     // engine animates (paint-only). Rendered bottom-right by InjectToaster + the ToasterComponent's CSS.
@@ -1093,6 +1099,15 @@ public sealed partial class CupriDocument : IDisposable
                 if (el.GetAttribute(attr) is { } av && handler(new Interaction.CupriActionEvent(node, el, av, _model, x, y)))
                     return true;
 
+            // A link: an in-page #anchor scrolls its target into view here; any other href raises Navigated
+            // (the app routes internal hrefs, a host opens external ones). Keyboard Enter routes here too.
+            if (el.LocalName == "a" && el.GetAttribute("href") is { Length: > 0 } href)
+            {
+                if (href[0] == '#') return ScrollToAnchor(href[1..]);
+                Navigated?.Invoke(new Interaction.NavigateEvent(href, IsExternalHref(href)));
+                return true;
+            }
+
             // Number stepper: +/- button adjusts the nearest numeric field's bound value.
             if (el.GetAttribute("data-cupri-step") is { Length: > 0 } stepRaw) return StepNumber(node, stepRaw);
 
@@ -1140,12 +1155,41 @@ public sealed partial class CupriDocument : IDisposable
         return false;
     }
 
+    // A href with a URL scheme (http:, https:, mailto:, tel:, …) or protocol-relative // is external;
+    // a bare path (e.g. "charts") is internal in-app routing. (A "#anchor" is handled before this.)
+    private static bool IsExternalHref(string href) =>
+        href.StartsWith("//", StringComparison.Ordinal)
+        || System.Text.RegularExpressions.Regex.IsMatch(href, "^[a-zA-Z][a-zA-Z0-9+.-]*:");
+
+    // In-page anchor: scroll the element with this id to the top of its nearest scrollable ancestor.
+    // Scroll offsets survive the rebuild (CaptureScroll), so the page stays put at the anchor.
+    private bool ScrollToAnchor(string id)
+    {
+        if (id.Length > 0 && FindById(_root, id) is { } target)
+            for (var s = target.Parent; s is not null; s = s.Parent)
+            {
+                if (!s.IsScrollable) continue;
+                var offset = HitTesting.AbsoluteBox(target).Y - HitTesting.AbsoluteBox(s).Y; // unscrolled offset
+                s.ScrollY = Math.Clamp(offset - 12f, 0, s.MaxScrollY);                        // 12px above
+                break;
+            }
+        return true; // the link is handled whether or not the anchor exists / anything scrolls
+    }
+
+    private static RenderNode? FindById(RenderNode n, string id)
+    {
+        if (n.Element?.GetAttribute("id") == id) return n;
+        foreach (var c in n.Children) { var f = FindById(c, id); if (f is not null) return f; }
+        return null;
+    }
+
     // ---- keyboard focus + tab order (a11y capability #4) ---------------------
     // The interactive roles/attributes Tab stops on; an element is focusable if it is one of
     // these AND has no focusable descendant (so we land on the actual control, not a wrapper).
     private static bool IsFocusableRole(IElement el) =>
         el.GetAttribute("role") is "switch" or "checkbox" or "radio" or "slider"
                                 or "textbox" or "spinbutton" or "button"
+        || (el.LocalName == "a" && el.HasAttribute("href"))
         || el.HasAttribute("data-cupri-toggle")
         || el.HasAttribute("data-set-path")
         || el.HasAttribute("data-set-toggle")

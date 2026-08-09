@@ -14,6 +14,9 @@ public static class DesktopHost
     public static void Run(CupriApp app)
     {
         var doc = app.CreateDocument();
+        // External links (http/mailto/…) open in the OS browser; internal routing + #anchors are the
+        // app's / engine's concern. Both hosts do this, so links behave the same on desktop and web.
+        doc.Navigated += e => { if (e.External) OpenExternal(e.Href); };
         var clock = Stopwatch.StartNew();
         var scale = 1f; // current present scale, for transforming pointer coordinates
         var lastRefresh = 0.0;
@@ -89,6 +92,14 @@ public static class DesktopHost
             doc.ContextRequested += cmd => ContextAction(doc, cmd, () => window.ClipboardText, v => window.ClipboardText = v);
             window.Run();
         }
+    }
+
+    // Open an external link in the OS default browser/handler. UseShellExecute lets the shell resolve
+    // http(s)/mailto/tel/… ; a bad url or missing handler is swallowed (nothing to do).
+    private static void OpenExternal(string href)
+    {
+        try { Process.Start(new ProcessStartInfo(href) { UseShellExecute = true }); }
+        catch { /* no handler / malformed url — ignore */ }
     }
 
     // Text shortcuts common to both hosts. The engine owns selection/editing; the host owns the
