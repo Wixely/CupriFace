@@ -70,6 +70,9 @@ public sealed partial class CupriDocument : IDisposable
     private bool _caretMoved;           // caret changed since last render → scroll it into view once
     private RenderNode? _scrollDrag;    // scrollable node whose scrollbar thumb is being dragged
     private float _scrollDragY0, _scrollDragScroll0;
+    // Each <cupri-virtual> list's scroll offset by its data-repeat path, so the next rebuild windows it to
+    // the rows in view. Updated when a virtual list scrolls (which then rebuilds to re-window).
+    private readonly Dictionary<string, double> _virtualScroll = new();
     private RenderNode? _resizeDrag;    // node whose resize grip is being dragged
     private float _resizeX0, _resizeY0, _resizeW0, _resizeH0;
 
@@ -231,7 +234,7 @@ public sealed partial class CupriDocument : IDisposable
         Mark("parse-html");
 
         if (_model is not null)
-            BindingEngine.Apply(dom, _model);
+            BindingEngine.Apply(dom, _model, key => _virtualScroll.GetValueOrDefault(key)); // window each <cupri-virtual>
         Mark("bind");
 
         // Expand custom elements after binding so components see concrete attribute values.
@@ -2264,7 +2267,8 @@ public sealed partial class CupriDocument : IDisposable
             var travel = boxH - thumbH;
             if (travel > 0.5f)
                 sd.ScrollY = Math.Clamp(_scrollDragScroll0 + (y - _scrollDragY0) / travel * sd.MaxScrollY, 0, sd.MaxScrollY);
-            return true; // scroll is paint-time → repaint, no rebuild
+            RewindowVirtual(sd);  // if it's a virtual list, re-window to the dragged offset
+            return true;          // scroll is paint-time → repaint (RewindowVirtual rebuilds if needed)
         }
         if (_dragging)
         {
@@ -2302,9 +2306,24 @@ public sealed partial class CupriDocument : IDisposable
             if (!n.IsScrollable) continue;
             var before = n.ScrollY;
             n.ScrollY = Math.Clamp(n.ScrollY + pixelDelta, 0, n.MaxScrollY);
+            if (RewindowVirtual(n)) return true;                 // a virtual list re-windowed (rebuilt)
             return Math.Abs(n.ScrollY - before) > 0.01f;
         }
         return false;
+    }
+
+    // A scrolled <cupri-virtual> list: once it has moved ~2 rows since its last window, record the offset and
+    // rebuild so the newly-exposed rows are built (a 4-row buffer covers the rows in between). Returns true if
+    // it rebuilt. Scroll offsets survive the rebuild (CaptureScroll), so the list stays put + re-windows.
+    private bool RewindowVirtual(RenderNode n)
+    {
+        if (n.Element?.GetAttribute("data-virtual-key") is not { Length: > 0 } key) return false;
+        var itemH = double.TryParse(n.Element.GetAttribute("item-height"),
+            System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var h) && h > 0 ? h : 40;
+        if (Math.Abs(n.ScrollY - _virtualScroll.GetValueOrDefault(key)) < itemH * 2) return false;
+        _virtualScroll[key] = n.ScrollY;
+        Rebuild();
+        return true;
     }
 
     // Toggle data-hover on the hovered element + ancestors, then re-resolve styles (no full rebuild).

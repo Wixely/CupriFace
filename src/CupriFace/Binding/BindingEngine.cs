@@ -1,4 +1,6 @@
 using System.Collections;
+using System.Globalization;
+using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using AngleSharp.Dom;
@@ -22,12 +24,15 @@ public static partial class BindingEngine
     [GeneratedRegex(@"^\s*\{\{\s*([^}]+?)\s*\}\}\s*$")]
     private static partial Regex PureBinding();
 
-    public static void Apply(IDocument document, object model)
+    /// <summary>Apply model → view binding. <paramref name="scrollFor"/> (optional) returns a virtual
+    /// list's current scroll offset by its <c>data-repeat</c> path, so a <c>data-repeat</c> inside a
+    /// <c>&lt;cupri-virtual&gt;</c> is windowed to just the visible rows (+ spacers) instead of every item.</summary>
+    public static void Apply(IDocument document, object model, Func<string, double>? scrollFor = null)
     {
-        if (document.Body is { } body) Process(body, model);
+        if (document.Body is { } body) Process(body, model, scrollFor);
     }
 
-    private static void Process(IElement element, object? context)
+    private static void Process(IElement element, object? context, Func<string, double>? scrollFor)
     {
         // Repeat directive expands this element once per collection item.
         var repeatPath = element.GetAttribute("data-repeat");
@@ -35,14 +40,18 @@ public static partial class BindingEngine
         {
             element.RemoveAttribute("data-repeat");
             var parent = element.ParentElement;
-            if (parent is not null && Resolve(context, repeatPath) is IEnumerable items and not string)
+            if (parent is not null && Resolve(context, repeatPath) is IEnumerable seq and not string)
             {
-                foreach (var item in items)
+                var items = seq.Cast<object?>().ToList();
+                var (first, last) = Window(parent, repeatPath, items.Count, scrollFor);
+                if (first > 0) parent.InsertBefore(Spacer(parent, first * ItemH(parent)), element);        // rows above
+                for (var i = first; i < last; i++)
                 {
                     var clone = (IElement)element.Clone(deep: true);
-                    ProcessSubtree(clone, item);
+                    ProcessSubtree(clone, items[i], scrollFor);
                     parent.InsertBefore(clone, element);
                 }
+                if (last < items.Count) parent.InsertBefore(Spacer(parent, (items.Count - last) * ItemH(parent)), element); // below
             }
             element.Remove();
             return;
@@ -55,20 +64,46 @@ public static partial class BindingEngine
         {
             switch (child)
             {
-                case IElement childEl: Process(childEl, context); break;
+                case IElement childEl: Process(childEl, context, scrollFor); break;
                 case IText text: BindText(text, context); break;
             }
         }
     }
 
-    private static void ProcessSubtree(IElement element, object? context)
+    // Full range [0,count), unless the repeat's parent is <cupri-virtual> — then just the rows visible at the
+    // container's current scroll offset, padded by a few for smooth scrolling. Spacer divs (below) preserve
+    // the full scroll extent so the scrollbar and offsets stay correct.
+    private static (int First, int Last) Window(IElement parent, string repeatPath, int count, Func<string, double>? scrollFor)
+    {
+        if (count == 0 || !parent.LocalName.Equals("cupri-virtual", StringComparison.OrdinalIgnoreCase)) return (0, count);
+        parent.SetAttribute("data-virtual-key", repeatPath);
+        var itemH = ItemH(parent);
+        var viewH = Dbl(parent.GetAttribute("height"), 300);
+        var scrollY = scrollFor?.Invoke(repeatPath) ?? 0;
+        const int buffer = 4;
+        var first = Math.Max(0, (int)Math.Floor(scrollY / itemH) - buffer);
+        var last = Math.Min(count, first + (int)Math.Ceiling(viewH / itemH) + 2 * buffer);
+        return (first, last);
+    }
+
+    private static double ItemH(IElement virt) => Dbl(virt.GetAttribute("item-height"), 40);
+    private static double Dbl(string? s, double dflt) => double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var d) && d > 0 ? d : dflt;
+    private static IElement Spacer(IElement parent, double h)
+    {
+        var sp = parent.Owner!.CreateElement("div");
+        sp.SetAttribute("style", $"height:{h.ToString("0.##", CultureInfo.InvariantCulture)}px");
+        sp.SetAttribute("aria-hidden", "true");
+        return sp;
+    }
+
+    private static void ProcessSubtree(IElement element, object? context, Func<string, double>? scrollFor)
     {
         BindAttributes(element, context);
         foreach (var child in element.ChildNodes.ToArray())
         {
             switch (child)
             {
-                case IElement childEl: Process(childEl, context); break;
+                case IElement childEl: Process(childEl, context, scrollFor); break;
                 case IText text: BindText(text, context); break;
             }
         }

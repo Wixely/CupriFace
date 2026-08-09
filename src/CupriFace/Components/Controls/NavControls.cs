@@ -178,6 +178,28 @@ public sealed class BoardComponent : ComponentBase
     public override void Expand(IElement el) => el.ClassList.Add("cupri-board");
 }
 
+/// <summary>
+/// <c>&lt;cupri-virtual height="300" item-height="40"&gt;&lt;div data-repeat="Items"&gt;{{.}}&lt;/div&gt;&lt;/cupri-virtual&gt;</c>
+/// — a scrolling list that only builds the rows currently in view (plus a small buffer); spacer divs keep
+/// the full scroll height so the scrollbar and offsets are correct. So a list of thousands stays cheap —
+/// only ~a screenful is ever in the DOM. Rows must be a fixed <c>item-height</c> (px) tall; scrolling
+/// re-windows. The windowing happens in the binder (see BindingEngine); this just styles the scroll box.
+/// </summary>
+public sealed class VirtualListComponent : ComponentBase
+{
+    public override string Tag => "cupri-virtual";
+    public override string DefaultCss => """
+        .cupri-virtual { display:block; overflow:scroll; }
+        """;
+    public override void Expand(IElement el)
+    {
+        el.SetAttribute("role", "list");
+        el.ClassList.Add("cupri-virtual");
+        var extra = el.GetAttribute("style") is { Length: > 0 } s ? ";" + s : "";
+        el.SetAttribute("style", $"height:{Str(el, "height", "300")}px;overflow:scroll{extra}");
+    }
+}
+
 /// <summary><c>&lt;cupri-reorder-item&gt;…&lt;/cupri-reorder-item&gt;</c> — one draggable row: a grip
 /// handle followed by the item's content. Dragging the grip reorders the list.</summary>
 public sealed class ReorderItemComponent : ComponentBase

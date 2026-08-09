@@ -458,6 +458,7 @@ to the bottom as new lines arrive (logging), *unless* the user has scrolled up:
 | `<cupri-reorder>` | Drag‑to‑reorder list: drag a row by its grip and the others slide to open a gap; on drop, the document's `OnReorder(e => …)` fires with the item's old/new index (typically reorders the bound model list) | — | — | `<cupri-reorder-item>…</cupri-reorder-item>` (often `data-repeat="List"`) | — |
 | `<cupri-board>` | Kanban: a row of `<cupri-reorder>` columns. Drag a card's grip within a column or across to another (source closes its gap, target opens one, the card follows the pointer); `OnReorder` carries the source `List`/`From` and target `ToList`/`To` | — | — | column wrappers, each holding a `<cupri-reorder>` | — |
 | `<cupri-split>` | Resizable panels with draggable dividers (auto‑inserted between panels); drag a divider to grow one panel and shrink its neighbour. `vertical` stacks them; nestable. Give it a bounded size | `vertical` | — | `<cupri-split-panel size="N">…</cupri-split-panel>` (`size` = initial share) | — |
+| `<cupri-virtual>` | Virtualized scroll list: windows a `data-repeat` to just the rows in view (+ buffer), with spacers keeping the full scroll extent — thousands of rows, only ~a screenful in the DOM. Rows must be `item-height` px tall | `height`, `item-height` (px) | — | one `data-repeat` child (fixed‑height row) | `list` |
 
 ```html
 <cupri-tabs value="{{Tab}}">

@@ -93,6 +93,7 @@ public sealed class ComponentRegistry
         .Register(new ReorderComponent())
         .Register(new ReorderItemComponent())
         .Register(new BoardComponent())
+        .Register(new VirtualListComponent())
         .Register(new SplitComponent())
         .Register(new SplitPanelComponent())
         // Data
