@@ -96,6 +96,35 @@ public class KanbanTests
     }
 
     [Fact]
+    public void A_taller_card_slides_by_the_dragged_cards_footprint_not_off_the_top()
+    {
+        // Column with a short card, a tall (90px) card, and another short one. Dragging the first short
+        // card to the bottom slides the rest up by the dragged card's footprint — the tall card must land
+        // exactly at the top slot, not overshoot above the column (the wrapped-card bug).
+        const string html =
+            "<body><cupri-board><cupri-reorder data-col='a'>" +
+              "<cupri-reorder-item>short</cupri-reorder-item>" +
+              "<cupri-reorder-item style='height:90px'>tall</cupri-reorder-item>" +
+              "<cupri-reorder-item>last</cupri-reorder-item>" +
+            "</cupri-reorder></cupri-board></body>";
+        using var t = new TestDoc(html, "", null, width: 300, height: 400, components: true);
+
+        var list = t.FindClass("cupri-reorder");
+        var lb = HitTesting.AbsoluteBox(list);
+        var tall = t.Find(n => n.Element?.ClassList.Contains("cupri-reorder-item") == true && n.Element.TextContent.Trim() == "tall")!;
+
+        var handle = t.Find(n => n.Element?.ClassList.Contains("cupri-reorder-handle") == true)!; // the "short" card's grip
+        var (hx, hy) = TestDoc.Center(handle);
+        t.Doc.DispatchClick(hx, hy, 1);
+        t.Doc.DispatchPointerMove(hx, lb.Y + lb.H - 6);                 // drag it to the bottom
+        for (var tm = 0.0; tm <= 0.4; tm += 0.03) t.Doc.Animate(tm);    // ease the slide in
+
+        var tallPaintY = HitTesting.AbsoluteBox(tall).Y + tall.DragOffsetY; // where it actually paints
+        Assert.True(tallPaintY >= lb.Y - 1.5f,
+            $"the tall card slid to y={tallPaintY:0.0}, which is above the column top {lb.Y:0.0} (footprint mismatch)");
+    }
+
+    [Fact]
     public void Dragging_within_a_column_keeps_the_same_source_and_target_list()
     {
         using var t = new TestDoc(Html, "", null, width: 500, height: 300, components: true);

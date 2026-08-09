@@ -2004,7 +2004,14 @@ public sealed partial class CupriDocument : IDisposable
         _reorderCols = cols; _reorderItems = all; _reorderList = list; _reorderCard = item;
         _reorderFromCol = _reorderToCol = fromCol; _reorderFrom = _reorderTo = from;
         _reorderX0 = x; _reorderY0 = y;
-        _reorderShift = cols[fromCol].Items.Count >= 2 ? MathF.Abs(cols[fromCol].Mids[1] - cols[fromCol].Mids[0]) : item.Height + 8f;
+        // How far the other cards slide to open/close the gap = the dragged card's own footprint (its
+        // height + the list gap), NOT the distance between the first two cards — which overshoots when a
+        // card wraps to a taller height, sliding the rest off the top of the column and leaving a gap below.
+        var srcCol = cols[fromCol];
+        var gap = srcCol.Items.Count >= 2
+            ? MathF.Max(0f, (srcCol.Mids[1] - srcCol.Mids[0]) - (srcCol.Items[0].Height + srcCol.Items[1].Height) / 2f)
+            : 8f;
+        _reorderShift = item.Height + gap;
         _reorderAnimT = double.NaN;
         item.Dragging = true;
         return true;
