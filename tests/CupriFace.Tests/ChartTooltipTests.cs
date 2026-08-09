@@ -41,6 +41,22 @@ public class ChartTooltipTests
     }
 
     [Fact]
+    public void Hovering_a_line_point_reveals_its_value()
+    {
+        using var t = new TestDoc(
+            "<body><div style='padding:30px'><cupri-line-chart values=\"5,8,6,11\" labels=\"W1,W2,W3,W4\"></cupri-line-chart></div></body>",
+            "", components: true, width: 440, height: 300);
+        var dots = ByClass(t, "cupri-lc-dot");
+        Assert.Equal(4, dots.Count);                         // one hover target per point
+
+        var (x, y) = TestDoc.Center(dots[1]);                // W2, value 8
+        t.Move(x, y);
+        var tip = VisibleTip(t);
+        Assert.NotNull(tip);
+        Assert.Contains("W2: 8", tip!.Element!.TextContent);
+    }
+
+    [Fact]
     public void Hovering_a_heatmap_cell_reveals_its_value()
     {
         using var t = new TestDoc(

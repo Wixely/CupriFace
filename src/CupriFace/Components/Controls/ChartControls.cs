@@ -81,6 +81,10 @@ internal static class ChartData
     // A hover tooltip anchored above a chart element (the element must carry the matching id).
     internal static string Tip(string id, string text) =>
         $"<div class='cupri-chart-tip' data-cupri-anchor='{id}' data-cupri-placement='top'>{Esc(text)}</div>";
+
+    // An invisible hover target for a line-chart point at normalised (x,y) in the plot, carrying its tooltip.
+    internal static string Dot(string id, double x, double y, string color, string tip) =>
+        $"<div class='cupri-lc-dot' id='{id}' style='left:{Fmt(x * 100)}%;top:{Fmt(y * 100)}%;color:{color}'>{Tip(id, tip)}</div>";
     internal static List<double> Vals(string? csv) => Split(csv).Select(Parse).ToList();
     private static string[] Split(string? v) => (v ?? "").Split(',', System.StringSplitOptions.RemoveEmptyEntries);
 
@@ -290,6 +294,9 @@ public sealed class LineChartComponent : ComponentBase
         .cupri-lc-legend { display:flex; gap:16px; margin-top:9px; }
         .cupri-lc-key { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--cupri-muted, #98a2b3); }
         .cupri-lc-swatch { width:11px; height:11px; border-radius:3px; }
+        /* Per-point hover target (invisible) → shows a marker + the value tooltip on hover. */
+        .cupri-lc-dot { position:absolute; width:16px; height:16px; margin:-8px 0 0 -8px; border-radius:50%; }
+        .cupri-lc-dot[data-hover] { background:currentColor; box-shadow:0 0 0 3px var(--cupri-surface,#fff); }
         """;
 
     public override void Expand(IElement el)
@@ -317,9 +324,27 @@ public sealed class LineChartComponent : ComponentBase
                   + (Flag(el, "dots") ? " data-cupri-dots" : "")
                   + (Flag(el, "curve") ? " data-cupri-curve" : "");
 
-        var lines = new StringBuilder(); // each series overlays as an absolute line
+        // x-axis labels (also used for the per-point tooltips): the `labels` attr, else the point labels.
+        var labels = Str(el, "labels") is { Length: > 0 } lab
+            ? lab.Split(',').Select(l => l.Trim()).ToList()
+            : series[0].Pts.Select(p => p.Label).ToList();
+
+        const double inset = 0.12; // matches ChartData.Points, so the hover dots sit on the drawn line
+        var range = max - min;
+        var lines = new StringBuilder(); // each series overlays as an absolute line + invisible hover dots
         foreach (var s in series)
+        {
             lines.Append($"<div class='cupri-lc-line' data-cupri-line='{ChartData.Points(s.Pts, fullWidth: false, fixedMin: min, fixedMax: max)}'{flags} style='color:{s.Color}'></div>");
+            for (var i = 0; i < s.Pts.Count; i++)
+            {
+                var x = (i + 0.5) / s.Pts.Count;
+                var norm = range > 1e-9 ? System.Math.Clamp((s.Pts[i].Value - min) / range, 0, 1) : 0.5;
+                var y = inset + (1 - norm) * (1 - 2 * inset);
+                var xlab = i < labels.Count ? labels[i] : "";
+                var tip = (s.Label.Length > 0 ? s.Label + " · " : "") + (xlab.Length > 0 ? xlab + ": " : "") + ChartData.Fmt(s.Pts[i].Value);
+                lines.Append(ChartData.Dot(NextId(), x, y, s.Color, tip));
+            }
+        }
         var plot = $"<div class='cupri-lc-plot'>{lines}</div>";
 
         var body = new StringBuilder();
@@ -330,10 +355,7 @@ public sealed class LineChartComponent : ComponentBase
         }
         else body.Append(plot);
 
-        // x-axis labels: the `labels` attr, else the first series' point labels.
-        var labels = Str(el, "labels") is { Length: > 0 } lab
-            ? lab.Split(',').Select(l => l.Trim()).ToList()
-            : series[0].Pts.Select(p => p.Label).ToList();
+        // x-axis labels (computed above for the tooltips).
         if (labels.Any(l => l.Length > 0))
         {
             body.Append(axis ? "<div class='cupri-lc-labels' style='padding-left:34px'>" : "<div class='cupri-lc-labels'>");

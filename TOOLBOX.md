@@ -489,7 +489,7 @@ Simple data‑viz drawn with the same rounded‑box + stroke paint (no canvas/SV
 data **either** as a `values="1,2,3"` string — bindable to a model, e.g. `values="{{Series}}"` — with an
 optional `labels="…"`, **or** as child elements when you need per‑item control. Bars scale to `max` (or
 the largest value); line/sparkline auto‑scale to the data's range. All are theme‑aware. Bars, stacked
-segments and heatmap cells show a **value tooltip on hover** (label + value) — nothing to wire up.
+segments, line points and heatmap cells show a **value tooltip on hover** (label + value) — nothing to wire up.
 
 | Element | Purpose | Key attributes | Children | role |
 |---------|---------|----------------|----------|------|
