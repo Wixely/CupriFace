@@ -119,6 +119,9 @@ try {
             if (k === 'a') { I.EditKeyPress(14, 0); e.preventDefault(); return; }                     // select all
             if (k === 'z') { if (e.shiftKey) I.Redo(); else I.Undo(); e.preventDefault(); return; }   // Ctrl+Shift+Z = redo
             if (k === 'y') { I.Redo(); e.preventDefault(); return; }
+            // Any other Ctrl/Cmd + letter → an app shortcut (e.g. Ctrl+K). preventDefault only if the engine
+            // took it, so unbound chords (Ctrl+F/P/…) still reach the browser.
+            if (k.length === 1 && I.KeyChord(k, mods)) { e.preventDefault(); return; }
         }
         if (e.key === 'Tab') { I.EditKeyPress(e.shiftKey ? 11 : 10, 0); e.preventDefault(); return; }
         if (e.key in EK) { I.EditKeyPress(EK[e.key], mods); e.preventDefault(); return; }

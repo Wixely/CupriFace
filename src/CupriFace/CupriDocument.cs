@@ -834,6 +834,19 @@ public sealed partial class CupriDocument : IDisposable
         return this;
     }
 
+    private readonly Dictionary<string, Action> _shortcuts = new();
+
+    /// <summary>Register a keyboard shortcut. <paramref name="mods"/> is usually <see cref="KeyMods.Ctrl"/>
+    /// (Cmd maps to it on macOS); <paramref name="key"/> is the character, e.g. <c>"k"</c>. A Ctrl shortcut
+    /// fires anywhere (even while editing a field); a plain-key one only fires when no field is focused.
+    /// The host must deliver the chord — the built-in Web/Viewer hosts forward Ctrl/Cmd + letter.</summary>
+    public CupriDocument OnShortcut(KeyMods mods, string key, Action handler)
+    {
+        _shortcuts[ShortcutKey(mods, key)] = handler;
+        return this;
+    }
+    private static string ShortcutKey(KeyMods mods, string key) => (mods.HasFlag(KeyMods.Ctrl) ? "ctrl+" : "") + key.ToLowerInvariant();
+
     // Custom interaction primitives (extensibility): a data-* attribute → behaviour, alongside the
     // engine's built-in vocabulary (data-set-path / data-cupri-toggle / …). Fires on click AND on
     // keyboard activation (Enter/Space) since both route through ActivateFrom.
@@ -1302,6 +1315,15 @@ public sealed partial class CupriDocument : IDisposable
 
         // Any keystroke dismisses an open context menu; Escape only closes it (swallowed).
         if (_ctxOpen || _ctxCustomIndex >= 0) { _ctxOpen = false; _ctxCustomIndex = -1; Refresh(); if (key == EditKey.Escape) return true; }
+
+        // A registered keyboard shortcut consumes the key. A Ctrl/Cmd chord fires anywhere; a plain-key
+        // shortcut only when no text field is focused (so it doesn't eat normal typing). An unbound Ctrl
+        // chord is swallowed too (returns false → the host can defer to the browser) rather than typed.
+        if (text is { Length: 1 } && (mods.HasFlag(KeyMods.Ctrl) || _focusKey is null))
+        {
+            if (_shortcuts.TryGetValue(ShortcutKey(mods, text), out var shortcut)) { shortcut(); return true; }
+            if (mods.HasFlag(KeyMods.Ctrl)) return false; // never insert a Ctrl/Cmd + letter as text
+        }
 
         // Normalize pasted/typed line endings to '\n' (a textarea's internal newline). Windows
         // clipboards deliver "\r\n"; the stray '\r' would otherwise render as a collapsed empty line.

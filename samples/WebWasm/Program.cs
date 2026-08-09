@@ -143,6 +143,9 @@ public partial class Interop
     [JSExport] internal static void Wheel(double x, double y, double dy) { if (_doc?.DispatchWheel((float)(x / _scale), (float)(y / _scale), (float)-dy) == true) _dirty = true; }
     [JSExport] internal static void KeyChar(string text) { if (_doc?.DispatchKey(text, EditKey.None) == true) _dirty = true; }
     [JSExport] internal static void EditKeyPress(int code, int mods) { if (_doc?.DispatchKey(null, (EditKey)code, (KeyMods)mods) == true) _dirty = true; }
+    // A Ctrl/Cmd + letter chord (e.g. Ctrl+K) → an app keyboard shortcut. Returns whether the engine handled
+    // it, so the page can preventDefault only then and otherwise let the browser keep its own shortcuts.
+    [JSExport] internal static bool KeyChord(string text, int mods) { var h = _doc?.DispatchKey(text, EditKey.None, (KeyMods)mods) == true; if (h) _dirty = true; return h; }
 
     // Clipboard bridge — the engine has no clipboard access (host concern); JS does the actual
     // navigator.clipboard I/O. Copy/Cut return the selected text; Paste inserts via KeyChar.
