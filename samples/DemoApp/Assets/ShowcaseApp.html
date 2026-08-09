@@ -337,6 +337,10 @@
             </cupri-split>
           </cupri-split-panel>
         </cupri-split>
+        <div class="mlabel" style="margin-top:22px">Virtualized list — 2,000 rows, but only the ~dozen in view are ever built (scroll it)</div>
+        <cupri-virtual height="224" item-height="40" style="max-width:360px; background:var(--cupri-surface); border:1px var(--cupri-border); border-radius:10px">
+          <div class="vrow" data-repeat="BigList">{{.}}</div>
+        </cupri-virtual>
       </div>
 
       <!-- SETTINGS -->

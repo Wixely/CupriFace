@@ -61,6 +61,9 @@ body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; -
 .kb-col { width:230px; background:var(--cupri-hover); border-radius:12px; padding:12px; }
 .kb-head { font-weight:bold; color:var(--cupri-muted); font-size:13px; margin-bottom:10px; padding:0 2px; }
 .kb-col .cupri-reorder-item { background:var(--cupri-surface); box-shadow:0 1px 3px #00000014; }
+/* Rows for the virtualized list — a fixed height that matches item-height. */
+.vrow { height:40px; display:flex; align-items:center; padding:0 16px; font-size:14px;
+        color:var(--cupri-text); border-bottom:1px var(--cupri-border); }
 /* Bounded to the window height (flex-stretched), so a tall section scrolls (wheel + thumb) instead
    of overflowing off-screen. The scrollbar only appears when a section is taller than the viewport. */
 .content { flex:1; padding:26px; background:var(--cupri-bg); color:var(--cupri-text); transition: background-color 0.35s ease; overflow:scroll; }
