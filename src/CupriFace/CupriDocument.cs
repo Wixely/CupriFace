@@ -2465,7 +2465,12 @@ public sealed partial class CupriDocument : IDisposable
             var travel = boxH - thumbH;
             if (travel > 0.5f)
                 sd.ScrollY = Math.Clamp(_scrollDragScroll0 + (y - _scrollDragY0) / travel * sd.MaxScrollY, 0, sd.MaxScrollY);
-            RewindowVirtual(sd);  // if it's a virtual list, re-window to the dragged offset
+            // If it's a virtual list, re-windowing rebuilds the tree — which runs CancelOrphanedPointerDrags
+            // and drops _scrollDrag, so the drag would die after one frame. Re-link to the rebuilt scroller
+            // by its stable data-virtual-key so the thumb keeps tracking the pointer.
+            var vkey = sd.Element?.GetAttribute("data-virtual-key");
+            if (RewindowVirtual(sd) && vkey is { Length: > 0 })
+                _scrollDrag = FindByVirtualKey(_root, vkey);
             return true;          // scroll is paint-time → repaint (RewindowVirtual rebuilds if needed)
         }
         if (_dragging)
@@ -2514,6 +2519,15 @@ public sealed partial class CupriDocument : IDisposable
     // A scrolled <cupri-virtual> list: once it has moved ~2 rows since its last window, record the offset and
     // rebuild so the newly-exposed rows are built (a 4-row buffer covers the rows in between). Returns true if
     // it rebuilt. Scroll offsets survive the rebuild (CaptureScroll), so the list stays put + re-windows.
+    // Find the (rebuilt) virtual-list scroller by its stable key — used to re-link an in-flight
+    // scrollbar drag across the re-window rebuild.
+    private static RenderNode? FindByVirtualKey(RenderNode n, string key)
+    {
+        if (n.Element?.GetAttribute("data-virtual-key") == key) return n;
+        foreach (var c in n.Children) { var f = FindByVirtualKey(c, key); if (f is not null) return f; }
+        return null;
+    }
+
     private bool RewindowVirtual(RenderNode n)
     {
         if (n.Element?.GetAttribute("data-virtual-key") is not { Length: > 0 } key) return false;

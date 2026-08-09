@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using CupriFace.Dom;
+using CupriFace.Interaction;
 using Xunit;
 
 namespace CupriFace.Tests;
@@ -49,5 +50,28 @@ public class VirtualListTests
         var rows = RowTexts(t);
         Assert.DoesNotContain("Row 0", rows);        // scrolled out of the window
         Assert.Contains("Row 10", rows);             // now built
+    }
+
+    [Fact]
+    public void Dragging_the_scrollbar_keeps_scrolling_past_the_first_rewindow()
+    {
+        // Regression: dragging the thumb re-windows the list, which rebuilds the tree and dropped the
+        // scroll-drag reference — so the drag froze after the first frame. It must now track the pointer
+        // across the rebuilds (the scroller is re-linked by its data-virtual-key).
+        using var t = new TestDoc(Html, "", new Model(), width: 320, height: 300, components: true);
+        var box = HitTesting.AbsoluteBox(t.FindClass("cupri-virtual"));
+        float gx = box.X + box.W - 3, gy = box.Y + 8;    // the thumb sits top-right at ScrollY 0
+
+        t.Click(gx, gy);                                 // grab the thumb
+        t.Move(gx, gy + 12);                             // first drag → crosses the re-window threshold (rebuild)
+        var afterFirst = t.FindClass("cupri-virtual").ScrollY;
+        Assert.True(afterFirst > 100, "the first drag frame scrolled");
+
+        t.Move(gx, gy + 44);                             // keep dragging — must not be frozen at afterFirst
+        var afterMore = t.FindClass("cupri-virtual").ScrollY;
+        t.Up(gx, gy + 44);
+
+        Assert.True(afterMore > afterFirst * 2.5f, $"drag should keep tracking (was {afterFirst}, now {afterMore})");
+        Assert.Contains("Row", string.Join(" ", RowTexts(t)));   // list still windowed/valid after the drag
     }
 }
