@@ -80,7 +80,13 @@ public sealed class LayoutEngine
     private static (float X, float Y, float W, float H) AbsoluteBox(RenderNode node)
     {
         float x = 0, y = 0;
-        for (var n = node; n is not null; n = n.Parent) { x += n.X; y += n.Y; }
+        for (var n = node; n is not null; n = n.Parent)
+        {
+            x += n.X; y += n.Y;
+            // A scrolled ancestor shifts this node's on-screen position (matching the painter/hit-test), so
+            // an anchored popup lands over the anchor's *painted* spot — not where it would sit unscrolled.
+            if (n.Parent is { IsScrollable: true } sp) y -= Math.Clamp(sp.ScrollY, 0, sp.MaxScrollY);
+        }
         return (x, y, node.Width, node.Height);
     }
 
