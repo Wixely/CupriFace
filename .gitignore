@@ -1,6 +1,7 @@
 # .NET build output
 bin/
 obj/
+publish/           # CI publishes the Viewer here; running the same command locally shouldn't litter
 [Dd]ebug/
 [Rr]elease/
 x64/
