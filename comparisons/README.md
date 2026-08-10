@@ -22,9 +22,9 @@ CSS, driven by a C# object"*, CupriFace is that model with the browser removed.
 |---|---|---|
 | **Avalonia** | XAML application framework vs HTML/CSS rendering engine — the closest .NET neighbour, and the most instructive contrast | [avalonia.md](avalonia.md) |
 | **MewUI** | The opposite answer to the same complaint about XAML: fluent C# markup and the smallest possible NativeAOT binary, vs HTML/CSS and run-anywhere | [mewui.md](mewui.md) |
+| **Electron** | The comparison the project was founded on — keep HTML and CSS, delete the browser. What that costs, and when it's worth it | [electron.md](electron.md) |
 
-Planned next (no documents yet): Electron/WebView2 hybrids, Blazor Hybrid,
-.NET MAUI, Flutter.
+Planned next (no documents yet): Tauri, Blazor Hybrid, .NET MAUI, Flutter.
 
 ## Ground rules for these documents
 
