@@ -21,6 +21,7 @@ CSS, driven by a C# object"*, CupriFace is that model with the browser removed.
 | Compared with | One-liner | Document |
 |---|---|---|
 | **Avalonia** | XAML application framework vs HTML/CSS rendering engine — the closest .NET neighbour, and the most instructive contrast | [avalonia.md](avalonia.md) |
+| **MewUI** | The opposite answer to the same complaint about XAML: fluent C# markup and the smallest possible NativeAOT binary, vs HTML/CSS and run-anywhere | [mewui.md](mewui.md) |
 
 Planned next (no documents yet): Electron/WebView2 hybrids, Blazor Hybrid,
 .NET MAUI, Flutter.
