@@ -188,7 +188,16 @@ jobs:
           Known issue: on Linux without a GPU (headless or remote/virtual X), the native window
           path can segfault — use `--web` there. See ROADMAP.md.
           EOF
-          gh release create "$GITHUB_REF_NAME" dist/* \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "CupriFace $GITHUB_REF_NAME" \
-            --notes-file notes.md
+          # Idempotent: re-running a tag (or adding an asset that was missed) updates the existing
+          # release rather than failing on "already exists".
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release exists — updating"
+            gh release upload "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --title "CupriFace $GITHUB_REF_NAME" --notes-file notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "CupriFace $GITHUB_REF_NAME" \
+              --notes-file notes.md
+          fi
