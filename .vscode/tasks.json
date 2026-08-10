@@ -107,5 +107,38 @@
         }
       }
     }
+  ,
+    {
+      "label": "publish-webllvm",
+      "detail": "Publish the EXPERIMENTAL NativeAOT-LLVM web host (slow first build ~4-6 min; then incremental).",
+      "command": "dotnet",
+      "type": "process",
+      "args": [
+        "publish", "${workspaceFolder}/samples/WebLlvm/WebLlvm.csproj",
+        "-c", "Release"
+      ],
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "serve-webllvm",
+      "detail": "Publish (NativeAOT-LLVM) then statically serve the output at http://127.0.0.1:5230.",
+      "dependsOn": "publish-webllvm",
+      "command": "node",
+      "type": "process",
+      "args": [
+        "${workspaceFolder}/samples/WebWasm/tools/serve.mjs",
+        "${workspaceFolder}/samples/WebLlvm/bin/Release/net10.0/browser-wasm/publish",
+        "5230"
+      ],
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": { "regexp": "^\\s*$" },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "Serving",
+          "endsPattern": "Serving"
+        }
+      }
+    }
   ]
 }

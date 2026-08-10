@@ -20,6 +20,15 @@
       "browserAttachLocation": "workspace"
     },
     {
+      "name": "Web (NativeAOT-LLVM, experimental) — browser",
+      "type": "msedge",
+      "request": "launch",
+      "url": "http://127.0.0.1:5230",
+      "webRoot": "${workspaceFolder}/samples/WebLlvm/wwwroot",
+      "preLaunchTask": "serve-webllvm",
+      "browserAttachLocation": "workspace"
+    },
+    {
       "name": "Web — Blazor WASM (browser + debug)",
       "type": "blazorwasm",
       "request": "launch",
