@@ -67,6 +67,20 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 | `samples/WebWasm` | Web host (**default**): raw .NET-WASM + thin JS glue → `<canvas>`, no Blazor |
 | `samples/Web` | Web host (alt): the same app via Blazor `<SKCanvasView>` |
 
+## Download
+
+Prebuilt **standalone** Showcase demos — self-contained single executables, no .NET install
+required — are attached to each release:
+**[latest release](https://github.com/Wixely/CupriFace/releases/latest)**.
+
+| Platform | Asset | Run |
+|---|---|---|
+| Windows x64 | `CupriFace-Viewer-<version>-win-x64.exe` | run it |
+| Linux x64 | `CupriFace-Viewer-<version>-linux-x64.tar.gz` | `tar xzf <file> && ./Viewer` |
+
+Add `--web` to either one to serve the same UI to a browser instead of opening a window. The first
+launch unpacks the bundle and takes a few seconds; later launches are about 1.5 s.
+
 ## Run
 
 ```pwsh
