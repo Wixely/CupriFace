@@ -24,16 +24,22 @@
     <WasmNativeDebugSymbols Condition="'$(Aot)' == 'true'">false</WasmNativeDebugSymbols>
   </PropertyGroup>
 
-  <ItemGroup>
-    <StaticWebAssetFingerprintPattern Include="JS" Pattern="*.js" Expression="#[.{fingerprint}]!" />
+  <ItemGroup Condition="'$(Aot)' == 'true'">
+    <!-- Mono's WASM AOT mis-compiles an indirect call INSIDE CupriFace method bodies, trapping at
+         boot with "function signature mismatch". Retested on SDK 10.0.302 (2026-08): the symbolised
+         fault is within SliderComponent.Expand's own AOT body (its first AngleSharp IElement call) —
+         NOT the registry→component interface dispatch, so devirtualising the call site does not help
+         (verified: the trap stays at the same frame with the caller changed). Interface calls made
+         BEFORE expansion (ICupriComponent.Tag during Register) dispatch fine, so it is signature-
+         specific Mono codegen, not interface dispatch generally. Keep CupriFace interpreted
+         (jiterpreter still applies); CoreLib, AngleSharp, Regex, Skia bindings etc. remain AOT.
+         Measured cost of this workaround (940×720 showcase, in-browser): hover restyle 16.2 ms/move,
+         section switch 60.7 ms — ~8× native. Re-try removing this on each SDK update. -->
+    <_AOT_InternalForceInterpretAssemblies Include="CupriFace.dll" />
   </ItemGroup>
 
-  <ItemGroup Condition="'$(Aot)' == 'true'">
-    <!-- Mono's WASM AOT emits a mismatched indirect call in CupriFace (symbolized crash:
-         SliderComponent.Expand → interface dispatch), trapping at boot with "function
-         signature mismatch". Keep CupriFace interpreted (jiterpreter still applies); CoreLib,
-         AngleSharp, Regex, Skia bindings etc. remain AOT-compiled. -->
-    <_AOT_InternalForceInterpretAssemblies Include="CupriFace.dll" />
+  <ItemGroup>
+    <StaticWebAssetFingerprintPattern Include="JS" Pattern="*.js" Expression="#[.{fingerprint}]!" />
   </ItemGroup>
 
   <ItemGroup>
