@@ -77,7 +77,12 @@ try {
     canvas.addEventListener("wheel", e => { const [x, y] = at(e); M._Wheel(x, y, e.deltaY); e.preventDefault(); }, { passive: false });
 
     const EK = { Backspace: 1, Delete: 2, ArrowLeft: 3, ArrowRight: 4, Home: 5, End: 6, Enter: 7, ArrowUp: 8, ArrowDown: 9, Escape: 13 };
-    kbd.addEventListener("keydown", e => {
+    // WINDOW-level, not kbd: app chords (Ctrl+K…) must beat the browser's own (address-bar search)
+    // even when the hidden textarea lost focus (fresh load, returning to the tab via its title bar).
+    // When kbd IS focused the same event just bubbles here — one listener either way, no double-fire.
+    let live = false; // no export calls until the engine is initialised
+    window.addEventListener("keydown", e => {
+        if (!live) return;
         const ctrl = e.ctrlKey || e.metaKey;
         const mods = (e.shiftKey ? 1 : 0) | (ctrl ? 2 : 0);
         if (ctrl) {
@@ -99,7 +104,9 @@ try {
 
     M._Init();
     logBoot("Init ok");
+    live = true;
     focusKbd();
+    window.addEventListener("focus", focusKbd); // clipboard events still ride the kbd element — re-arm it
 
     let firstTick = true;
     function frame(now) {

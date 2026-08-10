@@ -112,12 +112,17 @@ try {
     canvas.addEventListener('pointerup',   e => { const [x, y] = at(e); I.PointerUp(x, y); });
     canvas.addEventListener('wheel', e => { const [x, y] = at(e); I.Wheel(x, y, e.deltaY); e.preventDefault(); }, { passive: false });
 
-    // Keyboard on the hidden textarea: named keys → EditKey codes (must match
+    // Keyboard, WINDOW-level (not kbd): named keys → EditKey codes (must match
     // CupriFace.Interaction.EditKey), Shift/Ctrl mods (KeyMods: Shift=1, Ctrl=2); printable chars →
     // KeyChar. Ctrl+C/X/V are NOT handled here — they fall through so the browser fires the native
     // copy/cut/paste events (handled below), which need no clipboard permission.
+    // Window-level so app chords (Ctrl+K…) beat the browser's own (address-bar search) even when the
+    // hidden textarea lost focus (fresh load, returning to the tab). With kbd focused the same event
+    // bubbles here — one listener either way, no double-fire.
     const EK = { Backspace: 1, Delete: 2, ArrowLeft: 3, ArrowRight: 4, Home: 5, End: 6, Enter: 7, ArrowUp: 8, ArrowDown: 9, Escape: 13 };
-    kbd.addEventListener('keydown', e => {
+    let live = false; // no export calls until the runtime is running (runMain below)
+    window.addEventListener('keydown', e => {
+        if (!live) return;
         const ctrl = e.ctrlKey || e.metaKey;                 // Cmd on macOS
         const mods = (e.shiftKey ? 1 : 0) | (ctrl ? 2 : 0);
         if (ctrl) {
@@ -147,6 +152,9 @@ try {
     logBoot('runMain...');
     await runMain();
     logBoot('runMain ok');
+    live = true;
+    focusKbd(); // arm the clipboard path immediately — before the first click
+    window.addEventListener('focus', focusKbd); // …and re-arm it when the tab regains focus
 
     I.Init();
     logBoot('Init ok');

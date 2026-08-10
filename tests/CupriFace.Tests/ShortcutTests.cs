@@ -37,6 +37,7 @@ public class ShortcutTests
 
         Assert.True(t.Doc.DispatchKey("/", EditKey.None));   // nothing focused → fires
         Assert.Equal(1, fired);
+        t.Layout();  // a handled shortcut rebuilds the tree — lay out before hit-testing, as hosts do each frame
 
         var (fx, fy) = TestDoc.Center(t.FindRole("textbox"));
         t.Click(fx, fy);                                     // focus the field

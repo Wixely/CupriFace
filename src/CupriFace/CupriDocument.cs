@@ -1564,7 +1564,10 @@ public sealed partial class CupriDocument : IDisposable
         // chord is swallowed too (returns false → the host can defer to the browser) rather than typed.
         if (text is { Length: 1 } && (mods.HasFlag(KeyMods.Ctrl) || _focusKey is null))
         {
-            if (_shortcuts.TryGetValue(ShortcutKey(mods, text), out var shortcut)) { shortcut(); return true; }
+            // Refresh: the handler almost certainly mutated the model (open a palette, toggle a panel) —
+            // without the rebuild the change only became visible on the NEXT event's ReconcileScope,
+            // which desktop's constant mouse-moves masked and the web host's quiet keyboard didn't.
+            if (_shortcuts.TryGetValue(ShortcutKey(mods, text), out var shortcut)) { shortcut(); Refresh(); ReconcileScope(); return true; }
             if (mods.HasFlag(KeyMods.Ctrl)) return false; // never insert a Ctrl/Cmd + letter as text
         }
 

@@ -44,6 +44,27 @@ public class CommandPaletteTests
     }
 
     [Fact]
+    public void A_ctrl_chord_shortcut_opens_the_palette_immediately()
+    {
+        var m = new Model { PaletteOpen = false };
+        using var t = new TestDoc(Html, "", m, width: 640, height: 480, components: true);
+        t.Doc.OnShortcut(KeyMods.Ctrl, "k", () => { m.PaletteQuery = ""; m.PaletteOpen = true; });
+        Assert.False(PanelShown(t));
+
+        // The chord alone must surface the palette. The old code fired the handler but skipped the
+        // rebuild, so the panel only appeared on the NEXT event's ReconcileScope — desktop's constant
+        // mouse-moves hid that; the web host (chord → nothing else) showed a dead Ctrl+K.
+        Assert.True(t.Doc.DispatchKey("k", EditKey.None, KeyMods.Ctrl));
+        t.Layout();
+        Assert.True(PanelShown(t));
+
+        // And the search box was focused by the same dispatch — typing filters with no click first.
+        t.Type("sett");
+        Assert.Equal("sett", m.PaletteQuery);
+        Assert.Equal(1, Rows(t));
+    }
+
+    [Fact]
     public void Typing_filters_the_commands_live()
     {
         var m = new Model();
