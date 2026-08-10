@@ -63,7 +63,7 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 | `samples/BidiText` | Mixed LTR/RTL (Arabic/Hebrew) shaping + reorder |
 | `samples/ThreadedRender` | Render-thread split (commit on UI thread, raster on another) |
 | `samples/DemoApp` | **Portable apps** (`ShowcaseApp` — the screenshots above — plus `SettingsApp`/`ControlsApp`), one definition each, no platform code |
-| `samples/Viewer` | Desktop host running `ShowcaseApp` (GPU → SDL fallback, live animation) |
+| `samples/Viewer` | Desktop host running `ShowcaseApp` (GPU → SDL fallback); `--web` serves it to a browser instead |
 | `samples/WebWasm` | Web host (**default**): raw .NET-WASM + thin JS glue → `<canvas>`, no Blazor |
 | `samples/Web` | Web host (alt): the same app via Blazor `<SKCanvasView>` |
 
@@ -79,6 +79,10 @@ dotnet run --project samples/ControlsGallery    # -> m5-controls.png
 
 # Live, clickable window — tries GPU, falls back to a CPU (no-GPU/RDP) window:
 dotnet run --project samples/Viewer
+
+# ...or serve that same app to a browser (Kestrel + WebSocket), no WASM build needed:
+dotnet run --project samples/Viewer -- --web              # opens your browser at :5180
+dotnet run --project samples/Viewer -- --web --port 5000 --no-browser
 
 # Web (WASM) — engine rendered to <canvas> in the browser. Two interchangeable hosts:
 dotnet run --project samples/WebWasm -c Release   # raw .NET-WASM (no Blazor, default)
@@ -117,6 +121,20 @@ DesktopHost.Run(new SettingsApp());                    // desktop  (GL → SDL w
 "Exporting a desktop app as a website" = recompiling the same `SettingsApp` against the
 web host. The engine, layout, styling, binding, components, and click handling are shared
 unchanged; only the host (window vs. canvas) differs.
+
+### Three ways to reach a browser
+
+| | Where the engine runs | Download | Needs a WASM build? |
+|---|---|---|---|
+| `samples/WebWasm` | **In the browser** (.NET WASM → `<canvas>`) | the whole engine | yes |
+| `samples/WebLlvm` | In the browser, NativeAOT-LLVM (experimental, fastest) | 14.2 MB (5.5 MB gzipped) | yes |
+| `Viewer --web` | **On the server** — frames streamed to a `<canvas>` | just pixels | no |
+
+`--web` is the thin-client option: Kestrel serves a page, the engine renders each frame in the
+*desktop* process and pushes it over a WebSocket, and the browser sends pointer/key events back.
+Because it reuses the engine's render-on-demand loop, an idle page transmits nothing and the
+server sits at 0% CPU. It needs no WebAssembly toolchain, which also makes it the quickest way to
+look at a running app from another machine.
 
 ## License note
 
