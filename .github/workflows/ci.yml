@@ -193,8 +193,10 @@ jobs:
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "release exists — updating"
             gh release upload "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+            # --draft=false is load-bearing: deleting a tag orphans its release into an untagged
+            # DRAFT, so a re-run must republish and re-associate it, not just refresh the notes.
             gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
-              --title "CupriFace $GITHUB_REF_NAME" --notes-file notes.md
+              --title "CupriFace $GITHUB_REF_NAME" --notes-file notes.md --draft=false
           else
             gh release create "$GITHUB_REF_NAME" dist/* \
               --repo "$GITHUB_REPOSITORY" \
