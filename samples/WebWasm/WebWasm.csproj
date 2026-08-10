@@ -39,6 +39,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The wasm Skia build embeds only "Noto Mono", so a real sans face ships with the host and is
+         registered at Init (doc.LoadFont) — otherwise the whole UI renders monospaced. OFL-licensed;
+         licence kept beside the files. -->
+    <EmbeddedResource Include="Assets/fonts/*.ttf" LogicalName="fonts.%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <StaticWebAssetFingerprintPattern Include="JS" Pattern="*.js" Expression="#[.{fingerprint}]!" />
   </ItemGroup>
 

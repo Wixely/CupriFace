@@ -31,6 +31,17 @@ public partial class Interop
     {
         _app = new ShowcaseApp();
         _doc = _app.CreateDocument();
+
+        // The wasm Skia build has ONE embedded face (Noto Mono) — without these, sans-serif silently
+        // renders monospaced. Registered faces win over platform lookup; first family becomes the
+        // generic sans target (see FontService).
+        foreach (var res in new[] { "fonts.NotoSans-Regular.ttf", "fonts.NotoSans-Bold.ttf" })
+        {
+            using var fs = typeof(Interop).Assembly.GetManifestResourceStream(res)!;
+            var buf = new byte[fs.Length];
+            fs.ReadExactly(buf);
+            _doc.LoadFont(buf);
+        }
         _bg = _app.Background;
         _transparent = _app.Transparent;
 

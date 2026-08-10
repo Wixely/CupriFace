@@ -54,6 +54,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Same embedded sans faces as the Mono host (see WebWasm.csproj) — one copy in the repo. -->
+    <EmbeddedResource Include="../WebWasm/Assets/fonts/*.ttf" LogicalName="fonts.%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\CupriFace\CupriFace.csproj" />
     <ProjectReference Include="..\DemoApp\DemoApp.csproj" />
     <PackageReference Include="Microsoft.DotNet.ILCompiler.LLVM" Version="10.0.0-*"/>

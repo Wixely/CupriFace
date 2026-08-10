@@ -35,14 +35,56 @@ public sealed class FontService : IDisposable
         _ => SKFontStyleSlant.Upright,
     };
 
+    // ---- registered (embedded) fonts ---------------------------------------
+    // A host can supply font DATA instead of relying on platform fonts — essential in the browser,
+    // where the wasm libSkiaSharp ships exactly ONE embedded face ("Noto Mono"), so without this every
+    // family — including sans-serif — silently renders monospaced. Registered faces are consulted
+    // before the platform, and the first registered family becomes the target of the generic families
+    // ("sans-serif" etc.). "monospace" is left to the platform on purpose (Noto Mono on wasm,
+    // Consolas/DejaVu on desktops).
+    private readonly Dictionary<(string Family, bool Bold, bool Italic), SKTypeface> _registeredFaces = new();
+    private string? _registeredDefault; // family the generic sans aliases resolve to
+
+    /// <summary>Register a font from raw TTF/OTF bytes (e.g. an embedded resource). Family, weight and
+    /// slant are read from the font itself; register each style you need (Regular, Bold, …).</summary>
+    public void RegisterFont(byte[] data)
+    {
+        using var skData = SKData.CreateCopy(data);
+        var tf = SKTypeface.FromData(skData)
+                 ?? throw new ArgumentException("Not a readable font.", nameof(data));
+        var key = (tf.FamilyName.ToLowerInvariant(), tf.FontStyle.Weight >= 600, tf.FontStyle.Slant != SKFontStyleSlant.Upright);
+        _registeredFaces[key] = tf;
+        _registeredDefault ??= tf.FamilyName.ToLowerInvariant();
+        _typefaces.Clear(); _fonts.Clear(); _shapers.Clear(); _measure.Clear(); // resolution changed
+    }
+
+    private static bool IsGenericSans(string lowerFamily) =>
+        lowerFamily is "sans-serif" or "serif" or "system-ui" or "ui-sans-serif" or "-apple-system";
+
+    private SKTypeface? Registered(string lowerFamily, int weight, FontSlant slant)
+    {
+        var family = _registeredFaces.Count > 0 && IsGenericSans(lowerFamily) && !_registeredFaces.ContainsKey((lowerFamily, false, false))
+            ? _registeredDefault : lowerFamily;
+        if (family is null) return null;
+        var bold = weight >= 600;
+        var italic = slant != FontSlant.Normal;
+        // Nearest style: exact → drop italic → drop bold → regular.
+        if (_registeredFaces.TryGetValue((family, bold, italic), out var tf)) return tf;
+        if (italic && _registeredFaces.TryGetValue((family, bold, false), out tf)) return tf;
+        if (bold && _registeredFaces.TryGetValue((family, false, italic), out tf)) return tf;
+        _registeredFaces.TryGetValue((family, false, false), out tf);
+        return tf;
+    }
+
     public SKTypeface GetTypeface(string family, int weight, FontSlant slant = FontSlant.Normal)
     {
         var key = (family.ToLowerInvariant(), weight, slant);
         if (_typefaces.TryGetValue(key, out var tf)) return tf;
         var style = new SKFontStyle(weight, (int)SKFontStyleWidth.Normal, Slant(slant));
-        // A family with no italic face: ask the platform to synthesise/substitute rather than silently
-        // rendering upright — SKTypeface.FromFamilyName already picks the nearest match.
-        tf = SKTypeface.FromFamilyName(family, style) ?? SKTypeface.Default;
+        // Registered (embedded) faces win; then the platform. A family with no italic face: ask the
+        // platform to synthesise/substitute rather than silently rendering upright.
+        tf = Registered(key.Item1, weight, slant)
+             ?? SKTypeface.FromFamilyName(family, style) ?? SKTypeface.Default;
         _typefaces[key] = tf;
         return tf;
     }
@@ -172,9 +214,11 @@ public sealed class FontService : IDisposable
         foreach (var f in _fonts.Values) f.Dispose();
         foreach (var f in _fontsByTypeface.Values) f.Dispose();
         foreach (var p in _probes.Values) p.Dispose();
-        foreach (var t in _typefaces.Values) t.Dispose();
+        foreach (var t in _registeredFaces.Values) t.Dispose();
+        // The resolution cache may hold registered faces — skip those (just disposed above).
+        foreach (var t in _typefaces.Values) if (!_registeredFaces.ContainsValue(t)) t.Dispose();
         _shapers.Clear(); _shapersByTypeface.Clear();
         _fonts.Clear(); _fontsByTypeface.Clear(); _probes.Clear();
-        _typefaces.Clear(); _measure.Clear();
+        _typefaces.Clear(); _measure.Clear(); _registeredFaces.Clear();
     }
 }

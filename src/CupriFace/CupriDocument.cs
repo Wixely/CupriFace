@@ -235,6 +235,16 @@ public sealed partial class CupriDocument : IDisposable
         return this;
     }
 
+    /// <summary>Register a font from raw TTF/OTF bytes (e.g. an embedded resource). Registered faces
+    /// are consulted before platform fonts, and the first registered family becomes the target of the
+    /// generic families (<c>sans-serif</c> etc.) — essential in the browser, where the wasm Skia build
+    /// embeds only a monospace face. Register each style you use (Regular, Bold, …) before rendering.</summary>
+    public CupriDocument LoadFont(byte[] fontData)
+    {
+        _fonts.RegisterFont(fontData);
+        return this;
+    }
+
     /// <summary>Re-apply bindings with the current model (call after model changes).</summary>
     public void Refresh() => Rebuild();
 
