@@ -17,6 +17,18 @@ public static class DesktopHost
         // External links (http/mailto/…) open in the OS browser; internal routing + #anchors are the
         // app's / engine's concern. Both hosts do this, so links behave the same on desktop and web.
         doc.Navigated += e => { if (e.External) OpenExternal(e.Href); };
+        // Decode the app icon once (any size PNG/JPEG → RGBA8888); both window kinds take raw pixels.
+        (byte[] Rgba, int W, int H)? icon = null;
+        if (app.Icon is { Length: > 0 } iconBytes)
+        {
+            using var bmp = SkiaSharp.SKBitmap.Decode(iconBytes);
+            if (bmp is not null)
+            {
+                using var rgba = bmp.Copy(SkiaSharp.SKColorType.Rgba8888);
+                if (rgba is not null) icon = (rgba.Bytes, rgba.Width, rgba.Height);
+            }
+        }
+
         var clock = Stopwatch.StartNew();
         var scale = 1f; // current present scale, for transforming pointer coordinates
         var lastRefresh = 0.0;
@@ -63,6 +75,7 @@ public static class DesktopHost
         try
         {
             var window = new SkiaWindow(app.Title, app.Width, app.Height, app.Transparent, app.Frameless, app.TopMost);
+            if (icon is { } ic) window.SetIcon(ic.Rgba, ic.W, ic.H);
             window.ShouldRender = NeedsRender; // GL: skip draw + swap entirely on clean frames
             window.Render += Draw;
             window.PointerDown += (x, y, clicks) => { Mark(doc.DispatchClick(x / scale, y / scale, clicks)); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
@@ -80,6 +93,7 @@ public static class DesktopHost
         {
             Console.WriteLine($"[CupriFace] GPU unavailable ({ex.GetType().Name}); using the SDL software window.");
             using var window = new SdlSoftwareWindow(app.Title, app.Width, app.Height, app.Transparent, app.Frameless, app.TopMost);
+            if (icon is { } ic) window.SetIcon(ic.Rgba, ic.W, ic.H);
 
             // Commit-snapshot render thread (opt-in): build the display list on this UI thread and let
             // a background thread rasterise it; present the latest completed frame each vsync. Targets

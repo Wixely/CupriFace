@@ -33,6 +33,11 @@ public abstract class CupriApp
     /// <c>EmbeddedAsset("Assets/App.html")</c>. The generated <c>Assets</c> class is the typed way.</summary>
     protected CupriSource EmbeddedAsset(string logicalName) => CupriSource.Embedded(GetType().Assembly, logicalName);
 
+    /// <summary>Optional application icon as raw image-file bytes (PNG/JPEG). Hosts adapt it to their
+    /// platform: the desktop windows decode it and set the OS window/taskbar icon; web hosts bake a
+    /// favicon into their page. Typically an embedded resource: <c>EmbeddedAsset("Assets/logo.png").ReadBytes()</c>.</summary>
+    public virtual byte[]? Icon => null;
+
     public virtual string Title => "CupriFace App";
     public virtual int Width => 800;
     public virtual int Height => 600;

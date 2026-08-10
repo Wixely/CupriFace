@@ -17,6 +17,8 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
 {
     // SDL_PIXELFORMAT_ARGB8888 (0xAARRGGBB in a u32 → B,G,R,A in memory ⇒ Bgra8888).
     private const uint PixelFormatArgb8888 = 0x16362004;
+    // SDL_PIXELFORMAT_ABGR8888 — R,G,B,A byte order in memory on little-endian (= SDL_PIXELFORMAT_RGBA32).
+    private const uint PixelFormatAbgr8888 = 0x16762004;
 
     private readonly Sdl _sdl = Sdl.GetApi();
     private readonly string _title;
@@ -104,6 +106,26 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         _sdl.SetCursor((Cursor*)ptr);
     }
 
+    // Pending window icon (RGBA8888) — set before Run(), applied right after CreateWindow.
+    private (byte[] Rgba, int W, int H)? _pendingIcon;
+
+    /// <summary>Set the OS window/taskbar icon from raw RGBA8888 pixels. Call before <see cref="Run"/>.</summary>
+    public void SetIcon(byte[] rgba, int width, int height) => _pendingIcon = (rgba, width, height);
+
+    private void ApplyPendingIcon()
+    {
+        if (_pendingIcon is not { } icon) return;
+        fixed (byte* px = icon.Rgba)
+        {
+            var surface = _sdl.CreateRGBSurfaceWithFormatFrom(px, icon.W, icon.H, 32, icon.W * 4, PixelFormatAbgr8888);
+            if (surface is not null)
+            {
+                _sdl.SetWindowIcon(_window, surface);
+                _sdl.FreeSurface(surface);
+            }
+        }
+    }
+
     private readonly bool _frameless, _topMost;
 
     // NOTE: the SDL software path is opaque — its streaming texture blits over the window with no
@@ -130,6 +152,7 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         _window = _sdl.CreateWindow(_title, Sdl.WindowposCentered, Sdl.WindowposCentered,
             _width, _height, (uint)flags);
         if (_window is null) throw new InvalidOperationException($"SDL_CreateWindow failed: {_sdl.GetErrorS()}");
+        ApplyPendingIcon();
 
         _renderer = _sdl.CreateRenderer(_window, -1, (uint)RendererFlags.Software);
         if (_renderer is null) throw new InvalidOperationException($"SDL_CreateRenderer failed: {_sdl.GetErrorS()}");

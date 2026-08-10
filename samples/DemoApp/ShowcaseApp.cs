@@ -20,6 +20,7 @@ public sealed class ShowcaseApp : CupriApp
         ["controls", "components", "charts", "images", "overlays", "layout", "motion", "styling", "settings", "diag"];
 
     public override string Title => "CupriFace — Showcase";
+    public override byte[] Icon => EmbeddedAsset("Assets/logo-512.png").ReadBytes();
     public override int Width => 940;
     public override int Height => 720;
     public override SKColor Background => _model.DarkMode ? new SKColor(0x0f, 0x14, 0x20) : new SKColor(0xf4, 0xf5, 0xf7);

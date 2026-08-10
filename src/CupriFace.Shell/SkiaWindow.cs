@@ -68,6 +68,13 @@ public sealed class SkiaWindow : IDisposable
     public Func<bool>? ShouldRender { get; set; }
     private bool _forceRender = true; // first frame, resize, restore, focus — must repaint
 
+    // Pending window icon (RGBA8888) — set before Run(), applied in OnLoad when the window exists.
+    private (byte[] Rgba, int W, int H)? _pendingIcon;
+
+    /// <summary>Set the OS window/taskbar icon from raw RGBA8888 pixels (any square size; the
+    /// platform scales). Call before <see cref="Run"/>.</summary>
+    public void SetIcon(byte[] rgba, int width, int height) => _pendingIcon = (rgba, width, height);
+
     public FrameStats Stats => _stats;
 
     public SkiaWindow(string title = "CupriFace", int width = 1024, int height = 768,
@@ -115,6 +122,12 @@ public sealed class SkiaWindow : IDisposable
             ?? throw new InvalidOperationException("Failed to create Skia GL context.");
 
         _fbSize = _window.FramebufferSize;
+
+        if (_pendingIcon is { } icon)
+        {
+            var raw = new Silk.NET.Core.RawImage(icon.W, icon.H, icon.Rgba);
+            _window.SetWindowIcon(ref raw);
+        }
 
         // Being restored/refocused can invalidate what's on screen — repaint on the next frame.
         _window.StateChanged += _ => _forceRender = true;
