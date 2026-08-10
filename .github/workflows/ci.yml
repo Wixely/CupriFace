@@ -104,6 +104,44 @@ jobs:
             publish/${{ matrix.rid }}/Viewer.exe
           if-no-files-found: error
 
+  # The NativeAOT-LLVM web host, built on BOTH hosts. Resolving a package path is not the same as
+  # linking a wasm module, so this is the job that actually proves the ILC host RID is portable —
+  # and stops the win-x64 hard-wiring from creeping back. Skipped on PRs: the Emscripten link is
+  # several minutes per OS, which is too much to pay on every push to a branch.
+  webllvm:
+    name: WebLlvm (${{ matrix.os }})
+    if: github.event_name == 'push'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, windows-latest ]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # Emscripten arrives with the wasm-tools workload. The dotnet root is root-owned on Linux.
+      - name: Install wasm tooling (Linux)
+        if: runner.os == 'Linux'
+        run: sudo dotnet workload install wasm-tools
+
+      - name: Install wasm tooling (Windows)
+        if: runner.os == 'Windows'
+        run: dotnet workload install wasm-tools
+
+      - name: Publish
+        run: dotnet publish samples/WebLlvm/WebLlvm.csproj -c Release
+
+      - name: Verify a wasm module came out
+        shell: bash
+        run: |
+          f=$(find samples/WebLlvm/bin/Release -name 'dotnet.native.wasm' | head -1)
+          test -n "$f" || { echo "::error::no wasm module was produced"; exit 1; }
+          ls -l "$f"
+
   # Attach the standalone executables to a GitHub Release when a v* tag is pushed. Workflow
   # artifacts expire and need a login to fetch; a Release is permanent and public. Gated on both
   # other jobs, so a release can never ship from a red build.
