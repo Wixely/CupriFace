@@ -1,0 +1,72 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- EXPERIMENTAL web host on NativeAOT-LLVM (dotnet/runtimelab) instead of the Mono WASM runtime.
+       Why it exists: Mono's WASM AOT mis-compiles CupriFace (see WebWasm.csproj), forcing the engine
+       to run INTERPRETED in the browser — measured at hover 16.2 ms / section switch 60.7 ms, ~8×
+       native. NativeAOT-LLVM is a different compiler + runtime, so that bug cannot occur and the
+       whole engine compiles. Probed before building this host: the full engine (AngleSharp, layout,
+       HarfBuzz shaping, Skia raster) renders pixel-exact under this toolchain.
+
+       No Mono runtime also means no [JSImport]/[JSExport]: interop is UnmanagedCallersOnly exports +
+       DllImport into the Emscripten JS library (wwwroot/imports.js). Publish then serve:
+         dotnet publish samples/WebLlvm/WebLlvm.csproj -c Release
+         node samples/WebWasm/tools/serve.mjs samples/WebLlvm/bin/Release/net10.0/browser-wasm/publish 5230 -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PublishTrimmed>true</PublishTrimmed>
+    <DotNetJsApi>true</DotNetJsApi>
+    <UseAppHost>false</UseAppHost>
+    <!-- -O1 keeps the edit-publish loop tolerable; bump to -O3 (+ wasm-opt) for shipping. The
+         longjmp flag satisfies libSkiaSharp's __wasm_longjmp (image-codec error paths). -->
+    <EmccFlags>$(EmccFlags) -O1 -sSUPPORT_LONGJMP=wasm</EmccFlags>
+    <UsingBrowserRuntimeWorkload>false</UsingBrowserRuntimeWorkload>
+    <ExecutableExtensionName>.exe</ExecutableExtensionName>
+    <IlcHostPackagePath>$(Pkgruntime_win-x64_Microsoft_DotNet_ILCompiler_LLVM)</IlcHostPackagePath>
+    <RestoreAdditionalProjectSources>
+      https://api.nuget.org/v3/index.json;
+      https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-experimental/nuget/v3/index.json;
+    </RestoreAdditionalProjectSources>
+    <InvariantTimezone>true</InvariantTimezone>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <WasmEnableLegacyJsInterop>false</WasmEnableLegacyJsInterop>
+    <TrimMode>full</TrimMode>
+    <DebuggerSupport>false</DebuggerSupport>
+    <EventSourceSupport>false</EventSourceSupport>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <StackTraceSupport>true</StackTraceSupport>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <LinkerArg Include="--js-library &quot;$(MSBuildProjectDirectory)/wwwroot/imports.js&quot; -sEXPORTED_RUNTIME_METHODS=['FS','out','err','ccall','cwrap','setValue','getValue','addRunDependency','addFunction','UTF8ToString','UTF8ArrayToString','lengthBytesUTF8','stringToUTF8Array','FS_createPath','FS_createDataFile','removeRunDependency','safeSetTimeout','runtimeKeepalivePush','runtimeKeepalivePop','UTF16ToString','stringToUTF16','lengthBytesUTF16']"/>
+    <!-- Static Skia + HarfBuzz, the Emscripten 3.1.56 single-thread variants that match the
+         workload toolchain; DirectPInvoke binds their DllImports at link time. -->
+    <NativeLibrary Include="$(NuGetPackageRoot)skiasharp.nativeassets.webassembly/3.116.1/buildTransitive/netstandard1.0/libSkiaSharp.a/3.1.56/st/libSkiaSharp.a" />
+    <NativeLibrary Include="$(NuGetPackageRoot)harfbuzzsharp.nativeassets.webassembly/8.3.0.1/buildTransitive/netstandard1.0/libHarfBuzzSharp.a/3.1.56/st/libHarfBuzzSharp.a" />
+    <DirectPInvoke Include="libSkiaSharp" />
+    <DirectPInvoke Include="libHarfBuzzSharp" />
+    <DirectPInvoke Include="js" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CupriFace\CupriFace.csproj" />
+    <ProjectReference Include="..\DemoApp\DemoApp.csproj" />
+    <PackageReference Include="Microsoft.DotNet.ILCompiler.LLVM" Version="10.0.0-*"/>
+    <PackageReference Include="runtime.win-x64.Microsoft.DotNet.ILCompiler.LLVM" Version="10.0.0-*" GeneratePathProperty="true"/>
+    <EmscriptenEnvVars Include="DOTNET_EMSCRIPTEN_LLVM_ROOT=$(EmscriptenUpstreamBinPath)"/>
+    <EmscriptenEnvVars Include="DOTNET_EMSCRIPTEN_BINARYEN_ROOT=$(EmscriptenSdkToolsPath)"/>
+    <EmscriptenEnvVars Include="DOTNET_EMSCRIPTEN_NODE_JS=$(EmscriptenNodeBinPath)node$(ExecutableExtensionName)"/>
+    <EmscriptenEnvVars Include="EM_CACHE=$(EmscriptenCacheSdkCacheDir)"/>
+  </ItemGroup>
+
+  <!-- The static page + host script live beside the publish output so one dir serves the app. -->
+  <Target Name="CopyHostAssets" AfterTargets="Publish">
+    <Copy SourceFiles="wwwroot/index.html;wwwroot/main.js" DestinationFolder="$(PublishDir)" />
+  </Target>
+
+</Project>
