@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [ main ]
+    tags: [ 'v*' ]      # a version tag builds the same jobs and then publishes a Release
   pull_request:
 
 jobs:
@@ -102,3 +103,63 @@ jobs:
             publish/${{ matrix.rid }}/Viewer
             publish/${{ matrix.rid }}/Viewer.exe
           if-no-files-found: error
+
+  # Attach the standalone executables to a GitHub Release when a v* tag is pushed. Workflow
+  # artifacts expire and need a login to fetch; a Release is permanent and public. Gated on both
+  # other jobs, so a release can never ship from a red build.
+  release:
+    needs: [ test, viewer ]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # the default GITHUB_TOKEN is read-only; creating a release needs write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      # Zipped artifacts lose the executable bit, so the Linux build ships as a tarball that keeps
+      # it — otherwise every user's first step is `chmod +x`. Windows needs no such care.
+      - name: Package release assets
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # Locate rather than assume: upload-artifact decides the archive root from the matched
+          # files, so hard-coding a nested path is a step that only fails at release time.
+          LIN=$(find artifacts -type f -name Viewer | head -1)
+          WIN=$(find artifacts -type f -name Viewer.exe | head -1)
+          test -n "$LIN" || { echo "::error::linux build missing from artifacts"; find artifacts; exit 1; }
+          test -n "$WIN" || { echo "::error::windows build missing from artifacts"; find artifacts; exit 1; }
+          chmod +x "$LIN"
+          tar -C "$(dirname "$LIN")" -czf "dist/CupriFace-Viewer-$GITHUB_REF_NAME-linux-x64.tar.gz" Viewer
+          cp "$WIN" "dist/CupriFace-Viewer-$GITHUB_REF_NAME-win-x64.exe"
+          ls -l dist
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cat > notes.md <<'EOF'
+          Standalone builds of the Showcase demo (`samples/Viewer`) — self-contained single
+          executables that need **no .NET installation**.
+
+          | Platform | Download | Run |
+          |---|---|---|
+          | Windows x64 | `…-win-x64.exe` | double-click, or run it from a terminal |
+          | Linux x64 | `…-linux-x64.tar.gz` | `tar xzf <file> && ./Viewer` |
+
+          Both binaries also serve the same UI to a browser instead of opening a window:
+
+          ```
+          ./Viewer --web            # http://127.0.0.1:5180
+          ```
+
+          The first launch unpacks the bundle and takes a few seconds; later launches are ~1.5 s.
+
+          Known issue: on Linux without a GPU (headless or remote/virtual X), the native window
+          path can segfault — use `--web` there. See ROADMAP.md.
+          EOF
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "CupriFace $GITHUB_REF_NAME" \
+            --notes-file notes.md
