@@ -108,8 +108,6 @@ An honest list, and it is not short:
   install. CupriFace *can* do NativeAOT — measured while writing this document,
   the full Showcase publishes to **23.3 MB** (a 10.6 MB exe plus 12.7 MB of Skia,
   HarfBuzz, SDL and GLFW natives) and runs correctly with no runtime installed.
-  (That is the desktop host alone; the same sample rises to 29.2 MB once it also
-  embeds a Kestrel server for its browser-viewer mode.)
   But that is roughly **3–4× MewUI's comparable Gallery**, and it is five files
   rather than one: SkiaSharp's native library cannot be linked into the
   executable the way MewUI's Direct2D/GDI backends simply call into Windows.

@@ -69,24 +69,11 @@ jobs:
       # A publish that links is not a publish that runs: the single-file bundle broke Silk.NET's
       # native lookup and only showed it at startup. Launch the real exe, give it time to unpack
       # and open a window, and fail if it died.
-      # Linux exercises the headless `--web` mode instead of the native window. The runner has no GPU
-      # and only a virtual X server, and the GL/SDL window path segfaults there (exit 139) — that is
-      # the environment failing, not the binary. This still proves the single-file bundle extracts,
-      # the runtime starts and the app serves; the Windows job below covers the real window path.
-      - name: Smoke test (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          chmod +x publish/${{ matrix.rid }}/Viewer
-          publish/${{ matrix.rid }}/Viewer --web --no-browser --port 5180 &
-          PID=$!
-          # First launch unpacks ~128 MB before it serves, so poll rather than sleeping a fixed time.
-          for i in $(seq 1 30); do
-            if ! kill -0 $PID 2>/dev/null; then echo "::error::Viewer exited during smoke test"; wait $PID; exit 1; fi
-            if curl -fsS http://127.0.0.1:5180/ -o /dev/null; then echo "served OK"; kill $PID; exit 0; fi
-            sleep 2
-          done
-          echo "::error::Viewer never served a page"; kill $PID 2>/dev/null; exit 1
-
+      #
+      # Windows only. The Linux runner has no GPU and only a virtual X server, where the GL/SDL
+      # window path segfaults (exit 139, see ROADMAP) — and with the `--web` switch removed there is
+      # no headless mode left to exercise instead. So Linux is build-and-publish verified here, and
+      # its runtime coverage comes from the `test` job, which renders through Skia headlessly.
       - name: Smoke test (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -204,12 +191,6 @@ jobs:
           | Windows x64 | `…-win-x64.exe` | double-click, or run it from a terminal |
           | Linux x64 | `…-linux-x64.tar.gz` | `tar xzf <file> && ./Viewer` |
 
-          Both binaries also serve the same UI to a browser instead of opening a window:
-
-          ```
-          ./Viewer --web            # http://127.0.0.1:5180
-          ```
-
           The first launch unpacks the bundle and takes a few seconds; later launches are ~1.5 s.
 
           ## Build against it
@@ -223,8 +204,8 @@ jobs:
 
           Not on nuget.org yet: download the `.nupkg` and add its folder as a local source.
 
-          Known issue: on Linux without a GPU (headless or remote/virtual X), the native window
-          path can segfault — use `--web` there. See ROADMAP.md.
+          Known issue: on Linux without a GPU (headless, or a remote/virtual X session), the native
+          window path can segfault. See ROADMAP.md.
           EOF
           # Idempotent: re-running a tag (or adding an asset that was missed) updates the existing
           # release rather than failing on "already exists".

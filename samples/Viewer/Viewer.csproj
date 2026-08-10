@@ -11,9 +11,9 @@
          Gated behind an explicit property (the same convention as WebWasm's wasm AOT) so ordinary
          builds never need the C++ toolchain — and so the flag lands HERE rather than flowing to the
          netstandard2.0 source generators, which cannot be AOT'd (NETSDK1207).
-         Measured 2026-08 (win-x64, this Showcase app): 23.3 MB self-contained with the desktop host
-         alone (10.6 MB exe + 12.7 MB Skia/HarfBuzz/SDL/GLFW natives), ~56 MB working set and ~310 ms
-         to first window. Embedding the Kestrel viewer for the `web` switch takes it to 29.2 MB. -->
+         Measured 2026-08 (win-x64, this Showcase app): 23.3 MB self-contained — a 10.6 MB exe plus
+         12.7 MB of Skia/HarfBuzz/SDL/GLFW natives — with a ~56 MB working set and ~310 ms to the
+         first window. -->
     <PublishAot Condition="'$(Aot)' == 'true'">true</PublishAot>
     <InvariantGlobalization Condition="'$(Aot)' == 'true'">true</InvariantGlobalization>
 
@@ -30,13 +30,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\CupriFace.Shell\CupriFace.Shell.csproj" />
     <ProjectReference Include="..\DemoApp\DemoApp.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <!-- The `web` switch serves the app over Kestrel (see WebViewerHost.cs). FrameworkReference
-         rather than a package: ASP.NET Core is in the shared framework, so restore stays unchanged. -->
-    <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <EmbeddedResource Include="WebClient.html" LogicalName="WebClient.html" />
   </ItemGroup>
 
 </Project>
