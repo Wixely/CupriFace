@@ -89,3 +89,9 @@ samples/WebWasm/publish*/
 
 # local scratch (HAR captures, screenshots)
 /test/
+
+# Committed documentation images — NOT build output. The sample-snapshot names above are
+# unanchored, so they match at any depth: `overlays.png` silently swallowed the gallery image of
+# the same name (it never got committed, and the README rendered a broken image). `controls.png`
+# and `popups.png` were the same trap waiting to happen. Re-include the whole directory.
+!docs/screenshots/**
