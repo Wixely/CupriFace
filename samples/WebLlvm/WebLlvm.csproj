@@ -25,7 +25,9 @@
          longjmp flag satisfies libSkiaSharp's __wasm_longjmp (image-codec error paths). -->
     <EmccFlags>$(EmccFlags) -O1 -sSUPPORT_LONGJMP=wasm</EmccFlags>
     <UsingBrowserRuntimeWorkload>false</UsingBrowserRuntimeWorkload>
-    <ExecutableExtensionName>.exe</ExecutableExtensionName>
+    <!-- Only Windows suffixes executables. This feeds the Emscripten node path below, and hard-coding
+         .exe made the Linux link die on a missing "node.exe" — the last Windows-ism in this file. -->
+    <ExecutableExtensionName Condition="$([MSBuild]::IsOSPlatform('Windows'))">.exe</ExecutableExtensionName>
     <!-- The NativeAOT-LLVM compiler itself is a native executable, so it must match the machine
          doing the build even though the OUTPUT is always browser-wasm. Deriving the host RID from
          the SDK is what lets this project build on Windows and Linux from one definition; it was
