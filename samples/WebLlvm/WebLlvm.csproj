@@ -26,7 +26,19 @@
     <EmccFlags>$(EmccFlags) -O1 -sSUPPORT_LONGJMP=wasm</EmccFlags>
     <UsingBrowserRuntimeWorkload>false</UsingBrowserRuntimeWorkload>
     <ExecutableExtensionName>.exe</ExecutableExtensionName>
-    <IlcHostPackagePath>$(Pkgruntime_win-x64_Microsoft_DotNet_ILCompiler_LLVM)</IlcHostPackagePath>
+    <!-- The NativeAOT-LLVM compiler itself is a native executable, so it must match the machine
+         doing the build even though the OUTPUT is always browser-wasm. Deriving the host RID from
+         the SDK is what lets this project build on Windows and Linux from one definition; it was
+         previously hard-wired to win-x64, which made the whole web host Windows-only.
+
+         Pinning the version (rather than the old floating 10.0.0-*) does two things: it stops a
+         nightly feed drop silently changing the compiler under us, and it makes the package path
+         deterministic — so no GeneratePathProperty indirection is needed, and no per-RID
+         conditionals either, because NuGet lowercases package folder names uniformly.
+         Override either property on the command line to try a newer compiler. -->
+    <IlcHostRid Condition="'$(IlcHostRid)' == ''">$(NETCoreSdkPortableRuntimeIdentifier)</IlcHostRid>
+    <IlcLlvmVersion Condition="'$(IlcLlvmVersion)' == ''">10.0.0-rc.1.26357.1</IlcLlvmVersion>
+    <IlcHostPackagePath>$(NuGetPackageRoot)runtime.$(IlcHostRid).microsoft.dotnet.ilcompiler.llvm/$(IlcLlvmVersion)</IlcHostPackagePath>
     <RestoreAdditionalProjectSources>
       https://api.nuget.org/v3/index.json;
       https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-experimental/nuget/v3/index.json;
@@ -61,8 +73,9 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\CupriFace\CupriFace.csproj" />
     <ProjectReference Include="..\DemoApp\DemoApp.csproj" />
-    <PackageReference Include="Microsoft.DotNet.ILCompiler.LLVM" Version="10.0.0-*"/>
-    <PackageReference Include="runtime.win-x64.Microsoft.DotNet.ILCompiler.LLVM" Version="10.0.0-*" GeneratePathProperty="true"/>
+    <PackageReference Include="Microsoft.DotNet.ILCompiler.LLVM" Version="$(IlcLlvmVersion)" />
+    <!-- The ILC host is a native tool, so it follows the BUILD machine, not the wasm target. -->
+    <PackageReference Include="runtime.$(IlcHostRid).Microsoft.DotNet.ILCompiler.LLVM" Version="$(IlcLlvmVersion)" />
     <EmscriptenEnvVars Include="DOTNET_EMSCRIPTEN_LLVM_ROOT=$(EmscriptenUpstreamBinPath)"/>
     <EmscriptenEnvVars Include="DOTNET_EMSCRIPTEN_BINARYEN_ROOT=$(EmscriptenSdkToolsPath)"/>
     <EmscriptenEnvVars Include="DOTNET_EMSCRIPTEN_NODE_JS=$(EmscriptenNodeBinPath)node$(ExecutableExtensionName)"/>
