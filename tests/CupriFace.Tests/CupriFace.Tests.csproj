@@ -19,6 +19,13 @@
     <ProjectReference Include="..\..\src\CupriFace\CupriFace.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Real font files for the registration tests, copied beside the test binary so the tests are
+         machine-independent and run anywhere (including CI). -->
+    <None Include="..\..\samples\WebWasm\Assets\fonts\*.ttf" LinkBase="fonts"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <!-- Native Skia + HarfBuzz so RenderToImage/decode run under `dotnet test`. -->
   <Import Project="..\..\src\SkiaNativeAssets.props" />
 

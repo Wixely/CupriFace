@@ -9,7 +9,9 @@ namespace CupriFace.Tests;
 /// win over platform lookup and the first family becomes the generic sans target.</summary>
 public class FontRegistrationTests
 {
-    private const string Fonts = @"c:\Users\dev\Git\CupriFace\samples\WebWasm\Assets\fonts";
+    // Copied next to the test binary by the csproj. It used to be an absolute path on one dev
+    // machine, which leaked a username into the repo AND meant this test could only ever pass there.
+    private static readonly string Fonts = Path.Combine(AppContext.BaseDirectory, "fonts");
 
     [Fact]
     public void Registered_font_takes_over_the_generic_sans_family()
