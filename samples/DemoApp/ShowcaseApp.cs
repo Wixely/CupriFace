@@ -40,7 +40,9 @@ public sealed class ShowcaseApp : CupriApp
         // Links (<a href>): an internal href routes to that section (like the sidebar); external hrefs are
         // opened in a browser by the host (DesktopHost / the WASM page). #anchors the engine scrolls itself.
         doc.Navigated += e => { if (!e.External && KnownSections.Contains(e.Href)) _model.Section = e.Href; };
-        doc.OnClick(".collapse-btn", _ => _model.SidebarCollapsed = !_model.SidebarCollapsed);
+        // Burger button and the "CupriFace" wordmark both toggle the sidebar (a selector list —
+        // dispatch fires on the innermost matching element, so a burger click can't double-toggle).
+        doc.OnClick(".collapse-btn, .brand-label", _ => _model.SidebarCollapsed = !_model.SidebarCollapsed);
         doc.OnClick(".act-submit", _ => _model.FormOk = doc.ValidateAll());
         doc.OnClick(".swatch", e => { if (e.Element.GetAttribute("data-accent") is { } a) _model.Accent = a; });
         doc.OnClick(".ctx-act", e => { if (e.Element.GetAttribute("data-action") is { } a) _model.CtxAction = a; });
