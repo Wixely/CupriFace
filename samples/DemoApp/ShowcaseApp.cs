@@ -144,7 +144,7 @@ public sealed partial class ShowcaseModel
     public string SignupEmail { get; set; } = "";
     public string SignupPass { get; set; } = "";
     public bool FormOk { get; set; }
-    public string SubmitOk => FormOk ? "inline-block" : "none";
+    public string SubmitOk => FormOk ? "inline-flex" : "none"; // flex: check icon + label side by side
     public string Date { get; set; } = "2026-08-15";
     public bool DateOpen { get; set; }
     public string Time { get; set; } = "14:30";

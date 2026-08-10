@@ -2654,7 +2654,10 @@ public sealed partial class CupriDocument : IDisposable
             var before = n.ScrollY;
             n.ScrollY = Math.Clamp(n.ScrollY + pixelDelta, 0, n.MaxScrollY);
             if (RewindowVirtual(n)) return true;                 // a virtual list re-windowed (rebuilt)
-            return Math.Abs(n.ScrollY - before) > 0.01f;
+            if (Math.Abs(n.ScrollY - before) > 0.01f) return true;
+            // This scroller is already at its edge in that direction — chain to the next scrollable
+            // ancestor, as browsers do. Without this, a wheel over an inner scroller (a table with
+            // overflow:scroll) went dead once it hit bottom instead of scrolling the page.
         }
         return false;
     }

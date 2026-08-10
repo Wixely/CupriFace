@@ -57,7 +57,9 @@ body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; -
 .side-toggle { display:flex; align-items:center; gap:8px; color:var(--cupri-sidebar-text); font-size:14px; padding:2px; }
 .tip { color:#6b7688; font-size:12px; }
 /* Links: the accent colour (themeable), a pointer cursor (automatic for <a href>), and a hover dim. */
-.section a { color:var(--cupri-accent, #B87333); font-weight:600; }
+/* Links: icon + label side by side (the icons are vector paths — the wasm fonts have no arrow
+   glyphs, so Unicode arrows rendered as tofu in the browser builds). */
+.section a { display:inline-flex; align-items:center; gap:5px; color:var(--cupri-accent, #B87333); font-weight:600; }
 .section a[data-hover] { opacity:0.7; }
 /* A right-click target region for the <cupri-context-menu> demo. */
 .ctx-card { width:260px; height:110px; display:flex; align-items:center; justify-content:center;
@@ -81,7 +83,7 @@ body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; -
 .sub { color:var(--cupri-muted); font-size:14px; margin-bottom:16px; }
 .vform { display:flex; flex-direction:column; gap:10px; max-width:320px; align-items:flex-start; margin-bottom:14px; }
 .vform cupri-textfield { min-width:300px; }
-.ok-msg { color:#12805c; font-weight:bold; font-size:14px; }
+.ok-msg { display:inline-flex; align-items:center; gap:5px; color:#12805c; font-weight:bold; font-size:14px; }
 .row { display:flex; align-items:center; flex-wrap:wrap; gap:14px; margin-bottom:14px; }
 /* Block-level components dropped straight into a section (not wrapped in a .row) have no margin of
    their own, so they'd sit flush against their neighbours — give them the same vertical rhythm. */
