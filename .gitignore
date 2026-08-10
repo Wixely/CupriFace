@@ -95,3 +95,6 @@ samples/WebWasm/publish*/
 # the same name (it never got committed, and the README rendered a broken image). `controls.png`
 # and `popups.png` were the same trap waiting to happen. Re-include the whole directory.
 !docs/screenshots/**
+
+# Locally packed NuGet output (CI packs into dist/ instead)
+nupkgs/

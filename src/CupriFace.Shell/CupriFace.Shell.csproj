@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Description>Desktop host for CupriFace: opens a window (GPU, with an SDL software fallback), pumps input and cursors, and runs a CupriApp with DesktopHost.Run(app).</Description>
   </PropertyGroup>
 
   <ItemGroup>

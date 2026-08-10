@@ -81,6 +81,10 @@ required — are attached to each release:
 Add `--web` to either one to serve the same UI to a browser instead of opening a window. The first
 launch unpacks the bundle and takes a few seconds; later launches are about 1.5 s.
 
+To **build against** CupriFace rather than just run the demo, the same release carries NuGet
+packages (`.nupkg` + `.snupkg` symbols): `CupriFace` is the engine, `CupriFace.Shell` the desktop
+host. They are not on nuget.org yet — download them and add the folder as a local package source.
+
 ## Run
 
 ```pwsh

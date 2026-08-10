@@ -6,12 +6,21 @@
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <RootNamespace>CupriFace</RootNamespace>
+    <Description>Renders HTML + CSS to a Skia canvas and binds it to plain C# objects — a UI engine with no browser, no JavaScript engine and no XAML. Lays out (flexbox/grid), shapes text with HarfBuzz, paints with Skia, and renders into any canvas or RGBA buffer, so it also runs headless.</Description>
   </PropertyGroup>
 
   <ItemGroup>
     <!-- Source generator: reflection-free binding accessors (AOT-clean) -->
     <ProjectReference Include="..\CupriFace.Binding.Gen\CupriFace.Binding.Gen.csproj"
                       OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Ship the generator INSIDE this package, so a consumer installing CupriFace from NuGet gets
+         the AOT-clean binding accessors automatically, exactly as projects in this repo do.
+         (A ProjectReference is a build-time edge only — it does not travel in the .nupkg.) -->
+    <None Include="../CupriFace.Binding.Gen/bin/$(Configuration)/netstandard2.0/CupriFace.Binding.Gen.dll"
+          Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
   </ItemGroup>
 
   <!-- Portable native Skia + HarfBuzz for win/linux/osx (shared with the shell). -->

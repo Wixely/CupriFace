@@ -1,0 +1,33 @@
+<Project>
+
+  <!--
+    Shared NuGet metadata for the shipped libraries. Scoped to src/ deliberately: samples and
+    tests must never produce packages, and keeping this out of the repo root means they can't.
+
+    Version defaults to a dev value and is overridden by CI (`-p:Version=…` from the git tag).
+  -->
+  <PropertyGroup>
+    <Version Condition="'$(Version)' == ''">0.1.0-dev</Version>
+    <Authors>Wixely</Authors>
+    <Product>CupriFace</Product>
+    <Copyright>Copyright (c) 2026 Wixely</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/Wixely/CupriFace</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Wixely/CupriFace</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>ui;gui;html;css;skia;desktop;renderer;wasm;electron-alternative</PackageTags>
+    <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
+
+    <!-- Ship symbols + Source Link so consumers can step into the engine. -->
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(IsPackable)' != 'false'">
+    <None Include="$(MSBuildThisFileDirectory)..\LICENSE" Pack="true" PackagePath="" Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)..\PACKAGE.md" Pack="true" PackagePath="" Visible="false" />
+  </ItemGroup>
+
+</Project>

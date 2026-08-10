@@ -114,6 +114,13 @@ jobs:
     permissions:
       contents: write   # the default GITHUB_TOKEN is read-only; creating a release needs write
     steps:
+      # Checkout FIRST: it cleans the working directory, which would delete downloaded artifacts.
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -133,6 +140,17 @@ jobs:
           chmod +x "$LIN"
           tar -C "$(dirname "$LIN")" -czf "dist/CupriFace-Viewer-$GITHUB_REF_NAME-linux-x64.tar.gz" Viewer
           cp "$WIN" "dist/CupriFace-Viewer-$GITHUB_REF_NAME-win-x64.exe"
+          ls -l dist
+
+      # The libraries themselves, so people can build against CupriFace rather than only run the
+      # demo. Tag is v0.1.0; NuGet wants 0.1.0.
+      - name: Pack libraries
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          for proj in src/CupriFace/CupriFace.csproj src/CupriFace.Shell/CupriFace.Shell.csproj; do
+            dotnet pack "$proj" -c Release -p:Version="$VERSION" -o dist
+          done
           ls -l dist
 
       - name: Publish release
@@ -155,6 +173,17 @@ jobs:
           ```
 
           The first launch unpacks the bundle and takes a few seconds; later launches are ~1.5 s.
+
+          ## Build against it
+
+          The libraries ship here as NuGet packages (`.nupkg`, with `.snupkg` symbols):
+
+          | Package | What it gives you |
+          |---|---|
+          | `CupriFace` | The engine — HTML + CSS to a Skia canvas or any RGBA buffer, bound to plain C# objects. Runs headless. |
+          | `CupriFace.Shell` | The desktop host — `DesktopHost.Run(new MyApp())`. |
+
+          Not on nuget.org yet: download the `.nupkg` and add its folder as a local source.
 
           Known issue: on Linux without a GPU (headless or remote/virtual X), the native window
           path can segfault — use `--web` there. See ROADMAP.md.
