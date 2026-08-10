@@ -46,22 +46,51 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      # Skia needs fontconfig to raster text, and xvfb gives the smoke test below a display to
+      # open its window on.
+      - name: Install native deps
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libfontconfig1 xvfb
+
       - name: Restore
         run: dotnet restore samples/Viewer/Viewer.csproj -r ${{ matrix.rid }}
 
-      - name: Build
-        run: dotnet build samples/Viewer/Viewer.csproj -c Release -r ${{ matrix.rid }} --no-restore
-
-      # Framework-dependent: carries only this RID's Skia/HarfBuzz/SDL natives, so the artifact
-      # stays small. NativeAOT (-p:Aot=true) is deliberately not used here — it needs a C++
-      # toolchain and is an opt-in publish, not a build gate.
-      - name: Publish
+      # Standalone single executable: self-contained (no .NET install on the target) and one file.
+      # IncludeAllContentForSelfExtract comes from the csproj and is load-bearing — see the comment
+      # there; without it this exe builds and then crashes on launch.
+      # NativeAOT (-p:Aot=true) is deliberately not used: it needs a C++ toolchain, and Skia/SDL
+      # stay separate shared libraries, so it is smaller but NOT a single file.
+      - name: Publish standalone
         run: >
           dotnet publish samples/Viewer/Viewer.csproj -c Release -r ${{ matrix.rid }}
-          --no-self-contained --no-restore -o publish/${{ matrix.rid }}
+          --self-contained -p:PublishSingleFile=true --no-restore -o publish/${{ matrix.rid }}
+
+      # A publish that links is not a publish that runs: the single-file bundle broke Silk.NET's
+      # native lookup and only showed it at startup. Launch the real exe, give it time to unpack
+      # and open a window, and fail if it died.
+      - name: Smoke test (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          chmod +x publish/${{ matrix.rid }}/Viewer
+          xvfb-run -a publish/${{ matrix.rid }}/Viewer &
+          PID=$!
+          sleep 25
+          if kill -0 $PID 2>/dev/null; then echo "still running — OK"; kill $PID; else
+            echo "::error::Viewer exited during smoke test"; wait $PID; exit 1; fi
+
+      - name: Smoke test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $p = Start-Process publish/${{ matrix.rid }}/Viewer.exe -PassThru
+          Start-Sleep -Seconds 25
+          if ($p.HasExited) { Write-Host "::error::Viewer exited with $($p.ExitCode)"; exit 1 }
+          Write-Host "still running — OK"; Stop-Process -Id $p.Id -Force
 
       - uses: actions/upload-artifact@v4
         with:
           name: viewer-${{ matrix.rid }}
-          path: publish/${{ matrix.rid }}
+          path: |
+            publish/${{ matrix.rid }}/Viewer
+            publish/${{ matrix.rid }}/Viewer.exe
           if-no-files-found: error

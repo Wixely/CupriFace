@@ -16,6 +16,15 @@
          to first window. Embedding the Kestrel viewer for the `web` switch takes it to 29.2 MB. -->
     <PublishAot Condition="'$(Aot)' == 'true'">true</PublishAot>
     <InvariantGlobalization Condition="'$(Aot)' == 'true'">true</InvariantGlobalization>
+
+    <!-- REQUIRED whenever this app is published with PublishSingleFile.
+         Silk.NET finds SDL2/GLFW through DependencyContext and Assembly.Location, and BOTH are dead
+         inside a single-file bundle (DependencyContext returns null, Location returns ""). With only
+         IncludeNativeLibrariesForSelfExtract the exe builds happily and then dies at startup with
+         "Could not load from any of the possible library names!" the moment it opens a window.
+         IncludeAllContentForSelfExtract extracts the whole app to disk first, so those two APIs work
+         again. Costs a one-off ~6 s extraction on the very first launch; later runs are ~1.5 s. -->
+    <IncludeAllContentForSelfExtract Condition="'$(PublishSingleFile)' == 'true'">true</IncludeAllContentForSelfExtract>
   </PropertyGroup>
 
   <ItemGroup>
