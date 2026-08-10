@@ -7,7 +7,28 @@ canvas and binds elements to backend C# objects — an Electron alternative that
 See **[DESIGN.md](DESIGN.md)** for the full architecture and goals, **[TOOLBOX.md](TOOLBOX.md)** for
 the developer guide to the `cupri-*` elements (bind them to a C# model, style them, add your own),
 **[ROADMAP.md](ROADMAP.md)** for what's considered but not yet built, and
-**[comparisons/](comparisons/README.md)** for how CupriFace relates to other UI stacks (Avalonia first).
+**[comparisons/](comparisons/README.md)** for how CupriFace relates to other UI stacks
+(Avalonia, Electron, MewUI).
+
+## Screenshots
+
+Every image below is the **same `ShowcaseApp` class** — one HTML file, one CSS file, one plain C#
+model ([samples/DemoApp](samples/DemoApp)) — drawn by the engine itself. No browser was involved in
+rendering *or* capturing them: they are `doc.Render()` output, produced headlessly at 2× by a
+throwaway harness, which is the same reason the UI is straightforward to unit-test.
+
+![Inputs](docs/screenshots/inputs.png)
+
+| | |
+|---|---|
+| ![Components](docs/screenshots/components.png)<br>**Components** — tabs, tree, accordion, table with sort/select/drag-resize columns | ![Charts](docs/screenshots/charts.png)<br>**Charts** — bar, grouped/stacked, line, area, heatmap, drawn with the same box+stroke paint |
+| <img src="docs/screenshots/images.jpg" alt="Images"><br>**Images** — `object-fit` modes in a corner-drag `resize: both` frame | ![Overlays](docs/screenshots/overlays.png)<br>**Overlays** — modal dialog over a real backdrop blur; drawers, popovers, toasts, context menus |
+| ![Layout](docs/screenshots/layout.png)<br>**Layout** — flexbox, CSS grid with spans, inline flow, draggable split panes | ![Motion](docs/screenshots/motion.png)<br>**Motion** — `@keyframes`, transforms and CSS transitions |
+| ![Styling](docs/screenshots/styling.png)<br>**Styling** — the cascade, variables, accent theming, shadows and borders | ![Settings](docs/screenshots/settings.png)<br>**Settings** — forms, validation, and the scaling modes |
+| ![Diagnostics](docs/screenshots/diagnostics.png)<br>**Diagnostics** — live frame timings and node counts | ![Dark mode](docs/screenshots/inputs-dark.png)<br>**Dark mode** — a CSS variable swap on `body.dark`, cross-faded by a `transition` |
+
+Run it yourself with `dotnet run --project samples/Viewer` (desktop) — the same app also runs in a
+browser on a `<canvas>`, no Blazor, via `samples/WebWasm`.
 
 ## What works today (.NET 10)
 
@@ -41,8 +62,8 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 | `samples/Responsive` | `@media` queries + `calc()` across widths |
 | `samples/BidiText` | Mixed LTR/RTL (Arabic/Hebrew) shaping + reorder |
 | `samples/ThreadedRender` | Render-thread split (commit on UI thread, raster on another) |
-| `samples/DemoApp` | **Portable app** (`SettingsApp : CupriApp`) — one definition, no platform code |
-| `samples/Viewer` | Desktop host showing the **full control gallery** (`ControlsApp`, GPU → SDL, live spinner) |
+| `samples/DemoApp` | **Portable apps** (`ShowcaseApp` — the screenshots above — plus `SettingsApp`/`ControlsApp`), one definition each, no platform code |
+| `samples/Viewer` | Desktop host running `ShowcaseApp` (GPU → SDL fallback, live animation) |
 | `samples/WebWasm` | Web host (**default**): raw .NET-WASM + thin JS glue → `<canvas>`, no Blazor |
 | `samples/Web` | Web host (alt): the same app via Blazor `<SKCanvasView>` |
 
