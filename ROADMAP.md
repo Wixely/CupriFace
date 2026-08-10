@@ -70,7 +70,8 @@ Sustained fluidity is the core requirement (DESIGN risk #0); a demo hitting 60 f
 | Item | Status | Notes |
 |------|--------|-------|
 | Native **link** of the AOT desktop build in CI | 🟡 | ILC trim analysis is clean (0 warnings); the final link needs a box with the C++ toolchain on PATH. |
-| Publish matrix across the three desktop OSes | 🟡 | M8 exit criterion; build-verified, not yet run on all three. |
+| Publish matrix across the three desktop OSes | 🟡 | Windows + Linux build, publish as a standalone single exe and smoke-test in CI; macOS not yet. |
+| **Linux window path segfaults on a GPU-less/virtual X server** | 🔴 | The standalone Linux build segfaults (exit 139) ~2 s in under `xvfb` on a GitHub runner — i.e. no GPU, no GLX. The GL attempt is supposed to fail into the SDL software window, so either GLFW is crashing natively instead of throwing a catchable exception, or the SDL fallback is. Needs a headless Linux box to isolate. Until then CI smoke-tests Linux via the headless `--web` mode, and only Windows exercises the real window. Likely also affects real users on remote/headless sessions. |
 
 ## 7. Controls & component library (P3)
 

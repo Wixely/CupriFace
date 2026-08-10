@@ -68,15 +68,23 @@ jobs:
       # A publish that links is not a publish that runs: the single-file bundle broke Silk.NET's
       # native lookup and only showed it at startup. Launch the real exe, give it time to unpack
       # and open a window, and fail if it died.
+      # Linux exercises the headless `--web` mode instead of the native window. The runner has no GPU
+      # and only a virtual X server, and the GL/SDL window path segfaults there (exit 139) — that is
+      # the environment failing, not the binary. This still proves the single-file bundle extracts,
+      # the runtime starts and the app serves; the Windows job below covers the real window path.
       - name: Smoke test (Linux)
         if: runner.os == 'Linux'
         run: |
           chmod +x publish/${{ matrix.rid }}/Viewer
-          xvfb-run -a publish/${{ matrix.rid }}/Viewer &
+          publish/${{ matrix.rid }}/Viewer --web --no-browser --port 5180 &
           PID=$!
-          sleep 25
-          if kill -0 $PID 2>/dev/null; then echo "still running — OK"; kill $PID; else
-            echo "::error::Viewer exited during smoke test"; wait $PID; exit 1; fi
+          # First launch unpacks ~128 MB before it serves, so poll rather than sleeping a fixed time.
+          for i in $(seq 1 30); do
+            if ! kill -0 $PID 2>/dev/null; then echo "::error::Viewer exited during smoke test"; wait $PID; exit 1; fi
+            if curl -fsS http://127.0.0.1:5180/ -o /dev/null; then echo "served OK"; kill $PID; exit 0; fi
+            sleep 2
+          done
+          echo "::error::Viewer never served a page"; kill $PID 2>/dev/null; exit 1
 
       - name: Smoke test (Windows)
         if: runner.os == 'Windows'

@@ -127,14 +127,29 @@ public class TextStyleTests
         var plain = RowInk("");
         var under = RowInk("text-decoration:underline");
 
+        var firstGlyphRow = Array.FindIndex(plain, n => n > 0);
         var lastGlyphRow = Array.FindLastIndex(plain, n => n > 0);
         Assert.True(lastGlyphRow > 0, "the plain text should have rendered something");
 
-        var inkBelow = 0;
-        for (var y = lastGlyphRow + 1; y < under.Length; y++) inkBelow += under[y];
-        Assert.True(inkBelow > 20, $"expected underline ink below row {lastGlyphRow}, found {inkBelow}px");
+        // A decoration only ever ADDS ink — it must not erase or shift a single glyph pixel.
+        // (The older form of this test demanded the line sit strictly BELOW the last glyph row, but
+        // that is a claim about one font: plenty of faces put the underline inside the descender
+        // band, so it overlapped glyph rows on CI's fonts and failed there while passing locally.)
+        for (var y = 0; y < plain.Length; y++)
+            Assert.True(under[y] >= plain[y], $"row {y}: the underline removed glyph ink ({plain[y]} → {under[y]})");
 
-        // …and the glyphs themselves are untouched by the decoration.
-        for (var y = 0; y <= lastGlyphRow; y++) Assert.Equal(plain[y], under[y]);
+        var added = 0;
+        var firstAddedRow = -1;
+        for (var y = 0; y < plain.Length; y++)
+        {
+            var extra = under[y] - plain[y];
+            if (extra > 0 && firstAddedRow < 0) firstAddedRow = y;
+            added += extra;
+        }
+        Assert.True(added > 20, $"expected a line's worth of extra ink, found {added}px");
+
+        // …and it is a LOW line — not a strike-through, not an overline.
+        Assert.True(firstAddedRow > (firstGlyphRow + lastGlyphRow) / 2,
+            $"underline ink should begin below the glyph mid-line (started at row {firstAddedRow}, glyphs span {firstGlyphRow}..{lastGlyphRow})");
     }
 }
