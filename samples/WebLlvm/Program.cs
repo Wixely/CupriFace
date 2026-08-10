@@ -235,7 +235,10 @@ public static unsafe class Interop
 
     [UnmanagedCallersOnly(EntryPoint = "Wheel")]
     public static void Wheel(double x, double y, double dy)
-    { try { if (_doc.DispatchWheel((float)(x / _scale), (float)(y / _scale), (float)-dy)) _dirty = true; } catch (Exception ex) { Crash("Wheel", ex); } }
+    // Browser deltaY is PIXELS, positive = scroll down — the same direction ScrollY grows, so it passes
+    // straight through. (Desktop wheels report notches, positive = up, hence DesktopHost's negation —
+    // copying that here inverted scrolling in the browser.)
+    { try { if (_doc.DispatchWheel((float)(x / _scale), (float)(y / _scale), (float)dy)) _dirty = true; } catch (Exception ex) { Crash("Wheel", ex); } }
 
     [UnmanagedCallersOnly(EntryPoint = "KeyChar")]
     public static void KeyChar(int len)

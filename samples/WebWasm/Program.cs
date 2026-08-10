@@ -179,7 +179,9 @@ public partial class Interop
         var css = CupriDocument.CursorCss(_doc.CursorAt((float)(x / _scale), (float)(y / _scale)));
         if (css != _cursor) { _cursor = css; SetCursor(css); }
     }
-    [JSExport] internal static void Wheel(double x, double y, double dy) { if (_doc?.DispatchWheel((float)(x / _scale), (float)(y / _scale), (float)-dy) == true) _dirty = true; }
+    // Browser deltaY is PIXELS, positive = scroll down — the same direction ScrollY grows, so no
+    // negation (desktop wheels report notches, positive = up; copying DesktopHost's -dy inverted us).
+    [JSExport] internal static void Wheel(double x, double y, double dy) { if (_doc?.DispatchWheel((float)(x / _scale), (float)(y / _scale), (float)dy) == true) _dirty = true; }
     [JSExport] internal static void KeyChar(string text) { if (_doc?.DispatchKey(text, EditKey.None) == true) _dirty = true; }
     [JSExport] internal static void EditKeyPress(int code, int mods) { if (_doc?.DispatchKey(null, (EditKey)code, (KeyMods)mods) == true) _dirty = true; }
     // A Ctrl/Cmd + letter chord (e.g. Ctrl+K) → an app keyboard shortcut. Returns whether the engine handled
