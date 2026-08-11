@@ -66,4 +66,21 @@ public static class HitTesting
         }
         return (x, y, node.Width, node.Height);
     }
+
+    /// <summary>On-screen border-box: <see cref="AbsoluteBox"/> corrected for scrolled ancestors with
+    /// exactly the shift <see cref="HitTest"/> applies — so a click synthesized at this box's centre
+    /// lands on the node even inside a scrolled container. (AbsoluteBox is the box where the node
+    /// WOULD be unscrolled; this is where it IS.)</summary>
+    public static (float X, float Y, float W, float H) ScreenBox(RenderNode node)
+    {
+        float x = 0, y = 0;
+        for (var n = node; n is not null; n = n.Parent)
+        {
+            x += n.X;
+            y += n.Y;
+            if (n.IsTopLayer) break;
+            if (n.Parent is { IsScrollable: true } p) y -= Math.Clamp(p.ScrollY, 0, p.MaxScrollY);
+        }
+        return (x, y, node.Width, node.Height);
+    }
 }

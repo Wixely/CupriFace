@@ -1037,11 +1037,10 @@ public sealed partial class CupriDocument : IDisposable
 
     /// <summary>A control the author marked unavailable (<c>aria-disabled</c>, or the <c>disabled</c>
     /// class/attribute the components use, e.g. a pagination arrow on the first page). It keeps its role
-    /// for a11y but drops its activation hooks, so the cursor must not promise a click.</summary>
-    private static bool IsDisabled(IElement el) =>
-        el.ClassList.Contains("disabled")
-        || el.HasAttribute("disabled")
-        || el.GetAttribute("aria-disabled") is "true";
+    /// for a11y but drops its activation hooks, so the cursor must not promise a click. The definition
+    /// lives on <see cref="Accessibility.AccessibilityTree"/> so the semantics tree and the cursor can
+    /// never disagree about what counts as disabled.</summary>
+    private static bool IsDisabled(IElement el) => Accessibility.AccessibilityTree.IsDisabled(el);
 
     /// <summary>The CSS <c>cursor</c> keyword for a <see cref="Style.CursorType"/> — for web hosts that set
     /// <c>canvas.style.cursor</c> from <see cref="CursorAt"/>.</summary>
@@ -1065,11 +1064,80 @@ public sealed partial class CupriDocument : IDisposable
         _ => "default",
     };
 
-    /// <summary>Build the platform-neutral semantics tree (§5) at the given size.</summary>
+    /// <summary>Build the platform-neutral semantics tree (§5) at the given size. Uses the SAME
+    /// focusable predicate as Tab order and marks the currently focused control, so what a screen
+    /// reader is told never diverges from what the keyboard does. Skips re-layout when the frame
+    /// just laid out at this size (the common per-frame case).</summary>
     public Accessibility.AccessibilityNode BuildAccessibilityTree(float width, float height)
     {
-        _layout.Layout(_root, width, height);
-        return Accessibility.AccessibilityTree.Build(_root);
+        if (_layoutDirty || _laidOutWidth != width || _laidOutHeight != height)
+        {
+            _layout.Layout(_root, width, height);
+            _laidOutWidth = width;
+            _laidOutHeight = height;
+            _layoutDirty = false;
+        }
+        var focused = FindFocused(_root) ?? CurrentFocusNode();
+        return Accessibility.AccessibilityTree.Build(_root, IsFocusable, focused);
+    }
+
+    /// <summary>Resolve a structural path (<see cref="Accessibility.AccessibilityNode.Path"/>) back to
+    /// a node in the CURRENT render tree — the identity that survives rebuilds (the same scheme scroll
+    /// restoration uses). Null when the path no longer exists.</summary>
+    public RenderNode? NodeAtPath(string path)
+    {
+        var n = _root;
+        foreach (var seg in path.Split('/', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (!int.TryParse(seg, out var i) || i < 0 || i >= n.Children.Count) return null;
+            n = n.Children[i];
+        }
+        return n;
+    }
+
+    // ---- Accessibility actions (AT bridges call these; UIA Invoke/Toggle/SetValue etc.) ----------
+    // Each one resolves the path against the current tree and then reuses the ordinary interaction
+    // machinery, so an AT-initiated action behaves exactly like the user doing it.
+
+    /// <summary>Activate a node the way a click at its centre would (UIA Invoke / Toggle / Select /
+    /// ExpandCollapse all funnel here). Same dispatch path as a real click, so activation rules,
+    /// overlays, focus sync and disabled handling all apply. Returns true if anything changed.</summary>
+    public bool AccessibilityActivate(string path)
+    {
+        EnsureLaidOut();
+        if (NodeAtPath(path) is not { } n) return false;
+        var (x, y, w, h) = HitTesting.ScreenBox(n);
+        return DispatchClick(x + w / 2, y + h / 2);
+    }
+
+    /// <summary>Move keyboard focus to the control at (or containing) the node — UIA SetFocus.</summary>
+    public bool AccessibilityFocus(string path)
+    {
+        EnsureLaidOut();
+        if (NodeAtPath(path) is not { } n) return false;
+        var i = IndexOfFocusable(n);
+        if (i < 0) return false;
+        _kbIndex = i;
+        _focusVisible = true;
+        var el = Focusables()[i].Element;
+        UpdateFocus(el?.GetAttribute("role") is "textbox" or "spinbutton" ? el : null);
+        Refresh();
+        return true;
+    }
+
+    /// <summary>Set a slider's value directly — UIA RangeValue.SetValue. Clamps to min/max and writes
+    /// through the same binding a drag would, rounded the way a drag rounds.</summary>
+    public bool AccessibilitySetValue(string path, double value)
+    {
+        EnsureLaidOut();
+        if (NodeAtPath(path)?.Element is not { } el || _model is null) return false;
+        if (el.GetAttribute("role") is not "slider") return false;
+        if (el.GetAttribute("data-bind-value") is not { Length: > 0 } bind) return false;
+        var min = ParseAttr(el, "min", 0);
+        var max = ParseAttr(el, "max", 100);
+        var ok = BindingEngine.TrySet(_model, bind, Math.Round(Math.Clamp(value, min, max)));
+        if (ok) Refresh();
+        return ok;
     }
 
     /// <summary>Serialise the semantics tree to an ARIA HTML fragment for the web host's off-screen
