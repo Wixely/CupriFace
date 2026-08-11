@@ -27,7 +27,7 @@ jobs:
       # SkiaSharp's native raster/text stack needs fontconfig at runtime for the render tests.
       - name: Install native deps (Skia)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libfontconfig1
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libfontconfig1 > /dev/null
 
       - name: Restore
         run: dotnet restore tests/CupriFace.Tests/CupriFace.Tests.csproj
@@ -60,7 +60,7 @@ jobs:
       # open its window on.
       - name: Install native deps
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libfontconfig1 xvfb
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libfontconfig1 xvfb > /dev/null
 
       - name: Restore
         run: dotnet restore samples/Viewer/Viewer.csproj -r ${{ matrix.rid }}
@@ -90,7 +90,7 @@ jobs:
         if: runner.os == 'Linux'
         continue-on-error: true
         run: |
-          sudo apt-get install -y gdb
+          sudo apt-get install -y -qq gdb > /dev/null   # 25 kB of apt chatter buries the backtrace
           chmod +x publish/${{ matrix.rid }}/Viewer
           # gdb directives live in a script file rather than a pile of -ex flags: no line
           # continuations to get mangled, and the intent reads top to bottom.
