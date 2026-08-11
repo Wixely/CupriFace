@@ -102,6 +102,42 @@ public class SurfaceTests
         Assert.False(t.Doc.HasActiveAnimations);     // idle window costs nothing again
     }
 
+    private sealed class UnderlaySurface : ISurfaceSource
+    {
+        public SKImage? CurrentFrame => null;
+        public (int W, int H)? NaturalSize => (100, 60);
+        public bool Ticking => false;
+        public bool Ready;                       // flips true when the host's element can show
+        public bool HostComposited => Ready;
+    }
+
+    [Fact]
+    public void A_host_composited_surface_punches_a_transparent_hole_and_suppresses_the_poster()
+    {
+        using var poster = Solid(100, 60, new SKColor(30, 160, 30));
+        using var data = poster.Encode(SKEncodedImageFormat.Png, 100);
+        var html = $"<body><div class='v' data-cupri-surface='s' " +
+                   $"data-cupri-image='data:image/png;base64,{Convert.ToBase64String(data.ToArray())}'></div></body>";
+
+        using var t = new TestDoc(html, Css);
+        var s = new UnderlaySurface();
+        t.Doc.Surfaces.Register("s", s);
+
+        // Not ready yet: the poster paints (the underlay can't show anything).
+        Assert.True(CountApprox(t.Doc.RenderToPixels(200, 120), 30, 160, 30) > 4000);
+
+        // Ready: the element becomes a transparent hole — poster suppressed, alpha 0 inside,
+        // page background intact outside.
+        s.Ready = true;
+        t.Doc.Surfaces.NotifyFrame();
+        var px = t.Doc.RenderToPixels(200, 120);   // clear defaults to transparent
+        Assert.Equal(0, CountApprox(px, 30, 160, 30));
+        var holeAlpha = px[(10 * 200 + 10) * 4 + 3];      // inside the 100x60 box
+        var outsideAlpha = px[(110 * 200 + 150) * 4 + 3]; // below/right of it
+        Assert.Equal(0, holeAlpha);
+        Assert.Equal(0, outsideAlpha);                    // transparent doc background stays transparent
+    }
+
     [Fact]
     public void Frame_arrival_wakes_an_idle_host_exactly_once()
     {

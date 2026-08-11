@@ -267,6 +267,17 @@ public sealed class SkiaRasterizer
                     break;
                 }
 
+                case ClearHole ch:
+                {
+                    // BlendMode.Src REPLACES what's below with transparent pixels — an underlaid
+                    // host element (the web video) shows through; later commands paint on top.
+                    using var punch = new SKPaint { Color = SKColors.Transparent, BlendMode = SKBlendMode.Src, IsAntialias = true };
+                    var hole = new SKRect(ch.X, ch.Y, ch.X + ch.W, ch.Y + ch.H);
+                    if (ch.Radius > 0) canvas.DrawRoundRect(new SKRoundRect(hole, ch.Radius), punch);
+                    else canvas.DrawRect(hole, punch);
+                    break;
+                }
+
                 case FillPath p:
                     using (var path = SKPath.ParseSvgPathData(p.PathData))
                     {

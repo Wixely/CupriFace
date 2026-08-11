@@ -157,6 +157,7 @@ public static class DamageDiff
         FillPath c => SKRect.Create(c.X, c.Y, c.Width, c.Height),
         ResizeGrip c => SKRect.Create(c.X, c.Y, c.Size, c.Size),
         DrawImage c => SKRect.Create(c.X, c.Y, c.W, c.H),
+        ClearHole c => SKRect.Create(c.X, c.Y, c.W, c.H),
         Polyline c => PolyBounds(c),
         PushOpacity c => c.W > 0 ? SKRect.Create(c.X, c.Y, c.W, c.H) : null, // null ⇒ unbounded
         PushFilter c => c.W > 0 ? SKRect.Create(c.X, c.Y, c.W, c.H) : null,

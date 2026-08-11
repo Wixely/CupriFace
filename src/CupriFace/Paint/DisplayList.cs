@@ -87,3 +87,9 @@ public sealed record ResizeGrip(float X, float Y, float Size, SKColor Color) : P
 /// the (optionally rounded) box.</summary>
 public sealed record DrawImage(
     float X, float Y, float W, float H, SKImage Image, ObjectFit Fit, float Radius) : PaintCommand;
+
+/// <summary>Punch a transparent hole (alpha 0, overriding everything painted below) — for a
+/// host-composited surface (the web host's underlaid <c>&lt;video&gt;</c> shows through it, while
+/// engine content painted AFTER this still composites on top). The host must present with
+/// per-pixel alpha for the hole to matter.</summary>
+public sealed record ClearHole(float X, float Y, float W, float H, float Radius) : PaintCommand;

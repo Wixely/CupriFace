@@ -23,6 +23,13 @@ public interface ISurfaceSource
     /// continuously, exactly like a running CSS animation. False when paused/stopped: the last
     /// frame stays on screen and an idle window costs nothing again.</summary>
     bool Ticking { get; }
+
+    /// <summary>True when the HOST composites this surface's pixels itself, UNDER the engine's
+    /// output (the web host's underlaid <c>&lt;video&gt;</c> element). The painter then punches a
+    /// transparent hole at the element's box instead of drawing frames — engine content after it
+    /// still paints on top — and the host syncs the underlay to the element's on-screen rect.
+    /// Default false: ordinary surfaces hand frames to the engine.</summary>
+    bool HostComposited => false;
 }
 
 /// <summary>

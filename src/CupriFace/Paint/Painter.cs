@@ -245,10 +245,24 @@ public sealed class Painter
         // Live surface (video, future 3D viewports): the current frame, if one exists. Falls
         // through to ImageSrc otherwise — which is exactly how a poster shows until the first
         // frame arrives. Same DrawImage command, so object-fit/radius/damage all behave alike.
-        var frame = node.SurfaceKey is { Length: > 0 } surfaceKey ? _surfaces?.Get(surfaceKey)?.CurrentFrame : null;
+        // A HOST-COMPOSITED surface (web underlay video) paints no frames at all: punch a
+        // transparent hole so the host's own element shows through; later paint stays on top.
+        SKImage? frame = null;
+        var hole = false;
+        if (node.SurfaceKey is { Length: > 0 } surfaceKey && _surfaces?.Get(surfaceKey) is { } source)
+        {
+            if (source.HostComposited)
+            {
+                hole = true; // the poster must not paint into it — the underlay is the picture now
+                list.Add(new ClearHole(
+                    absX + node.ContentLeftInset, absY + node.ContentTopInset,
+                    node.Width - node.HorizontalInsets, node.Height - node.VerticalInsets, s.BorderRadius));
+            }
+            else frame = source.CurrentFrame;
+        }
 
         // Image: decode + draw into the content box, fitted per object-fit.
-        if (frame is null && node.ImageSrc is { Length: > 0 } imageSrc) frame = _images?.Get(imageSrc);
+        if (frame is null && !hole && node.ImageSrc is { Length: > 0 } imageSrc) frame = _images?.Get(imageSrc);
         if (frame is { } img)
             list.Add(new DrawImage(
                 absX + node.ContentLeftInset, absY + node.ContentTopInset,
