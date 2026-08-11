@@ -169,6 +169,9 @@ public sealed class LayoutEngine
             node.Width = ClampW(s, ww, cbW) + node.HorizontalInsets;
             node.Height = ClampH(s, hh, cbH) + node.VerticalInsets;
             node.ContentNaturalHeight = node.Height;
+            // An image never has children, but a video does (its controls overlay) — absolute
+            // children position against the intrinsic box like against any other.
+            LayoutAbsoluteChildren(node, node.Width - node.HorizontalInsets, node.Height - node.VerticalInsets);
             return new Size(node.Width, node.Height);
         }
 

@@ -20,7 +20,6 @@ public sealed class VideoComponent : ComponentBase
     public override string Tag => "cupri-video";
     public override string DefaultCss => """
         .cupri-video { display:block; position:relative; overflow:hidden; background:#0b0d10; }
-        .cupri-video-frame { display:block; width:100%; height:100%; }
         .cupri-video-bar { position:absolute; left:0; right:0; bottom:0; display:flex; gap:6px; align-items:center;
                            padding:6px 10px; background:rgba(10,12,16,0.55); }
         .cupri-video-btn { display:inline-flex; align-items:center; justify-content:center;
@@ -32,34 +31,33 @@ public sealed class VideoComponent : ComponentBase
     public override void Expand(IElement el)
     {
         var src = Str(el, "src");
-        var fit = Str(el, "fit", "contain");
         var poster = Str(el, "poster");
         var label = Str(el, "label", src);
         var esc = System.Net.WebUtility.HtmlEncode(label);
 
+        // The element ITSELF is the picture — surface + poster + object-fit live on it, so it
+        // sizes exactly like <cupri-image> (CSS width/height, aspect kept, else intrinsic video
+        // size). The controls bar overlays its bottom edge; a click anywhere else toggles.
         el.ClassList.Add("cupri-video");
         el.SetAttribute("data-cupri-video", src);
+        el.SetAttribute("data-cupri-surface", "video:" + src);
+        if (poster.Length > 0) el.SetAttribute("data-cupri-image", poster);
+        el.SetAttribute("data-object-fit", Str(el, "fit", "contain"));
+        el.SetAttribute("data-video-cmd", "toggle");
+        el.SetAttribute("role", "img");
+        el.SetAttribute("aria-label", label);
         // Policy flags for the document's video wiring (SyncVideos) — attribute presence only.
         if (Flag(el, "autoplay")) el.SetAttribute("data-video-autoplay", "");
         if (Flag(el, "muted")) el.SetAttribute("data-video-muted", "");
         if (Flag(el, "loop")) el.SetAttribute("data-video-loop", "");
 
-        var posterAttr = poster.Length > 0 ? $" data-cupri-image='{poster}'" : "";
-        var bar = !Flag(el, "controls") ? "" : $"""
+        el.InnerHtml = !Flag(el, "controls") ? "" : $"""
             <div class='cupri-video-bar'>
               <div class='cupri-video-btn' role='button' aria-label='Play' data-video-role='toggle' data-video-cmd='toggle'>{IconMarkup("play", 18)}</div>
               <div class='cupri-video-btn' role='button' aria-label='Mute' data-video-role='mute' data-video-cmd='mute'>{IconMarkup("volume", 18)}</div>
               <span class='cupri-video-title'>{esc}</span>
               <div class='cupri-video-btn' role='button' aria-label='Fullscreen' data-window-command='toggle-fullscreen'>{IconMarkup("fullscreen", 18)}</div>
             </div>
-            """;
-
-        // The frame itself toggles playback on click (players do that), via the same activation
-        // attribute the bar's button uses.
-        el.InnerHtml = $"""
-            <div class='cupri-video-frame' data-cupri-surface='video:{src}'{posterAttr}
-                 data-object-fit='{fit}' data-video-cmd='toggle' role='img' aria-label='{esc}'></div>
-            {bar}
             """;
     }
 

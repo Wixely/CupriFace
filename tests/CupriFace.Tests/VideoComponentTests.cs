@@ -161,6 +161,20 @@ public class VideoComponentTests
 
 
     [Fact]
+    public void Authored_inline_size_wins_over_the_intrinsic_video_size()
+    {
+        var backend = new FakeBackend();
+        using var t = new TestDoc("<body><cupri-video src='clip.webm' style='width:320px;height:180px'></cupri-video></body>",
+            "", components: true);
+        t.Doc.UseVideo(backend);
+        t.Layout();
+
+        var node = t.Find(n => n.Element?.GetAttribute("data-cupri-video") == "clip.webm")!;
+        Assert.Equal(320, node.Width, 1);
+        Assert.Equal(180, node.Height, 1);
+    }
+
+    [Fact]
     public void Ended_flips_the_controls_back_on_the_next_host_poll()
     {
         var backend = new FakeBackend();

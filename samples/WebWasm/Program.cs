@@ -49,6 +49,15 @@ public partial class Interop
         // by the app / engine — same split as the desktop host.
         _doc.Navigated += e => { if (e.External) OpenUrl(e.Href); };
 
+        // Video: the browser decodes (no codecs in the wasm binary). Each <cupri-video> gets an
+        // underlaid <video> element; the engine punches a transparent hole where it shows and
+        // paints its own controls on top. Rect/clip sync happens after each painted frame.
+        _doc.UseVideo(new BrowserVideoBackend());
+
+        // Fullscreen requests (the ⛶ control) go to the browser's Fullscreen API. Escape exits
+        // natively; the resize that follows reflows the app like any window resize.
+        _doc.WindowCommandRequested += cmd => WindowCommand((int)cmd);
+
         // Right-click menu → clipboard. The engine raises the chosen command; the browser owns the
         // clipboard (async), so route Copy/Cut/Paste through JS (same as the Ctrl+C/X/V handlers).
         _doc.ContextRequested += cmd =>
@@ -133,8 +142,9 @@ public partial class Interop
         // The buffer we hand JS. Opaque apps present the premultiplied render directly. Transparent
         // apps must present STRAIGHT (non-premultiplied) alpha — that's what the browser's ImageData
         // / putImageData expects — so convert into a staging buffer (Skia unpremultiplies for us).
+        // Video holes need the same: their alpha-0 pixels only work through the straight-alpha path.
         var present = _bitmap;
-        if (_transparent)
+        if (_transparent || BrowserVideoBackend.AnyReady)
         {
             if (_straight is null || _straight.Width != width || _straight.Height != height)
             {
@@ -158,6 +168,10 @@ public partial class Interop
         // canvas UI. Only on input-driven repaints (not every animation frame) — the tree only
         // changes on interaction, and re-parsing HTML 30×/s during a spinner would be wasteful.
         if (!animating) A11y(_doc.BuildAriaHtml(p.LogicalWidth, p.LogicalHeight));
+
+        // Keep each underlaid <video> glued to its element: same painted frame, same JS task as
+        // the blit above, so the hole and the element can't shear apart.
+        BrowserVideoBackend.SyncRects(_doc, _scale);
         return true;
     }
 
