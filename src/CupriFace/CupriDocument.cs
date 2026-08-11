@@ -194,14 +194,17 @@ public sealed partial class CupriDocument : IDisposable
     /// surface keeps the render loop live via <see cref="HasActiveAnimations"/>.</summary>
     public Paint.SurfaceRegistry Surfaces { get; } = new();
 
-    /// <summary>Register the assembly used to resolve embedded image sources (e.g. a bare
-    /// <c>src="Assets/logo.png"</c> on a <c>&lt;cupri-image&gt;</c>). Data URIs, URLs and file paths
-    /// need no assembly.</summary>
+    /// <summary>Register the assembly used to resolve embedded media sources (a bare
+    /// <c>src="Assets/logo.png"</c> on a <c>&lt;cupri-image&gt;</c> — and equally a
+    /// <c>&lt;cupri-video&gt;</c>'s clip). Data URIs, URLs and file paths need no assembly.</summary>
     public CupriDocument UseImages(System.Reflection.Assembly assembly)
     {
         _images.SetAssembly(assembly);
+        _sourceAssembly = assembly;
         return this;
     }
+
+    private System.Reflection.Assembly? _sourceAssembly; // shared by image + video resolution
 
     /// <summary>Policy for remote (<c>http(s)</c>) image URLs (https-only, size cap, host allow-list…).
     /// Defaults are strict; override to e.g. allow a specific host.</summary>
@@ -260,7 +263,10 @@ public sealed partial class CupriDocument : IDisposable
         if (_videoBackend is null) return null; // no backend on this host — poster only
 
         Media.IVideoPlayer player;
-        try { player = _videoBackend.Open(src); }
+        // The source carries the SAME resolution pipeline images use (embedded / file / data: /
+        // policied https) — the developer picks the scheme, every backend honours it.
+        var source = new Media.VideoSource(src, _sourceAssembly, _images.UrlOptions);
+        try { player = _videoBackend.Open(source); }
         catch { return null; } // an unusable source must not take the app down; the poster stays
 
         _videoPlayers[src] = player;

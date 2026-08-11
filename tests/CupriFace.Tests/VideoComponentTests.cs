@@ -41,10 +41,10 @@ public class VideoComponentTests
     {
         public readonly List<string> Opened = new();
         public readonly Dictionary<string, FakePlayer> Players = new();
-        public IVideoPlayer Open(string src)
+        public IVideoPlayer Open(VideoSource source)
         {
-            Opened.Add(src);
-            return Players[src] = new FakePlayer();
+            Opened.Add(source.Src);
+            return Players[source.Src] = new FakePlayer();
         }
     }
 

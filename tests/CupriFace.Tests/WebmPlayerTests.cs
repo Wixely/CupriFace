@@ -42,7 +42,7 @@ public class WebmPlayerTests
     {
         var clock = new Box();
         var factory = new FakeFactory();
-        var player = new WebmPlayer(WebmFile.Parse(Fixture()), factory, null, () => clock.Now);
+        var player = new WebmPlayer(Fixture, deferred: false, factory, null, () => clock.Now);
         return (player, factory, clock);
     }
 
@@ -155,6 +155,70 @@ public class WebmPlayerTests
         p.Pause();
         Assert.False(p.Surface.Ticking);
         p.Dispose();                             // must not throw with frames retired/current
+    }
+
+    [Fact]
+    public void The_first_frame_shows_on_open_before_any_play()
+    {
+        var (p, f, _) = Make();
+        Assert.NotNull(p.Surface.CurrentFrame);      // poster → real picture, browser-preload parity
+        Assert.True(f.Video.Calls.Count >= 1);
+        Assert.False(p.Playing);
+        p.Dispose();
+    }
+
+    [Fact]
+    public void A_remote_source_opens_deferred_and_arrives_without_blocking()
+    {
+        // The download runs on the player's own thread (a real one here); until the bytes land
+        // the poster stays (no frame, no size) — then the first frame appears on its own.
+        using var gate = new ManualResetEventSlim(false);
+        var factory = new FakeFactory();
+        var player = new WebmPlayer(() => { gate.Wait(5000); return Fixture(); },
+            deferred: true, factory, null);
+
+        Assert.Null(player.Surface.CurrentFrame);
+        Assert.Null(player.Surface.NaturalSize);
+        player.Play();                               // autoplay while still "downloading": pending
+        Assert.Null(player.Surface.CurrentFrame);
+
+        gate.Set();
+        Assert.True(SpinWait.SpinUntil(() => player.Surface.CurrentFrame is not null, 5000),
+            "the first frame must appear once the bytes land");
+        Assert.Equal((160, 90), player.Surface.NaturalSize);
+        Assert.True(player.Playing);
+        Assert.InRange(player.Position, 0, 0.5);     // playback starts at 0 — never "catches up" the download
+        player.Dispose();
+    }
+
+    [Fact]
+    public void A_data_uri_source_resolves_through_the_shared_pipeline()
+    {
+        // The developer's inline option — same scheme images support, end to end through the
+        // real backend (only the codecs are fake).
+        var factory = new FakeFactory();
+        var backend = new WebmVideoBackend(factory);
+        var src = "data:video/webm;base64," + Convert.ToBase64String(Fixture());
+
+        using var player = (WebmPlayer)backend.Open(new VideoSource(src));
+        Assert.Equal((160, 90), player.Surface.NaturalSize);
+        Assert.NotNull(player.Surface.CurrentFrame);
+    }
+
+    [Fact]
+    public void An_embedded_source_resolves_via_the_registered_assembly()
+    {
+        // The embedded option, through the DOCUMENT's wiring (UseImages registers the assembly
+        // for ALL media): a bare src name finds the resource exactly like an image would.
+        var factory = new FakeFactory();
+        using var t = new TestDoc("<body><cupri-video src='fixtures.demo.webm' muted autoplay></cupri-video></body>",
+            "", components: true);
+        t.Doc.UseImages(typeof(WebmPlayerTests).Assembly);
+        t.Doc.UseVideo(new WebmVideoBackend(factory));
+        t.Layout();
+
+        Assert.True(factory.Video.Calls.Count >= 1, "the embedded clip must demux and decode");
+        Assert.NotNull(t.Find(n => n.SurfaceKey == "video:fixtures.demo.webm"));
     }
 
     [Fact]

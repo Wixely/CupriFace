@@ -67,6 +67,23 @@ try {
     // bitmap.Bytes would allocate + copy 2.7 MB every frame). We reuse one ImageData per size.
     let img = null;
     const videos = new Map(); // id → underlaid <video> element (browser-decoded video)
+    const videoOpen = (id, src) => {
+        canvas.style.position = 'relative'; canvas.style.zIndex = '1'; // above all underlays
+        const v = document.createElement('video');
+        v.src = src;
+        v.playsInline = true;          // iOS: never hijack into the native fullscreen player
+        v.preload = 'auto';
+        v.style.cssText = 'position:absolute;z-index:0;pointer-events:none;display:none;';
+        v.addEventListener('loadedmetadata', () => I.VideoMeta(id, v.duration || 0, v.videoWidth, v.videoHeight));
+        v.addEventListener('loadeddata', () => I.VideoReady(id));
+        // The browser's play/pause truth (autoplay rejections included) drives the controls.
+        v.addEventListener('play', () => I.VideoPlayState(id, true));
+        v.addEventListener('pause', () => I.VideoPlayState(id, false));
+        v.addEventListener('timeupdate', () => I.VideoTime(id, v.currentTime || 0));
+        v.addEventListener('ended', () => I.VideoEnded(id));
+        document.body.insertBefore(v, canvas);
+        videos.set(id, v);
+    };
     window.__paints = 0; // diagnostic: count actual canvas paints (a paint = one full render)
     setModuleImports('cupri', {
         // (dx,dy,dw,dh) is the damage rect — only that region changed, so only it is blitted.
@@ -91,24 +108,21 @@ try {
         // ---- Video underlay: the BROWSER decodes; the engine punches a transparent hole -----
         // where the element shows and paints its own controls on top. Native controls stay off
         // (they'd be dead under the canvas); the canvas sits above every video (z-index below).
-        videoOpen: (id, src) => {
-            canvas.style.position = 'relative'; canvas.style.zIndex = '1'; // above all underlays
-            const v = document.createElement('video');
-            v.src = src;
-            v.playsInline = true;          // iOS: never hijack into the native fullscreen player
-            v.preload = 'auto';
-            v.style.cssText = 'position:absolute;z-index:0;pointer-events:none;display:none;';
-            v.addEventListener('loadedmetadata', () => I.VideoMeta(id, v.duration || 0, v.videoWidth, v.videoHeight));
-            v.addEventListener('loadeddata', () => I.VideoReady(id));
-            // The browser's play/pause truth (autoplay rejections included) drives the controls.
-            v.addEventListener('play', () => I.VideoPlayState(id, true));
-            v.addEventListener('pause', () => I.VideoPlayState(id, false));
-            v.addEventListener('timeupdate', () => I.VideoTime(id, v.currentTime || 0));
-            v.addEventListener('ended', () => I.VideoEnded(id));
-            document.body.insertBefore(v, canvas);
-            videos.set(id, v);
+        videoOpen,
+        // Embedded/file/data: sources arrive as BYTES (resolved through the same pipeline images
+        // use) and play from a Blob URL — an app's embedded clip works identically on the web.
+        videoOpenBytes: (id, bytes) => {
+            const url = URL.createObjectURL(new Blob([bytes.slice()], { type: 'video/webm' }));
+            videoOpen(id, url);
+            videos.get(id).dataset.blobUrl = url;   // revoked on close
         },
-        videoClose: id => { const v = videos.get(id); if (v) { v.pause(); v.remove(); videos.delete(id); } },
+        videoClose: id => {
+            const v = videos.get(id);
+            if (v) {
+                v.pause(); v.remove(); videos.delete(id);
+                if (v.dataset.blobUrl) URL.revokeObjectURL(v.dataset.blobUrl);
+            }
+        },
         // play() rejection (no gesture, unmuted) is expected — the 'pause'-state truth above
         // keeps the engine's controls honest, so the rejection needs no handling here.
         videoPlay: id => { videos.get(id)?.play().catch(() => {}); },

@@ -1,6 +1,39 @@
 namespace CupriFace.Media;
 
 /// <summary>
+/// A <c>&lt;cupri-video&gt;</c> source, resolvable exactly like an image: an <b>embedded</b>
+/// asset (bare name, the registered app assembly), a <b>disk</b> file (<c>file://</c> or a
+/// path), an inline <c>data:</c> URI, or a <b>web URL</b> fetched under the document's
+/// <c>UseImageUrlOptions</c> policy (https-only, size cap, timeout by default). The document
+/// builds these — one trust model for all media, chosen per element by the developer.
+/// </summary>
+public readonly struct VideoSource
+{
+    public string Src { get; }
+    private readonly System.Reflection.Assembly? _assembly;
+    private readonly Resources.CupriSourceOptions? _urlOptions;
+
+    internal VideoSource(string src, System.Reflection.Assembly? assembly, Resources.CupriSourceOptions? urlOptions)
+    {
+        Src = src;
+        _assembly = assembly;
+        _urlOptions = urlOptions;
+    }
+
+    /// <summary>For tests/tools opening a source outside a document (no embedded assembly,
+    /// default URL policy).</summary>
+    public VideoSource(string src) : this(src, null, null) { }
+
+    /// <summary>Remote sources should not be fetched on the UI thread — backends open them
+    /// deferred (poster stays up, playback starts when the bytes land), mirroring the image
+    /// store's async remote loads.</summary>
+    public bool IsRemote => Resources.SourceResolver.IsRemote(Src);
+
+    /// <summary>Resolve to bytes through the shared pipeline; null when unresolvable.</summary>
+    public byte[]? LoadBytes() => Resources.SourceResolver.Load(Src, _assembly, _urlOptions);
+}
+
+/// <summary>
 /// Opens video sources for <c>&lt;cupri-video&gt;</c>. The engine defines only this seam — it has
 /// no codecs. Implementations attach at the HOST composition root (never inside a portable app
 /// class, which is shared across hosts): the desktop Viewer registers <c>CupriFace.Media</c>'s
@@ -10,9 +43,9 @@ namespace CupriFace.Media;
 /// </summary>
 public interface IVideoBackend
 {
-    /// <summary>Open a source (same schemes as images: embedded / file / URL). Throwing is
-    /// allowed for an unusable source — the document catches it and leaves the poster up.</summary>
-    IVideoPlayer Open(string src);
+    /// <summary>Open a source. Throwing is allowed for an unusable one — the document catches it
+    /// and leaves the poster up.</summary>
+    IVideoPlayer Open(VideoSource source);
 }
 
 /// <summary>

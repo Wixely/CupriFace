@@ -473,9 +473,18 @@ accessible); clicking the picture toggles playback. `autoplay` is honored **only
 `muted`** — the web's rule, applied on every host so one app behaves the same everywhere.
 Full-window video is just sizing (`width:100%;height:100%` + `fit="cover"`); the ⛶ button requests
 OS fullscreen and Escape leaves it.
+
+`src` resolves **exactly like an image** — the developer picks the scheme per element:
+an **embedded** asset (bare name, the assembly registered via `UseImages`), a **disk** file
+(`file://` or a path), an inline `data:` URI, or a **web URL** fetched under the document's
+`UseImageUrlOptions` policy (https-only, size cap, timeout by default). Remote sources open
+*deferred* — the poster stays up, playback starts when the bytes land, never blocking a frame; on
+the web host, remote URLs stream through the browser natively while embedded/disk/`data:` sources
+play from the same resolved bytes, so every scheme works on every host.
 ```html
 <cupri-video src="Assets/intro.webm" poster="Assets/intro.png" controls muted autoplay loop
              label="Product tour" fit="cover" style="width:100%;height:260px"></cupri-video>
+<cupri-video src="https://example.com/trailer.webm" controls muted></cupri-video>
 ```
 
 **Resizable controls.** CSS `resize: both | horizontal | vertical` puts a grab handle in an

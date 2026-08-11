@@ -10,47 +10,55 @@ namespace CupriFace.Media;
 /// The desktop video backend: managed WebM demux + injected decoders (native libvpx/libopus in
 /// production, fakes in tests) + an optional audio sink. Attach at the host composition root:
 /// <c>DesktopHost.Run(app, d =&gt; d.UseVideo(new WebmVideoBackend(NativeDecoders.Factory)))</c>.
+/// Sources resolve through <see cref="VideoSource"/> — the image pipeline's schemes and trust
+/// model (embedded / file / <c>data:</c> / policied https), the developer's choice per element.
 /// </summary>
 public sealed class WebmVideoBackend : IVideoBackend
 {
     private readonly IMediaDecoderFactory _decoders;
     private readonly IAudioSink? _audio;
-    private readonly Func<string, byte[]> _load;
 
-    /// <param name="load">Resolves a <c>src</c> to bytes. Default: the file system. Hosts pass
-    /// their own to serve embedded assets (<c>CupriSource</c>) or vetted URLs.</param>
-    public WebmVideoBackend(IMediaDecoderFactory decoders, IAudioSink? audio = null, Func<string, byte[]>? load = null)
+    public WebmVideoBackend(IMediaDecoderFactory decoders, IAudioSink? audio = null)
     {
         _decoders = decoders;
         _audio = audio;
-        _load = load ?? File.ReadAllBytes;
     }
 
-    public IVideoPlayer Open(string src) => new WebmPlayer(WebmFile.Parse(_load(src)), _decoders, _audio);
+    public IVideoPlayer Open(VideoSource source) =>
+        // Local sources (embedded/file/data:) open synchronously, like local images. Remote ones
+        // open DEFERRED: the poster stays up, the download runs on the player's thread, playback
+        // starts at 0 when the bytes land — mirroring the image store's async remote loads.
+        new WebmPlayer(source.LoadBytes, deferred: source.IsRemote, _decoders, _audio);
 }
 
 /// <summary>
-/// Plays one parsed WebM. Presentation model: a pump advances a media clock and decodes each
-/// block as its timestamp comes due, swapping the result into <see cref="CurrentFrame"/>; the
-/// engine's render loop (kept live by <see cref="Ticking"/>) paints whatever is current.
-/// Retired frames are disposed a few swaps later, honouring the surface contract (never dispose
-/// what the paint path may still read). The pump runs on a background thread in production and
-/// is driven directly (with a manual clock) in tests.
+/// Plays one WebM. Presentation model: a pump advances a media clock and decodes each block as
+/// its timestamp comes due, swapping the result into <see cref="CurrentFrame"/>; the engine's
+/// render loop (kept live by <see cref="Ticking"/>) paints whatever is current. The first frame
+/// is presented on open (poster → real picture, like a browser's preload). Retired frames are
+/// disposed a few swaps later, honouring the surface contract. The pump runs on a background
+/// thread in production and is driven directly (manual clock) in tests.
 /// </summary>
 public sealed class WebmPlayer : IVideoPlayer, ISurfaceSource
 {
     private readonly object _lock = new();
-    private readonly WebmFile _file;
-    private readonly WebmTrack? _videoTrack;
-    private readonly List<WebmBlock> _video = new();
-    private readonly List<WebmBlock> _audioBlocks = new();
-    private readonly IVideoFrameDecoder? _videoDecoder;
-    private readonly IAudioDecoder? _audioDecoder;
-    private readonly IAudioSink? _sink;
+    private readonly IMediaDecoderFactory _factory;
+    private readonly IAudioSink? _providedSink;
     private readonly Func<double> _now;
+    private readonly Func<byte[]?> _load;
 
     private Thread? _thread;
     private bool _disposed;
+    private bool _loaded;
+    private bool _loadFailed;
+
+    private WebmFile? _file;
+    private WebmTrack? _videoTrack;
+    private readonly List<WebmBlock> _video = new();
+    private readonly List<WebmBlock> _audioBlocks = new();
+    private IVideoFrameDecoder? _videoDecoder;
+    private IAudioDecoder? _audioDecoder;
+    private IAudioSink? _sink;
 
     private int _nextVideo;
     private int _nextAudio;
@@ -59,21 +67,40 @@ public sealed class WebmPlayer : IVideoPlayer, ISurfaceSource
     private bool _playing;
     private bool _muted;
     private double _volume = 1;
-    private bool _ended;           // raised once per run to the end
+    private bool _ended;
 
     private SKImage? _current;
     private readonly Queue<SKImage> _retired = new();
 
-    internal WebmPlayer(WebmFile file, IMediaDecoderFactory decoders, IAudioSink? sink, Func<double>? clock = null)
+    internal WebmPlayer(Func<byte[]?> load, bool deferred, IMediaDecoderFactory decoders, IAudioSink? sink, Func<double>? clock = null)
     {
-        _file = file;
+        _load = load;
+        _factory = decoders;
+        _providedSink = sink;
         _now = clock ?? (() => Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency);
-        _videoTrack = file.VideoTrack;
-        _videoDecoder = _videoTrack is { } vt ? decoders.CreateVideo(vt) : null;
-        var audioTrack = file.AudioTrack;
-        _audioDecoder = audioTrack is { } at ? decoders.CreateAudio(at) : null;
-        _sink = _audioDecoder is not null ? sink : null;
-        foreach (var b in file.Blocks)
+
+        if (!deferred)
+        {
+            var bytes = load() ?? throw new FileNotFoundException("Video source could not be resolved.");
+            lock (_lock) InitFromLocked(bytes);
+        }
+        else
+        {
+            EnsureThread(); // the thread downloads first, then pumps; the poster shows meanwhile
+        }
+    }
+
+    // Parse + wire decoders + show the first frame. Called under the lock, once.
+    private void InitFromLocked(byte[] bytes)
+    {
+        if (_disposed || _loaded) return;
+        _file = WebmFile.Parse(bytes);
+        _videoTrack = _file.VideoTrack;
+        _videoDecoder = _videoTrack is { } vt ? _factory.CreateVideo(vt) : null;
+        var audioTrack = _file.AudioTrack;
+        _audioDecoder = audioTrack is { } at ? _factory.CreateAudio(at) : null;
+        _sink = _audioDecoder is not null ? _providedSink : null;
+        foreach (var b in _file.Blocks)
         {
             if (_videoTrack is { } v && b.Track == v.Number) _video.Add(b);
             else if (audioTrack is { } a && b.Track == a.Number) _audioBlocks.Add(b);
@@ -81,21 +108,35 @@ public sealed class WebmPlayer : IVideoPlayer, ISurfaceSource
         if (_sink is not null && _audioDecoder is not null)
         {
             _sink.Start(_audioDecoder.SampleRate, _audioDecoder.Channels);
-            _sink.Volume = _volume;
+            _sink.Volume = _muted ? 0 : _volume;
+        }
+        _loaded = true;
+        SeekLocked(0);                       // poster → the real first frame
+        if (_playing)                        // Play() arrived while downloading: start at 0 NOW —
+        {                                    // never "catch up" the time the download took
+            _mediaBase = 0;
+            _wallBase = _now();
+            _sink?.Pause(false);
         }
     }
 
     // ---- ISurfaceSource ----------------------------------------------------------------------
     public SKImage? CurrentFrame => _current;
     public (int W, int H)? NaturalSize => _videoTrack is { Width: > 0, Height: > 0 } t ? (t.Width, t.Height) : null;
-    public bool Ticking => _playing;
+    public bool Ticking => _playing && _loaded;
 
     // ---- IVideoPlayer ------------------------------------------------------------------------
     public ISurfaceSource Surface => this;
     public bool Playing => _playing;
     public bool Loop { get; set; }
-    public double Duration => _file.DurationSeconds
-        ?? (_video.Count > 0 ? _video[^1].TimeSeconds : 0);
+    public double Duration
+    {
+        get
+        {
+            lock (_lock)
+                return _file?.DurationSeconds ?? (_video.Count > 0 ? _video[^1].TimeSeconds : 0);
+        }
+    }
 
     public event Action? Ended;
 
@@ -104,11 +145,11 @@ public sealed class WebmPlayer : IVideoPlayer, ISurfaceSource
         lock (_lock)
         {
             if (_disposed || _playing) return;
-            if (_ended || MediaTimeLocked() >= Duration) SeekLocked(0);   // replay from the top
+            if (_loaded && (_ended || MediaTimeLocked() >= Duration)) SeekLocked(0);   // replay
             _ended = false;
             _wallBase = _now();
-            _playing = true;
-            _sink?.Pause(false);
+            _playing = true;                 // pre-load: pending — playback starts when bytes land
+            if (_loaded) _sink?.Pause(false);
             EnsureThread();
         }
     }
@@ -138,11 +179,11 @@ public sealed class WebmPlayer : IVideoPlayer, ISurfaceSource
 
     public double Position
     {
-        get { lock (_lock) return MediaTimeLocked(); }
-        set { lock (_lock) SeekLocked(Math.Clamp(value, 0, Duration)); }
+        get { lock (_lock) return _loaded ? MediaTimeLocked() : 0; }
+        set { lock (_lock) { if (_loaded) SeekLocked(Math.Clamp(value, 0, Duration)); } }
     }
 
-    private double MediaTimeLocked() => _playing ? _mediaBase + (_now() - _wallBase) : _mediaBase;
+    private double MediaTimeLocked() => _playing && _loaded ? _mediaBase + (_now() - _wallBase) : _mediaBase;
 
     // ---- the pump ----------------------------------------------------------------------------
 
@@ -151,6 +192,23 @@ public sealed class WebmPlayer : IVideoPlayer, ISurfaceSource
         if (_thread is not null) return;
         _thread = new Thread(() =>
         {
+            // Deferred open: resolve OFF the UI thread (this may be a network fetch under the
+            // document's URL policy), then initialise under the lock.
+            if (!Volatile.Read(ref _loaded) && !Volatile.Read(ref _disposed))
+            {
+                byte[]? bytes = null;
+                try { bytes = _load(); } catch { /* unresolved → poster stays */ }
+                lock (_lock)
+                {
+                    if (bytes is { Length: > 0 })
+                    {
+                        try { InitFromLocked(bytes); }
+                        catch { _loadFailed = true; }
+                    }
+                    else _loadFailed = true;
+                    if (_loadFailed) _playing = false;
+                }
+            }
             while (!Volatile.Read(ref _disposed))
             {
                 Pump();
@@ -167,7 +225,7 @@ public sealed class WebmPlayer : IVideoPlayer, ISurfaceSource
     {
         lock (_lock)
         {
-            if (!_playing || _disposed) return;
+            if (!_playing || !_loaded || _disposed) return;
             var time = MediaTimeLocked();
 
             while (_nextVideo < _video.Count && _video[_nextVideo].TimeSeconds <= time)

@@ -25,9 +25,11 @@
          machine-independent and run anywhere (including CI). -->
     <None Include="..\..\samples\WebWasm\Assets\fonts\*.ttf" LinkBase="fonts"
           CopyToOutputDirectory="PreserveNewest" />
-    <!-- The demo clip (browser-recorded VP9 WebM) doubles as the demuxer's fixture. -->
+    <!-- The demo clip (browser-recorded VP9 WebM) doubles as the demuxer's fixture — copied for
+         file-path tests AND embedded for the embedded-source resolution test. -->
     <None Include="..\..\samples\DemoApp\Assets\demo.webm" LinkBase="fixtures"
           CopyToOutputDirectory="PreserveNewest" />
+    <EmbeddedResource Include="..\..\samples\DemoApp\Assets\demo.webm" LogicalName="fixtures.demo.webm" />
   </ItemGroup>
 
   <!-- Native Skia + HarfBuzz so RenderToImage/decode run under `dotnet test`. -->

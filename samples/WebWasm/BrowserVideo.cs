@@ -98,11 +98,24 @@ internal sealed class BrowserVideoBackend : IVideoBackend
         }
     }
 
-    public IVideoPlayer Open(string src)
+    public IVideoPlayer Open(VideoSource source)
     {
-        var player = new BrowserPlayer(++_nextId, src);
+        var player = new BrowserPlayer(++_nextId, source.Src);
         Players[player.Id] = player;
-        Interop.VideoOpen(player.Id, src);
+        if (source.IsRemote)
+        {
+            // http(s): hand the URL straight to the element — the browser streams it (range
+            // requests, progressive play) far better than a download-then-blob would.
+            Interop.VideoOpen(player.Id, source.Src);
+        }
+        else
+        {
+            // Embedded / file / data:: resolve through the SAME pipeline images use, then serve
+            // the bytes to the element as a Blob URL — so an app's embedded clip plays on the
+            // web host identically to the desktop one.
+            var bytes = source.LoadBytes() ?? throw new FileNotFoundException($"Video source '{source.Src}' could not be resolved.");
+            Interop.VideoOpenBytes(player.Id, bytes);
+        }
         return player;
     }
 
@@ -213,6 +226,8 @@ public partial class Interop
     // ---- C# → JS: element lifecycle + transport ---------------------------------------------
 
     [JSImport("videoOpen", "cupri")] internal static partial void VideoOpen(int id, string src);
+    [JSImport("videoOpenBytes", "cupri")] internal static partial void VideoOpenBytes(int id,
+        [JSMarshalAs<JSType.MemoryView>] Span<byte> bytes);
     [JSImport("videoClose", "cupri")] internal static partial void VideoClose(int id);
     [JSImport("videoPlay", "cupri")] internal static partial void VideoPlay(int id);
     [JSImport("videoPause", "cupri")] internal static partial void VideoPause(int id);
