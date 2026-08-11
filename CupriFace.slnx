@@ -34,6 +34,7 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/CupriFace.Binding.Gen/CupriFace.Binding.Gen.csproj" />
+    <Project Path="src/CupriFace.Media/CupriFace.Media.csproj" />
     <Project Path="src/CupriFace.Resources.Gen/CupriFace.Resources.Gen.csproj" />
     <Project Path="src/CupriFace.Shell/CupriFace.Shell.csproj" />
     <Project Path="src/CupriFace/CupriFace.csproj" />

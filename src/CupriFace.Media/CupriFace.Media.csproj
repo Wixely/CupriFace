@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The optional media package: WebM playback for <cupri-video> on desktop hosts.
+       Managed demux (pure C# EBML/Matroska parser) + native DECODERS ONLY (libvpx for VP9,
+       libopus for audio), shipped per-RID inside THIS one package under runtimes/<rid>/native —
+       the Skia model: one PackageReference, every OS, a framework-dependent app built on
+       Windows runs on Linux via `dotnet` unchanged. The engine itself never references this;
+       hosts attach it at their composition root (DesktopHost.Run's configure hook). -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Description>WebM (VP9 + Opus) video playback for CupriFace's cupri-video element on desktop hosts. Managed demuxer; per-RID native decoders in one package.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../CupriFace/CupriFace.csproj" />
+  </ItemGroup>
+
+</Project>

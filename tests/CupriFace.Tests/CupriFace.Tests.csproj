@@ -17,12 +17,16 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\CupriFace\CupriFace.csproj" />
+    <ProjectReference Include="..\..\src\CupriFace.Media\CupriFace.Media.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <!-- Real font files for the registration tests, copied beside the test binary so the tests are
          machine-independent and run anywhere (including CI). -->
     <None Include="..\..\samples\WebWasm\Assets\fonts\*.ttf" LinkBase="fonts"
+          CopyToOutputDirectory="PreserveNewest" />
+    <!-- The demo clip (browser-recorded VP9 WebM) doubles as the demuxer's fixture. -->
+    <None Include="..\..\samples\DemoApp\Assets\demo.webm" LinkBase="fixtures"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
