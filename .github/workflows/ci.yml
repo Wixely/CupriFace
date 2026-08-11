@@ -92,10 +92,20 @@ jobs:
         run: |
           sudo apt-get install -y gdb
           chmod +x publish/${{ matrix.rid }}/Viewer
+          # gdb directives live in a script file rather than a pile of -ex flags: no line
+          # continuations to get mangled, and the intent reads top to bottom.
+          cat > probe.gdb <<'GDB'
+          set pagination off
+          set confirm off
+          run
+          echo ===== SIGNAL BACKTRACE =====\n
+          bt 40
+          echo ===== ALL THREADS =====\n
+          thread apply all bt 12
+          quit
+          GDB
           echo "=== running under gdb (xvfb display, no GPU) ==="
-          timeout 120 xvfb-run -a gdb -batch             -ex 'set pagination off'             -ex 'set confirm off'             -ex run             -ex 'printf "
-===== SIGNAL BACKTRACE =====
-"'             -ex 'bt 40'             -ex 'info sharedlibrary'             --args publish/${{ matrix.rid }}/Viewer 2>&1 | tail -70
+          timeout 150 xvfb-run -a gdb -batch -x probe.gdb --args publish/${{ matrix.rid }}/Viewer 2>&1 | tail -80
 
       - name: Smoke test (Windows)
         if: runner.os == 'Windows'
@@ -179,14 +189,19 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          # Locate rather than assume: upload-artifact decides the archive root from the matched
-          # files, so hard-coding a nested path is a step that only fails at release time.
-          LIN=$(find artifacts -type f -name Viewer | head -1)
-          WIN=$(find artifacts -type f -name Viewer.exe | head -1)
-          test -n "$LIN" || { echo "::error::linux build missing from artifacts"; find artifacts; exit 1; }
-          test -n "$WIN" || { echo "::error::windows build missing from artifacts"; find artifacts; exit 1; }
-          chmod +x "$LIN"
-          tar -C "$(dirname "$LIN")" -czf "dist/CupriFace-Viewer-$GITHUB_REF_NAME-linux-x64.tar.gz" Viewer
+          # Search WITHIN each artifact rather than across all of them: every unix build produces a
+          # file called plain `Viewer`, so an unscoped find would happily tar the macOS binary as
+          # linux-x64. The search is still a find, not a hard-coded path, because upload-artifact
+          # derives the archive root from the matched files.
+          pack_unix() {                       # $1 = RID, e.g. linux-x64
+            local bin; bin=$(find "artifacts/viewer-$1" -type f -name Viewer 2>/dev/null | head -1)
+            test -n "$bin" || { echo "::error::$1 build missing from artifacts"; find artifacts; exit 1; }
+            chmod +x "$bin"
+            tar -C "$(dirname "$bin")" -czf "dist/CupriFace-Viewer-$GITHUB_REF_NAME-$1.tar.gz" Viewer
+          }
+          pack_unix linux-x64
+          WIN=$(find artifacts/viewer-win-x64 -type f -name Viewer.exe | head -1)
+          test -n "$WIN" || { echo "::error::win-x64 build missing from artifacts"; find artifacts; exit 1; }
           cp "$WIN" "dist/CupriFace-Viewer-$GITHUB_REF_NAME-win-x64.exe"
           ls -l dist
 
