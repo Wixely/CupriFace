@@ -21,7 +21,9 @@ public sealed class LayoutEngine
 {
     private readonly FontService _fonts;
     private readonly Paint.ImageStore? _images;
-    public LayoutEngine(FontService fonts, Paint.ImageStore? images = null) { _fonts = fonts; _images = images; }
+    private readonly Paint.SurfaceRegistry? _surfaces;
+    public LayoutEngine(FontService fonts, Paint.ImageStore? images = null, Paint.SurfaceRegistry? surfaces = null)
+    { _fonts = fonts; _images = images; _surfaces = surfaces; }
 
     public void Layout(RenderNode root, float viewportWidth, float viewportHeight)
     {
@@ -150,9 +152,12 @@ public sealed class LayoutEngine
         else contentW = MathF.Max(0, cbW - node.MarginLeft - node.MarginRight - node.HorizontalInsets);
         contentW = ClampW(s, contentW, cbW);
 
-        // Image: size from intrinsic pixels + CSS width/height, aspect-preserving (a leaf with no
-        // flow children would otherwise be height 0). Resolves before the block/flex/grid path.
-        if (node.ImageSrc is { Length: > 0 } imgSrc && _images?.Size(imgSrc) is { W: > 0, H: > 0 } px)
+        // Image / live surface: size from intrinsic pixels + CSS width/height, aspect-preserving (a
+        // leaf with no flow children would otherwise be height 0). Resolves before the block/flex/
+        // grid path. A live surface's natural size wins over its poster image once it is known.
+        var intrinsic = node.SurfaceKey is { Length: > 0 } sk ? _surfaces?.Get(sk)?.NaturalSize : null;
+        if (intrinsic is null && node.ImageSrc is { Length: > 0 } imgSrc) intrinsic = _images?.Size(imgSrc);
+        if (intrinsic is { W: > 0, H: > 0 } px)
         {
             var aspect = (float)px.W / px.H;
             var wDef = s.Width.IsDefinite || forceContentW is not null || node.ResizeW is not null;

@@ -177,10 +177,15 @@ public sealed partial class CupriDocument : IDisposable
         _css = css;
         _fonts = new FontService();
         _images = new Paint.ImageStore();
-        _layout = new LayoutEngine(_fonts, _images);
-        _painter = new Painter(_images);
+        _layout = new LayoutEngine(_fonts, _images, Surfaces);
+        _painter = new Painter(_images, Surfaces);
         _rasterizer = new SkiaRasterizer(_fonts);
     }
+
+    /// <summary>Live pixel producers (video players, future 3D viewports), keyed by the element
+    /// attribute <c>data-cupri-surface</c>. Backends register their sources here; a playing
+    /// surface keeps the render loop live via <see cref="HasActiveAnimations"/>.</summary>
+    public Paint.SurfaceRegistry Surfaces { get; } = new();
 
     /// <summary>Register the assembly used to resolve embedded image sources (e.g. a bare
     /// <c>src="Assets/logo.png"</c> on a <c>&lt;cupri-image&gt;</c>). Data URIs, URLs and file paths
@@ -199,9 +204,11 @@ public sealed partial class CupriDocument : IDisposable
         return this;
     }
 
-    /// <summary>True (once, then reset) if a background image load finished since the last call. A
-    /// render-on-demand host repaints when this returns true, so an async remote image appears.</summary>
-    public bool ConsumeImageArrived() => _images.TakeArrived();
+    /// <summary>True (once, then reset) if a background image load finished — or a live surface
+    /// published a frame / (un)registered — since the last call. A render-on-demand host repaints
+    /// when this returns true, so an async image appears and a paused video shows its seek frame.
+    /// (Single pipe on purpose: both sides must consume their flag every poll.)</summary>
+    public bool ConsumeImageArrived() => _images.TakeArrived() | Surfaces.TakeArrived();
 
     public RenderNode Root => _root;
 
@@ -473,8 +480,9 @@ public sealed partial class CupriDocument : IDisposable
     /// absent from the render tree). Lets a host render continuously only when it must, instead
     /// of every frame — critical for the CPU-rendered web host. Cached per rebuild (the animated
     /// set only changes when the tree does), so a host may poll it every frame for free. Also true
-    /// while a masked field peeks its last-typed char (see <see cref="HasActiveTransitions"/>).</summary>
-    public bool HasActiveAnimations => _hasActiveAnim || _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending;
+    /// while a masked field peeks its last-typed char (see <see cref="HasActiveTransitions"/>),
+    /// and while any live surface (a playing video) is producing frames.</summary>
+    public bool HasActiveAnimations => _hasActiveAnim || _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || Surfaces.AnyTicking;
     private bool _hasActiveAnim;
 
     private static bool AnyAnimated(RenderNode n)

@@ -13,7 +13,9 @@ namespace CupriFace.Paint;
 public sealed class Painter
 {
     private readonly ImageStore? _images;
-    public Painter(ImageStore? images = null) => _images = images;
+    private readonly SurfaceRegistry? _surfaces;
+    public Painter(ImageStore? images = null, SurfaceRegistry? surfaces = null)
+    { _images = images; _surfaces = surfaces; }
 
     /// <summary>Dev overlay: outline every element's border box (scrollers in a second colour) on top
     /// of the normal paint. Toggled via <c>CupriDocument.DebugOverlay</c>.</summary>
@@ -240,12 +242,18 @@ public sealed class Painter
             list.Add(new FillPath(absX + node.ContentLeftInset, absY + node.ContentTopInset, iw, ih, 24f, iconPath, s.Color));
         }
 
+        // Live surface (video, future 3D viewports): the current frame, if one exists. Falls
+        // through to ImageSrc otherwise — which is exactly how a poster shows until the first
+        // frame arrives. Same DrawImage command, so object-fit/radius/damage all behave alike.
+        var frame = node.SurfaceKey is { Length: > 0 } surfaceKey ? _surfaces?.Get(surfaceKey)?.CurrentFrame : null;
+
         // Image: decode + draw into the content box, fitted per object-fit.
-        if (node.ImageSrc is { Length: > 0 } imageSrc && _images?.Get(imageSrc) is { } image)
+        if (frame is null && node.ImageSrc is { Length: > 0 } imageSrc) frame = _images?.Get(imageSrc);
+        if (frame is { } img)
             list.Add(new DrawImage(
                 absX + node.ContentLeftInset, absY + node.ContentTopInset,
                 node.Width - node.HorizontalInsets, node.Height - node.VerticalInsets,
-                image, ParseFit(node.Element?.GetAttribute("data-object-fit")), s.BorderRadius));
+                img, ParseFit(node.Element?.GetAttribute("data-object-fit")), s.BorderRadius));
 
         // Clip children if overflow is not visible.
         var clip = s.Overflow != OverflowMode.Visible;
