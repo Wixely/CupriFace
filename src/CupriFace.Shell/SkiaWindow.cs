@@ -169,6 +169,21 @@ public sealed class SkiaWindow : IDisposable
         _glInterface = GRGlInterface.Create(name =>
         {
             GlTrace($"proc? {name}");        // logged BEFORE the lookup: if the lookup itself dies, this line names it
+
+            // Answer ONLY for OpenGL ("gl*") names. Skia also probes for EGL entry points
+            // (eglQueryString, eglGetCurrentDisplay) through this same loader, and on X11 the
+            // loader is glXGetProcAddressARB — which is SPECIFIED to fabricate a dispatch stub
+            // for any name it does not recognise. It returned non-null garbage for the egl*
+            // probes, Skia concluded EGL was present, called the stub, and the process died in
+            // an uninitialised dispatch slot (the headless-Linux SIGSEGV; the runner's own GL
+            // trace named these two probes as the killer). A null here is fully handled: Skia
+            // just skips EGL-specific extension detection, which a GLX/WGL context hasn't got.
+            if (!name.StartsWith("gl", StringComparison.Ordinal))
+            {
+                GlTrace("   -> null (non-GL name; loaders lie about these)");
+                return IntPtr.Zero;
+            }
+
             var found = ctx.TryGetProcAddress(name, out var addr);
             GlTrace($"   -> {(found ? $"0x{addr:x}" : "null")}");
             return found ? addr : IntPtr.Zero;
