@@ -7,8 +7,16 @@ on:
   pull_request:
 
 jobs:
+  # Both desktop OSes: the suite renders through Skia, and font metrics differ per platform — a
+  # test that silently encoded one machine's font already slipped through once (the underline test,
+  # green on Windows, red on ubuntu).
   test:
-    runs-on: ubuntu-latest
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, windows-latest ]
     steps:
       - uses: actions/checkout@v4
 
@@ -18,6 +26,7 @@ jobs:
 
       # SkiaSharp's native raster/text stack needs fontconfig at runtime for the render tests.
       - name: Install native deps (Skia)
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libfontconfig1
 
       - name: Restore
@@ -74,6 +83,20 @@ jobs:
       # window path segfaults (exit 139, see ROADMAP) — and with the `--web` switch removed there is
       # no headless mode left to exercise instead. So Linux is build-and-publish verified here, and
       # its runtime coverage comes from the `test` job, which renders through Skia headlessly.
+      # TEMPORARY (ROADMAP: Linux window path segfaults on a GPU-less/virtual X server). There is no
+      # Linux box to debug on locally, so have CI produce the stack. continue-on-error keeps the
+      # build green: this step is here to gather evidence, not to gate anything. Remove once fixed.
+      - name: Segfault probe (Linux)
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        run: |
+          sudo apt-get install -y gdb
+          chmod +x publish/${{ matrix.rid }}/Viewer
+          echo "=== running under gdb (xvfb display, no GPU) ==="
+          timeout 120 xvfb-run -a gdb -batch             -ex 'set pagination off'             -ex 'set confirm off'             -ex run             -ex 'printf "
+===== SIGNAL BACKTRACE =====
+"'             -ex 'bt 40'             -ex 'info sharedlibrary'             --args publish/${{ matrix.rid }}/Viewer 2>&1 | tail -70
+
       - name: Smoke test (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
