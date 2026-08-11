@@ -79,33 +79,22 @@ jobs:
       # native lookup and only showed it at startup. Launch the real exe, give it time to unpack
       # and open a window, and fail if it died.
       #
-      # Windows only. The Linux runner has no GPU and only a virtual X server, where the GL/SDL
-      # window path segfaults (exit 139, see ROADMAP) — and with the `--web` switch removed there is
-      # no headless mode left to exercise instead. So Linux is build-and-publish verified here, and
-      # its runtime coverage comes from the `test` job, which renders through Skia headlessly.
-      # TEMPORARY (ROADMAP: Linux window path segfaults on a GPU-less/virtual X server). There is no
-      # Linux box to debug on locally, so have CI produce the stack. continue-on-error keeps the
-      # build green: this step is here to gather evidence, not to gate anything. Remove once fixed.
-      - name: Segfault probe (Linux)
+      # Both platforms launch the real executable and fail if it dies. Linux runs under xvfb —
+      # no GPU, only a virtual X server — which is precisely the configuration that used to
+      # segfault inside Skia's GL interface assembly. It passing here is the regression test for
+      # that fix, so this must stay.
+      - name: Smoke test (Linux)
         if: runner.os == 'Linux'
-        continue-on-error: true
         run: |
-          sudo apt-get install -y -qq gdb > /dev/null   # 25 kB of apt chatter buries the backtrace
           chmod +x publish/${{ matrix.rid }}/Viewer
-          # gdb directives live in a script file rather than a pile of -ex flags: no line
-          # continuations to get mangled, and the intent reads top to bottom.
-          cat > probe.gdb <<'GDB'
-          set pagination off
-          set confirm off
-          run
-          echo ===== SIGNAL BACKTRACE =====\n
-          bt 40
-          echo ===== ALL THREADS =====\n
-          thread apply all bt 12
-          quit
-          GDB
-          echo "=== running under gdb (xvfb display, no GPU) ==="
-          timeout 150 xvfb-run -a gdb -batch -x probe.gdb --args publish/${{ matrix.rid }}/Viewer 2>&1 | tail -80
+          xvfb-run -a publish/${{ matrix.rid }}/Viewer &
+          PID=$!
+          sleep 30            # first launch unpacks ~128 MB before it opens a window
+          if kill -0 $PID 2>/dev/null; then
+            echo "still running — OK"; kill $PID
+          else
+            echo "::error::Viewer exited during smoke test (GPU-less regression?)"; wait $PID; exit 1
+          fi
 
       - name: Smoke test (Windows)
         if: runner.os == 'Windows'

@@ -108,10 +108,38 @@ public sealed class SkiaWindow : IDisposable
         _window.Run();
     }
 
+    /// <summary>Throws unless the current context can actually answer <c>glGetString(GL_VERSION)</c>.
+    /// Cheap, and it is the exact call whose null result crashes Skia's interface assembly.</summary>
+    private static unsafe void VerifyGlIsUsable(Silk.NET.Core.Contexts.IGLContext ctx)
+    {
+        // If the loader cannot even produce glGetString there is certainly no GL here, and calling
+        // through a null address would be its own segfault.
+        if (!ctx.TryGetProcAddress("glGetString", out var addr) || addr == IntPtr.Zero)
+            throw new InvalidOperationException("No usable OpenGL: glGetString could not be resolved.");
+
+        // Call it through Silk rather than a hand-rolled function pointer: it already knows each
+        // platform's calling convention, and this keeps the shell free of bespoke native interop.
+        using var gl = Silk.NET.OpenGL.GL.GetApi(ctx);
+        if (gl.GetString(Silk.NET.OpenGL.StringName.Version) is null)
+            throw new InvalidOperationException(
+                "No usable OpenGL: glGetString(GL_VERSION) returned null (GPU-less or virtual display?).");
+    }
+
     private void OnLoad()
     {
         var ctx = _window!.GLContext
             ?? throw new InvalidOperationException("Window was created without a GL context.");
+
+        // A context object is not the same as usable GL. On a GPU-less or virtual X server
+        // (headless CI, many remote/VM sessions) GLFW hands back a context whose entry points
+        // resolve but do nothing: glGetString(GL_VERSION) returns NULL. Skia's interface assembly
+        // then parses that null pointer and takes the whole process down with SIGSEGV — captured
+        // under gdb in CI, crashing inside gr_glinterface_assemble_interface.
+        //
+        // A native crash cannot be caught, so the fallback in DesktopHost never got a chance. Ask
+        // the context the same question Skia is about to ask, and turn a silent kill into an
+        // ordinary exception that the SDL software path already handles.
+        VerifyGlIsUsable(ctx);
 
         // Feed Skia the window's GL loader so it resolves the same context.
         _glInterface = GRGlInterface.Create(name =>
