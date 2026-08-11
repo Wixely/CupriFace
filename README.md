@@ -80,13 +80,9 @@ required — are attached to each release:
 
 The first launch unpacks the bundle and takes a few seconds; later launches are about 1.5 s.
 
-On Linux **without a GPU** — headless servers, some VMs, X-forwarded sessions — the GPU path can
-crash inside Skia's GL setup (a known bug, see [ROADMAP.md](ROADMAP.md)). Set
-`CUPRIFACE_SOFTWARE=1` to skip it and render in software:
-
-```bash
-CUPRIFACE_SOFTWARE=1 ./Viewer
-```
+On Linux without a GPU the app renders through Mesa's software rasteriser automatically. If you
+ever want to skip the OpenGL path entirely (or are on a build from before 2026-08, which crashed
+in that configuration), `CUPRIFACE_SOFTWARE=1 ./Viewer` forces the SDL software window.
 
 To **build against** CupriFace rather than just run the demo, the same release carries NuGet
 packages (`.nupkg` + `.snupkg` symbols): `CupriFace` is the engine, `CupriFace.Shell` the desktop
