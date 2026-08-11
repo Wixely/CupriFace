@@ -124,23 +124,56 @@ jobs:
           fi
 
       # macOS runners have a real window session (there is no xvfb equivalent, and none is
-      # needed), so the app opens its window for real. GL on macOS is deprecated but present;
-      # if it ever goes away the host falls back to the SDL software window on its own — either
-      # way the process must still be alive after start-up. The log shows which path it took.
+      # needed), so the app opens its window for real. Both render paths must survive: the GL
+      # window, and the SDL software window behind CUPRIFACE_SOFTWARE. The GL trace stays on,
+      # and if a variant dies, the step digs the faulting frames out of the macOS crash report
+      # (.ips) — stdout is buffered when redirected, so an empty app.log proves nothing and the
+      # crash report is the testimony that counts.
       - name: Smoke test (macOS)
         if: runner.os == 'macOS'
         run: |
           chmod +x publish/${{ matrix.rid }}/Viewer
-          publish/${{ matrix.rid }}/Viewer > app.log 2>&1 &
-          PID=$!
-          sleep 30            # first launch unpacks the bundle before it opens a window
-          alive=0; kill -0 $PID 2>/dev/null && alive=1
-          echo "--- app output ---"; cat app.log || true; echo "--- end ---"
-          if [ $alive = 1 ]; then
-            echo "still running — OK"; kill $PID
-          else
-            echo "::error::Viewer exited during smoke test"; exit 1
-          fi
+
+          smoke() {  # $1 = label; remaining args = extra VAR=VAL pairs for env
+            local label="$1"; shift
+            rm -f app.log "$HOME"/Library/Logs/DiagnosticReports/Viewer*.ips 2>/dev/null || true
+            env "$@" CUPRIFACE_GL_DEBUG=1 publish/${{ matrix.rid }}/Viewer > app.log 2>&1 &
+            local pid=$!
+            sleep 25
+            local alive=0; kill -0 $pid 2>/dev/null && alive=1
+            echo "===== $label: alive=$alive ====="
+            cat app.log || true
+            [ $alive = 1 ] && kill $pid
+            if [ $alive = 0 ]; then
+              sleep 5   # the OS needs a moment to write the crash report
+              local rep; rep=$(ls -t "$HOME"/Library/Logs/DiagnosticReports/Viewer*.ips 2>/dev/null | head -1)
+              if [ -n "$rep" ]; then
+                echo "--- faulting thread ($rep) ---"
+                python3 - "$rep" <<'PY' || head -c 4000 "$rep"
+          import json, sys
+          raw = open(sys.argv[1]).read()
+          first, rest = raw.split("\n", 1)
+          d = json.loads(rest)
+          print("exception:", d.get("exception"))
+          imgs = d.get("usedImages", [])
+          th = d["threads"][d.get("faultingThread", 0)]
+          for f in th["frames"][:15]:
+              i = f.get("imageIndex")
+              img = imgs[i]["name"] if i is not None and i < len(imgs) else "?"
+              print(" ", img, "+", f.get("imageOffset"), f.get("symbol", ""), f.get("symbolLocation", ""))
+          PY
+              else
+                echo "(no crash report found)"
+              fi
+            fi
+            return $((1 - alive))
+          }
+
+          ok=1
+          smoke "GL path" || ok=0
+          smoke "software (SDL) path" CUPRIFACE_SOFTWARE=1 || ok=0
+          [ $ok = 1 ] || { echo "::error::macOS smoke failed — see the variants above"; exit 1; }
+          echo "both paths OK"
 
       # Windows gets the same "does the published exe actually start" gate as the other two.
       # The single-file/self-extract failure mode this guards against (see the csproj comment)
