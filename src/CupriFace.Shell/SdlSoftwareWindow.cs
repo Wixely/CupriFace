@@ -52,6 +52,39 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     public event Action<char, KeyMods>? Shortcut;           // Ctrl/Cmd + letter (a/c/x/v …)
     public FrameStats Stats => _stats;
 
+    /// <summary>Raised once per loop iteration (after the event pump, before the render decision),
+    /// on the UI thread — the hook for host work that must run there every frame, e.g. draining
+    /// the UIA action queue. Work done here can dirty this same frame.</summary>
+    public event Action? Tick;
+
+    /// <summary>The Win32 window handle once the window exists; null before <see cref="Run"/> and on
+    /// every other OS. What the UIA bridge attaches to — this window is the path GL-less Windows
+    /// boxes (RDP sessions, VMs, CI runners) actually take, so it serves UIA too.</summary>
+    public nint? Win32Hwnd
+    {
+        get
+        {
+            if (_window is null || !OperatingSystem.IsWindows()) return null;
+            var info = new SysWMInfo();
+            _sdl.GetVersion(&info.Version);   // SDL refuses WM info without the caller's version
+            if (!_sdl.GetWindowWMInfo(_window, &info)) return null;
+            var hwnd = (nint)info.Info.Win.Hwnd;
+            return hwnd == 0 ? null : hwnd;
+        }
+    }
+
+    /// <summary>Screen position of the client area's top-left (SDL positions windows by client
+    /// area, matching the origin pointer coordinates are relative to).</summary>
+    public (int X, int Y) ScreenPosition
+    {
+        get
+        {
+            int x = 0, y = 0;
+            if (_window is not null) _sdl.GetWindowPosition(_window, ref x, ref y);
+            return (x, y);
+        }
+    }
+
     /// <summary>OS clipboard text, for copy/cut/paste (SDL, via managed Silk bindings). SDL clipboard
     /// strings are UTF-8; marshal them explicitly (Silk's convenience *S/string overloads assume
     /// ANSI, which mangles non-ASCII like “—” into mojibake).</summary>
@@ -238,6 +271,7 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                         break;
                 }
             }
+            Tick?.Invoke();
             RenderFrame();
             _sdl.Delay(16); // ~60 fps cap
         }

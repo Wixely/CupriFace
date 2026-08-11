@@ -39,6 +39,7 @@ public static class DesktopHost
 
         var clock = Stopwatch.StartNew();
         var scale = 1f; // current present scale, for transforming pointer coordinates
+        var logicalW = 0f; var logicalH = 0f; // last presented logical size, for the a11y snapshot
         var lastRefresh = 0.0;
 
         // Render-on-demand (same model as the WASM host): input marks the doc dirty only when a
@@ -67,6 +68,7 @@ public static class DesktopHost
         {
             var p = app.Present(ctx.Width, ctx.Height);
             scale = p.Scale <= 0 ? 1f : p.Scale;
+            logicalW = p.LogicalWidth; logicalH = p.LogicalHeight;
 
             // Transparent apps clear to a fully-transparent framebuffer so the desktop shows through
             // (premultiplied output is exactly what the OS compositor wants — no conversion needed).
@@ -108,6 +110,29 @@ public static class DesktopHost
             if (icon is { } ic) window.SetIcon(ic.Rgba, ic.W, ic.H);
             window.ShouldRender = NeedsRender; // GL: skip draw + swap entirely on clean frames
             window.Render += Draw;
+
+            // Windows accessibility (UIA): attach once the HWND exists (first tick), drain queued
+            // AT actions every tick on this UI thread, and publish a fresh semantics snapshot
+            // after each drawn frame (the subscription order after Draw is what sequences that).
+            // All of it no-ops off Windows, under CUPRIFACE_UIA=0, or if attaching failed.
+            Accessibility.UiaBridge? uia = null;
+            var uiaTried = false;
+            window.Tick += () =>
+            {
+                if (!OperatingSystem.IsWindows()) return;
+                if (!uiaTried && Accessibility.UiaBridge.Enabled && window.Win32Hwnd is { } hwnd)
+                {
+                    uiaTried = true;
+                    uia = Accessibility.UiaBridge.TryAttach(hwnd, doc, () => dirty = true);
+                }
+                if (uia?.DrainActions() == true) dirty = true;
+            };
+            window.Render += _ =>
+            {
+                if (OperatingSystem.IsWindows())
+                    uia?.PublishFrame(logicalW, logicalH, scale, window.ScreenPosition);
+            };
+
             window.PointerDown += (x, y, clicks) => { Mark(doc.DispatchClick(x / scale, y / scale, clicks)); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
             window.RightPointerDown += (x, y) => Mark(doc.DispatchContextMenu(x / scale, y / scale));
             window.PointerMove += (x, y) => { Mark(doc.DispatchPointerMove(x / scale, y / scale)); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
@@ -125,6 +150,21 @@ public static class DesktopHost
             using var window = new SdlSoftwareWindow(app.Title, app.Width, app.Height, app.Transparent, app.Frameless, app.TopMost);
             if (icon is { } ic) window.SetIcon(ic.Rgba, ic.W, ic.H);
 
+            // UIA on the software window too — on Windows this is the path GL-less machines (RDP,
+            // VMs, CI runners) actually take, so a screen reader must work here, not just on GL.
+            Accessibility.UiaBridge? uia = null;
+            var uiaTried = false;
+            window.Tick += () =>
+            {
+                if (!OperatingSystem.IsWindows()) return;
+                if (!uiaTried && Accessibility.UiaBridge.Enabled && window.Win32Hwnd is { } hwnd)
+                {
+                    uiaTried = true;
+                    uia = Accessibility.UiaBridge.TryAttach(hwnd, doc, () => dirty = true);
+                }
+                if (uia?.DrainActions() == true) dirty = true;
+            };
+
             // Commit-snapshot render thread (opt-in): build the display list on this UI thread and let
             // a background thread rasterise it; present the latest completed frame each vsync. Targets
             // the physical surface (scale 1), so it composes with the responsive present.
@@ -137,6 +177,8 @@ public static class DesktopHost
                 if (doc.HasAnimations || doc.HasActiveTransitions) doc.Animate(clock.Elapsed.TotalSeconds);
                 var list = doc.BuildFrame(ctx.Width, ctx.Height);
                 presenter.Submit(list, ctx.Width, ctx.Height, app.Transparent ? SkiaSharp.SKColors.Transparent : app.Background);
+                if (OperatingSystem.IsWindows())
+                    uia?.PublishFrame(ctx.Width, ctx.Height, 1f, window.ScreenPosition); // threaded path presents at scale 1
             }
 
             if (presenter is not null)
@@ -152,16 +194,23 @@ public static class DesktopHost
                     if (doc.HasAnimations || doc.HasActiveTransitions) doc.Animate(clock.Elapsed.TotalSeconds);
                     var bg = app.Transparent ? SkiaSharp.SKColors.Transparent : app.Background;
 
+                    SkiaSharp.SKRectI? damage;
                     if (scale == 1f)
-                        return doc.RenderIncremental(ctx.Canvas, p.LogicalWidth, p.LogicalHeight, bg);
-
-                    // Scaled present: damage coords wouldn't map 1:1 onto the device bitmap — full frame.
-                    ctx.Canvas.Clear(bg);
-                    ctx.Canvas.Save();
-                    ctx.Canvas.Scale(scale);
-                    doc.Render(ctx.Canvas, p.LogicalWidth, p.LogicalHeight);
-                    ctx.Canvas.Restore();
-                    return new SkiaSharp.SKRectI(0, 0, ctx.Width, ctx.Height);
+                        damage = doc.RenderIncremental(ctx.Canvas, p.LogicalWidth, p.LogicalHeight, bg);
+                    else
+                    {
+                        // Scaled present: damage coords wouldn't map 1:1 onto the device bitmap — full frame.
+                        ctx.Canvas.Clear(bg);
+                        ctx.Canvas.Save();
+                        ctx.Canvas.Scale(scale);
+                        doc.Render(ctx.Canvas, p.LogicalWidth, p.LogicalHeight);
+                        ctx.Canvas.Restore();
+                        damage = new SkiaSharp.SKRectI(0, 0, ctx.Width, ctx.Height);
+                    }
+                    // A drawn frame is the moment the tree is laid out and current — publish then.
+                    if (damage is not null && OperatingSystem.IsWindows())
+                        uia?.PublishFrame(p.LogicalWidth, p.LogicalHeight, scale, window.ScreenPosition);
+                    return damage;
                 };
             window.PointerDown += (x, y, clicks) => { Mark(doc.DispatchClick(x / scale, y / scale, clicks)); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
             window.RightPointerDown += (x, y) => Mark(doc.DispatchContextMenu(x / scale, y / scale));

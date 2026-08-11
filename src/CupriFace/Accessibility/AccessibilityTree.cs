@@ -78,7 +78,7 @@ public static class AccessibilityTree
             var sem = new AccessibilityNode
             {
                 Role = role,
-                Name = AccessibleName(render, el),
+                Name = AccessibleName(render, el, role),
                 Path = path,
                 Parent = parent,
                 Bounds = (ax, ay, render.Width, render.Height),
@@ -155,13 +155,29 @@ public static class AccessibilityTree
         if (el.GetAttribute("aria-expanded") is ("true" or "false") and var exp) sem.Expanded = exp == "true";
     }
 
-    private static string? AccessibleName(RenderNode render, IElement el)
+    private static string? AccessibleName(RenderNode render, IElement el, string role)
     {
         var label = el.GetAttribute("aria-label");
         if (label is { Length: > 0 }) return label;
         var text = CollectText(render).Trim();
-        return text.Length > 0 ? text : null;
+        if (text.Length > 0) return text;
+
+        // Positional label — the SAME association a click on the label uses (LabelTargets,
+        // inverted), so what a screen reader announces and what the click activates never
+        // disagree. Prefer the text after the control ("[box] Label"), then before it
+        // ("Label [switch]"); a labelable sibling is a fellow control, not a label.
+        if (role is "switch" or "checkbox" or "radio")
+        {
+            if (el.NextElementSibling is { } next && !IsLabelable(next)
+                && next.TextContent.Trim() is { Length: > 0 } after) return after;
+            if (el.PreviousElementSibling is { } prev && !IsLabelable(prev)
+                && prev.TextContent.Trim() is { Length: > 0 } before) return before;
+        }
+        return null;
     }
+
+    private static bool IsLabelable(IElement el) =>
+        el.GetAttribute("role") is "switch" or "checkbox" or "radio";
 
     private static string CollectText(RenderNode n)
     {

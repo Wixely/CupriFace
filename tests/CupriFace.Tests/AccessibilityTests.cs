@@ -174,6 +174,22 @@ public class AccessibilityTests
     }
 
     [Fact]
+    public void A_positional_label_names_the_control_it_activates()
+    {
+        var m = new Model();
+        const string html = """
+            <body>
+              <cupri-checkbox checked="{{On}}"></cupri-checkbox><span class="lbl">Notifications</span>
+              <span class="lbl">Dark mode</span><cupri-switch checked="{{On}}"></cupri-switch>
+            </body>
+            """;
+        using var t = new TestDoc(html, "", m, components: true);
+        var tree = t.Doc.BuildAccessibilityTree(400, 300);
+        Assert.Equal("Notifications", FindRole(tree, "checkbox")!.Name);   // "[box] Label"
+        Assert.Equal("Dark mode", FindRole(tree, "switch")!.Name);         // "Label [switch]"
+    }
+
+    [Fact]
     public void Automation_id_comes_from_the_binding_path()
     {
         var m = new Model();

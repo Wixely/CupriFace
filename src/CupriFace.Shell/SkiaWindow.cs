@@ -33,6 +33,19 @@ public sealed class SkiaWindow : IDisposable
     /// <summary>Raised each frame after the surface is ready. Draw here.</summary>
     public event Action<RenderContext>? Render;
 
+    /// <summary>Raised once per loop iteration, drawn or skipped, on the UI thread — the hook for
+    /// host work that must run there every frame (e.g. draining the UIA action queue). Fires
+    /// before the render-or-skip decision, so work done here can dirty this same frame.</summary>
+    public event Action? Tick;
+
+    /// <summary>The Win32 window handle once the window exists; null before <see cref="Run"/> and
+    /// on every other OS. What the UIA bridge attaches to.</summary>
+    public nint? Win32Hwnd => _window?.Native?.Win32?.Hwnd;
+
+    /// <summary>Screen position of the client area's top-left (GLFW reports the content area, which
+    /// is exactly the origin pointer coordinates are relative to).</summary>
+    public (int X, int Y) ScreenPosition => _window is { } w ? (w.Position.X, w.Position.Y) : (0, 0);
+
     /// <summary>Raised on left-button press with client-area coordinates and the click count
     /// (1/2/3 = single/double/triple — for word/line text selection).</summary>
     public event Action<float, float, int>? PointerDown;
@@ -354,6 +367,8 @@ public sealed class SkiaWindow : IDisposable
 
     private void OnRender(double deltaSeconds)
     {
+        Tick?.Invoke();
+
         EnsureSurface();
         if (_surface is null) return;
 

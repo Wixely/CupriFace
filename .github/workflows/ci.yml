@@ -191,6 +191,15 @@ jobs:
           Write-Host "still running — OK"
           Stop-Process -Id $p.Id -Force
 
+      # The accessibility gate, BLOCKING: interrogate the published exe as a real UIA client
+      # (FlaUI) — the same channel Narrator and NVDA use. Asserts the semantics tree is served,
+      # a named checkbox toggles, a slider answers RangeValue reads AND writes, and Tab focus is
+      # visible over UIA. On this GPU-less runner the app takes the SDL software path — exactly
+      # what an RDP/VM user gets, so that path serving UIA is part of what's being proven.
+      - name: UIA smoke test (Windows)
+        if: runner.os == 'Windows'
+        run: dotnet run --project tests/UiaSmoke -c Release -- publish/${{ matrix.rid }}/Viewer.exe
+
       - uses: actions/upload-artifact@v4
         with:
           name: viewer-${{ matrix.rid }}
