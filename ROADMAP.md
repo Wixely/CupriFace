@@ -1,7 +1,7 @@
 # CupriFace Roadmap
 
 The core milestones **M0–M9 are complete** (engine, layout, text, paint, binding, components,
-interaction, Windows a11y scaffold, AOT trim-clean, WASM host) — see [DESIGN.md §12](DESIGN.md).
+interaction, Windows a11y (UIA), AOT trim-clean, WASM host) — see [DESIGN.md §12](DESIGN.md).
 This document tracks everything **considered but not yet implemented**: the deferred refinements
 called out in the design plus items we've since scoped. It is a living list, not a commitment of
 dates.
@@ -13,16 +13,16 @@ dates.
 
 ## 1. Accessibility bridges (P1)
 
-The platform-neutral **semantics tree** exists and is verified, but only Windows has a bridge, and
-it's a scaffold. Screen-reader support is the highest-effort, lowest-visibility work (DESIGN risk #2).
+The platform-neutral **semantics tree** is real (identity, focus, states, on-screen bounds) and
+Windows now has a working UIA bridge with a blocking CI gate. Linux/macOS bridges remain.
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Complete **UIA** provider (Windows) | 🟡 | Role→pattern scaffold exists (`WindowsUiaBridge`); needs full pattern coverage + a real screen-reader pass. |
-| **AT-SPI** bridge (Linux) | 🔴 | The missing sibling of the UIA bridge. |
-| **NSAccessibility** bridge (macOS) | 🔴 | The missing sibling of the UIA bridge. |
+| Complete **UIA** provider (Windows) | 🟢 | **Done (2026-08), proven by a blocking CI gate.** The window answers `WM_GETOBJECT` with a UIA fragment tree built from the semantics tree — on BOTH Windows paths (the GL window and the SDL software window, which is what GPU-less machines — RDP, VMs, the CI runner — actually run). Patterns per role: Invoke (button/link/menuitem), Toggle (checkbox/switch), SelectionItem (radio/tab/option/treeitem), RangeValue (slider read+write, progressbar/spinbutton read), Value (textbox/combobox, read for now), ExpandCollapse (`aria-expanded`), Selection (containers). Threading: UIA calls read an immutable snapshot published after each drawn frame; actions queue to the UI thread and run through the same machinery as a real click (`AccessibilityActivate`/`Focus`/`SetValue`, path-addressed so handles survive the per-keystroke rebuild); focus changes raise UIA focus events (what makes Tab talk). Names include positional labels — the same sibling association clicks use, so Narrator's announcement and the click target can't disagree. The gate (`tests/UiaSmoke`, FlaUI — a real UIA client): tree served, a named checkbox toggles, a slider answers a RangeValue write, Tab focus visible. Interop is one file mirroring UIAutomationCore.idl (the WindowsDesktop managed wrapper would ~4× a self-contained publish); `CUPRIFACE_UIA=0` is the kill switch. Remaining inside this item: Text pattern for editable fields, Value.SetValue, UIA events beyond focus (property/structure changed). |
+| **AT-SPI** bridge (Linux) | 🔴 | The missing sibling of the UIA bridge. The engine side (snapshot, paths, actions) is now shared groundwork. |
+| **NSAccessibility** bridge (macOS) | 🔴 | The missing sibling of the UIA bridge. Same shared groundwork. |
 | **Web hidden-DOM a11y** | 🟢 | **Done** — `CupriDocument.BuildAriaHtml` serialises the semantics tree to an ARIA fragment (`role` + `aria-label`/`aria-checked`/`aria-valuenow-min-max`/`aria-disabled`/`tabindex`); the WASM host mirrors it into an off-screen, screen-reader-visible `<div>` (clip pattern, `aria-live`) beside the `aria-hidden` canvas, updated on input-driven repaints. Verified headlessly (roles/labels/states + updates on model change). |
-| End-to-end screen-reader verification of the control gallery | 🔴 | The M7 exit criterion, per-OS. |
+| End-to-end screen-reader verification of the control gallery | 🟡 | Windows is now automated-client verified (the FlaUI gate exercises the Narrator channel), but a human pass with actual Narrator/NVDA — announcement wording, reading order, live regions — hasn't been done, and Linux/macOS have nothing to verify against yet. |
 
 ## 2. CSS engine (P2)
 
@@ -72,8 +72,9 @@ Sustained fluidity is the core requirement (DESIGN risk #0); a demo hitting 60 f
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Native **link** of the AOT desktop build in CI | 🟡 | ILC trim analysis is clean (0 warnings); the final link needs a box with the C++ toolchain on PATH. |
-| Publish matrix across the three desktop OSes | 🟡 | Windows + Linux build, publish as a standalone single exe and smoke-test in CI; macOS not yet. |
+| Native **link** of the AOT desktop build in CI | 🟡 | ILC trim analysis is clean (0 warnings); the final link needs a box with the C++ toolchain on PATH. Note: the UIA bridge's COM interop (`ComImport`) is unsupported under NativeAOT — `TryAttach` fails gracefully there (app runs, no UIA); an AOT-compatible bridge means a ComWrappers rewrite (DESIGN.md's known sharp edge). |
+| Publish matrix across the three desktop OSes | 🟢 | **Done (2026-08)** — `test` and `viewer` run on ubuntu / windows / macos-latest; every leg publishes a standalone single-file build and smoke-tests it AT RUNTIME on its own OS (Linux twice: SDL and the blocking GL gate; Windows: launch + the blocking UIA gate; macOS: both render paths). Release packs win-x64 exe + linux-x64 and osx-arm64 tar.gz. |
+| **macOS window path segfaulted on GL-less virtual Macs** | 🟢 | **Fixed (2026-08), proven in CI.** The macOS crash report named it: `glfwCreateWindow` fails on a Mac with no OpenGL (the paravirtual GPU of virtualised Macs — CI runners are `VirtualMac2,1`) *without setting a GLFW error*; Silk.NET then applies its default window position to the NULL handle, and release-build GLFW (asserts compiled out) dies with SIGSEGV inside `glfwSetWindowPos` — before any managed guard can run, so uncatchable in-process. Fix: on macOS the host first spawns itself as a disposable probe child (`--cupriface-gl-probe`) that attempts full GL bring-up and reports by exit code; if the child dies, only the child dies, and the real process goes straight to the SDL software window. Real Macs (GL present) pay one invisible ~200 ms probe and keep the GPU window. The macOS CI smoke runs BOTH paths every push. |
 | **Linux window path segfaults on a GPU-less/virtual X server** | 🟢 | **Fixed (2026-08), proven by a blocking CI gate.** Root cause, caught by the `CUPRIFACE_GL_DEBUG` loader trace running on the failing machine itself: Skia probes for **EGL** entry points (`eglQueryString`, `eglGetCurrentDisplay`) through whatever loader it is given, and ours forwarded every name to GLFW — on X11 that is `glXGetProcAddressARB`, which is *specified* to fabricate a dispatch stub for any name it does not recognise. It returned confident non-null garbage for the egl* probes, Skia concluded EGL existed, called the stub, SIGSEGV. Null would have been handled (Skia null-checks and skips EGL detection) — the lie killed, not the lack. Fix: the loader answers only for `gl*` names (`SkiaWindow`). The CI Linux job now runs the GL path under xvfb+llvmpipe — the exact configuration that used to die — as a **blocking** smoke test with the trace left on, so any regression names its killer. `CUPRIFACE_SOFTWARE=1` remains as a deliberate escape hatch. Two failed attempts are recorded in git history (a `glGetString` null-guard; assuming the probe call itself was the problem) so they are not retried. |
 
 ## 7. Controls & component library (P3)
@@ -128,5 +129,5 @@ Per [DESIGN.md §1](DESIGN.md); listed here so "deferred" is never confused with
 
 ## Operational (not a feature)
 
-- **Publish to GitHub** — `origin` is set to `https://github.com/Wixely/CupriFace`; local `main` has
-  unpushed commits. Push once the remote repo exists.
+- **nuget.org publishing** — packages build and attach to GitHub Releases; pushing them to
+  nuget.org needs a `NUGET_API_KEY` repository secret (then ~4 lines in the release job).

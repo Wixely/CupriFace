@@ -28,8 +28,8 @@ project is, and where each one is willing to run**.
 | Embedding | Core capability: `RenderToPixels` / `Render(canvas)` into any RGBA surface — game texture, HTML canvas, server-side PNG | Possible but not the primary shape; the framework expects to own the window |
 | Control set | ~59 `<cupri-*>` elements (inputs, pickers, tables, charts, overlays, kanban, command palette, …) with `role`/`aria-*` baked in | Deep, mature control library + third-party vendors (DataGrid, virtualization for huge lists, docking, …) |
 | Tooling | Files are plain HTML/CSS — any editor; no designer | IDE previewer, XAML hot reload, commercial dev tools |
-| Accessibility | Roles/ARIA in every component; mirrored into real DOM on the web host | OS bridges on desktop (UIA / AT-SPI / NSAccessibility) |
-| Testing | **Headless-first**: the engine renders and takes input with no window; the repo's 261 tests click, type and pixel-assert real documents | Headless test platform exists; most testing is app-level/UI automation |
+| Accessibility | Roles/ARIA in every component; **Windows UIA bridge** (Toggle/Invoke/RangeValue/focus, gated in CI by an automated UIA client); real DOM tree on web; no Linux/macOS bridge yet | OS bridges on all three desktops (UIA / AT-SPI / NSAccessibility), longer-proven |
+| Testing | **Headless-first**: the engine renders and takes input with no window; the repo's 270 tests click, type and pixel-assert real documents | Headless test platform exists; most testing is app-level/UI automation |
 | Dependencies | SkiaSharp, HarfBuzzSharp, Silk.NET, AngleSharp — all MIT, checked as a hard project rule | MIT framework; larger dependency and binary surface |
 | Maturity | Young, moving fast; a documented CSS *subset* | Years of production use, commercial backing (incl. paid WPF-compat line) |
 
@@ -103,7 +103,7 @@ That buys three things Avalonia is not shaped for:
    screenshot/PDF-ish pipeline, an existing SDL/GL loop you already own. The
    UI is a function you call, not a process you surrender control to.
 2. **Headless is not a special mode.** The engine doesn't know whether a
-   window exists. The repo's test suite (261 tests) constructs documents,
+   window exists. The repo's test suite (270 tests) constructs documents,
    clicks and types into them, and asserts on state and pixels — in
    milliseconds, in CI, with no display server. UI behaviour becomes as
    testable as business logic, which changes how much UI you are willing to
@@ -137,10 +137,11 @@ An honest list, because it's a long one and it decides real projects:
   dialogs, drag-and-drop with the OS, per-monitor DPI — Avalonia has the
   mature story. CupriFace today is one window per app with a young shell.
 - **Accessibility bridges.** Avalonia surfaces UI Automation / AT-SPI /
-  NSAccessibility on desktop. CupriFace bakes roles/ARIA into its components
-  and mirrors them into the real DOM on the web host (where screen readers get
-  a genuine accessibility tree), but desktop assistive-technology bridges are
-  not built yet.
+  NSAccessibility on all three desktops, with years of soak. CupriFace ships a
+  Windows UIA bridge (semantics tree, names, Toggle/Invoke/RangeValue/focus —
+  verified in CI by an automated UIA client on the same channel Narrator uses)
+  plus the real-DOM tree on the web host, but it is young (no Text pattern yet,
+  no human screen-reader pass), and Linux/macOS bridges are not built.
 - **Input depth.** IME composition, full bidirectional text — mature in
   Avalonia; partial (bidi) or pending (web IME) in CupriFace.
 - **Tooling and support.** IDE previewers, XAML hot reload, commercial
@@ -170,8 +171,8 @@ An honest list, because it's a long one and it decides real projects:
   want the batteries: control depth, data grids, docking, multi-window,
   native OS integration.
 - You need iOS/Android from the same codebase.
-- Desktop screen-reader support through OS accessibility APIs is a hard
-  requirement today.
+- Screen-reader support on **Linux or macOS** is a hard requirement today
+  (CupriFace covers Windows via UIA; the other two desktops have no bridge).
 - Your team is WPF-fluent, or you are porting a WPF codebase (Avalonia's
   commercial XPF line exists for exactly that).
 - You want commercial support and a mature ecosystem more than you want a

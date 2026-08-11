@@ -44,6 +44,9 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 - **Component model** — custom elements expand into themed, accessible primitives;
   ships `<cupri-slider>`, `<cupri-switch>`, `<cupri-progress>`, `<cupri-button>`,
   `<cupri-badge>` with `role`/`aria-*` baked in.
+- **Screen readers** — those semantics reach assistive tech: a **Windows UIA** bridge
+  (names, Toggle/Invoke/RangeValue, focus tracking — CI runs an automated UIA client
+  against every build) and a real-DOM ARIA mirror on the web host.
 
 ## Projects
 
@@ -77,6 +80,10 @@ required — are attached to each release:
 |---|---|---|
 | Windows x64 | `CupriFace-Viewer-<version>-win-x64.exe` | run it |
 | Linux x64 | `CupriFace-Viewer-<version>-linux-x64.tar.gz` | `tar xzf <file> && ./Viewer` |
+| macOS (Apple Silicon)* | `CupriFace-Viewer-<version>-osx-arm64.tar.gz` | `tar xzf <file> && xattr -d com.apple.quarantine Viewer && ./Viewer` |
+
+\* macOS builds ship from releases after v0.1.0 (the build is unsigned, hence the `xattr`
+quarantine strip). CI builds and runtime-smokes all three platforms on every push.
 
 The first launch unpacks the bundle and takes a few seconds; later launches are about 1.5 s.
 

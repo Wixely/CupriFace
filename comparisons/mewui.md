@@ -38,8 +38,8 @@ README's published figures and were not independently reproduced.*
 | Native footprint | Skia (9.2 MB) + HarfBuzz (1.7 MB) + SDL/GLFW (1.8 MB) on win-x64, before any app code | Direct2D/GDI backends ride OS libraries — near-zero native payload |
 | AOT posture | Design goal, now **verified end-to-end** — the AOT Showcase renders and interacts correctly | **Non-negotiable design constraint**, validated continuously; `LibraryImport` source-generated P/Invoke |
 | Embedding | Core capability: `RenderToPixels` into any RGBA buffer (game texture, canvas, server) | Not a stated goal — the framework hosts the window |
-| Testing | **Headless-first**: engine needs no window; 261 tests click/type/pixel-assert | Conventional; no headless-first claim |
-| Accessibility | `role`/`aria-*` in every component; real DOM a11y tree on the web host | Focus/tab navigation documented; no OS a11y bridge story |
+| Testing | **Headless-first**: engine needs no window; 270 tests click/type/pixel-assert | Conventional; no headless-first claim |
+| Accessibility | `role`/`aria-*` in every component; **Windows UIA bridge (CI-gated)**; real DOM a11y tree on the web host | Focus/tab navigation documented; no OS a11y bridge story |
 | Extras | Charts, kanban, command palette, pickers built in (~59 elements) | Thin core + **optional packages**: MewDock (VS-style docking), SVG, Skia, MewCharts, WebView2 |
 | Tooling | Plain text files, any editor; no designer | **Hot reload** and **Preview** documented — a real advantage |
 | Non-goals | JavaScript in the authoring model, ever | XAML compatibility, designer-first workflows, reflection binding, exhaustive control catalogue |
@@ -146,7 +146,7 @@ An honest list, and it is not short:
   entire design world, already knows. Dark mode is a variable swap; responsive
   layout is a media query; restyling ships without a recompile.
 - **Headless-first testing.** The CupriFace engine doesn't know whether a window
-  exists, so UI behaviour is unit-testable: the repo's 261 tests build documents,
+  exists, so UI behaviour is unit-testable: the repo's 270 tests build documents,
   click and type into them, and assert on state and pixels — in CI, in
   milliseconds, with no display. MewUI's window-owning design makes the same
   coverage an end-to-end automation problem.

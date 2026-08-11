@@ -40,11 +40,11 @@ policy covering the latest three stable majors.*
 | Security cadence | Patch when you choose | **Track Electron's 8-week majors**; only latest 3 supported |
 | DevTools | None | **The best UI debugging tooling that exists** |
 | Ecosystem | .NET/NuGet; no UI component market | npm, React/Vue/Svelte/Tailwind — colossal |
-| Accessibility | ARIA roles built in; real a11y tree on the web host; **no desktop OS bridge** | **Chromium's** — best-in-class on every platform |
+| Accessibility | ARIA roles built in; **Windows UIA bridge (CI-gated)**; real a11y tree on the web host; no Linux/macOS bridge | **Chromium's** — best-in-class on every platform |
 | Text / i18n | HarfBuzz shaping; bidi partial; **no IME yet** | Every script, every input method, flawless |
 | Media | Images; charts drawn by the engine | Video, WebRTC, WebGL, WebGPU, PDF, audio |
 | Rendering arbitrary web content | **Cannot** — by design | That's the entire point |
-| Testing | **Headless-first**: 261 tests click/type/pixel-assert, no display | Playwright/Spectron — real browser automation |
+| Testing | **Headless-first**: 270 tests click/type/pixel-assert, no display | Playwright/Spectron — real browser automation |
 | Embedding | `RenderToPixels` into any RGBA buffer | Electron owns the process |
 | Web deployment | Same app → `<canvas>`, 14.2 MB wasm (5.5 MB gzipped) | It *is* web tech, but Electron itself is desktop-only |
 | Track record | Young, pre-1.0 | A decade; some of the most-used desktop software on earth |
@@ -157,10 +157,12 @@ This is the section that decides most projects, and it is long on purpose.
   "render headlessly in a test and assert," which is genuinely good for
   regression safety and no help at all when you're eyeballing a layout.
 - **Accessibility on the desktop.** Chromium's a11y implementation is
-  world-class on every platform. CupriFace bakes roles and ARIA into its
-  components and exposes a real accessibility tree *on the web host*, but has no
-  desktop screen-reader bridge. If shipping to users who rely on assistive
-  technology on Windows or macOS is a requirement today, this alone decides it.
+  world-class on every platform. CupriFace now has a Windows UIA bridge
+  (semantics tree, control patterns, focus — CI-gated by an automated UIA
+  client), but it is young — no Text pattern, no human screen-reader pass —
+  and macOS/Linux have no desktop bridge at all. If shipping to users who rely
+  on assistive technology on macOS or Linux is a requirement today, this alone
+  decides it.
 - **Text input at world scale.** IME composition for Chinese, Japanese and
   Korean; full bidirectional text. Chromium handles all of it. CupriFace's bidi
   is partial and web-host IME is not built.
@@ -215,7 +217,8 @@ For balance, because the "Electron is bloat" trope is lazier than the truth:
   ecosystem is the dominant factor. This is the most common correct answer.
 - You need **web-platform capabilities**: video, WebRTC, WebGL/WebGPU, PDF, or
   rendering third-party web content.
-- **Desktop accessibility is a hard requirement today.**
+- **macOS or Linux desktop accessibility is a hard requirement today** (Windows
+  UIA exists, but it is young).
 - You need full modern CSS with no subset caveats, or you depend on a specific
   npm UI ecosystem.
 - **CJK input, complex scripts and full bidi** are first-class requirements.
