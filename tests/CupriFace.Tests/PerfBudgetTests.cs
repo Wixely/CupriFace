@@ -118,7 +118,12 @@ public class PerfBudgetTests
         var (a, b) = Race(() => small.Refresh(), () => huge.Refresh());
         _out.WriteLine($"rebuild: {a:F2} ms with a small sheet, {b:F2} ms with +800 unused rules (x{b / a:F2})");
 
-        Assert.True(b < a * 1.5, $"800 unused CSS rules must not meaningfully slow a rebuild (x{b / a:F2})");
+        // Threshold 2.0, not 1.5: the regression this guards measures x3.95 when the optimisation is
+        // reverted, while a healthy build on a fast arm64 runner has a ~2.4 ms baseline — small enough
+        // that scheduler noise once pushed a green build to x1.61 (macOS, run 32). 2.0 still catches
+        // the real thing with a 2x margin and stops the borderline flake this file's own header warns
+        // about.
+        Assert.True(b < a * 2.0, $"800 unused CSS rules must not meaningfully slow a rebuild (x{b / a:F2})");
     }
 
     [Fact]
