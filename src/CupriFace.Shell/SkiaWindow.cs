@@ -108,6 +108,20 @@ public sealed class SkiaWindow : IDisposable
         _window.Run();
     }
 
+    // CUPRIFACE_GL_DEBUG=1 traces GL bring-up to stderr: the context's version/vendor/renderer,
+    // then every proc-address Skia requests. When a broken GL stack kills the process natively,
+    // the last trace line names the exact call that did it — evidence obtainable no other way,
+    // because the crash is a SIGSEGV inside Skia, past any managed catch.
+    private static readonly bool GlDebug =
+        Environment.GetEnvironmentVariable("CUPRIFACE_GL_DEBUG") is "1" or "true" or "TRUE";
+
+    private static void GlTrace(string message)
+    {
+        if (!GlDebug) return;
+        Console.Error.WriteLine($"[gl] {message}");
+        Console.Error.Flush(); // the process may die on the very next native call
+    }
+
     /// <summary>Throws unless the current context can actually answer <c>glGetString(GL_VERSION)</c>.
     /// Cheap, and it is the exact call whose null result crashes Skia's interface assembly.</summary>
     private static unsafe void VerifyGlIsUsable(Silk.NET.Core.Contexts.IGLContext ctx)
@@ -123,6 +137,13 @@ public sealed class SkiaWindow : IDisposable
         if (gl.GetString(Silk.NET.OpenGL.StringName.Version) is null)
             throw new InvalidOperationException(
                 "No usable OpenGL: glGetString(GL_VERSION) returned null (GPU-less or virtual display?).");
+
+        if (GlDebug)
+        {
+            GlTrace($"version : {gl.GetStringS(Silk.NET.OpenGL.StringName.Version)}");
+            GlTrace($"vendor  : {gl.GetStringS(Silk.NET.OpenGL.StringName.Vendor)}");
+            GlTrace($"renderer: {gl.GetStringS(Silk.NET.OpenGL.StringName.Renderer)}");
+        }
     }
 
     private void OnLoad()
@@ -141,13 +162,22 @@ public sealed class SkiaWindow : IDisposable
         // ordinary exception that the SDL software path already handles.
         VerifyGlIsUsable(ctx);
 
-        // Feed Skia the window's GL loader so it resolves the same context.
+        // Feed Skia the window's GL loader so it resolves the same context. With CUPRIFACE_GL_DEBUG
+        // every lookup is traced BEFORE it resolves — if assembling the interface dies natively, the
+        // final trace line is the killer.
+        GlTrace("assembling Skia GL interface…");
         _glInterface = GRGlInterface.Create(name =>
-            ctx.TryGetProcAddress(name, out var addr) ? addr : IntPtr.Zero)
-            ?? throw new InvalidOperationException("Failed to assemble Skia GL interface.");
+        {
+            GlTrace($"proc? {name}");        // logged BEFORE the lookup: if the lookup itself dies, this line names it
+            var found = ctx.TryGetProcAddress(name, out var addr);
+            GlTrace($"   -> {(found ? $"0x{addr:x}" : "null")}");
+            return found ? addr : IntPtr.Zero;
+        }) ?? throw new InvalidOperationException("Failed to assemble Skia GL interface.");
+        GlTrace("interface assembled; creating GRContext…");
 
         _grContext = GRContext.CreateGl(_glInterface)
             ?? throw new InvalidOperationException("Failed to create Skia GL context.");
+        GlTrace("GRContext created.");
 
         _fbSize = _window.FramebufferSize;
 

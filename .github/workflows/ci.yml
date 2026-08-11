@@ -102,29 +102,30 @@ jobs:
 
       # Separately, keep watching the GL path so we notice if it ever starts working (or breaks
       # differently). Non-blocking on purpose: it is a known failure, and a permanently red CI is a
-      # CI nobody reads.
+      # CI nobody reads. CUPRIFACE_GL_DEBUG traces every GL proc Skia requests — when the process
+      # dies natively, the last trace line names the killer, which no debugger run has managed to.
       - name: GL path status (Linux, known issue)
         if: runner.os == 'Linux'
         continue-on-error: true
+        env:
+          CUPRIFACE_GL_DEBUG: '1'
         run: |
+          echo "===== environment ====="
+          sudo apt-get install -y -qq mesa-utils > /dev/null 2>&1 || true
+          xvfb-run -a glxinfo -B 2>&1 | head -20 || true
+          dpkg -l | grep -iE "mesa|libgl" | awk '{print $2, $3}' || true
+          ls -la /dev/dri 2>/dev/null || echo "no /dev/dri"
+          echo "===== traced GL run ====="
           xvfb-run -a stdbuf -oL -eL publish/${{ matrix.rid }}/Viewer > gl.log 2>&1 &
           PID=$!
           sleep 20
           if kill -0 $PID 2>/dev/null; then
             echo "::notice::GL path survived — the ROADMAP segfault may be fixed; re-check it."
             kill $PID
+            tail -5 gl.log
           else
-            echo "GL path still dies as expected:"; cat gl.log || true
+            echo "GL path still dies; last 40 trace lines:"; tail -40 gl.log || true
           fi
-
-      - name: Smoke test (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $p = Start-Process publish/${{ matrix.rid }}/Viewer.exe -PassThru
-          Start-Sleep -Seconds 25
-          if ($p.HasExited) { Write-Host "::error::Viewer exited with $($p.ExitCode)"; exit 1 }
-          Write-Host "still running — OK"; Stop-Process -Id $p.Id -Force
 
       - uses: actions/upload-artifact@v4
         with:

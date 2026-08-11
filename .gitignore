@@ -1,7 +1,10 @@
 # .NET build output
 bin/
 obj/
-publish/           # CI publishes the Viewer here; running the same command locally shouldn't litter
+# CI publishes the Viewer into publish/; running the same command locally shouldn't litter.
+# (Comment on its own line: .gitignore has NO inline comments — 'publish/ # x' matches nothing,
+# which is exactly how a 102 MB binary ended up in a commit.)
+publish/
 [Dd]ebug/
 [Rr]elease/
 x64/
