@@ -465,6 +465,19 @@ CSS `width`/`height` (aspect preserved if you set only one); `fit` defaults to `
 <cupri-image src="https://example.com/banner.jpg" fit="cover" style="width:100%;height:120px"></cupri-image>
 ```
 
+**Video.** `<cupri-video>` plays video through whichever backend the HOST registered
+(`doc.UseVideo(...)` — the optional `CupriFace.Media` WebM decoder on desktop, the browser's own
+decoder on the web host; with no backend the `poster` shows and the controls are inert). `controls`
+adds an engine-drawn bar (play/pause, mute, fullscreen — real components, so they're themable and
+accessible); clicking the picture toggles playback. `autoplay` is honored **only together with
+`muted`** — the web's rule, applied on every host so one app behaves the same everywhere.
+Full-window video is just sizing (`width:100%;height:100%` + `fit="cover"`); the ⛶ button requests
+OS fullscreen and Escape leaves it.
+```html
+<cupri-video src="Assets/intro.webm" poster="Assets/intro.png" controls muted autoplay loop
+             label="Product tour" fit="cover" style="width:100%;height:260px"></cupri-video>
+```
+
 **Resizable controls.** CSS `resize: both | horizontal | vertical` puts a grab handle in an
 element's bottom‑right corner — dragging it resizes the element, clamped to its
 `min-/max-width/height`. It's generic (works on any element — a textarea, an image frame, a panel)
@@ -487,6 +500,7 @@ to the bottom as new lines arrive (logging), *unless* the user has scrolled up:
 | Element | Purpose | Key attributes | Children | role |
 |---------|---------|----------------|----------|------|
 | `<cupri-image>` | Raster image (PNG/JPEG/WebP/GIF) | `src`, `alt`, `fit` (`contain`\|`cover`\|`fill`\|`none`) | — | `img` or decorative |
+| `<cupri-video>` | Video (host-registered backend) | `src`, `poster`, `fit`, `label`, `controls`, `autoplay` (with `muted`), `muted`, `loop` | — | `img` + button controls |
 | `<cupri-icon>` | Vector icon (current text colour) | `name`, `size` (24), `aria-label`? | — | `img` or decorative |
 | `<cupri-badge>` | Small pill label | — | text/HTML | — |
 | `<cupri-chip>` | Pill with optional close icon | `closable` | text/HTML | — |

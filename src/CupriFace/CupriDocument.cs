@@ -211,11 +211,105 @@ public sealed partial class CupriDocument : IDisposable
         return this;
     }
 
+    // ---- Video wiring (<cupri-video> ↔ the host-registered backend) --------------------------
+    // The engine owns the seam, not the codecs: a backend opens players; the document owns their
+    // lifetime by structural presence — a player exists while its src appears in the DOM, and is
+    // disposed when it no longer does (a hidden section stops its video).
+    private Media.IVideoBackend? _videoBackend;
+    private readonly Dictionary<string, Media.IVideoPlayer> _videoPlayers = new(StringComparer.Ordinal);
+    private int _videoStateChanged; // set (any thread) by Ended → consumed on the UI thread
+
+    /// <summary>Register the video backend (host composition root — see <see cref="Media.IVideoBackend"/>).</summary>
+    public CupriDocument UseVideo(Media.IVideoBackend backend)
+    {
+        _videoBackend = backend;
+        Refresh(); // wire any <cupri-video> already in the tree
+        return this;
+    }
+
+    // Runs each rebuild, right after component expansion: open/adopt a player per visible source,
+    // reflect its transport state into the fresh DOM's controls, retire players whose element is
+    // gone. (Expansion skips display:none subtrees, so switching a section away stops its video.)
+    private void SyncVideos(AngleSharp.Dom.IDocument dom)
+    {
+        HashSet<string>? seen = null;
+        foreach (var el in dom.QuerySelectorAll("[data-cupri-video]"))
+        {
+            if (el.GetAttribute("data-cupri-video") is not { Length: > 0 } src) continue;
+            (seen ??= new HashSet<string>(StringComparer.Ordinal)).Add(src);
+            if (GetOrOpenPlayer(src, el) is { } player)
+                Components.Controls.VideoComponent.SyncControls(el, player);
+        }
+
+        if (_videoPlayers.Count == 0) return;
+        List<string>? gone = null;
+        foreach (var src in _videoPlayers.Keys)
+            if (seen is null || !seen.Contains(src)) (gone ??= new List<string>()).Add(src);
+        if (gone is null) return;
+        foreach (var src in gone)
+        {
+            try { _videoPlayers[src].Dispose(); } catch { /* a dying decoder must not kill the rebuild */ }
+            _videoPlayers.Remove(src);
+            Surfaces.Unregister("video:" + src);
+        }
+    }
+
+    private Media.IVideoPlayer? GetOrOpenPlayer(string src, AngleSharp.Dom.IElement el)
+    {
+        if (_videoPlayers.TryGetValue(src, out var existing)) return existing;
+        if (_videoBackend is null) return null; // no backend on this host — poster only
+
+        Media.IVideoPlayer player;
+        try { player = _videoBackend.Open(src); }
+        catch { return null; } // an unusable source must not take the app down; the poster stays
+
+        _videoPlayers[src] = player;
+        Surfaces.Register("video:" + src, player.Surface);
+        player.Ended += () => System.Threading.Interlocked.Exchange(ref _videoStateChanged, 1);
+        player.Loop = el.HasAttribute("data-video-loop");
+        player.Muted = el.HasAttribute("data-video-muted");
+        // The autoplay policy every host shares (the web cannot do otherwise, so nobody does):
+        // autoplay starts only when muted; unmuted autoplay stays on the poster's play button.
+        if (el.HasAttribute("data-video-autoplay") && player.Muted) player.Play();
+        return player;
+    }
+
+    // Transport commands from the controls / the frame itself. DELIBERATELY synchronous inside
+    // input dispatch: the web backend needs the user gesture still on the stack when the call
+    // reaches video.play() (browsers refuse unmuted playback otherwise).
+    private bool VideoCommand(RenderNode node, string cmd)
+    {
+        string? src = null;
+        for (var n = node; n is not null; n = n.Parent)
+            if (n.Element?.GetAttribute("data-cupri-video") is { Length: > 0 } s) { src = s; break; }
+        if (src is null || !_videoPlayers.TryGetValue(src, out var player)) return false;
+
+        switch (cmd)
+        {
+            case "mute": player.Muted = !player.Muted; break;
+            case "play": player.Play(); break;
+            case "pause": player.Pause(); break;
+            default: if (player.Playing) player.Pause(); else player.Play(); break;
+        }
+        Refresh(); // the controls' glyphs + labels reflect the new state
+        return true;
+    }
+
     /// <summary>True (once, then reset) if a background image load finished — or a live surface
     /// published a frame / (un)registered — since the last call. A render-on-demand host repaints
     /// when this returns true, so an async image appears and a paused video shows its seek frame.
-    /// (Single pipe on purpose: both sides must consume their flag every poll.)</summary>
-    public bool ConsumeImageArrived() => _images.TakeArrived() | Surfaces.TakeArrived();
+    /// (Single pipe on purpose: both sides must consume their flag every poll.) Also the UI-thread
+    /// reaction point for a video reaching its end (raised on the player's thread): the rebuild
+    /// here flips its controls back to "Play".</summary>
+    public bool ConsumeImageArrived()
+    {
+        if (System.Threading.Interlocked.Exchange(ref _videoStateChanged, 0) == 1)
+        {
+            Refresh();
+            return true;
+        }
+        return _images.TakeArrived() | Surfaces.TakeArrived();
+    }
 
     public RenderNode Root => _root;
 
@@ -295,6 +389,7 @@ public sealed partial class CupriDocument : IDisposable
 
         // Expand custom elements after binding so components see concrete attribute values.
         _components?.Expand(dom);
+        SyncVideos(dom); // players follow the DOM: open for new sources, label controls, retire gone ones
         Mark("expand-components");
 
         // Re-apply text focus across the rebuild (typing rebuilds the DOM each keystroke), and
@@ -1308,6 +1403,9 @@ public sealed partial class CupriDocument : IDisposable
 
             // Number stepper: +/- button adjusts the nearest numeric field's bound value.
             if (el.GetAttribute("data-cupri-step") is { Length: > 0 } stepRaw) return StepNumber(node, stepRaw);
+
+            // Video transport (play/pause toggle, mute) for the nearest enclosing <cupri-video>.
+            if (el.GetAttribute("data-video-cmd") is { Length: > 0 } videoCmd) return VideoCommand(node, videoCmd);
 
             // Window command (fullscreen…): raised for the host, like Navigated. Handled only when
             // a host actually subscribed — headless/embedded consumers just ignore the click.
@@ -2897,6 +2995,9 @@ public sealed partial class CupriDocument : IDisposable
 
     public void Dispose()
     {
+        foreach (var player in _videoPlayers.Values)
+            try { player.Dispose(); } catch { /* a dying decoder must not block disposal */ }
+        _videoPlayers.Clear();
         _fonts.Dispose();
         _images.Dispose();
         _dom?.Dispose();

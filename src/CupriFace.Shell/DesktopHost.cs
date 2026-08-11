@@ -11,7 +11,12 @@ namespace CupriFace.Shell;
 /// </summary>
 public static class DesktopHost
 {
-    public static void Run(CupriApp app)
+    /// <param name="app">The portable application definition.</param>
+    /// <param name="configure">Host-composition hook, run once after the document is built —
+    /// where desktop-only capabilities attach (e.g. <c>d =&gt; d.UseVideo(new WebmVideoBackend())</c>
+    /// from the optional CupriFace.Media package). Kept OUT of <see cref="CupriApp.Configure"/> on
+    /// purpose: the app class is shared with hosts that must not reference desktop codecs.</param>
+    public static void Run(CupriApp app, Action<CupriDocument>? configure = null)
     {
         // The GL-probe child (see GlProbeSurvives): attempt GL bring-up, report via exit code,
         // never open the real window. Checked before anything else so the probe stays invisible.
@@ -22,6 +27,7 @@ public static class DesktopHost
         }
 
         var doc = app.CreateDocument();
+        configure?.Invoke(doc);
         // External links (http/mailto/…) open in the OS browser; internal routing + #anchors are the
         // app's / engine's concern. Both hosts do this, so links behave the same on desktop and web.
         doc.Navigated += e => { if (e.External) OpenExternal(e.Href); };
