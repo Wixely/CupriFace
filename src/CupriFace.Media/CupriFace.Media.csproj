@@ -18,4 +18,9 @@
     <ProjectReference Include="../CupriFace/CupriFace.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The player's pump is driven directly (manual clock) by the headless tests. -->
+    <InternalsVisibleTo Include="CupriFace.Tests" />
+  </ItemGroup>
+
 </Project>

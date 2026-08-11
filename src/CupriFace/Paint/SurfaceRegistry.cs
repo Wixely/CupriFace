@@ -81,11 +81,36 @@ public sealed class SurfaceRegistry
     /// the paused-seek / first-frame path, where nothing else would wake the render loop.</summary>
     public void NotifyFrame() => _arrived = true;
 
-    /// <summary>True (once, then reset) if a frame/registration arrived since the last poll.</summary>
+    // Frames a host has already seen, per key — so a producer that swaps CurrentFrame without
+    // calling NotifyFrame (a decoder thread that knows nothing about hosts) still wakes the next
+    // poll. Reference comparison per tick over a handful of surfaces: effectively free.
+    private readonly Dictionary<string, SKImage?> _seenFrames = new(StringComparer.Ordinal);
+
+    /// <summary>True (once, then reset) if a frame/registration arrived — or any surface's
+    /// <see cref="ISurfaceSource.CurrentFrame"/> reference changed — since the last poll.</summary>
     public bool TakeArrived()
     {
-        if (!_arrived) return false;
+        var arrived = _arrived;
         _arrived = false;
-        return true;
+        lock (_lock)
+        {
+            foreach (var (key, source) in _sources)
+            {
+                var current = source.CurrentFrame;
+                if (!_seenFrames.TryGetValue(key, out var seen) || !ReferenceEquals(seen, current))
+                {
+                    _seenFrames[key] = current;
+                    arrived = true;
+                }
+            }
+            if (_seenFrames.Count > _sources.Count)
+            {
+                List<string>? gone = null;
+                foreach (var key in _seenFrames.Keys)
+                    if (!_sources.ContainsKey(key)) (gone ??= new List<string>()).Add(key);
+                if (gone is not null) foreach (var key in gone) _seenFrames.Remove(key);
+            }
+        }
+        return arrived;
     }
 }
