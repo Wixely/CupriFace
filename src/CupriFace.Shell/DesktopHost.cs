@@ -139,9 +139,22 @@ public static class DesktopHost
             window.PointerUp += (x, y) => { Mark(doc.DispatchPointerUp(x / scale, y / scale)); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
             window.PointerWheel += (x, y, dy) => Mark(doc.DispatchWheel(x / scale, y / scale, -dy * 50f)); // wheel up → scroll up
             window.TextEntered += t => Mark(doc.DispatchKey(t, EditKey.None));
-            window.EditKeyPressed += (k, mods) => Mark(doc.DispatchKey(null, k, mods));
+            window.EditKeyPressed += (k, mods) =>
+            {
+                var handled = doc.DispatchKey(null, k, mods);
+                Mark(handled);
+                // Escape the document didn't consume (no overlay open) exits fullscreen — the OS
+                // convention. Overlays keep winning: dismissing one returns handled above.
+                if (!handled && k == EditKey.Escape && window.IsFullscreen) window.SetFullscreen(false);
+            };
             window.Shortcut += (ch, mods) => { Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             doc.ContextRequested += cmd => { ContextAction(doc, cmd, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
+            doc.WindowCommandRequested += cmd => window.SetFullscreen(cmd switch
+            {
+                WindowCommand.EnterFullscreen => true,
+                WindowCommand.ExitFullscreen => false,
+                _ => !window.IsFullscreen,
+            });
             window.Run();
         }
         catch (Exception ex)
@@ -218,9 +231,20 @@ public static class DesktopHost
             window.PointerUp += (x, y) => { Mark(doc.DispatchPointerUp(x / scale, y / scale)); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
             window.PointerWheel += (x, y, dy) => Mark(doc.DispatchWheel(x / scale, y / scale, -dy * 50f)); // wheel up → scroll up
             window.TextEntered += t => Mark(doc.DispatchKey(t, EditKey.None));
-            window.EditKeyPressed += (k, mods) => Mark(doc.DispatchKey(null, k, mods));
+            window.EditKeyPressed += (k, mods) =>
+            {
+                var handled = doc.DispatchKey(null, k, mods);
+                Mark(handled);
+                if (!handled && k == EditKey.Escape && window.IsFullscreen) window.SetFullscreen(false);
+            };
             window.Shortcut += (ch, mods) => { Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             doc.ContextRequested += cmd => { ContextAction(doc, cmd, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
+            doc.WindowCommandRequested += cmd => window.SetFullscreen(cmd switch
+            {
+                WindowCommand.EnterFullscreen => true,
+                WindowCommand.ExitFullscreen => false,
+                _ => !window.IsFullscreen,
+            });
             window.Run();
         }
     }

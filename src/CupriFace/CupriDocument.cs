@@ -148,6 +148,13 @@ public sealed partial class CupriDocument : IDisposable
     /// host opens external ones in a browser — the engine itself opens nothing (that's a host concern).</summary>
     public event Action<Interaction.NavigateEvent>? Navigated;
 
+    /// <summary>Raised when an element carrying <c>data-window-command</c> (e.g. a video's
+    /// fullscreen button) is activated. The engine owns pixels, not the OS window — the host
+    /// performs the command (desktop: window state; web: the Fullscreen API). Escape-to-exit is
+    /// also host-side: when <see cref="DispatchKey"/> returns unhandled for Escape and the window
+    /// is fullscreen, the host exits it (so overlays keep winning Escape first).</summary>
+    public event Action<Interaction.WindowCommand>? WindowCommandRequested;
+
     // Engine-owned toast stack (doc.Toast). Each toast slides in, waits, then slides out and is removed —
     // driven by Animate. Entering/Leaving render off-screen; the flip to/from Shown is what the transition
     // engine animates (paint-only). Rendered bottom-right by InjectToaster + the ToasterComponent's CSS.
@@ -1301,6 +1308,20 @@ public sealed partial class CupriDocument : IDisposable
 
             // Number stepper: +/- button adjusts the nearest numeric field's bound value.
             if (el.GetAttribute("data-cupri-step") is { Length: > 0 } stepRaw) return StepNumber(node, stepRaw);
+
+            // Window command (fullscreen…): raised for the host, like Navigated. Handled only when
+            // a host actually subscribed — headless/embedded consumers just ignore the click.
+            if (el.GetAttribute("data-window-command") is { Length: > 0 } wc)
+            {
+                if (WindowCommandRequested is not { } windowHandlers) return false;
+                windowHandlers(wc switch
+                {
+                    "enter-fullscreen" => Interaction.WindowCommand.EnterFullscreen,
+                    "exit-fullscreen" => Interaction.WindowCommand.ExitFullscreen,
+                    _ => Interaction.WindowCommand.ToggleFullscreen,
+                });
+                return true;
+            }
 
             // Generic "set a bound value" click (tabs, select options, tree selection). Closes any
             // containing overlay so picking an option dismisses its dropdown — unless the element opts

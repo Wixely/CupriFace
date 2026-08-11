@@ -85,6 +85,22 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         }
     }
 
+    /// <summary>True while the window is fullscreen (see <see cref="SetFullscreen"/>).</summary>
+    public bool IsFullscreen { get; private set; }
+
+    /// <summary>Enter/leave fullscreen. Uses SDL's desktop-fullscreen (borderless at the desktop
+    /// resolution — instant, no display-mode switch); the size-changed event that follows resizes
+    /// the surface and reflows the app like any other resize.</summary>
+    public void SetFullscreen(bool on)
+    {
+        if (_window is null || IsFullscreen == on) return;
+        if (_sdl.SetWindowFullscreen(_window, on ? (uint)WindowFlags.FullscreenDesktop : 0) == 0)
+        {
+            IsFullscreen = on;
+            _presentDirty = true;
+        }
+    }
+
     /// <summary>OS clipboard text, for copy/cut/paste (SDL, via managed Silk bindings). SDL clipboard
     /// strings are UTF-8; marshal them explicitly (Silk's convenience *S/string overloads assume
     /// ANSI, which mangles non-ASCII like “—” into mojibake).</summary>
