@@ -13,6 +13,14 @@ public static class DesktopHost
 {
     public static void Run(CupriApp app)
     {
+        // The GL-probe child (see GlProbeSurvives): attempt GL bring-up, report via exit code,
+        // never open the real window. Checked before anything else so the probe stays invisible.
+        if (Environment.GetCommandLineArgs().Contains("--cupriface-gl-probe"))
+        {
+            try { SkiaWindow.Probe(); Environment.Exit(0); }
+            catch { Environment.Exit(1); }
+        }
+
         var doc = app.CreateDocument();
         // External links (http/mailto/…) open in the OS browser; internal routing + #anchors are the
         // app's / engine's concern. Both hosts do this, so links behave the same on desktop and web.
@@ -72,13 +80,24 @@ public static class DesktopHost
             ctx.Canvas.Restore();
         }
 
-        // Escape hatch for machines where trying GL is not merely useless but fatal. On a GPU-less
-        // or virtual X server (headless boxes, some VMs, X-forwarded sessions) the driver hands back
-        // a context whose entry points resolve but do nothing, and Skia's GL interface assembly
-        // dereferences what it gets — a SIGSEGV, which no catch block can rescue. Until that is
-        // fixed (see ROADMAP), CUPRIFACE_SOFTWARE=1 skips the GL attempt entirely and goes straight
-        // to the SDL software window, which renders the same pixels a little slower.
+        // Escape hatch: CUPRIFACE_SOFTWARE=1 skips the GL attempt entirely and goes straight to
+        // the SDL software window, which renders the same pixels a little slower. The GL path's
+        // known failure modes are handled these days (a broken GL stack raises an ordinary
+        // exception and falls through to SDL below) — but an explicit override beats debugging.
         var forceSoftware = Environment.GetEnvironmentVariable("CUPRIFACE_SOFTWARE") is "1" or "true" or "TRUE";
+
+        // macOS with no OpenGL at all (the paravirtual GPU of virtualised Macs — CI runners, UTM
+        // guests) kills the process NATIVELY inside GLFW before any managed guard can run: window
+        // creation fails without setting a GLFW error, Silk.NET applies the default position to
+        // the NULL handle, and release-build GLFW segfaults in glfwSetWindowPos (the macOS CI
+        // crash report named that exact frame, window argument = 0). Uncatchable in-process — so
+        // a throwaway child process takes the risk first. Real Macs (GL present) pay one
+        // invisible ~200 ms probe at startup and then get the GPU window as before.
+        if (!forceSoftware && OperatingSystem.IsMacOS() && !GlProbeSurvives())
+        {
+            Console.WriteLine("[CupriFace] GL probe failed (no OpenGL here); using the SDL software window.");
+            forceSoftware = true;
+        }
 
         try
         {
@@ -154,6 +173,46 @@ public static class DesktopHost
             window.Shortcut += (ch, mods) => { Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             doc.ContextRequested += cmd => { ContextAction(doc, cmd, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             window.Run();
+        }
+    }
+
+    // Launch ourselves with --cupriface-gl-probe and read the verdict off the exit code: 0 means the
+    // child brought GL up end to end; anything else — a managed throw, a native SIGSEGV, a hang —
+    // means this machine doesn't get the GL window. Any doubt (no process path, spawn failure,
+    // timeout) counts as failure: the fallback is a working window either way.
+    private static bool GlProbeSurvives()
+    {
+        try
+        {
+            var exe = Environment.ProcessPath;
+            if (exe is null) return false;
+            // Under `dotnet run` / `dotnet Viewer.dll` the process path is the dotnet host, which
+            // would swallow the flag — re-exec the entry assembly through it. Published apps
+            // (apphost or single-file) re-exec themselves.
+            var entry = System.Reflection.Assembly.GetEntryAssembly()?.Location;
+            var viaHost = Path.GetFileNameWithoutExtension(exe).Equals("dotnet", StringComparison.OrdinalIgnoreCase)
+                          && entry is { Length: > 0 };
+            var psi = new ProcessStartInfo(exe)
+            {
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            if (viaHost) { psi.ArgumentList.Add("exec"); psi.ArgumentList.Add(entry!); }
+            psi.ArgumentList.Add("--cupriface-gl-probe");
+
+            using var p = Process.Start(psi);
+            if (p is null) return false;
+            if (!p.WaitForExit(20000))
+            {
+                try { p.Kill(entireProcessTree: true); } catch { /* already gone */ }
+                return false;
+            }
+            return p.ExitCode == 0;
+        }
+        catch
+        {
+            return false;
         }
     }
 

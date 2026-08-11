@@ -108,6 +108,43 @@ public sealed class SkiaWindow : IDisposable
         _window.Run();
     }
 
+    /// <summary>Attempt GL bring-up end to end — window, context, usable GL, Skia interface,
+    /// GRContext — on an invisible throwaway window, then tear it all down. Run this in a
+    /// DISPOSABLE CHILD PROCESS: on a machine with no OpenGL at all (the paravirtual GPU of
+    /// virtualised Macs) glfwCreateWindow fails without setting a GLFW error, Silk.NET then
+    /// applies the default window position to the NULL handle, and release-build GLFW (asserts
+    /// compiled out) dies with a native SIGSEGV inside glfwSetWindowPos. That cannot be caught —
+    /// but it can be CONTAINED in a process whose whole job is to die so the real one doesn't.
+    /// A managed failure (no context, unusable GL) throws instead; the child maps both to its
+    /// exit code. See DesktopHost.GlProbeSurvives.</summary>
+    public static void Probe()
+    {
+        var options = WindowOptions.Default with
+        {
+            Title = "cupriface-gl-probe",
+            Size = new Vector2D<int>(64, 64),
+            IsVisible = false,
+            API = GraphicsAPI.Default,
+            ShouldSwapAutomatically = false,
+        };
+        using var window = Window.Create(options);
+        window.Load += () =>
+        {
+            var ctx = window.GLContext
+                ?? throw new InvalidOperationException("Probe window was created without a GL context.");
+            VerifyGlIsUsable(ctx);
+            using var iface = GRGlInterface.Create(name =>
+                name.StartsWith("gl", StringComparison.Ordinal) && ctx.TryGetProcAddress(name, out var addr)
+                    ? addr : IntPtr.Zero)
+                ?? throw new InvalidOperationException("Failed to assemble Skia GL interface.");
+            using var gr = GRContext.CreateGl(iface)
+                ?? throw new InvalidOperationException("Failed to create Skia GL context.");
+            GlTrace("probe: GL bring-up OK");
+            window.Close();
+        };
+        window.Run();
+    }
+
     // CUPRIFACE_GL_DEBUG=1 traces GL bring-up to stderr: the context's version/vendor/renderer,
     // then every proc-address Skia requests. When a broken GL stack kills the process natively,
     // the last trace line names the exact call that did it — evidence obtainable no other way,
