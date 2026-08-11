@@ -72,8 +72,19 @@ public static class DesktopHost
             ctx.Canvas.Restore();
         }
 
+        // Escape hatch for machines where trying GL is not merely useless but fatal. On a GPU-less
+        // or virtual X server (headless boxes, some VMs, X-forwarded sessions) the driver hands back
+        // a context whose entry points resolve but do nothing, and Skia's GL interface assembly
+        // dereferences what it gets — a SIGSEGV, which no catch block can rescue. Until that is
+        // fixed (see ROADMAP), CUPRIFACE_SOFTWARE=1 skips the GL attempt entirely and goes straight
+        // to the SDL software window, which renders the same pixels a little slower.
+        var forceSoftware = Environment.GetEnvironmentVariable("CUPRIFACE_SOFTWARE") is "1" or "true" or "TRUE";
+
         try
         {
+            if (forceSoftware)
+                throw new InvalidOperationException("CUPRIFACE_SOFTWARE is set; skipping the GL window.");
+
             var window = new SkiaWindow(app.Title, app.Width, app.Height, app.Transparent, app.Frameless, app.TopMost);
             if (icon is { } ic) window.SetIcon(ic.Rgba, ic.W, ic.H);
             window.ShouldRender = NeedsRender; // GL: skip draw + swap entirely on clean frames

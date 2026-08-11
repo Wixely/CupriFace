@@ -80,6 +80,14 @@ required — are attached to each release:
 
 The first launch unpacks the bundle and takes a few seconds; later launches are about 1.5 s.
 
+On Linux **without a GPU** — headless servers, some VMs, X-forwarded sessions — the GPU path can
+crash inside Skia's GL setup (a known bug, see [ROADMAP.md](ROADMAP.md)). Set
+`CUPRIFACE_SOFTWARE=1` to skip it and render in software:
+
+```bash
+CUPRIFACE_SOFTWARE=1 ./Viewer
+```
+
 To **build against** CupriFace rather than just run the demo, the same release carries NuGet
 packages (`.nupkg` + `.snupkg` symbols): `CupriFace` is the engine, `CupriFace.Shell` the desktop
 host. They are not on nuget.org yet — download them and add the folder as a local package source.
