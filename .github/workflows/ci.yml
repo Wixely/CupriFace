@@ -290,15 +290,42 @@ jobs:
           cp "$WIN" "dist/CupriFace-Viewer-$GITHUB_REF_NAME-win-x64.exe"
           ls -l dist
 
+      # Codec natives for the media package, from the latest GREEN Codecs run (they're built by
+      # their own workflow — pinned upstream tags, minutes per OS — so they change only when that
+      # workflow does). Missing artifacts are NOT fatal: CupriFace.Media still packs, just without
+      # decoders for the RIDs that failed, and NativeDecoders.Available reports false there.
+      - name: Fetch codec natives
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          RUN=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow codecs.yml --status success \
+                  --limit 1 --json databaseId --jq '.[0].databaseId' || true)
+          if [ -z "$RUN" ]; then echo "::warning::no successful Codecs run — packing without natives"; exit 0; fi
+          for rid in win-x64 linux-x64 osx-arm64; do
+            mkdir -p "native/$rid"
+            gh run download "$RUN" --repo "$GITHUB_REPOSITORY" --name "cupricodecs-$rid" --dir "native/$rid" \
+              || echo "::warning::codec native missing for $rid"
+          done
+          find native -type f -print0 | xargs -0 ls -l || true
+
       # The libraries themselves, so people can build against CupriFace rather than only run the
       # demo. Tag is v0.1.0; NuGet wants 0.1.0.
       - name: Pack libraries
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
-          for proj in src/CupriFace/CupriFace.csproj src/CupriFace.Shell/CupriFace.Shell.csproj; do
+          for proj in src/CupriFace/CupriFace.csproj src/CupriFace.Shell/CupriFace.Shell.csproj \
+                      src/CupriFace.Media/CupriFace.Media.csproj; do
             dotnet pack "$proj" -c Release -p:Version="$VERSION" -o dist
           done
+          # The media package must actually CARRY the decoders it promises — a nupkg without
+          # runtimes/ would install fine and then never play anything.
+          if [ -f native/win-x64/cupricodecs.dll ]; then
+            unzip -l dist/CupriFace.Media."$VERSION".nupkg > pkg.txt
+            grep -q 'runtimes/win-x64/native/cupricodecs.dll' pkg.txt \
+              || { echo "::error::CupriFace.Media packed without its win-x64 codec native"; cat pkg.txt; exit 1; }
+          fi
           ls -l dist
 
       - name: Publish release
@@ -328,6 +355,7 @@ jobs:
           |---|---|
           | `CupriFace` | The engine — HTML + CSS to a Skia canvas or any RGBA buffer, bound to plain C# objects. Runs headless. |
           | `CupriFace.Shell` | The desktop host — `DesktopHost.Run(new MyApp())`. |
+          | `CupriFace.Media` | Optional: WebM (VP9 + Opus) playback for `<cupri-video>`, decoders included for every desktop RID. |
 
           Not on nuget.org yet: download the `.nupkg` and add its folder as a local source.
           EOF
