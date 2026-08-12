@@ -13,7 +13,10 @@ namespace CupriFace.Components.Controls;
 ///
 /// Size like an image: CSS width/height, aspect preserved when only one is given, intrinsic
 /// video size otherwise. Full-window video is just <c>width:100%; height:100%</c> +
-/// <c>fit="cover"</c>; the ⛶ control requests OS fullscreen via <c>data-window-command</c>.
+/// <c>fit="cover"</c>. The ⛶ control fullscreens the VIDEO, the way the web does it: the
+/// element expands to cover the whole viewport in the top layer (letterboxed on black, controls
+/// still overlaid) AND the window goes OS-fullscreen via <c>WindowCommandRequested</c> — so the
+/// video fills the screen, not just the window. Escape (or ⛶ again) undoes both.
 /// </summary>
 public sealed class VideoComponent : ComponentBase
 {
@@ -28,6 +31,7 @@ public sealed class VideoComponent : ComponentBase
         .cupri-video-btn.disabled { opacity:0.35; }
         .cupri-video-btn.disabled:hover { background:transparent; }
         .cupri-video-title { color:#e6e9ef; flex:1; }
+        .cupri-video-fs { z-index:90; background:#000; }
         """;
 
     public override void Expand(IElement el)
@@ -58,7 +62,7 @@ public sealed class VideoComponent : ComponentBase
               <div class='cupri-video-btn' role='button' aria-label='Play' data-video-role='toggle' data-video-cmd='toggle'>{IconMarkup("play", 18)}</div>
               <div class='cupri-video-btn' role='button' aria-label='Mute' data-video-role='mute' data-video-cmd='mute'>{IconMarkup("volume", 18)}</div>
               <span class='cupri-video-title'>{esc}</span>
-              <div class='cupri-video-btn' role='button' aria-label='Fullscreen' data-window-command='toggle-fullscreen'>{IconMarkup("fullscreen", 18)}</div>
+              <div class='cupri-video-btn' role='button' aria-label='Fullscreen' data-video-role='fullscreen' data-video-cmd='fullscreen'>{IconMarkup("fullscreen", 18)}</div>
             </div>
             """;
     }
@@ -75,6 +79,24 @@ public sealed class VideoComponent : ComponentBase
                 button.ClassList.Add("disabled");
                 button.SetAttribute("aria-disabled", "true");
             }
+    }
+
+    /// <summary>Make this element THE fullscreen video (the document calls it during each rebuild
+    /// while its src is the fullscreen one — the fresh DOM starts in the normal state). The
+    /// geometry goes on the INLINE style so it beats the author's own inline width/height/radius
+    /// (`style="width:320px"` would defeat a class); appended last, so it wins within the
+    /// attribute too. position:fixed puts it in the top layer — painted above everything,
+    /// hit-tested first — and the class brings z-index + the black letterbox background.</summary>
+    internal static void ApplyFullscreenState(IElement el)
+    {
+        el.ClassList.Add("cupri-video-fs");
+        el.SetAttribute("style", (el.GetAttribute("style") ?? "")
+            + ";position:fixed;left:0;top:0;width:100%;height:100%;border-radius:0");
+        if (el.QuerySelector("[data-video-role='fullscreen']") is { } button)
+        {
+            button.InnerHtml = IconMarkup("fullscreen-exit", 18);
+            button.SetAttribute("aria-label", "Exit fullscreen");
+        }
     }
 
     /// <summary>Reflect live player state into a freshly rebuilt element's controls (the DOM is

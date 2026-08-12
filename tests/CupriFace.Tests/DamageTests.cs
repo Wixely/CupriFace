@@ -68,6 +68,34 @@ public class DamageTests
     }
 
     [Fact]
+    public void A_recreated_host_surface_forces_the_next_frame_to_repaint_in_full()
+    {
+        // The un-fullscreen black-screen bug: the SDL window recreated its bitmap+texture (blank)
+        // while the doc's diff base still said "last frame is on screen", so only the video's rect
+        // got repainted — everything else stayed black. InvalidateRetainedFrame is the host's
+        // "your pixels are gone" signal: the next identical frame must be a FULL repaint, not null.
+        using var t = new TestDoc(
+            "<body><div style='padding:20px'><cupri-button>Save</cupri-button></div></body>",
+            "", components: true, width: W, height: H);
+        using var retained = new SKBitmap(new SKImageInfo(W, H, SKColorType.Rgba8888, SKAlphaType.Premul));
+        using var canvas = new SKCanvas(retained);
+
+        Assert.NotNull(t.Doc.RenderIncremental(canvas, W, H, SKColors.White));
+        Assert.Null(t.Doc.RenderIncremental(canvas, W, H, SKColors.White));
+
+        canvas.Clear(SKColors.Black);                       // the recreated surface holds nothing
+        t.Doc.InvalidateRetainedFrame();
+        var damage = t.Doc.RenderIncremental(canvas, W, H, SKColors.White);
+        Assert.Equal(new SKRectI(0, 0, W, H), damage);      // full frame, not just what "changed"
+
+        canvas.Flush();
+        var pixels = retained.Bytes;                        // and no black survives anywhere
+        for (var i = 0; i < pixels.Length; i += 4)
+            Assert.False(pixels[i] == 0 && pixels[i + 1] == 0 && pixels[i + 2] == 0,
+                $"pixel {i / 4} is still black — the full repaint didn't cover it");
+    }
+
+    [Fact]
     public void Charts_do_not_false_damage_from_reference_inequality()
     {
         // Polyline holds a list (reference equality by default) — the diff must compare its points, or

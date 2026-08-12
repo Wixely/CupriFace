@@ -471,8 +471,12 @@ decoder on the web host; with no backend the `poster` shows and the controls are
 adds an engine-drawn bar (play/pause, mute, fullscreen — real components, so they're themable and
 accessible); clicking the picture toggles playback. `autoplay` is honored **only together with
 `muted`** — the web's rule, applied on every host so one app behaves the same everywhere.
-Full-window video is just sizing (`width:100%;height:100%` + `fit="cover"`); the ⛶ button requests
-OS fullscreen and Escape leaves it.
+Full-window video is just sizing (`width:100%;height:100%` + `fit="cover"`). The ⛶ button
+fullscreens **the video itself**, the way the web does it: the element expands over the whole
+viewport in the top layer (letterboxed on black, the bar still overlaid) *and* the window goes
+OS/browser-fullscreen through `WindowCommandRequested` — together the video fills the screen.
+Escape (or ⛶ again) undoes both; on the web the browser's own Esc is picked up via
+`fullscreenchange`, so the element never sticks.
 
 `src` resolves **exactly like an image** — the developer picks the scheme per element:
 an **embedded** asset (bare name, the assembly registered via `UseImages`), a **disk** file

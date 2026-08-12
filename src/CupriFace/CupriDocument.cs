@@ -221,6 +221,7 @@ public sealed partial class CupriDocument : IDisposable
     private Media.IVideoBackend? _videoBackend;
     private readonly Dictionary<string, Media.IVideoPlayer> _videoPlayers = new(StringComparer.Ordinal);
     private int _videoStateChanged; // set (any thread) by Ended → consumed on the UI thread
+    private string? _fullscreenVideo; // src of the video currently element-fullscreened (web model: one at most)
 
     /// <summary>Register the video backend (host composition root — see <see cref="Media.IVideoBackend"/>).</summary>
     public CupriDocument UseVideo(Media.IVideoBackend backend)
@@ -244,6 +245,17 @@ public sealed partial class CupriDocument : IDisposable
                 Components.Controls.VideoComponent.SyncControls(el, player);
             else
                 Components.Controls.VideoComponent.MarkInert(el);   // no backend: honest controls
+            // The fresh DOM starts windowed; re-mark the fullscreen one each rebuild.
+            if (src == _fullscreenVideo)
+                Components.Controls.VideoComponent.ApplyFullscreenState(el);
+        }
+
+        // The fullscreen video's element left the DOM (section switched away) — nothing is
+        // fullscreen any more; the WINDOW state is the host's, released via the same event.
+        if (_fullscreenVideo is not null && (seen is null || !seen.Contains(_fullscreenVideo)))
+        {
+            _fullscreenVideo = null;
+            WindowCommandRequested?.Invoke(Interaction.WindowCommand.ExitFullscreen);
         }
 
         if (_videoPlayers.Count == 0) return;
@@ -290,7 +302,24 @@ public sealed partial class CupriDocument : IDisposable
         string? src = null;
         for (var n = node; n is not null; n = n.Parent)
             if (n.Element?.GetAttribute("data-cupri-video") is { Length: > 0 } s) { src = s; break; }
-        if (src is null || !_videoPlayers.TryGetValue(src, out var player)) return false;
+        if (src is null) return false;
+
+        // Fullscreen is the video's OWN fullscreen (web semantics): the element covers the
+        // viewport in the top layer AND the window goes OS-fullscreen — together they make the
+        // video fill the screen. Needs no decoder (a poster fullscreens fine), so it's handled
+        // before the player lookup; still synchronous inside the input dispatch, because the web
+        // host's requestFullscreen demands the user gesture on the stack.
+        if (cmd == "fullscreen")
+        {
+            var entering = _fullscreenVideo != src;
+            _fullscreenVideo = entering ? src : null;
+            WindowCommandRequested?.Invoke(entering
+                ? Interaction.WindowCommand.EnterFullscreen
+                : Interaction.WindowCommand.ExitFullscreen);
+            Refresh();
+            return true;
+        }
+        if (!_videoPlayers.TryGetValue(src, out var player)) return false;
 
         switch (cmd)
         {
@@ -301,6 +330,17 @@ public sealed partial class CupriDocument : IDisposable
         }
         Refresh(); // the controls' glyphs + labels reflect the new state
         return true;
+    }
+
+    /// <summary>The host's fullscreen state changed OUTSIDE the engine's own commands — the
+    /// browser's Esc key ends fullscreen without the engine ever seeing a keystroke. Hosts call
+    /// this from their fullscreen-change notification; leaving fullscreen releases any
+    /// element-fullscreened video back into the layout.</summary>
+    public void NotifyHostFullscreen(bool active)
+    {
+        if (active || _fullscreenVideo is null) return;
+        _fullscreenVideo = null;
+        Refresh();
     }
 
     /// <summary>True (once, then reset) if a background image load finished — or a live surface
@@ -613,6 +653,13 @@ public sealed partial class CupriDocument : IDisposable
     // writes these — Render/RenderToImage stay stateless full repaints.
     private IReadOnlyList<Paint.PaintCommand>? _lastPresented;
     private float _lastPresentedW, _lastPresentedH;
+
+    /// <summary>The host's retained canvas lost its pixels (its backing surface was recreated —
+    /// e.g. the SDL window rebuilt its bitmap+texture on a size change). The damage diff would
+    /// otherwise keep assuming last frame's pixels are still on screen and repaint only what
+    /// changed — into a blank surface, leaving everything else black. Dropping the diff base
+    /// makes the next <see cref="RenderIncremental"/> a full repaint.</summary>
+    public void InvalidateRetainedFrame() => _lastPresented = null;
 
     /// <summary>Render for a host whose canvas RETAINS its pixels between frames (the SDL software
     /// bitmap, the WASM staging bitmap): diffs this frame's display list against the last one presented,
@@ -1669,6 +1716,14 @@ public sealed partial class CupriDocument : IDisposable
         {
             BindingEngine.TrySet(_model, path, false);
             _overlayFocused = false; _kbIndex = -1;
+            Refresh();
+            return true;
+        }
+        // No overlay to dismiss: Escape ends video fullscreen (element AND window, like the web).
+        if (_fullscreenVideo is not null)
+        {
+            _fullscreenVideo = null;
+            WindowCommandRequested?.Invoke(Interaction.WindowCommand.ExitFullscreen);
             Refresh();
             return true;
         }

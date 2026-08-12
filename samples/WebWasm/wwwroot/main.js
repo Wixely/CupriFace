@@ -162,6 +162,10 @@ try {
     const I = exports.Interop;
     logBoot('exports ok');
 
+    // The browser can end fullscreen on its own (Esc goes to the BROWSER, not our key handler) —
+    // tell the engine so an element-fullscreened video returns to its place in the layout.
+    document.addEventListener('fullscreenchange', () => I.HostFullscreen(!!document.fullscreenElement));
+
     // Size the canvas backing store to its CSS box (the full window), and keep it in sync on
     // resize so Hybrid-Zoom scaling reflows to the viewport. Tick notices the size change and
     // repaints (render-on-demand).

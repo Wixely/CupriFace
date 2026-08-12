@@ -19,6 +19,14 @@ public sealed class ShowcaseApp : CupriApp
     private static readonly HashSet<string> KnownSections =
         ["controls", "components", "charts", "images", "overlays", "layout", "motion", "styling", "settings", "diag"];
 
+    /// <summary>Optionally start on a given section (a sidebar id like "images") — the hosts pass
+    /// e.g. `--section images` through, so a dev (or a UI test) lands straight on the page under
+    /// work. Unknown ids keep the default.</summary>
+    public ShowcaseApp(string? section = null)
+    {
+        if (section is not null && KnownSections.Contains(section)) _model.Section = section;
+    }
+
     public override string Title => "CupriFace — Showcase";
     public override byte[] Icon => EmbeddedAsset("Assets/logo-512.png").ReadBytes();
     public override int Width => 940;

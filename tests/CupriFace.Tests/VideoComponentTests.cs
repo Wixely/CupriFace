@@ -61,7 +61,7 @@ public class VideoComponentTests
         Assert.NotNull(t.Find(n => n.Element?.GetAttribute("data-cupri-surface") == "video:clip.webm"));
         Assert.NotNull(t.Find(n => n.Element?.GetAttribute("data-cupri-image") == "p.png"));
         Assert.NotNull(t.Find(n => n.Element?.GetAttribute("data-video-cmd") == "mute"));
-        Assert.NotNull(t.Find(n => n.Element?.GetAttribute("data-window-command") == "toggle-fullscreen"));
+        Assert.NotNull(t.Find(n => n.Element?.GetAttribute("data-video-cmd") == "fullscreen"));
         Assert.NotNull(t.Find(n => n.Element?.GetAttribute("aria-label") == "Trailer"));
         // No backend registered: nothing throws, the element still renders (poster lane).
     }
@@ -76,7 +76,7 @@ public class VideoComponentTests
         var toggle = t.Find(n => n.Element?.GetAttribute("data-video-role") == "toggle")!;
         Assert.Contains("disabled", toggle.Element!.ClassList);
         Assert.Equal("true", toggle.Element!.GetAttribute("aria-disabled"));
-        var fullscreen = t.Find(n => n.Element?.GetAttribute("data-window-command") is { Length: > 0 })!;
+        var fullscreen = t.Find(n => n.Element?.GetAttribute("data-video-role") == "fullscreen")!;
         Assert.DoesNotContain("disabled", fullscreen.Element!.ClassList);
 
         // Registering a backend un-dims them on the next rebuild.
@@ -193,6 +193,113 @@ public class VideoComponentTests
         var node = t.Find(n => n.Element?.GetAttribute("data-cupri-video") == "clip.webm")!;
         Assert.Equal(320, node.Width, 1);
         Assert.Equal(180, node.Height, 1);
+    }
+
+    [Fact]
+    public void Fullscreen_expands_the_ELEMENT_to_the_viewport_and_asks_for_the_window_too()
+    {
+        // Deliberately no backend and an authored inline size: fullscreen needs no decoder, and
+        // the viewport override must beat the author's own style="width:320px;height:180px".
+        using var t = new TestDoc(
+            "<body><div style='padding:40px'><cupri-video src='clip.webm' controls style='width:320px;height:180px;border-radius:10px'></cupri-video></div></body>",
+            "", components: true, width: 800, height: 500);
+        var commands = new List<CupriFace.Interaction.WindowCommand>();
+        t.Doc.WindowCommandRequested += commands.Add;
+        t.Layout();
+
+        t.ClickMatch(n => n.Element?.GetAttribute("data-video-cmd") == "fullscreen");
+        t.Layout();
+        var node = t.Find(n => n.Element?.GetAttribute("data-cupri-video") == "clip.webm")!;
+        Assert.Equal(new[] { CupriFace.Interaction.WindowCommand.EnterFullscreen }, commands);
+        Assert.Contains("cupri-video-fs", node.Element!.ClassList);
+        Assert.Equal(800, node.Width, 1);                       // covers the viewport…
+        Assert.Equal(500, node.Height, 1);
+        Assert.NotNull(t.Find(n => n.Element?.GetAttribute("aria-label") == "Exit fullscreen"));
+
+        t.ClickMatch(n => n.Element?.GetAttribute("data-video-cmd") == "fullscreen");
+        t.Layout();
+        node = t.Find(n => n.Element?.GetAttribute("data-cupri-video") == "clip.webm")!;
+        Assert.Equal(CupriFace.Interaction.WindowCommand.ExitFullscreen, commands[^1]);
+        Assert.DoesNotContain("cupri-video-fs", node.Element!.ClassList);
+        Assert.Equal(320, node.Width, 1);                       // …and comes back to its place
+        Assert.Equal(180, node.Height, 1);
+    }
+
+    [Fact]
+    public void The_fullscreen_video_is_on_top_it_owns_a_click_anywhere()
+    {
+        var backend = new FakeBackend();
+        using var t = new TestDoc(
+            "<body><div style='padding:30px'><cupri-button>Save</cupri-button><cupri-video src='clip.webm' controls style='width:200px;height:120px'></cupri-video></div></body>",
+            "", components: true, width: 800, height: 500);
+        t.Doc.UseVideo(backend);
+        t.Layout();
+
+        t.ClickMatch(n => n.Element?.GetAttribute("data-video-cmd") == "fullscreen");
+        t.Layout();
+
+        // The Save button's old spot now hits the top-layer video: the click toggles playback
+        // instead of pressing the button underneath.
+        var p = backend.Players["clip.webm"];
+        Assert.False(p.Playing);
+        t.Doc.DispatchClick(60, 45, 1);
+        Assert.True(p.Playing);
+    }
+
+    [Fact]
+    public void Escape_exits_video_fullscreen_and_releases_the_window()
+    {
+        using var t = new TestDoc(Html, "", components: true, width: 800, height: 500);
+        var commands = new List<CupriFace.Interaction.WindowCommand>();
+        t.Doc.WindowCommandRequested += commands.Add;
+        t.Layout();
+
+        t.ClickMatch(n => n.Element?.GetAttribute("data-video-cmd") == "fullscreen");
+        t.Layout();
+        Assert.True(t.Doc.DispatchKey(null, CupriFace.Interaction.EditKey.Escape)); // the DOC handles it
+        t.Layout();
+
+        Assert.Equal(new[] { CupriFace.Interaction.WindowCommand.EnterFullscreen,
+                             CupriFace.Interaction.WindowCommand.ExitFullscreen }, commands);
+        Assert.Null(t.Find(n => n.Element?.ClassList.Contains("cupri-video-fs") == true));
+    }
+
+    [Fact]
+    public void Hiding_the_fullscreen_videos_section_releases_window_fullscreen_too()
+    {
+        var backend = new FakeBackend();
+        var m = new Model { Section = "block" };
+        const string html = """
+            <body>
+              <div style="display:{{Section}}"><cupri-video src='clip.webm' controls muted></cupri-video></div>
+            </body>
+            """;
+        using var t = new TestDoc(html, "", m, components: true, width: 800, height: 500);
+        var commands = new List<CupriFace.Interaction.WindowCommand>();
+        t.Doc.WindowCommandRequested += commands.Add;
+        t.Doc.UseVideo(backend);
+        t.Layout();
+
+        t.ClickMatch(n => n.Element?.GetAttribute("data-video-cmd") == "fullscreen");
+        m.Section = "none";                                     // the app switches the section away
+        t.Doc.Refresh();
+        Assert.Equal(new[] { CupriFace.Interaction.WindowCommand.EnterFullscreen,
+                             CupriFace.Interaction.WindowCommand.ExitFullscreen }, commands);
+    }
+
+    [Fact]
+    public void The_browsers_own_fullscreen_exit_puts_the_video_back()
+    {
+        // On the web the Esc key goes to the BROWSER; the engine only hears fullscreenchange.
+        using var t = new TestDoc(Html, "", components: true, width: 800, height: 500);
+        t.Layout();
+        t.ClickMatch(n => n.Element?.GetAttribute("data-video-cmd") == "fullscreen");
+        t.Layout();
+        Assert.NotNull(t.Find(n => n.Element?.ClassList.Contains("cupri-video-fs") == true));
+
+        t.Doc.NotifyHostFullscreen(false);                      // what the host reports
+        t.Layout();
+        Assert.Null(t.Find(n => n.Element?.ClassList.Contains("cupri-video-fs") == true));
     }
 
     [Fact]

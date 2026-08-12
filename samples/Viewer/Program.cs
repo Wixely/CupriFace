@@ -11,7 +11,8 @@ using CupriFace.Shell;
 // wires only when the cupricodecs native library is present (packaged apps carry it in
 // runtimes/<rid>/; running from source, drop a codecs.yml artifact into native/<rid>/).
 // Without it the video card shows its poster with disabled controls.
-DesktopHost.Run(new ShowcaseApp(), doc =>
+var section = args.SkipWhile(a => a != "--section").Skip(1).FirstOrDefault(); // e.g. --section images
+DesktopHost.Run(new ShowcaseApp(section), doc =>
 {
     if (NativeDecoders.Available)
         doc.UseVideo(new WebmVideoBackend(new NativeDecoders(), SdlAudioSink.TryCreate()));

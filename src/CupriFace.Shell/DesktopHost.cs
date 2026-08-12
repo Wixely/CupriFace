@@ -169,6 +169,10 @@ public static class DesktopHost
             using var window = new SdlSoftwareWindow(app.Title, app.Width, app.Height, app.Transparent, app.Frameless, app.TopMost);
             if (icon is { } ic) window.SetIcon(ic.Rgba, ic.W, ic.H);
 
+            // The retained surface was recreated (blank): the doc's damage diff must restart from
+            // a full repaint, and the frame must actually render even if nothing else is dirty.
+            window.SurfaceRecreated += () => { doc.InvalidateRetainedFrame(); dirty = true; };
+
             // UIA on the software window too — on Windows this is the path GL-less machines (RDP,
             // VMs, CI runners) actually take, so a screen reader must work here, not just on GL.
             Accessibility.UiaBridge? uia = null;
