@@ -357,14 +357,19 @@ public sealed partial class CupriDocument : IDisposable
             Refresh();
             return true;
         }
-        return _images.TakeArrived() | Surfaces.TakeArrived();
+        // A loaded IMAGE changes the display list (DrawImage captures at build time) — invalidate
+        // the fast path. A live-surface frame does NOT (DrawSurface resolves at raster time):
+        // that's exactly the case the fast path exists for, so it must not bump.
+        var image = _images.TakeArrived();
+        if (image) _inputsVersion++;
+        return image | Surfaces.TakeArrived();
     }
 
     public RenderNode Root => _root;
 
     /// <summary>Dev aid: outline every element's box on top of the paint (scroll containers in blue),
     /// to inspect layout in the live window. Off by default.</summary>
-    public bool DebugOverlay { get => _painter.DebugOutline; set => _painter.DebugOutline = value; }
+    public bool DebugOverlay { get => _painter.DebugOutline; set { _painter.DebugOutline = value; _inputsVersion++; } }
 
     /// <summary>Parse an HTML document and an optional external stylesheet.</summary>
     public static CupriDocument Load(string html, string? css = null)
@@ -410,6 +415,7 @@ public sealed partial class CupriDocument : IDisposable
 
     private void Rebuild()
     {
+        _inputsVersion++; // a fresh DOM invalidates the fast path's retained display list
         var prof = ProfileHook;
         var t = prof is not null ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
         void Mark(string phase)
@@ -601,7 +607,9 @@ public sealed partial class CupriDocument : IDisposable
         // so the transition below applies it the SAME frame — the toast starts from its off-screen state
         // instead of flashing at the target for one frame before the transition kicks in.
         if (_toasts.Count > 0 && StepToasts(timeSeconds)) any = true;
-        if (_keyframes.Count > 0) { Animation.Apply(_root, _keyframes, timeSeconds); any = true; }
+        // @keyframes RULES existing is not animation HAPPENING: hosts call Animate whenever rules
+        // exist (HasAnimations), but only a visibly animated node makes this frame's output differ.
+        if (_keyframes.Count > 0) { Animation.Apply(_root, _keyframes, timeSeconds); if (_hasActiveAnim) any = true; }
         if (_transitions.Apply(_root, timeSeconds)) any = true; // interpolate transitions over @keyframes
         if (_maskRevealPos >= 0) // a masked field is peeking its last-typed char — time it out
         {
@@ -614,6 +622,10 @@ public sealed partial class CupriDocument : IDisposable
             any = true;
         }
         if (EaseReorder(timeSeconds)) any = true; // slide reorder rows into their gap
+        // Animation wrote style/offset values this frame → the retained fast-path list is stale.
+        // A quiet call (rules exist, nothing active — every page of an app with a spinner
+        // somewhere) must NOT bump, or the surface fast path would never fire anywhere.
+        if (any) _inputsVersion++;
         return any;
     }
 
@@ -656,18 +668,70 @@ public sealed partial class CupriDocument : IDisposable
     private IReadOnlyList<Paint.PaintCommand>? _lastPresented;
     private float _lastPresentedW, _lastPresentedH;
 
+    // ---- the surface fast path ----------------------------------------------------------------
+    // Everything that can change the rendered output EXCEPT a live surface swapping its frame
+    // bumps _inputsVersion (dispatch shims, Rebuild, Animate, image arrivals). BuildFrame stamps
+    // the version it was built from. When they match at render time, the retained display list is
+    // still exact — a new video frame changed no command (DrawSurface resolves at raster time) —
+    // so the frame costs one clipped raster of the video rect instead of layout+paint+diff of the
+    // whole page (measured 3.49 ms → the ~0.3 ms floor on the Showcase).
+    private int _inputsVersion = 1, _builtVersion;
+    private DisplayList? _lastList; // the retained list the fast path re-rasters
+    private readonly Dictionary<Paint.ISurfaceSource, SKImage?> _seenSurfaceFrames = new();
+    // The culled replay for the fast path's damage rect — identical from frame to frame while the
+    // video sits still, so cull once and reuse until the list or the rect changes.
+    private IReadOnlyList<Paint.PaintCommand>? _cullCache;
+    private SKRectI _cullCacheRect;
+    private object? _cullCacheList;
+    private DrawSurface[] _lastListSurfaces = []; // pre-extracted, so fast frames skip the full walk
+
+    private bool Bump(bool changed)
+    {
+        if (changed) _inputsVersion++;
+        return changed;
+    }
+
+    // Union into `damage` the box of every DrawSurface whose frame changed since the last render,
+    // remembering the new references. The damage DIFF can't see those changes — two DrawSurface
+    // records with the same source and geometry compare equal by design. `prune` (the normal,
+    // freshly-built path) also drops remembered sources that left the list, so retired players
+    // don't accumulate. A first-sight source unions its rect too — on the normal path the diff
+    // already covers it (harmless double-union), and the fast path can't meet one.
+    private SKRect SurfaceDamage(IReadOnlyList<Paint.PaintCommand> cmds, SKRect damage, bool prune)
+    {
+        List<Paint.ISurfaceSource>? present = prune ? new() : null;
+        foreach (var cmd in cmds)
+        {
+            if (cmd is not DrawSurface ds) continue;
+            present?.Add(ds.Source);
+            var frame = ds.Source.CurrentFrame;
+            if (_seenSurfaceFrames.TryGetValue(ds.Source, out var seen) && ReferenceEquals(seen, frame)) continue;
+            _seenSurfaceFrames[ds.Source] = frame;
+            var r = SKRect.Create(ds.X, ds.Y, ds.W, ds.H);
+            damage = damage.IsEmpty ? r : SKRect.Union(damage, r);
+        }
+        if (present is not null && _seenSurfaceFrames.Count > present.Count)
+        {
+            List<Paint.ISurfaceSource>? drop = null;
+            foreach (var k in _seenSurfaceFrames.Keys) if (!present.Contains(k)) (drop ??= new()).Add(k);
+            if (drop is not null) foreach (var k in drop) _seenSurfaceFrames.Remove(k);
+        }
+        return damage;
+    }
+
     /// <summary>The host's retained canvas lost its pixels (its backing surface was recreated —
     /// e.g. the SDL window rebuilt its bitmap+texture on a size change). The damage diff would
     /// otherwise keep assuming last frame's pixels are still on screen and repaint only what
     /// changed — into a blank surface, leaving everything else black. Dropping the diff base
     /// makes the next <see cref="RenderIncremental"/> a full repaint.</summary>
-    public void InvalidateRetainedFrame() => _lastPresented = null;
+    public void InvalidateRetainedFrame() { _lastPresented = null; _lastList = null; }
 
     /// <summary>Where the last rendered frame's time went — the observability the video work runs
     /// on. Layout + paint-list come from <see cref="BuildFrame"/>; diff + raster + damage area
     /// from <see cref="RenderIncremental"/> (a full <see cref="Render"/> reports raster only).</summary>
     public readonly record struct FrameTimings(
-        double LayoutMs, double PaintListMs, double DiffMs, double RasterMs, int DamagePixels)
+        double LayoutMs, double PaintListMs, double DiffMs, double RasterMs, int DamagePixels,
+        bool FastPath = false)
     {
         public double TotalMs => LayoutMs + PaintListMs + DiffMs + RasterMs;
     }
@@ -700,13 +764,58 @@ public sealed partial class CupriDocument : IDisposable
     /// computes AA coverage against the clip).</summary>
     public SKRectI? RenderIncremental(SKCanvas canvas, float width, float height, SKColor background)
     {
+        // FAST PATH: no input/rebuild/animation touched the document since the retained list was
+        // built — only live-surface frames can differ. Re-raster the SAME list clipped to the
+        // changed surfaces (DrawSurface resolves its frame at raster time); skip layout, paint
+        // building and the diff entirely.
+        if (_builtVersion == _inputsVersion && _lastList is { } retained && _lastPresented is not null
+            && _lastPresentedW == width && _lastPresentedH == height)
+        {
+            var f0 = Stopwatch.GetTimestamp();
+            var surface = SurfaceDamage(_lastListSurfaces, SKRect.Empty, prune: false);
+            if (surface.IsEmpty)
+            {
+                LastFrame = new FrameTimings(0, 0, 0, 0, 0, FastPath: true);
+                return null;                                   // no new frames either — clean
+            }
+            var srect = SKRectI.Ceiling(surface);
+            // Replay only what intersects the rect: submitting the whole page for Skia to
+            // clip-reject costs more than the video raster itself (measured ~2.3 ms of walk).
+            // The culled list is stable while the video sits still — cull once, reuse.
+            if (_cullCache is null || !ReferenceEquals(_cullCacheList, retained) || _cullCacheRect != srect)
+            {
+                _cullCache = Paint.DamageDiff.CullTo(retained.Commands, srect);
+                _cullCacheList = retained;
+                _cullCacheRect = srect;
+            }
+            canvas.Save();
+            canvas.ClipRect(srect);
+            canvas.Clear(background);
+            _rasterizer.Paint(canvas, _cullCache);
+            canvas.Restore();
+            LastFrame = new FrameTimings(0, 0, 0, Ms(f0, Stopwatch.GetTimestamp()),
+                srect.Width * srect.Height, FastPath: true);
+            return srect;
+        }
+
         var list = BuildFrame(width, height);
         var t0 = Stopwatch.GetTimestamp();
         var prev = _lastPresentedW == width && _lastPresentedH == height ? _lastPresented : null;
         var damage = Paint.DamageDiff.Compute(prev, list.Commands, width, height);
+        damage = SurfaceDamage(list.Commands, damage, prune: true); // frames may ALSO have arrived
         var t1 = Stopwatch.GetTimestamp();
         _lastPresented = list.Commands;
+        _lastList = list;
+        // Stamp HERE, not inside BuildFrame: the stamp vouches for the RETAINED list. Other
+        // BuildFrame callers (headless layout, the threaded host, the a11y tree) never update
+        // _lastList — a stamp there would let the fast path re-raster a stale list.
+        _builtVersion = _inputsVersion;
         _lastPresentedW = width; _lastPresentedH = height;
+        // Pre-extract the (few) DrawSurface commands so fast frames need not walk the whole list.
+        List<DrawSurface>? surfaces = null;
+        foreach (var cmd in list.Commands)
+            if (cmd is DrawSurface ds) (surfaces ??= new(2)).Add(ds);
+        _lastListSurfaces = surfaces?.ToArray() ?? [];
         if (damage.IsEmpty)
         {
             LastFrame = new FrameTimings(_tLayout, _tPaint, Ms(t0, t1), 0, 0);
@@ -1309,7 +1418,8 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>Activate a node the way a click at its centre would (UIA Invoke / Toggle / Select /
     /// ExpandCollapse all funnel here). Same dispatch path as a real click, so activation rules,
     /// overlays, focus sync and disabled handling all apply. Returns true if anything changed.</summary>
-    public bool AccessibilityActivate(string path)
+    public bool AccessibilityActivate(string path) => Bump(AccessibilityActivateCore(path));
+    private bool AccessibilityActivateCore(string path)
     {
         EnsureLaidOut();
         if (NodeAtPath(path) is not { } n) return false;
@@ -1318,7 +1428,8 @@ public sealed partial class CupriDocument : IDisposable
     }
 
     /// <summary>Move keyboard focus to the control at (or containing) the node — UIA SetFocus.</summary>
-    public bool AccessibilityFocus(string path)
+    public bool AccessibilityFocus(string path) => Bump(AccessibilityFocusCore(path));
+    private bool AccessibilityFocusCore(string path)
     {
         EnsureLaidOut();
         if (NodeAtPath(path) is not { } n) return false;
@@ -1334,7 +1445,8 @@ public sealed partial class CupriDocument : IDisposable
 
     /// <summary>Set a slider's value directly — UIA RangeValue.SetValue. Clamps to min/max and writes
     /// through the same binding a drag would, rounded the way a drag rounds.</summary>
-    public bool AccessibilitySetValue(string path, double value)
+    public bool AccessibilitySetValue(string path, double value) => Bump(AccessibilitySetValueCore(path, value));
+    private bool AccessibilitySetValueCore(string path, double value)
     {
         EnsureLaidOut();
         if (NodeAtPath(path)?.Element is not { } el || _model is null) return false;
@@ -1357,7 +1469,8 @@ public sealed partial class CupriDocument : IDisposable
     /// toggle, slider set) and user handlers along the bubble path, write back to the
     /// bound model, and refresh. Returns true if anything handled it (→ needs repaint).
     /// </summary>
-    public bool DispatchClick(float x, float y, int clickCount = 1)
+    public bool DispatchClick(float x, float y, int clickCount = 1) => Bump(DispatchClickCore(x, y, clickCount));
+    private bool DispatchClickCore(float x, float y, int clickCount)
     {
         EnsureLaidOut();
         _textDrag = false;
@@ -1852,7 +1965,8 @@ public sealed partial class CupriDocument : IDisposable
     /// Feed a keystroke to the focused text field: printable text via <paramref name="text"/>,
     /// or an editing key (backspace/arrows/…). Edits the bound string and refreshes.
     /// </summary>
-    public bool DispatchKey(string? text, EditKey key, KeyMods mods = KeyMods.None)
+    public bool DispatchKey(string? text, EditKey key, KeyMods mods = KeyMods.None) => Bump(DispatchKeyCore(text, key, mods));
+    private bool DispatchKeyCore(string? text, EditKey key, KeyMods mods)
     {
         ReconcileScope(); // reflect any overlay that opened/closed since the last event
 
@@ -2070,7 +2184,8 @@ public sealed partial class CupriDocument : IDisposable
     }
 
     /// <summary>Copy the selection and delete it (cut). Returns the cut text, or null.</summary>
-    public string? CutSelection()
+    public string? CutSelection() { var t = CutSelectionCore(); if (t is not null) _inputsVersion++; return t; }
+    private string? CutSelectionCore()
     {
         var t = CopySelection();
         if (t is not null) DispatchKey(null, EditKey.Delete);
@@ -2082,7 +2197,8 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>Open a context menu at (x,y) if it's over a text field. Focuses the field (a fresh
     /// focus has no selection, so Cut/Copy start disabled; right-clicking the already-focused field
     /// keeps its selection). Returns true if a menu opened or an open one closed (→ repaint).</summary>
-    public bool DispatchContextMenu(float x, float y)
+    public bool DispatchContextMenu(float x, float y) => Bump(DispatchContextMenuCore(x, y));
+    private bool DispatchContextMenuCore(float x, float y)
     {
         EnsureLaidOut();
         var hit = HitTesting.HitTest(_root, x, y);
@@ -2255,7 +2371,8 @@ public sealed partial class CupriDocument : IDisposable
     private static string EscapeHtml(string s) => s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
 
     /// <summary>Undo the last edit in the focused field (Ctrl+Z). Returns true if it changed anything.</summary>
-    public bool Undo()
+    public bool Undo() => Bump(UndoCore());
+    private bool UndoCore()
     {
         if (_focusKey is null || _undo.Count == 0) return false;
         _redo.Add(new EditState(_editBuffer ?? "", _caret, _selAnchor));
@@ -2265,7 +2382,8 @@ public sealed partial class CupriDocument : IDisposable
     }
 
     /// <summary>Redo the last undone edit (Ctrl+Y / Ctrl+Shift+Z). Returns true if it changed anything.</summary>
-    public bool Redo()
+    public bool Redo() => Bump(RedoCore());
+    private bool RedoCore()
     {
         if (_focusKey is null || _redo.Count == 0) return false;
         _undo.Add(new EditState(_editBuffer ?? "", _caret, _selAnchor));
@@ -2892,7 +3010,8 @@ public sealed partial class CupriDocument : IDisposable
         return true;
     }
 
-    public bool DispatchPointerMove(float x, float y)
+    public bool DispatchPointerMove(float x, float y) => Bump(DispatchPointerMoveCore(x, y));
+    private bool DispatchPointerMoveCore(float x, float y)
     {
         EnsureLaidOut();
         if (_colPath is not null) return MoveColumnResize(x);
@@ -2941,7 +3060,8 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>Pointer up: end any slider drag, scrollbar drag, or text drag-select.</summary>
     /// <summary>Pointer released: end any drag and clear the :active press. Returns true if the press
     /// state cleared (→ repaint needed to un-press).</summary>
-    public bool DispatchPointerUp(float x, float y)
+    public bool DispatchPointerUp(float x, float y) => Bump(DispatchPointerUpCore(x, y));
+    private bool DispatchPointerUpCore(float x, float y)
     {
         if (_reorderItems is not null) { EndReorder(); return true; }
         if (_splitA is not null) { _splitA = null; _splitB = null; return true; }
@@ -2950,7 +3070,8 @@ public sealed partial class CupriDocument : IDisposable
     }
 
     /// <summary>Scroll wheel: scroll the nearest scrollable element under the pointer by pixels.</summary>
-    public bool DispatchWheel(float x, float y, float pixelDelta)
+    public bool DispatchWheel(float x, float y, float pixelDelta) => Bump(DispatchWheelCore(x, y, pixelDelta));
+    private bool DispatchWheelCore(float x, float y, float pixelDelta)
     {
         EnsureLaidOut();
         if (_ctxOpen || _ctxCustomIndex >= 0) { _ctxOpen = false; _ctxCustomIndex = -1; Refresh(); } // scrolling dismisses the context menu

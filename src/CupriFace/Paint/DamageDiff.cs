@@ -49,6 +49,62 @@ public static class DamageDiff
         return damage;
     }
 
+    /// <summary>The subset of <paramref name="cmds"/> a repaint clipped to <paramref name="rect"/>
+    /// actually needs: every stack op (Push*/Pop* — state must replay in order, and layer pairs
+    /// must stay balanced) plus every painting command whose transform-mapped bounds intersect the
+    /// rect. Built for the surface fast path: replaying the FULL retained list per video frame
+    /// makes Skia clip-reject hundreds of draws — the submission walk itself was the cost.</summary>
+    public static IReadOnlyList<PaintCommand> CullTo(IReadOnlyList<PaintCommand> cmds, SKRect rect)
+    {
+        // Pass 1: keep stack ops + intersecting painting commands.
+        var kept = new List<PaintCommand>(64);
+        var m = SKMatrix.Identity;
+        var stack = new List<SKMatrix>();
+        foreach (var cmd in cmds)
+        {
+            Track(cmd, ref m, stack);
+            if (cmd is PushClip or PopClip or PushTransform or PopTransform
+                    or PushOpacity or PopOpacity or PushFilter or PopFilter)
+            {
+                kept.Add(cmd);                        // state/layer op — pruned in pass 2 if empty
+                continue;
+            }
+            var b = LocalBounds(cmd);
+            if (b is null) { kept.Add(cmd); continue; }   // unboundable: keep, conservative
+            // MapRect is a native call — skip it under the identity transform (almost every
+            // command on a typical page; this walk runs per fast-path video frame).
+            var mapped = m.IsIdentity ? b.Value : m.MapRect(b.Value);
+            mapped.Inflate(2, 2);                     // the same AA slack Compute uses
+            if (mapped.IntersectsWith(rect)) kept.Add(cmd);
+        }
+
+        // Pass 2: elide scope groups left with NOTHING inside — a page's every clip pair would
+        // otherwise survive as hundreds of native save/clip/restore calls per video frame.
+        var drop = new bool[kept.Count];
+        var scopes = new List<(int Index, bool HasPaint)>();
+        for (var i = 0; i < kept.Count; i++)
+        {
+            switch (kept[i])
+            {
+                case PushClip or PushTransform or PushOpacity or PushFilter:
+                    scopes.Add((i, false));
+                    break;
+                case PopClip or PopTransform or PopOpacity or PopFilter when scopes.Count > 0:
+                    var (open, hasPaint) = scopes[^1];
+                    scopes.RemoveAt(scopes.Count - 1);
+                    if (!hasPaint) { drop[open] = true; drop[i] = true; }
+                    else if (scopes.Count > 0) scopes[^1] = (scopes[^1].Index, true); // parent has content
+                    break;
+                default:
+                    if (scopes.Count > 0) scopes[^1] = (scopes[^1].Index, true);
+                    break;
+            }
+        }
+        var outp = new List<PaintCommand>(kept.Count);
+        for (var i = 0; i < kept.Count; i++) if (!drop[i]) outp.Add(kept[i]);
+        return outp;
+    }
+
     // Value equality, with the two commands whose record equality degrades to reference equality
     // (they hold lists) compared element-wise — otherwise charts/filters would look changed every frame.
     private static bool Eq(PaintCommand a, PaintCommand b)
@@ -153,10 +209,19 @@ public static class DamageDiff
         BorderRect c => SKRect.Create(c.X, c.Y, c.W, c.H),
         ShadowRect c => Grow(SKRect.Create(c.X, c.Y, c.W, c.H),
             c.Spread + c.Blur * 2 + MathF.Max(MathF.Abs(c.Dx), MathF.Abs(c.Dy))),
-        TextRun c => SKRect.Create(c.X, c.Y, MathF.Max(c.ContainerWidth, c.LineWidth), c.LineHeight),
+        // The exact glyph span (alignment resolved), not the whole container — container-wide
+        // bounds pulled every nearby paragraph into surface-fast-path replays and fattened damage.
+        TextRun c => SKRect.Create(
+            c.Align switch
+            {
+                Style.TextAlign.Center => c.X + MathF.Max(0, (c.ContainerWidth - c.LineWidth) / 2),
+                Style.TextAlign.Right => c.X + MathF.Max(0, c.ContainerWidth - c.LineWidth),
+                _ => c.X,
+            }, c.Y, c.LineWidth, c.LineHeight),
         FillPath c => SKRect.Create(c.X, c.Y, c.Width, c.Height),
         ResizeGrip c => SKRect.Create(c.X, c.Y, c.Size, c.Size),
         DrawImage c => SKRect.Create(c.X, c.Y, c.W, c.H),
+        DrawSurface c => SKRect.Create(c.X, c.Y, c.W, c.H),
         ClearHole c => SKRect.Create(c.X, c.Y, c.W, c.H),
         Polyline c => PolyBounds(c),
         PushOpacity c => c.W > 0 ? SKRect.Create(c.X, c.Y, c.W, c.H) : null, // null ⇒ unbounded

@@ -248,21 +248,30 @@ public sealed class Painter
         // A HOST-COMPOSITED surface (web underlay video) paints no frames at all: punch a
         // transparent hole so the host's own element shows through; later paint stays on top.
         SKImage? frame = null;
-        var hole = false;
+        var surfaced = false; // a hole was punched OR a live surface command was emitted
         if (node.SurfaceKey is { Length: > 0 } surfaceKey && _surfaces?.Get(surfaceKey) is { } source)
         {
             if (source.HostComposited)
             {
-                hole = true; // the poster must not paint into it — the underlay is the picture now
+                surfaced = true; // the poster must not paint into it — the underlay is the picture now
                 list.Add(new ClearHole(
                     absX + node.ContentLeftInset, absY + node.ContentTopInset,
                     node.Width - node.HorizontalInsets, node.Height - node.VerticalInsets, s.BorderRadius));
             }
-            else frame = source.CurrentFrame;
+            else if (source.CurrentFrame is not null)
+            {
+                // Frames flow: emit a raster-time-resolved DrawSurface (NOT a captured DrawImage),
+                // so a new frame leaves the display list unchanged — the surface fast path.
+                surfaced = true;
+                list.Add(new DrawSurface(
+                    absX + node.ContentLeftInset, absY + node.ContentTopInset,
+                    node.Width - node.HorizontalInsets, node.Height - node.VerticalInsets,
+                    source, ParseFit(node.Element?.GetAttribute("data-object-fit")), s.BorderRadius));
+            }
         }
 
         // Image: decode + draw into the content box, fitted per object-fit.
-        if (frame is null && !hole && node.ImageSrc is { Length: > 0 } imageSrc) frame = _images?.Get(imageSrc);
+        if (frame is null && !surfaced && node.ImageSrc is { Length: > 0 } imageSrc) frame = _images?.Get(imageSrc);
         if (frame is { } img)
             list.Add(new DrawImage(
                 absX + node.ContentLeftInset, absY + node.ContentTopInset,

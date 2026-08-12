@@ -93,3 +93,12 @@ public sealed record DrawImage(
 /// engine content painted AFTER this still composites on top). The host must present with
 /// per-pixel alpha for the hole to matter.</summary>
 public sealed record ClearHole(float X, float Y, float W, float H, float Radius) : PaintCommand;
+
+/// <summary>Draw a LIVE surface's current frame (video, future 3D viewports), resolved from the
+/// source AT RASTER TIME — not captured at build time like <see cref="DrawImage"/>. That's the
+/// surface fast path's foundation: a new video frame changes NOTHING in the display list (the
+/// source reference and geometry are identical), so the engine can re-raster the retained list
+/// clipped to this box instead of re-deriving the whole page. The record compares by source
+/// REFERENCE (players persist across rebuilds), keeping the damage diff exact.</summary>
+public sealed record DrawSurface(
+    float X, float Y, float W, float H, ISurfaceSource Source, ObjectFit Fit, float Radius) : PaintCommand;

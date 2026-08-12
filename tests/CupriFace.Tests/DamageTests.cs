@@ -95,6 +95,91 @@ public class DamageTests
                 $"pixel {i / 4} is still black — the full repaint didn't cover it");
     }
 
+    private sealed class TickSource : CupriFace.Paint.ISurfaceSource
+    {
+        public SKImage? CurrentFrame { get; private set; }
+        public (int W, int H)? NaturalSize => (160, 90);
+        public bool Ticking => true;
+        public void Publish(SKColor colour)
+        {
+            using var s = SKSurface.Create(new SKImageInfo(160, 90));
+            s.Canvas.Clear(colour);
+            var old = CurrentFrame;
+            CurrentFrame = s.Snapshot();
+            old?.Dispose();
+        }
+    }
+
+    [Fact]
+    public void A_surface_frame_swap_takes_the_fast_path_and_paints_the_new_frame()
+    {
+        // The surface fast path: a new video frame must cost a clipped raster of the video box —
+        // no layout, no paint-list build, no diff — and still put the RIGHT pixels on screen.
+        var source = new TickSource();
+        source.Publish(SKColors.Red);
+        using var t = new TestDoc(
+            "<body><div style='padding:20px'><cupri-button>Save</cupri-button>" +
+            "<div data-cupri-surface='probe' style='width:160px;height:90px'></div></div></body>",
+            "", components: true, width: W, height: H);
+        t.Doc.Surfaces.Register("probe", source);
+        t.Doc.Refresh();
+        using var retained = new SKBitmap(new SKImageInfo(W, H, SKColorType.Rgba8888, SKAlphaType.Premul));
+        using var canvas = new SKCanvas(retained);
+
+        Assert.NotNull(t.Doc.RenderIncremental(canvas, W, H, SKColors.White));   // normal first paint
+        Assert.False(t.Doc.LastFrame.FastPath);
+
+        source.Publish(SKColors.Blue);                       // ONLY the frame changes
+        var damage = t.Doc.RenderIncremental(canvas, W, H, SKColors.White);
+        Assert.NotNull(damage);
+        Assert.True(t.Doc.LastFrame.FastPath, "a pure frame swap must take the fast path");
+        Assert.Equal(0, t.Doc.LastFrame.LayoutMs);           // nothing but raster ran
+        Assert.True(damage!.Value.Width <= 162 && damage.Value.Height <= 92,
+            $"damage {damage.Value.Width}x{damage.Value.Height} must be the surface box, not the page");
+        canvas.Flush();
+        var inside = retained.GetPixel(damage.Value.Left + 20, damage.Value.Top + 20);
+        Assert.Equal(SKColors.Blue, inside);                 // and the NEW frame is on screen
+
+        Assert.Null(t.Doc.RenderIncremental(canvas, W, H, SKColors.White));      // no new frame → clean
+        Assert.True(t.Doc.LastFrame.FastPath);
+    }
+
+    [Fact]
+    public void Input_between_frames_leaves_the_fast_path_and_repaints_correctly()
+    {
+        var source = new TickSource();
+        source.Publish(SKColors.Red);
+        using var t = new TestDoc(
+            "<body><div style='padding:20px'>" +
+            "<div class='probe-target' style='width:80px;height:26px'>hover me</div>" +
+            "<div data-cupri-surface='probe' style='width:160px;height:90px'></div></div></body>",
+            ".probe-target:hover { background:#00ff00; }", components: true, width: W, height: H);
+        t.Doc.Surfaces.Register("probe", source);
+        t.Doc.Refresh();
+        using var retained = new SKBitmap(new SKImageInfo(W, H, SKColorType.Rgba8888, SKAlphaType.Premul));
+        using var canvas = new SKCanvas(retained);
+        t.Doc.RenderIncremental(canvas, W, H, SKColors.White);
+
+        source.Publish(SKColors.Blue);
+        t.Doc.RenderIncremental(canvas, W, H, SKColors.White);
+        Assert.True(t.Doc.LastFrame.FastPath);
+
+        // A dispatch that changes anything (here: a hover restyle) must force the NORMAL path
+        // next frame — and pixels must match a fresh full render (the standing damage contract).
+        var target = t.FindClass("probe-target");
+        var (hx, hy) = TestDoc.Center(target);
+        Assert.True(t.Doc.DispatchPointerMove(hx, hy));      // hover ON → something changed
+        source.Publish(SKColors.Lime);                       // a frame arrives in the SAME frame
+        var damage = t.Doc.RenderIncremental(canvas, W, H, SKColors.White);
+        Assert.False(t.Doc.LastFrame.FastPath, "input invalidates the retained list");
+        Assert.NotNull(damage);
+        canvas.Flush();
+
+        using var reference = new SKBitmap(new SKImageInfo(W, H, SKColorType.Rgba8888, SKAlphaType.Premul));
+        using (var rc = new SKCanvas(reference)) { rc.Clear(SKColors.White); t.Doc.Render(rc, W, H); rc.Flush(); }
+        AssertVisuallyIdentical(retained, reference, damage);
+    }
+
     [Fact]
     public void Charts_do_not_false_damage_from_reference_inequality()
     {

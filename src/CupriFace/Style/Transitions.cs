@@ -261,7 +261,10 @@ public sealed class TransitionEngine
             st.Duration = spec.Duration; st.Delay = spec.Delay; st.Easing = spec.Easing;
             var to = st.To.Length > 0 ? st.To[0] : target;
             var retarget = MathF.Abs(target - to) > 0.5f;                 // layout wants a different height
-            var divergedIdle = !st.Active && MathF.Abs(displayed - target) > 0.5f; // shown height flipped while idle
+            // displayed > 0 guard: a node detected before its FIRST layout reads 0 — without it,
+            // every definite-height element with a height transition entrance-animated from zero
+            // on load (16 full-page reflow frames before the video's fast path could engage).
+            var divergedIdle = !st.Active && displayed > 0.5f && MathF.Abs(displayed - target) > 0.5f;
             if (retarget || divergedIdle)
             {
                 st.From = [displayed]; st.To = [target]; st.Start = double.NaN;
