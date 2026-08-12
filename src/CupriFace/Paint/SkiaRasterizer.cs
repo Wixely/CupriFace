@@ -97,13 +97,17 @@ public sealed class SkiaRasterizer
         else canvas.SaveLayer(paint);
     }
 
-    public void Paint(SKCanvas canvas, DisplayList list)
+    public void Paint(SKCanvas canvas, DisplayList list) => Paint(canvas, list.Commands);
+
+    /// <summary>Rasterise a command sequence — the full list, or a culled subset (the surface
+    /// fast path replays only what intersects its damage; see <c>DamageDiff.CullTo</c>).</summary>
+    public void Paint(SKCanvas canvas, IReadOnlyList<PaintCommand> commands)
     {
         using var fill = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
         using var stroke = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
         using var textPaint = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
 
-        foreach (var cmd in list.Commands)
+        foreach (var cmd in commands)
         {
             switch (cmd)
             {
@@ -264,6 +268,32 @@ public sealed class SkiaRasterizer
                     else canvas.ClipRect(box);
                     canvas.DrawImage(di.Image, FitRect(di), _imageSampling);
                     canvas.Restore();
+                    break;
+                }
+
+                case DrawSurface ds:
+                {
+                    // Resolve NOW: the producer may have swapped frames since the list was built
+                    // (that's the point — the list needn't rebuild per frame). A torn-down source
+                    // (null frame) simply paints nothing; the element's background shows.
+                    if (ds.Source.CurrentFrame is not { } liveFrame) break;
+                    canvas.Save();
+                    var sbox = new SKRect(ds.X, ds.Y, ds.X + ds.W, ds.Y + ds.H);
+                    if (ds.Radius > 0) canvas.ClipRoundRect(new SKRoundRect(sbox, ds.Radius), antialias: true);
+                    else canvas.ClipRect(sbox);
+                    canvas.DrawImage(liveFrame, FitRect(new DrawImage(ds.X, ds.Y, ds.W, ds.H, liveFrame, ds.Fit, ds.Radius)), _imageSampling);
+                    canvas.Restore();
+                    break;
+                }
+
+                case ClearHole ch:
+                {
+                    // BlendMode.Src REPLACES what's below with transparent pixels — an underlaid
+                    // host element (the web video) shows through; later commands paint on top.
+                    using var punch = new SKPaint { Color = SKColors.Transparent, BlendMode = SKBlendMode.Src, IsAntialias = true };
+                    var hole = new SKRect(ch.X, ch.Y, ch.X + ch.W, ch.Y + ch.H);
+                    if (ch.Radius > 0) canvas.DrawRoundRect(new SKRoundRect(hole, ch.Radius), punch);
+                    else canvas.DrawRect(hole, punch);
                     break;
                 }
 

@@ -49,6 +49,15 @@ public partial class Interop
         // by the app / engine — same split as the desktop host.
         _doc.Navigated += e => { if (e.External) OpenUrl(e.Href); };
 
+        // Video: the browser decodes (no codecs in the wasm binary). Each <cupri-video> gets an
+        // underlaid <video> element; the engine punches a transparent hole where it shows and
+        // paints its own controls on top. Rect/clip sync happens after each painted frame.
+        _doc.UseVideo(new BrowserVideoBackend());
+
+        // Fullscreen requests (the ⛶ control) go to the browser's Fullscreen API. Escape exits
+        // natively; the resize that follows reflows the app like any window resize.
+        _doc.WindowCommandRequested += cmd => WindowCommand((int)cmd);
+
         // Right-click menu → clipboard. The engine raises the chosen command; the browser owns the
         // clipboard (async), so route Copy/Cut/Paste through JS (same as the Ctrl+C/X/V handlers).
         _doc.ContextRequested += cmd =>
@@ -133,15 +142,31 @@ public partial class Interop
         // The buffer we hand JS. Opaque apps present the premultiplied render directly. Transparent
         // apps must present STRAIGHT (non-premultiplied) alpha — that's what the browser's ImageData
         // / putImageData expects — so convert into a staging buffer (Skia unpremultiplies for us).
+        // Video holes need the same: their alpha-0 pixels only work through the straight-alpha path.
         var present = _bitmap;
-        if (_transparent)
+        if (_transparent || BrowserVideoBackend.AnyReady)
         {
-            if (_straight is null || _straight.Width != width || _straight.Height != height)
+            var fresh = _straight is null || _straight.Width != width || _straight.Height != height;
+            if (fresh)
             {
                 _straight?.Dispose();
                 _straight = new SKBitmap(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Unpremul));
             }
-            _bitmap.PeekPixels().ReadPixels(_straight.PeekPixels()); // premul → straight
+            using var src = _bitmap.PeekPixels();
+            using var dst = _straight!.PeekPixels();
+            if (fresh)
+                src.ReadPixels(dst);                     // new staging buffer: everything converts once
+            else
+                unsafe
+                {
+                    // Only the damage rect changed — converting the WHOLE bitmap per present cost a
+                    // full-frame pass for a 10 px repaint whenever any video was open. The rest of
+                    // the staging buffer already holds this frame's pixels from earlier presents.
+                    var rectInfo = new SKImageInfo(d.Width, d.Height, SKColorType.Rgba8888, SKAlphaType.Unpremul);
+                    src.ReadPixels(rectInfo,
+                        (nint)((byte*)dst.GetPixels() + d.Top * dst.RowBytes + d.Left * 4),
+                        dst.RowBytes, d.Left, d.Top);
+                }
             present = _straight;
         }
 
@@ -158,6 +183,10 @@ public partial class Interop
         // canvas UI. Only on input-driven repaints (not every animation frame) — the tree only
         // changes on interaction, and re-parsing HTML 30×/s during a spinner would be wasteful.
         if (!animating) A11y(_doc.BuildAriaHtml(p.LogicalWidth, p.LogicalHeight));
+
+        // Keep each underlaid <video> glued to its element: same painted frame, same JS task as
+        // the blit above, so the hole and the element can't shear apart.
+        BrowserVideoBackend.SyncRects(_doc, _scale);
         return true;
     }
 
@@ -183,6 +212,8 @@ public partial class Interop
     // negation (desktop wheels report notches, positive = up; copying DesktopHost's -dy inverted us).
     [JSExport] internal static void Wheel(double x, double y, double dy) { if (_doc?.DispatchWheel((float)(x / _scale), (float)(y / _scale), (float)dy) == true) _dirty = true; }
     [JSExport] internal static void KeyChar(string text) { if (_doc?.DispatchKey(text, EditKey.None) == true) _dirty = true; }
+    // The browser's own fullscreen transitions (its Esc key never reaches EditKeyPress).
+    [JSExport] internal static void HostFullscreen(bool active) { _doc?.NotifyHostFullscreen(active); _dirty = true; }
     [JSExport] internal static void EditKeyPress(int code, int mods) { if (_doc?.DispatchKey(null, (EditKey)code, (KeyMods)mods) == true) _dirty = true; }
     // A Ctrl/Cmd + letter chord (e.g. Ctrl+K) → an app keyboard shortcut. Returns whether the engine handled
     // it, so the page can preventDefault only then and otherwise let the browser keep its own shortcuts.

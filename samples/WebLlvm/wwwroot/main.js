@@ -62,6 +62,27 @@ try {
             M.stringToUTF16(s, ptr, (s.length + 1) * 2);
             M["_" + entry](s.length);
         },
+        // Video underlays: id → <video> element BELOW the canvas (imports.js moves the bytes and
+        // forwards transport; the element + its events live here, where the exports are in scope).
+        videos: new Map(),
+        videoOpen: (id, src) => {
+            canvas.style.position = "relative"; canvas.style.zIndex = "1"; // above all underlays
+            const v = document.createElement("video");
+            v.src = src;
+            v.playsInline = true;          // iOS: never hijack into the native fullscreen player
+            v.preload = "auto";
+            v.style.cssText = "position:absolute;z-index:0;pointer-events:none;display:none;";
+            v.addEventListener("loadedmetadata", () => M._VideoMeta(id, v.duration || 0, v.videoWidth, v.videoHeight));
+            v.addEventListener("loadeddata", () => M._VideoReady(id));
+            // The browser's play/pause truth (autoplay rejections included) drives the controls.
+            v.addEventListener("play", () => M._VideoPlayState(id, 1));
+            v.addEventListener("pause", () => M._VideoPlayState(id, 0));
+            v.addEventListener("timeupdate", () => M._VideoTime(id, v.currentTime || 0));
+            v.addEventListener("ended", () => M._VideoEnded(id));
+            document.body.insertBefore(v, canvas);
+            globalThis.__cupri.videos.set(id, v);
+            return v;
+        },
     };
     window.__paints = () => globalThis.__cupri.paints; // diagnostics parity with the Mono host
     // Diagnostics handle for browser tests: the editing exports (copy/cut/paste/undo/redo) are
@@ -111,6 +132,9 @@ try {
     live = true;
     focusKbd();
     window.addEventListener("focus", focusKbd); // clipboard events still ride the kbd element — re-arm it
+    // The browser can end fullscreen on its own (its Esc never reaches our key handler) — tell
+    // the engine so an element-fullscreened video returns to its place in the layout.
+    document.addEventListener("fullscreenchange", () => M._HostFullscreen(document.fullscreenElement ? 1 : 0));
 
     let firstTick = true;
     function frame(now) {

@@ -93,10 +93,17 @@ public sealed class TransitionEngine
     /// <summary>True while any transition is mid-flight (drives the host's continuous repaint).</summary>
     public bool Active { get; private set; }
 
+    private float _vw, _vh; // viewport, for percent targets on position:fixed nodes
+
     /// <summary>After a style resolution: diff each transitioned property's target against the last one
-    /// and (re)start a transition where it changed. Prunes state for nodes that vanished.</summary>
-    public void Detect(RenderNode root)
+    /// and (re)start a transition where it changed. Prunes state for nodes that vanished.
+    /// <paramref name="viewportW"/>/<paramref name="viewportH"/>: what a FIXED node's percentage
+    /// width/height resolves against — its parent's content box is the wrong containing block for
+    /// it (the bug: fullscreening a video with a width transition animated it to the card's width
+    /// and pinned it there).</summary>
+    public void Detect(RenderNode root, float viewportW, float viewportH)
     {
+        _vw = viewportW; _vh = viewportH;
         foreach (var st in _states.Values) st.Seen = false;
         Walk(root);
         List<string>? drop = null;
@@ -213,7 +220,8 @@ public sealed class TransitionEngine
             if (_states.TryGetValue(key, out var s0)) { s0.Seen = true; s0.Duration = spec.Duration; s0.Delay = spec.Delay; s0.Easing = spec.Easing; }
             return;
         }
-        var target = n.Style.Width.Resolve(n.Parent?.ContentBoxWidth ?? 0f);
+        var cbWidth = n.Style.Position == PositionType.Fixed ? _vw : n.Parent?.ContentBoxWidth ?? 0f;
+        var target = n.Style.Width.Resolve(cbWidth);
         if (_states.TryGetValue(key, out var st))
         {
             st.Seen = true;
@@ -239,11 +247,11 @@ public sealed class TransitionEngine
 
     // The px height layout would give this node: an explicit height as-is, or (for `auto`) the measured
     // natural height from the last layout — so a transition can animate a collapse/expand to/from auto.
-    private static float HeightTarget(RenderNode n)
+    private float HeightTarget(RenderNode n)
     {
         var h = n.Style.Height;
-        return h.IsAuto ? n.ContentNaturalHeight
-                        : h.Resolve(n.Parent?.ContentBoxHeight ?? 0f, n.ContentNaturalHeight);
+        var cb = n.Style.Position == PositionType.Fixed ? _vh : n.Parent?.ContentBoxHeight ?? 0f;
+        return h.IsAuto ? n.ContentNaturalHeight : h.Resolve(cb, n.ContentNaturalHeight);
     }
 
     // Height is driven off the laid-out height, not a style value: animate whenever the target layout
@@ -261,7 +269,10 @@ public sealed class TransitionEngine
             st.Duration = spec.Duration; st.Delay = spec.Delay; st.Easing = spec.Easing;
             var to = st.To.Length > 0 ? st.To[0] : target;
             var retarget = MathF.Abs(target - to) > 0.5f;                 // layout wants a different height
-            var divergedIdle = !st.Active && MathF.Abs(displayed - target) > 0.5f; // shown height flipped while idle
+            // displayed > 0 guard: a node detected before its FIRST layout reads 0 — without it,
+            // every definite-height element with a height transition entrance-animated from zero
+            // on load (16 full-page reflow frames before the video's fast path could engage).
+            var divergedIdle = !st.Active && displayed > 0.5f && MathF.Abs(displayed - target) > 0.5f;
             if (retarget || divergedIdle)
             {
                 st.From = [displayed]; st.To = [target]; st.Start = double.NaN;

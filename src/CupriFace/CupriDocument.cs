@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using AngleSharp.Dom;
 using AngleSharp.Html.Parser;
@@ -148,6 +149,13 @@ public sealed partial class CupriDocument : IDisposable
     /// host opens external ones in a browser — the engine itself opens nothing (that's a host concern).</summary>
     public event Action<Interaction.NavigateEvent>? Navigated;
 
+    /// <summary>Raised when an element carrying <c>data-window-command</c> (e.g. a video's
+    /// fullscreen button) is activated. The engine owns pixels, not the OS window — the host
+    /// performs the command (desktop: window state; web: the Fullscreen API). Escape-to-exit is
+    /// also host-side: when <see cref="DispatchKey"/> returns unhandled for Escape and the window
+    /// is fullscreen, the host exits it (so overlays keep winning Escape first).</summary>
+    public event Action<Interaction.WindowCommand>? WindowCommandRequested;
+
     // Engine-owned toast stack (doc.Toast). Each toast slides in, waits, then slides out and is removed —
     // driven by Animate. Entering/Leaving render off-screen; the flip to/from Shown is what the transition
     // engine animates (paint-only). Rendered bottom-right by InjectToaster + the ToasterComponent's CSS.
@@ -177,19 +185,27 @@ public sealed partial class CupriDocument : IDisposable
         _css = css;
         _fonts = new FontService();
         _images = new Paint.ImageStore();
-        _layout = new LayoutEngine(_fonts, _images);
-        _painter = new Painter(_images);
+        _layout = new LayoutEngine(_fonts, _images, Surfaces);
+        _painter = new Painter(_images, Surfaces);
         _rasterizer = new SkiaRasterizer(_fonts);
     }
 
-    /// <summary>Register the assembly used to resolve embedded image sources (e.g. a bare
-    /// <c>src="Assets/logo.png"</c> on a <c>&lt;cupri-image&gt;</c>). Data URIs, URLs and file paths
-    /// need no assembly.</summary>
+    /// <summary>Live pixel producers (video players, future 3D viewports), keyed by the element
+    /// attribute <c>data-cupri-surface</c>. Backends register their sources here; a playing
+    /// surface keeps the render loop live via <see cref="HasActiveAnimations"/>.</summary>
+    public Paint.SurfaceRegistry Surfaces { get; } = new();
+
+    /// <summary>Register the assembly used to resolve embedded media sources (a bare
+    /// <c>src="Assets/logo.png"</c> on a <c>&lt;cupri-image&gt;</c> — and equally a
+    /// <c>&lt;cupri-video&gt;</c>'s clip). Data URIs, URLs and file paths need no assembly.</summary>
     public CupriDocument UseImages(System.Reflection.Assembly assembly)
     {
         _images.SetAssembly(assembly);
+        _sourceAssembly = assembly;
         return this;
     }
+
+    private System.Reflection.Assembly? _sourceAssembly; // shared by image + video resolution
 
     /// <summary>Policy for remote (<c>http(s)</c>) image URLs (https-only, size cap, host allow-list…).
     /// Defaults are strict; override to e.g. allow a specific host.</summary>
@@ -199,15 +215,161 @@ public sealed partial class CupriDocument : IDisposable
         return this;
     }
 
-    /// <summary>True (once, then reset) if a background image load finished since the last call. A
-    /// render-on-demand host repaints when this returns true, so an async remote image appears.</summary>
-    public bool ConsumeImageArrived() => _images.TakeArrived();
+    // ---- Video wiring (<cupri-video> ↔ the host-registered backend) --------------------------
+    // The engine owns the seam, not the codecs: a backend opens players; the document owns their
+    // lifetime by structural presence — a player exists while its src appears in the DOM, and is
+    // disposed when it no longer does (a hidden section stops its video).
+    private Media.IVideoBackend? _videoBackend;
+    private readonly Dictionary<string, Media.IVideoPlayer> _videoPlayers = new(StringComparer.Ordinal);
+    private int _videoStateChanged; // set (any thread) by Ended → consumed on the UI thread
+    private string? _fullscreenVideo; // src of the video currently element-fullscreened (web model: one at most)
+
+    /// <summary>Register the video backend (host composition root — see <see cref="Media.IVideoBackend"/>).</summary>
+    public CupriDocument UseVideo(Media.IVideoBackend backend)
+    {
+        _videoBackend = backend;
+        Refresh(); // wire any <cupri-video> already in the tree
+        return this;
+    }
+
+    // Runs each rebuild, right after component expansion: open/adopt a player per visible source,
+    // reflect its transport state into the fresh DOM's controls, retire players whose element is
+    // gone. (Expansion skips display:none subtrees, so switching a section away stops its video.)
+    private void SyncVideos(AngleSharp.Dom.IDocument dom)
+    {
+        HashSet<string>? seen = null;
+        foreach (var el in dom.QuerySelectorAll("[data-cupri-video]"))
+        {
+            if (el.GetAttribute("data-cupri-video") is not { Length: > 0 } src) continue;
+            (seen ??= new HashSet<string>(StringComparer.Ordinal)).Add(src);
+            if (GetOrOpenPlayer(src, el) is { } player)
+                Components.Controls.VideoComponent.SyncControls(el, player);
+            else
+                Components.Controls.VideoComponent.MarkInert(el);   // no backend: honest controls
+            // The fresh DOM starts windowed; re-mark the fullscreen one each rebuild.
+            if (src == _fullscreenVideo)
+                Components.Controls.VideoComponent.ApplyFullscreenState(el);
+        }
+
+        // The fullscreen video's element left the DOM (section switched away) — nothing is
+        // fullscreen any more; the WINDOW state is the host's, released via the same event.
+        if (_fullscreenVideo is not null && (seen is null || !seen.Contains(_fullscreenVideo)))
+        {
+            _fullscreenVideo = null;
+            WindowCommandRequested?.Invoke(Interaction.WindowCommand.ExitFullscreen);
+        }
+
+        if (_videoPlayers.Count == 0) return;
+        List<string>? gone = null;
+        foreach (var src in _videoPlayers.Keys)
+            if (seen is null || !seen.Contains(src)) (gone ??= new List<string>()).Add(src);
+        if (gone is null) return;
+        foreach (var src in gone)
+        {
+            try { _videoPlayers[src].Dispose(); } catch { /* a dying decoder must not kill the rebuild */ }
+            _videoPlayers.Remove(src);
+            Surfaces.Unregister("video:" + src);
+        }
+    }
+
+    private Media.IVideoPlayer? GetOrOpenPlayer(string src, AngleSharp.Dom.IElement el)
+    {
+        if (_videoPlayers.TryGetValue(src, out var existing)) return existing;
+        if (_videoBackend is null) return null; // no backend on this host — poster only
+
+        Media.IVideoPlayer player;
+        // The source carries the SAME resolution pipeline images use (embedded / file / data: /
+        // policied https) — the developer picks the scheme, every backend honours it.
+        var source = new Media.VideoSource(src, _sourceAssembly, _images.UrlOptions);
+        try { player = _videoBackend.Open(source); }
+        catch { return null; } // an unusable source must not take the app down; the poster stays
+
+        _videoPlayers[src] = player;
+        Surfaces.Register("video:" + src, player.Surface);
+        player.Ended += () => System.Threading.Interlocked.Exchange(ref _videoStateChanged, 1);
+        player.Loop = el.HasAttribute("data-video-loop");
+        player.Muted = el.HasAttribute("data-video-muted");
+        // The autoplay policy every host shares (the web cannot do otherwise, so nobody does):
+        // autoplay starts only when muted; unmuted autoplay stays on the poster's play button.
+        if (el.HasAttribute("data-video-autoplay") && player.Muted) player.Play();
+        return player;
+    }
+
+    // Transport commands from the controls / the frame itself. DELIBERATELY synchronous inside
+    // input dispatch: the web backend needs the user gesture still on the stack when the call
+    // reaches video.play() (browsers refuse unmuted playback otherwise).
+    private bool VideoCommand(RenderNode node, string cmd)
+    {
+        string? src = null;
+        for (var n = node; n is not null; n = n.Parent)
+            if (n.Element?.GetAttribute("data-cupri-video") is { Length: > 0 } s) { src = s; break; }
+        if (src is null) return false;
+
+        // Fullscreen is the video's OWN fullscreen (web semantics): the element covers the
+        // viewport in the top layer AND the window goes OS-fullscreen — together they make the
+        // video fill the screen. Needs no decoder (a poster fullscreens fine), so it's handled
+        // before the player lookup; still synchronous inside the input dispatch, because the web
+        // host's requestFullscreen demands the user gesture on the stack.
+        if (cmd == "fullscreen")
+        {
+            var entering = _fullscreenVideo != src;
+            _fullscreenVideo = entering ? src : null;
+            WindowCommandRequested?.Invoke(entering
+                ? Interaction.WindowCommand.EnterFullscreen
+                : Interaction.WindowCommand.ExitFullscreen);
+            Refresh();
+            return true;
+        }
+        if (!_videoPlayers.TryGetValue(src, out var player)) return false;
+
+        switch (cmd)
+        {
+            case "mute": player.Muted = !player.Muted; break;
+            case "play": player.Play(); break;
+            case "pause": player.Pause(); break;
+            default: if (player.Playing) player.Pause(); else player.Play(); break;
+        }
+        Refresh(); // the controls' glyphs + labels reflect the new state
+        return true;
+    }
+
+    /// <summary>The host's fullscreen state changed OUTSIDE the engine's own commands — the
+    /// browser's Esc key ends fullscreen without the engine ever seeing a keystroke. Hosts call
+    /// this from their fullscreen-change notification; leaving fullscreen releases any
+    /// element-fullscreened video back into the layout.</summary>
+    public void NotifyHostFullscreen(bool active)
+    {
+        if (active || _fullscreenVideo is null) return;
+        _fullscreenVideo = null;
+        Refresh();
+    }
+
+    /// <summary>True (once, then reset) if a background image load finished — or a live surface
+    /// published a frame / (un)registered — since the last call. A render-on-demand host repaints
+    /// when this returns true, so an async image appears and a paused video shows its seek frame.
+    /// (Single pipe on purpose: both sides must consume their flag every poll.) Also the UI-thread
+    /// reaction point for a video reaching its end (raised on the player's thread): the rebuild
+    /// here flips its controls back to "Play".</summary>
+    public bool ConsumeImageArrived()
+    {
+        if (System.Threading.Interlocked.Exchange(ref _videoStateChanged, 0) == 1)
+        {
+            Refresh();
+            return true;
+        }
+        // A loaded IMAGE changes the display list (DrawImage captures at build time) — invalidate
+        // the fast path. A live-surface frame does NOT (DrawSurface resolves at raster time):
+        // that's exactly the case the fast path exists for, so it must not bump.
+        var image = _images.TakeArrived();
+        if (image) _inputsVersion++;
+        return image | Surfaces.TakeArrived();
+    }
 
     public RenderNode Root => _root;
 
     /// <summary>Dev aid: outline every element's box on top of the paint (scroll containers in blue),
     /// to inspect layout in the live window. Off by default.</summary>
-    public bool DebugOverlay { get => _painter.DebugOutline; set => _painter.DebugOutline = value; }
+    public bool DebugOverlay { get => _painter.DebugOutline; set { _painter.DebugOutline = value; _inputsVersion++; } }
 
     /// <summary>Parse an HTML document and an optional external stylesheet.</summary>
     public static CupriDocument Load(string html, string? css = null)
@@ -253,6 +415,7 @@ public sealed partial class CupriDocument : IDisposable
 
     private void Rebuild()
     {
+        _inputsVersion++; // a fresh DOM invalidates the fast path's retained display list
         var prof = ProfileHook;
         var t = prof is not null ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
         void Mark(string phase)
@@ -281,6 +444,7 @@ public sealed partial class CupriDocument : IDisposable
 
         // Expand custom elements after binding so components see concrete attribute values.
         _components?.Expand(dom);
+        SyncVideos(dom); // players follow the DOM: open for new sources, label controls, retire gone ones
         Mark("expand-components");
 
         // Re-apply text focus across the rebuild (typing rebuilds the DOM each keystroke), and
@@ -362,7 +526,7 @@ public sealed partial class CupriDocument : IDisposable
         _root = new StyleResolver(_rules, _viewportWidth).BuildTree(dom);
         _layoutDirty = true; // fresh tree: no geometry until the next layout
         RestoreScroll(scroll);
-        _transitions.Detect(_root); // (re)start transitions whose target value changed this rebuild
+        _transitions.Detect(_root, _laidOutWidth, _laidOutHeight); // (re)start transitions whose target value changed this rebuild
         Mark("style+tree");
         _hasActiveAnim = _keyframes.Count > 0 && AnyAnimated(_root);
         _dom = dom;
@@ -389,15 +553,16 @@ public sealed partial class CupriDocument : IDisposable
         {
             var tail = n.Element?.HasAttribute("data-follow-tail") == true;
             var scroll = n.Style.Overflow == OverflowMode.Scroll && (n.ScrollY > 0.01f || tail);
-            var hTrans = n.ContentNaturalHeight > 0 && HasHeightTransition(n.Style);
+            // A node not laid out this cycle (a rebuild landed before the next layout) has a stale 0
+            // height — carry its last real displayed height (PrevHeight) forward instead, so a height
+            // transition doesn't think an open panel collapsed to nothing.
+            var displayH = n.LaidOut ? n.Height : n.PrevHeight;
+            // Carry for ANY on-screen height (not only measured-natural content): a definite-height
+            // element — the video card between its size presets — has no flow content, so natural
+            // height stays 0; without the carry its transition would animate up from zero.
+            var hTrans = (n.ContentNaturalHeight > 0 || displayH > 0) && HasHeightTransition(n.Style);
             if (scroll || n.ResizeW is not null || n.ResizeH is not null || n.ScrollX > 0.01f || hTrans || n.SplitGrow is not null)
-            {
-                // A node not laid out this cycle (a rebuild landed before the next layout) has a stale 0
-                // height — carry its last real displayed height (PrevHeight) forward instead, so a height
-                // transition doesn't think an open panel collapsed to nothing.
-                var displayH = n.LaidOut ? n.Height : n.PrevHeight;
                 (map ??= new())[PathOf(n)] = new NodeState(n.ScrollY, n.ScrollY >= n.MaxScrollY - 1f, tail, n.ResizeW, n.ResizeH, n.ScrollX, n.ContentNaturalHeight, displayH, n.SplitGrow);
-            }
             foreach (var c in n.Children) Walk(c);
         }
         Walk(_root);
@@ -442,7 +607,9 @@ public sealed partial class CupriDocument : IDisposable
         // so the transition below applies it the SAME frame — the toast starts from its off-screen state
         // instead of flashing at the target for one frame before the transition kicks in.
         if (_toasts.Count > 0 && StepToasts(timeSeconds)) any = true;
-        if (_keyframes.Count > 0) { Animation.Apply(_root, _keyframes, timeSeconds); any = true; }
+        // @keyframes RULES existing is not animation HAPPENING: hosts call Animate whenever rules
+        // exist (HasAnimations), but only a visibly animated node makes this frame's output differ.
+        if (_keyframes.Count > 0) { Animation.Apply(_root, _keyframes, timeSeconds); if (_hasActiveAnim) any = true; }
         if (_transitions.Apply(_root, timeSeconds)) any = true; // interpolate transitions over @keyframes
         if (_maskRevealPos >= 0) // a masked field is peeking its last-typed char — time it out
         {
@@ -455,6 +622,10 @@ public sealed partial class CupriDocument : IDisposable
             any = true;
         }
         if (EaseReorder(timeSeconds)) any = true; // slide reorder rows into their gap
+        // Animation wrote style/offset values this frame → the retained fast-path list is stale.
+        // A quiet call (rules exist, nothing active — every page of an app with a spinner
+        // somewhere) must NOT bump, or the surface fast path would never fire anywhere.
+        if (any) _inputsVersion++;
         return any;
     }
 
@@ -473,8 +644,9 @@ public sealed partial class CupriDocument : IDisposable
     /// absent from the render tree). Lets a host render continuously only when it must, instead
     /// of every frame — critical for the CPU-rendered web host. Cached per rebuild (the animated
     /// set only changes when the tree does), so a host may poll it every frame for free. Also true
-    /// while a masked field peeks its last-typed char (see <see cref="HasActiveTransitions"/>).</summary>
-    public bool HasActiveAnimations => _hasActiveAnim || _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending;
+    /// while a masked field peeks its last-typed char (see <see cref="HasActiveTransitions"/>),
+    /// and while any live surface (a playing video) is producing frames.</summary>
+    public bool HasActiveAnimations => _hasActiveAnim || _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || Surfaces.AnyTicking;
     private bool _hasActiveAnim;
 
     private static bool AnyAnimated(RenderNode n)
@@ -496,6 +668,97 @@ public sealed partial class CupriDocument : IDisposable
     private IReadOnlyList<Paint.PaintCommand>? _lastPresented;
     private float _lastPresentedW, _lastPresentedH;
 
+    // ---- the surface fast path ----------------------------------------------------------------
+    // Everything that can change the rendered output EXCEPT a live surface swapping its frame
+    // bumps _inputsVersion (dispatch shims, Rebuild, Animate, image arrivals). BuildFrame stamps
+    // the version it was built from. When they match at render time, the retained display list is
+    // still exact — a new video frame changed no command (DrawSurface resolves at raster time) —
+    // so the frame costs one clipped raster of the video rect instead of layout+paint+diff of the
+    // whole page (measured 3.49 ms → the ~0.3 ms floor on the Showcase).
+    private int _inputsVersion = 1, _builtVersion;
+    private DisplayList? _lastList; // the retained list the fast path re-rasters
+    private readonly Dictionary<Paint.ISurfaceSource, SKImage?> _seenSurfaceFrames = new();
+    // The culled replay for the fast path's damage rect — identical from frame to frame while the
+    // video sits still, so cull once and reuse until the list or the rect changes.
+    private IReadOnlyList<Paint.PaintCommand>? _cullCache;
+    private SKRectI _cullCacheRect;
+    private object? _cullCacheList;
+    private DrawSurface[] _lastListSurfaces = []; // pre-extracted, so fast frames skip the full walk
+
+    private bool Bump(bool changed)
+    {
+        if (changed) _inputsVersion++;
+        return changed;
+    }
+
+    /// <summary>Monotonic counter of input-driven content changes (dispatches, rebuilds, animation
+    /// writes, image arrivals) — live-surface frame swaps deliberately excluded. Lets a host skip
+    /// work that depends only on semantics/layout, e.g. re-publishing an accessibility snapshot
+    /// 60×/s while a video merely plays.</summary>
+    public int ContentVersion => _inputsVersion;
+
+    // Union into `damage` the box of every DrawSurface whose frame changed since the last render,
+    // remembering the new references. The damage DIFF can't see those changes — two DrawSurface
+    // records with the same source and geometry compare equal by design. `prune` (the normal,
+    // freshly-built path) also drops remembered sources that left the list, so retired players
+    // don't accumulate. A first-sight source unions its rect too — on the normal path the diff
+    // already covers it (harmless double-union), and the fast path can't meet one.
+    private SKRect SurfaceDamage(IReadOnlyList<Paint.PaintCommand> cmds, SKRect damage, bool prune)
+    {
+        List<Paint.ISurfaceSource>? present = prune ? new() : null;
+        foreach (var cmd in cmds)
+        {
+            if (cmd is not DrawSurface ds) continue;
+            present?.Add(ds.Source);
+            var frame = ds.Source.CurrentFrame;
+            if (_seenSurfaceFrames.TryGetValue(ds.Source, out var seen) && ReferenceEquals(seen, frame)) continue;
+            _seenSurfaceFrames[ds.Source] = frame;
+            var r = SKRect.Create(ds.X, ds.Y, ds.W, ds.H);
+            damage = damage.IsEmpty ? r : SKRect.Union(damage, r);
+        }
+        if (present is not null && _seenSurfaceFrames.Count > present.Count)
+        {
+            List<Paint.ISurfaceSource>? drop = null;
+            foreach (var k in _seenSurfaceFrames.Keys) if (!present.Contains(k)) (drop ??= new()).Add(k);
+            if (drop is not null) foreach (var k in drop) _seenSurfaceFrames.Remove(k);
+        }
+        return damage;
+    }
+
+    /// <summary>The host's retained canvas lost its pixels (its backing surface was recreated —
+    /// e.g. the SDL window rebuilt its bitmap+texture on a size change). The damage diff would
+    /// otherwise keep assuming last frame's pixels are still on screen and repaint only what
+    /// changed — into a blank surface, leaving everything else black. Dropping the diff base
+    /// makes the next <see cref="RenderIncremental"/> a full repaint.</summary>
+    public void InvalidateRetainedFrame() { _lastPresented = null; _lastList = null; }
+
+    /// <summary>Where the last rendered frame's time went — the observability the video work runs
+    /// on. Layout + paint-list come from <see cref="BuildFrame"/>; diff + raster + damage area
+    /// from <see cref="RenderIncremental"/> (a full <see cref="Render"/> reports raster only).</summary>
+    public readonly record struct FrameTimings(
+        double LayoutMs, double PaintListMs, double DiffMs, double RasterMs, int DamagePixels,
+        bool FastPath = false)
+    {
+        public double TotalMs => LayoutMs + PaintListMs + DiffMs + RasterMs;
+    }
+
+    /// <summary>Timings of the most recent rendered frame (see <see cref="FrameTimings"/>).</summary>
+    public FrameTimings LastFrame { get; private set; }
+    private double _tLayout, _tPaint; // BuildFrame's contribution to the frame being rendered
+
+    /// <summary>Live playback internals of every open video player that reports any
+    /// (<see cref="Media.IVideoPlayer.DiagnosticsSummary"/>) — one line per player, or null.</summary>
+    public string? VideoDiagnostics
+    {
+        get
+        {
+            List<string>? lines = null;
+            foreach (var p in _videoPlayers.Values)
+                if (p.DiagnosticsSummary is { Length: > 0 } s) (lines ??= []).Add(s);
+            return lines is null ? null : string.Join("\n", lines);
+        }
+    }
+
     /// <summary>Render for a host whose canvas RETAINS its pixels between frames (the SDL software
     /// bitmap, the WASM staging bitmap): diffs this frame's display list against the last one presented,
     /// clips the repaint to the damaged rectangle, and returns that rectangle — or <c>null</c> when the
@@ -507,12 +770,63 @@ public sealed partial class CupriDocument : IDisposable
     /// computes AA coverage against the clip).</summary>
     public SKRectI? RenderIncremental(SKCanvas canvas, float width, float height, SKColor background)
     {
+        // FAST PATH: no input/rebuild/animation touched the document since the retained list was
+        // built — only live-surface frames can differ. Re-raster the SAME list clipped to the
+        // changed surfaces (DrawSurface resolves its frame at raster time); skip layout, paint
+        // building and the diff entirely.
+        if (_builtVersion == _inputsVersion && _lastList is { } retained && _lastPresented is not null
+            && _lastPresentedW == width && _lastPresentedH == height)
+        {
+            var f0 = Stopwatch.GetTimestamp();
+            var surface = SurfaceDamage(_lastListSurfaces, SKRect.Empty, prune: false);
+            if (surface.IsEmpty)
+            {
+                LastFrame = new FrameTimings(0, 0, 0, 0, 0, FastPath: true);
+                return null;                                   // no new frames either — clean
+            }
+            var srect = SKRectI.Ceiling(surface);
+            // Replay only what intersects the rect: submitting the whole page for Skia to
+            // clip-reject costs more than the video raster itself (measured ~2.3 ms of walk).
+            // The culled list is stable while the video sits still — cull once, reuse.
+            if (_cullCache is null || !ReferenceEquals(_cullCacheList, retained) || _cullCacheRect != srect)
+            {
+                _cullCache = Paint.DamageDiff.CullTo(retained.Commands, srect);
+                _cullCacheList = retained;
+                _cullCacheRect = srect;
+            }
+            canvas.Save();
+            canvas.ClipRect(srect);
+            canvas.Clear(background);
+            _rasterizer.Paint(canvas, _cullCache);
+            canvas.Restore();
+            LastFrame = new FrameTimings(0, 0, 0, Ms(f0, Stopwatch.GetTimestamp()),
+                srect.Width * srect.Height, FastPath: true);
+            return srect;
+        }
+
         var list = BuildFrame(width, height);
+        var t0 = Stopwatch.GetTimestamp();
         var prev = _lastPresentedW == width && _lastPresentedH == height ? _lastPresented : null;
         var damage = Paint.DamageDiff.Compute(prev, list.Commands, width, height);
+        damage = SurfaceDamage(list.Commands, damage, prune: true); // frames may ALSO have arrived
+        var t1 = Stopwatch.GetTimestamp();
         _lastPresented = list.Commands;
+        _lastList = list;
+        // Stamp HERE, not inside BuildFrame: the stamp vouches for the RETAINED list. Other
+        // BuildFrame callers (headless layout, the threaded host, the a11y tree) never update
+        // _lastList — a stamp there would let the fast path re-raster a stale list.
+        _builtVersion = _inputsVersion;
         _lastPresentedW = width; _lastPresentedH = height;
-        if (damage.IsEmpty) return null;                       // identical frame — nothing to present
+        // Pre-extract the (few) DrawSurface commands so fast frames need not walk the whole list.
+        List<DrawSurface>? surfaces = null;
+        foreach (var cmd in list.Commands)
+            if (cmd is DrawSurface ds) (surfaces ??= new(2)).Add(ds);
+        _lastListSurfaces = surfaces?.ToArray() ?? [];
+        if (damage.IsEmpty)
+        {
+            LastFrame = new FrameTimings(_tLayout, _tPaint, Ms(t0, t1), 0, 0);
+            return null;                                       // identical frame — nothing to present
+        }
 
         var rect = SKRectI.Ceiling(damage);
         canvas.Save();
@@ -520,8 +834,12 @@ public sealed partial class CupriDocument : IDisposable
         canvas.Clear(background);                              // Clear respects the clip
         _rasterizer.Paint(canvas, list);                       // full list; Skia rejects outside the clip
         canvas.Restore();
+        LastFrame = new FrameTimings(_tLayout, _tPaint, Ms(t0, t1), Ms(t1, Stopwatch.GetTimestamp()),
+            rect.Width * rect.Height);
         return rect;
     }
+
+    private static double Ms(long from, long to) => (to - from) * 1000.0 / Stopwatch.Frequency;
 
     /// <summary>The UI-thread half of the commit-snapshot seam: lay out, scroll the caret into view,
     /// and paint the render tree (with caret/selection/focus-ring) into an immutable
@@ -529,6 +847,7 @@ public sealed partial class CupriDocument : IDisposable
     /// thread (see <c>ThreadedPresenter</c>); <see cref="Render"/> just rasterises it inline.</summary>
     public DisplayList BuildFrame(float width, float height)
     {
+        var t0 = Stopwatch.GetTimestamp();
         // @media depends on viewport width — re-resolve styles when it changes.
         if (_hasMedia && Math.Abs(width - _viewportWidth) > 0.5f)
         {
@@ -539,6 +858,8 @@ public sealed partial class CupriDocument : IDisposable
         _laidOutWidth = width; _laidOutHeight = height; _layoutDirty = false;
         ScrollCaretIntoView();  // after layout, before paint: keep the caret visible in a scrolled field
         ScrollCaretIntoViewX(); // and horizontally, in a single-line (nowrap) field
+        var t1 = Stopwatch.GetTimestamp();
+        _tLayout = Ms(t0, t1);
 
         var list = _painter.Build(_root);
         // Caret + selection are drawn outside the scrolled subtree, so clip them to the focused
@@ -549,6 +870,7 @@ public sealed partial class CupriDocument : IDisposable
         AppendCaret(list);
         if (clip is not null) list.Add(new PopClip());
         AppendFocusRing(list);
+        _tPaint = Ms(t1, Stopwatch.GetTimestamp());
         return list;
     }
 
@@ -1102,7 +1424,8 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>Activate a node the way a click at its centre would (UIA Invoke / Toggle / Select /
     /// ExpandCollapse all funnel here). Same dispatch path as a real click, so activation rules,
     /// overlays, focus sync and disabled handling all apply. Returns true if anything changed.</summary>
-    public bool AccessibilityActivate(string path)
+    public bool AccessibilityActivate(string path) => Bump(AccessibilityActivateCore(path));
+    private bool AccessibilityActivateCore(string path)
     {
         EnsureLaidOut();
         if (NodeAtPath(path) is not { } n) return false;
@@ -1111,7 +1434,8 @@ public sealed partial class CupriDocument : IDisposable
     }
 
     /// <summary>Move keyboard focus to the control at (or containing) the node — UIA SetFocus.</summary>
-    public bool AccessibilityFocus(string path)
+    public bool AccessibilityFocus(string path) => Bump(AccessibilityFocusCore(path));
+    private bool AccessibilityFocusCore(string path)
     {
         EnsureLaidOut();
         if (NodeAtPath(path) is not { } n) return false;
@@ -1127,7 +1451,8 @@ public sealed partial class CupriDocument : IDisposable
 
     /// <summary>Set a slider's value directly — UIA RangeValue.SetValue. Clamps to min/max and writes
     /// through the same binding a drag would, rounded the way a drag rounds.</summary>
-    public bool AccessibilitySetValue(string path, double value)
+    public bool AccessibilitySetValue(string path, double value) => Bump(AccessibilitySetValueCore(path, value));
+    private bool AccessibilitySetValueCore(string path, double value)
     {
         EnsureLaidOut();
         if (NodeAtPath(path)?.Element is not { } el || _model is null) return false;
@@ -1150,7 +1475,8 @@ public sealed partial class CupriDocument : IDisposable
     /// toggle, slider set) and user handlers along the bubble path, write back to the
     /// bound model, and refresh. Returns true if anything handled it (→ needs repaint).
     /// </summary>
-    public bool DispatchClick(float x, float y, int clickCount = 1)
+    public bool DispatchClick(float x, float y, int clickCount = 1) => Bump(DispatchClickCore(x, y, clickCount));
+    private bool DispatchClickCore(float x, float y, int clickCount)
     {
         EnsureLaidOut();
         _textDrag = false;
@@ -1293,6 +1619,23 @@ public sealed partial class CupriDocument : IDisposable
 
             // Number stepper: +/- button adjusts the nearest numeric field's bound value.
             if (el.GetAttribute("data-cupri-step") is { Length: > 0 } stepRaw) return StepNumber(node, stepRaw);
+
+            // Video transport (play/pause toggle, mute) for the nearest enclosing <cupri-video>.
+            if (el.GetAttribute("data-video-cmd") is { Length: > 0 } videoCmd) return VideoCommand(node, videoCmd);
+
+            // Window command (fullscreen…): raised for the host, like Navigated. Handled only when
+            // a host actually subscribed — headless/embedded consumers just ignore the click.
+            if (el.GetAttribute("data-window-command") is { Length: > 0 } wc)
+            {
+                if (WindowCommandRequested is not { } windowHandlers) return false;
+                windowHandlers(wc switch
+                {
+                    "enter-fullscreen" => Interaction.WindowCommand.EnterFullscreen,
+                    "exit-fullscreen" => Interaction.WindowCommand.ExitFullscreen,
+                    _ => Interaction.WindowCommand.ToggleFullscreen,
+                });
+                return true;
+            }
 
             // Generic "set a bound value" click (tabs, select options, tree selection). Closes any
             // containing overlay so picking an option dismisses its dropdown — unless the element opts
@@ -1537,6 +1880,14 @@ public sealed partial class CupriDocument : IDisposable
             Refresh();
             return true;
         }
+        // No overlay to dismiss: Escape ends video fullscreen (element AND window, like the web).
+        if (_fullscreenVideo is not null)
+        {
+            _fullscreenVideo = null;
+            WindowCommandRequested?.Invoke(Interaction.WindowCommand.ExitFullscreen);
+            Refresh();
+            return true;
+        }
         if (_focusKey is not null) { UpdateFocus(null); Refresh(); return true; }
         return false;
     }
@@ -1620,7 +1971,8 @@ public sealed partial class CupriDocument : IDisposable
     /// Feed a keystroke to the focused text field: printable text via <paramref name="text"/>,
     /// or an editing key (backspace/arrows/…). Edits the bound string and refreshes.
     /// </summary>
-    public bool DispatchKey(string? text, EditKey key, KeyMods mods = KeyMods.None)
+    public bool DispatchKey(string? text, EditKey key, KeyMods mods = KeyMods.None) => Bump(DispatchKeyCore(text, key, mods));
+    private bool DispatchKeyCore(string? text, EditKey key, KeyMods mods)
     {
         ReconcileScope(); // reflect any overlay that opened/closed since the last event
 
@@ -1838,7 +2190,8 @@ public sealed partial class CupriDocument : IDisposable
     }
 
     /// <summary>Copy the selection and delete it (cut). Returns the cut text, or null.</summary>
-    public string? CutSelection()
+    public string? CutSelection() { var t = CutSelectionCore(); if (t is not null) _inputsVersion++; return t; }
+    private string? CutSelectionCore()
     {
         var t = CopySelection();
         if (t is not null) DispatchKey(null, EditKey.Delete);
@@ -1850,7 +2203,8 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>Open a context menu at (x,y) if it's over a text field. Focuses the field (a fresh
     /// focus has no selection, so Cut/Copy start disabled; right-clicking the already-focused field
     /// keeps its selection). Returns true if a menu opened or an open one closed (→ repaint).</summary>
-    public bool DispatchContextMenu(float x, float y)
+    public bool DispatchContextMenu(float x, float y) => Bump(DispatchContextMenuCore(x, y));
+    private bool DispatchContextMenuCore(float x, float y)
     {
         EnsureLaidOut();
         var hit = HitTesting.HitTest(_root, x, y);
@@ -2023,7 +2377,8 @@ public sealed partial class CupriDocument : IDisposable
     private static string EscapeHtml(string s) => s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
 
     /// <summary>Undo the last edit in the focused field (Ctrl+Z). Returns true if it changed anything.</summary>
-    public bool Undo()
+    public bool Undo() => Bump(UndoCore());
+    private bool UndoCore()
     {
         if (_focusKey is null || _undo.Count == 0) return false;
         _redo.Add(new EditState(_editBuffer ?? "", _caret, _selAnchor));
@@ -2033,7 +2388,8 @@ public sealed partial class CupriDocument : IDisposable
     }
 
     /// <summary>Redo the last undone edit (Ctrl+Y / Ctrl+Shift+Z). Returns true if it changed anything.</summary>
-    public bool Redo()
+    public bool Redo() => Bump(RedoCore());
+    private bool RedoCore()
     {
         if (_focusKey is null || _redo.Count == 0) return false;
         _undo.Add(new EditState(_editBuffer ?? "", _caret, _selAnchor));
@@ -2352,9 +2708,13 @@ public sealed partial class CupriDocument : IDisposable
         {
             var items = new List<RenderNode>();
             foreach (var c in lists[ci].Children) if (c.Element?.ClassList.Contains("cupri-reorder-item") == true) items.Add(c);
+            // ScreenBox, not AbsoluteBox: the pointer these mids are compared against is in SCREEN
+            // space. Inside a scrolled page the unscrolled boxes sit below where the pointer can
+            // reach — the row lifted and followed, but the target slot never changed, so the drop
+            // was a silent no-op (the field report: "drag row doesn't work").
             var mids = new float[items.Count];
-            for (var i = 0; i < items.Count; i++) { var b = HitTesting.AbsoluteBox(items[i]); mids[i] = b.Y + b.H / 2f; }
-            var lb = HitTesting.AbsoluteBox(lists[ci]);
+            for (var i = 0; i < items.Count; i++) { var b = HitTesting.ScreenBox(items[i]); mids[i] = b.Y + b.H / 2f; }
+            var lb = HitTesting.ScreenBox(lists[ci]);
             cols.Add(new ReorderCol(lists[ci], items, mids, lb.X, lb.X + lb.W));
             all.AddRange(items);
             var idx = items.IndexOf(item);
@@ -2656,7 +3016,8 @@ public sealed partial class CupriDocument : IDisposable
         return true;
     }
 
-    public bool DispatchPointerMove(float x, float y)
+    public bool DispatchPointerMove(float x, float y) => Bump(DispatchPointerMoveCore(x, y));
+    private bool DispatchPointerMoveCore(float x, float y)
     {
         EnsureLaidOut();
         if (_colPath is not null) return MoveColumnResize(x);
@@ -2705,7 +3066,8 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>Pointer up: end any slider drag, scrollbar drag, or text drag-select.</summary>
     /// <summary>Pointer released: end any drag and clear the :active press. Returns true if the press
     /// state cleared (→ repaint needed to un-press).</summary>
-    public bool DispatchPointerUp(float x, float y)
+    public bool DispatchPointerUp(float x, float y) => Bump(DispatchPointerUpCore(x, y));
+    private bool DispatchPointerUpCore(float x, float y)
     {
         if (_reorderItems is not null) { EndReorder(); return true; }
         if (_splitA is not null) { _splitA = null; _splitB = null; return true; }
@@ -2714,7 +3076,8 @@ public sealed partial class CupriDocument : IDisposable
     }
 
     /// <summary>Scroll wheel: scroll the nearest scrollable element under the pointer by pixels.</summary>
-    public bool DispatchWheel(float x, float y, float pixelDelta)
+    public bool DispatchWheel(float x, float y, float pixelDelta) => Bump(DispatchWheelCore(x, y, pixelDelta));
+    private bool DispatchWheelCore(float x, float y, float pixelDelta)
     {
         EnsureLaidOut();
         if (_ctxOpen || _ctxCustomIndex >= 0) { _ctxOpen = false; _ctxCustomIndex = -1; Refresh(); } // scrolling dismisses the context menu
@@ -2808,7 +3171,7 @@ public sealed partial class CupriDocument : IDisposable
         _root = new StyleResolver(_rules, _viewportWidth).BuildTree(_dom);
         _layoutDirty = true; // fresh tree: no geometry until the next layout
         RestoreScroll(scroll);
-        _transitions.Detect(_root); // hover/focus/class change → (re)start any transitions that flipped
+        _transitions.Detect(_root, _laidOutWidth, _laidOutHeight); // hover/focus/class change → (re)start any transitions that flipped
     }
 
     private static double ParseAttr(IElement el, string name, double fallback) =>
@@ -2868,6 +3231,9 @@ public sealed partial class CupriDocument : IDisposable
 
     public void Dispose()
     {
+        foreach (var player in _videoPlayers.Values)
+            try { player.Dispose(); } catch { /* a dying decoder must not block disposal */ }
+        _videoPlayers.Clear();
         _fonts.Dispose();
         _images.Dispose();
         _dom?.Dispose();

@@ -1,0 +1,196 @@
+name: Codecs
+
+# Native decoders for CupriFace.Media: libvpx (VP8/VP9 decode only) + libopus, statically
+# linked into ONE shared library per RID — `cupricodecs` — so the managed binding has a single
+# DllImport name on every OS and the nupkg ships runtimes/<rid>/native/<lib> the Skia way.
+# Pinned tags; decode-only configure keeps the output small. Runs when this file changes (or on
+# demand); the artifacts feed the CupriFace.Media pack and local development.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, feature/video ]
+    paths: [ '.github/workflows/codecs.yml' ]
+
+env:
+  VPX_TAG: v1.14.1
+  OPUS_TAG: v1.5.2
+  # The GitHub mirror, not chromium.googlesource.com: real tag objects and a plain https clone
+  # that every runner's git can do (the googlesource fetch died instantly on the MSYS2 leg).
+  VPX_REPO: https://github.com/webmproject/libvpx.git
+  OPUS_REPO: https://github.com/xiph/opus.git
+
+jobs:
+  linux-x64:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq nasm > /dev/null
+      - name: Build libvpx (decode only, PIC static)
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$VPX_TAG" "$VPX_REPO" libvpx
+          cd libvpx
+          ./configure --disable-examples --disable-docs --disable-unit-tests --disable-tools \
+            --disable-vp8-encoder --disable-vp9-encoder --enable-vp8-decoder --enable-vp9-decoder \
+            --enable-pic --disable-shared --enable-static > /dev/null
+          make -j"$(nproc)" > /dev/null
+      - name: Build libopus (PIC static)
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$OPUS_TAG" "$OPUS_REPO" opus
+          cmake -S opus -B opus/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DOPUS_BUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF > /dev/null
+          cmake --build opus/build -j > /dev/null
+      - name: Link cupricodecs
+        run: |
+          set -euo pipefail
+          gcc -shared -o libcupricodecs.so \
+            -Wl,--whole-archive libvpx/libvpx.a opus/build/libopus.a -Wl,--no-whole-archive \
+            -lm -lpthread
+          # Symbols to a FILE, never `nm | grep -q`: grep exits at the first match, nm dies of
+          # SIGPIPE, and pipefail fails the step even though the library is perfect (that is
+          # exactly how the macOS leg "failed" on its first run).
+          nm -D libcupricodecs.so > syms.txt
+          grep -q vpx_codec_vp9_dx syms.txt
+          grep -q opus_decoder_create syms.txt
+          ls -l libcupricodecs.so
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cupricodecs-linux-x64
+          path: libcupricodecs.so
+          if-no-files-found: error
+
+  osx-arm64:
+    runs-on: macos-latest
+    steps:
+      - name: Build libvpx (decode only, static)
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$VPX_TAG" "$VPX_REPO" libvpx
+          cd libvpx
+          ./configure --disable-examples --disable-docs --disable-unit-tests --disable-tools \
+            --disable-vp8-encoder --disable-vp9-encoder --enable-vp8-decoder --enable-vp9-decoder \
+            --enable-pic --disable-shared --enable-static > /dev/null
+          make -j"$(sysctl -n hw.ncpu)" > /dev/null
+      - name: Build libopus (static)
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$OPUS_TAG" "$OPUS_REPO" opus
+          cmake -S opus -B opus/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DOPUS_BUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF > /dev/null
+          cmake --build opus/build -j > /dev/null
+      - name: Link cupricodecs
+        run: |
+          set -euo pipefail
+          clang -dynamiclib -o libcupricodecs.dylib \
+            -Wl,-force_load,libvpx/libvpx.a -Wl,-force_load,opus/build/libopus.a
+          nm -gU libcupricodecs.dylib > syms.txt   # see the Linux note: no pipe into grep -q
+          grep -q vpx_codec_vp9_dx syms.txt
+          grep -q opus_decoder_create syms.txt
+          ls -l libcupricodecs.dylib
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cupricodecs-osx-arm64
+          path: libcupricodecs.dylib
+          if-no-files-found: error
+
+  win-x64:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      # MinGW, deliberately: libvpx's configure has no supported MSVC shared path, and a MinGW
+      # static archive linked into our own DLL (with the runtime statically linked) yields a
+      # dependency-free binary that P/Invoke loads like any other.
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: >-
+            git make nasm diffutils
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-cmake
+      # Clone in its OWN step (and traced): the first run died three seconds into a combined
+      # step, which named nothing. Whatever breaks next says so by step name.
+      - name: Clone sources
+        run: |
+          set -euxo pipefail
+          git --version
+          git clone --depth 1 --branch "$VPX_TAG" "$VPX_REPO" libvpx
+          git clone --depth 1 --branch "$OPUS_TAG" "$OPUS_REPO" opus
+          ls -d libvpx opus
+      - name: Build libvpx (decode only, static)
+        run: |
+          set -euxo pipefail
+          cd libvpx
+          ./configure --target=x86_64-win64-gcc \
+            --disable-examples --disable-docs --disable-unit-tests --disable-tools \
+            --disable-vp8-encoder --disable-vp9-encoder --enable-vp8-decoder --enable-vp9-decoder \
+            --disable-shared --enable-static
+          make -j"$(nproc)"
+          ls -l libvpx.a
+      - name: Build libopus (static)
+        run: |
+          set -euxo pipefail
+          cmake -S opus -B opus/build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF -DOPUS_BUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF
+          cmake --build opus/build -j
+          find opus/build -name 'libopus.a'
+      - name: Link cupricodecs
+        run: |
+          set -euxo pipefail
+          OPUS_A=$(find opus/build -name 'libopus.a' | head -1)
+          gcc -shared -o cupricodecs.dll \
+            -Wl,--whole-archive libvpx/libvpx.a "$OPUS_A" -Wl,--no-whole-archive \
+            -static -static-libgcc -lwinpthread
+          objdump -p cupricodecs.dll > syms.txt   # no pipe into grep -q (see the Linux note)
+          grep -qi vpx_codec_vp9_dx syms.txt
+          grep -qi opus_decoder_create syms.txt
+          ls -l cupricodecs.dll
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cupricodecs-win-x64
+          path: cupricodecs.dll
+          if-no-files-found: error
+
+  # THE PORTABILITY GATE: build the media sample ONCE on Windows, framework-dependent, then run
+  # those untouched managed binaries on Linux with `dotnet MediaProbe.dll` and decode real video
+  # there. This is the promise CupriFace.Media makes — one package, every desktop OS, no per-OS
+  # build — turned into a test that fails if it ever stops being true.
+  portable-build-and-run:
+    needs: [ linux-x64, win-x64 ]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/download-artifact@v4
+        with: { name: cupricodecs-win-x64, path: native/win-x64 }
+      - uses: actions/download-artifact@v4
+        with: { name: cupricodecs-linux-x64, path: native/linux-x64 }
+      # Framework-dependent on purpose: no -r, so the output is portable IL plus every RID's
+      # natives — exactly what `dotnet MyApp.dll` needs on any machine.
+      - name: Publish on Windows
+        run: dotnet publish samples/MediaProbe/MediaProbe.csproj -c Release -o probe
+      - uses: actions/upload-artifact@v4
+        with: { name: mediaprobe-built-on-windows, path: probe, if-no-files-found: error }
+    runs-on: windows-latest
+
+  portable-run-on-linux:
+    needs: portable-build-and-run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Native deps (Skia needs fontconfig even headless)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libfontconfig1 > /dev/null
+      - uses: actions/download-artifact@v4
+        with: { name: mediaprobe-built-on-windows, path: probe }
+      - name: Run the WINDOWS-built binaries on Linux
+        run: |
+          set -euo pipefail
+          ls -l probe/libcupricodecs.so probe/MediaProbe.dll
+          dotnet probe/MediaProbe.dll

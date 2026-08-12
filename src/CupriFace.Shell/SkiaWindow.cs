@@ -46,6 +46,29 @@ public sealed class SkiaWindow : IDisposable
     /// is exactly the origin pointer coordinates are relative to).</summary>
     public (int X, int Y) ScreenPosition => _window is { } w ? (w.Position.X, w.Position.Y) : (0, 0);
 
+    /// <summary>True while the window is OS-fullscreen (see <see cref="SetFullscreen"/>).</summary>
+    public bool IsFullscreen => _window?.WindowState == WindowState.Fullscreen;
+
+    // The state to restore on exit — a maximized window must come back maximized, not Normal.
+    private WindowState _beforeFullscreen = WindowState.Normal;
+
+    /// <summary>Enter/leave fullscreen (the host maps <c>WindowCommandRequested</c> and the
+    /// Escape-to-exit convention here). Resize events flow as normal, so the app reflows.</summary>
+    public void SetFullscreen(bool on)
+    {
+        if (_window is null || IsFullscreen == on) return;
+        if (on)
+        {
+            _beforeFullscreen = _window.WindowState;
+            _window.WindowState = WindowState.Fullscreen;
+        }
+        else
+        {
+            _window.WindowState = _beforeFullscreen == WindowState.Fullscreen ? WindowState.Normal : _beforeFullscreen;
+        }
+        _forceRender = true;
+    }
+
     /// <summary>Raised on left-button press with client-area coordinates and the click count
     /// (1/2/3 = single/double/triple — for word/line text selection).</summary>
     public event Action<float, float, int>? PointerDown;

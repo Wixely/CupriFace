@@ -11,7 +11,12 @@ namespace CupriFace.Shell;
 /// </summary>
 public static class DesktopHost
 {
-    public static void Run(CupriApp app)
+    /// <param name="app">The portable application definition.</param>
+    /// <param name="configure">Host-composition hook, run once after the document is built —
+    /// where desktop-only capabilities attach (e.g. <c>d =&gt; d.UseVideo(new WebmVideoBackend())</c>
+    /// from the optional CupriFace.Media package). Kept OUT of <see cref="CupriApp.Configure"/> on
+    /// purpose: the app class is shared with hosts that must not reference desktop codecs.</param>
+    public static void Run(CupriApp app, Action<CupriDocument>? configure = null)
     {
         // The GL-probe child (see GlProbeSurvives): attempt GL bring-up, report via exit code,
         // never open the real window. Checked before anything else so the probe stays invisible.
@@ -22,6 +27,7 @@ public static class DesktopHost
         }
 
         var doc = app.CreateDocument();
+        configure?.Invoke(doc);
         // External links (http/mailto/…) open in the OS browser; internal routing + #anchors are the
         // app's / engine's concern. Both hosts do this, so links behave the same on desktop and web.
         doc.Navigated += e => { if (e.External) OpenExternal(e.Href); };
@@ -127,10 +133,18 @@ public static class DesktopHost
                 }
                 if (uia?.DrainActions() == true) dirty = true;
             };
+            // Publish a semantics snapshot only when the CONTENT could have changed (or the
+            // window moved/rescaled) — not on every drawn frame: a playing video draws 60x/s
+            // while the tree it would snapshot is identical.
+            (int V, float W, float H, float S, int X, int Y) published = default;
             window.Render += _ =>
             {
-                if (OperatingSystem.IsWindows())
-                    uia?.PublishFrame(logicalW, logicalH, scale, window.ScreenPosition);
+                if (!OperatingSystem.IsWindows() || uia is null) return;
+                var pos = window.ScreenPosition;
+                var key = (doc.ContentVersion, logicalW, logicalH, scale, pos.X, pos.Y);
+                if (key == published) return;
+                published = key;
+                uia.PublishFrame(logicalW, logicalH, scale, pos);
             };
 
             window.PointerDown += (x, y, clicks) => { Mark(doc.DispatchClick(x / scale, y / scale, clicks)); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
@@ -139,9 +153,22 @@ public static class DesktopHost
             window.PointerUp += (x, y) => { Mark(doc.DispatchPointerUp(x / scale, y / scale)); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
             window.PointerWheel += (x, y, dy) => Mark(doc.DispatchWheel(x / scale, y / scale, -dy * 50f)); // wheel up → scroll up
             window.TextEntered += t => Mark(doc.DispatchKey(t, EditKey.None));
-            window.EditKeyPressed += (k, mods) => Mark(doc.DispatchKey(null, k, mods));
+            window.EditKeyPressed += (k, mods) =>
+            {
+                var handled = doc.DispatchKey(null, k, mods);
+                Mark(handled);
+                // Escape the document didn't consume (no overlay open) exits fullscreen — the OS
+                // convention. Overlays keep winning: dismissing one returns handled above.
+                if (!handled && k == EditKey.Escape && window.IsFullscreen) window.SetFullscreen(false);
+            };
             window.Shortcut += (ch, mods) => { Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             doc.ContextRequested += cmd => { ContextAction(doc, cmd, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
+            doc.WindowCommandRequested += cmd => window.SetFullscreen(cmd switch
+            {
+                WindowCommand.EnterFullscreen => true,
+                WindowCommand.ExitFullscreen => false,
+                _ => !window.IsFullscreen,
+            });
             window.Run();
         }
         catch (Exception ex)
@@ -149,6 +176,10 @@ public static class DesktopHost
             Console.WriteLine($"[CupriFace] GPU unavailable ({ex.GetType().Name}); using the SDL software window.");
             using var window = new SdlSoftwareWindow(app.Title, app.Width, app.Height, app.Transparent, app.Frameless, app.TopMost);
             if (icon is { } ic) window.SetIcon(ic.Rgba, ic.W, ic.H);
+
+            // The retained surface was recreated (blank): the doc's damage diff must restart from
+            // a full repaint, and the frame must actually render even if nothing else is dirty.
+            window.SurfaceRecreated += () => { doc.InvalidateRetainedFrame(); dirty = true; };
 
             // UIA on the software window too — on Windows this is the path GL-less machines (RDP,
             // VMs, CI runners) actually take, so a screen reader must work here, not just on GL.
@@ -168,6 +199,7 @@ public static class DesktopHost
             // Commit-snapshot render thread (opt-in): build the display list on this UI thread and let
             // a background thread rasterise it; present the latest completed frame each vsync. Targets
             // the physical surface (scale 1), so it composes with the responsive present.
+            (int V, float W, float H, float S, int X, int Y) published = default;
             using var presenter = app.ThreadedRender ? new CupriFace.Threading.ThreadedPresenter() : null;
             void DrawThreaded(RenderContext ctx)
             {
@@ -177,13 +209,22 @@ public static class DesktopHost
                 if (doc.HasAnimations || doc.HasActiveTransitions) doc.Animate(clock.Elapsed.TotalSeconds);
                 var list = doc.BuildFrame(ctx.Width, ctx.Height);
                 presenter.Submit(list, ctx.Width, ctx.Height, app.Transparent ? SkiaSharp.SKColors.Transparent : app.Background);
-                if (OperatingSystem.IsWindows())
-                    uia?.PublishFrame(ctx.Width, ctx.Height, 1f, window.ScreenPosition); // threaded path presents at scale 1
+                if (OperatingSystem.IsWindows() && uia is not null) // threaded path presents at scale 1
+                {
+                    var pos = window.ScreenPosition;
+                    var key = (doc.ContentVersion, (float)ctx.Width, (float)ctx.Height, 1f, pos.X, pos.Y);
+                    if (key != published)
+                    {
+                        published = key;
+                        uia.PublishFrame(ctx.Width, ctx.Height, 1f, pos);
+                    }
+                }
             }
 
             if (presenter is not null)
                 window.Render += DrawThreaded; // threaded path keeps its own pipeline (no damage/skip)
             else
+            {
                 // Damage-aware render-on-demand: repaint only the changed rect of the retained bitmap;
                 // a clean frame renders, uploads, and presents nothing.
                 window.RenderIncrementalFrame = ctx =>
@@ -207,20 +248,42 @@ public static class DesktopHost
                         ctx.Canvas.Restore();
                         damage = new SkiaSharp.SKRectI(0, 0, ctx.Width, ctx.Height);
                     }
-                    // A drawn frame is the moment the tree is laid out and current — publish then.
-                    if (damage is not null && OperatingSystem.IsWindows())
-                        uia?.PublishFrame(p.LogicalWidth, p.LogicalHeight, scale, window.ScreenPosition);
+                    // A drawn frame is the moment the tree is laid out and current — publish then,
+                    // but only when the content (or geometry) changed: video frames repaint 60x/s
+                    // over an identical semantics tree.
+                    if (damage is not null && OperatingSystem.IsWindows() && uia is not null)
+                    {
+                        var pos = window.ScreenPosition;
+                        var key = (doc.ContentVersion, p.LogicalWidth, p.LogicalHeight, scale, pos.X, pos.Y);
+                        if (key != published)
+                        {
+                            published = key;
+                            uia.PublishFrame(p.LogicalWidth, p.LogicalHeight, scale, pos);
+                        }
+                    }
                     return damage;
                 };
+            }
             window.PointerDown += (x, y, clicks) => { Mark(doc.DispatchClick(x / scale, y / scale, clicks)); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
             window.RightPointerDown += (x, y) => Mark(doc.DispatchContextMenu(x / scale, y / scale));
             window.PointerMove += (x, y) => { Mark(doc.DispatchPointerMove(x / scale, y / scale)); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
             window.PointerUp += (x, y) => { Mark(doc.DispatchPointerUp(x / scale, y / scale)); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
             window.PointerWheel += (x, y, dy) => Mark(doc.DispatchWheel(x / scale, y / scale, -dy * 50f)); // wheel up → scroll up
             window.TextEntered += t => Mark(doc.DispatchKey(t, EditKey.None));
-            window.EditKeyPressed += (k, mods) => Mark(doc.DispatchKey(null, k, mods));
+            window.EditKeyPressed += (k, mods) =>
+            {
+                var handled = doc.DispatchKey(null, k, mods);
+                Mark(handled);
+                if (!handled && k == EditKey.Escape && window.IsFullscreen) window.SetFullscreen(false);
+            };
             window.Shortcut += (ch, mods) => { Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             doc.ContextRequested += cmd => { ContextAction(doc, cmd, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
+            doc.WindowCommandRequested += cmd => window.SetFullscreen(cmd switch
+            {
+                WindowCommand.EnterFullscreen => true,
+                WindowCommand.ExitFullscreen => false,
+                _ => !window.IsFullscreen,
+            });
             window.Run();
         }
     }

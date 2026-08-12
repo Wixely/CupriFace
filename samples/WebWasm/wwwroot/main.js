@@ -66,6 +66,24 @@ try {
     // it into a Uint8Array in a single WASM→JS copy (no managed allocation on the .NET side —
     // bitmap.Bytes would allocate + copy 2.7 MB every frame). We reuse one ImageData per size.
     let img = null;
+    const videos = new Map(); // id → underlaid <video> element (browser-decoded video)
+    const videoOpen = (id, src) => {
+        canvas.style.position = 'relative'; canvas.style.zIndex = '1'; // above all underlays
+        const v = document.createElement('video');
+        v.src = src;
+        v.playsInline = true;          // iOS: never hijack into the native fullscreen player
+        v.preload = 'auto';
+        v.style.cssText = 'position:absolute;z-index:0;pointer-events:none;display:none;';
+        v.addEventListener('loadedmetadata', () => I.VideoMeta(id, v.duration || 0, v.videoWidth, v.videoHeight));
+        v.addEventListener('loadeddata', () => I.VideoReady(id));
+        // The browser's play/pause truth (autoplay rejections included) drives the controls.
+        v.addEventListener('play', () => I.VideoPlayState(id, true));
+        v.addEventListener('pause', () => I.VideoPlayState(id, false));
+        v.addEventListener('timeupdate', () => I.VideoTime(id, v.currentTime || 0));
+        v.addEventListener('ended', () => I.VideoEnded(id));
+        document.body.insertBefore(v, canvas);
+        videos.set(id, v);
+    };
     window.__paints = 0; // diagnostic: count actual canvas paints (a paint = one full render)
     setModuleImports('cupri', {
         // (dx,dy,dw,dh) is the damage rect — only that region changed, so only it is blitted.
@@ -85,7 +103,57 @@ try {
         clipboardWrite: text => navigator.clipboard.writeText(text).catch(() => {}),
         clipboardPaste: () => navigator.clipboard.readText().then(t => { if (t) I.KeyChar(t); }).catch(() => {}),
         // Off-screen ARIA mirror of the semantics tree (screen-reader accessibility).
-        a11y: html => { if (a11y.innerHTML !== html) a11y.innerHTML = html; }
+        a11y: html => { if (a11y.innerHTML !== html) a11y.innerHTML = html; },
+
+        // ---- Video underlay: the BROWSER decodes; the engine punches a transparent hole -----
+        // where the element shows and paints its own controls on top. Native controls stay off
+        // (they'd be dead under the canvas); the canvas sits above every video (z-index below).
+        videoOpen,
+        // Embedded/file/data: sources arrive as BYTES (resolved through the same pipeline images
+        // use) and play from a Blob URL — an app's embedded clip works identically on the web.
+        videoOpenBytes: (id, bytes) => {
+            const url = URL.createObjectURL(new Blob([bytes.slice()], { type: 'video/webm' }));
+            videoOpen(id, url);
+            videos.get(id).dataset.blobUrl = url;   // revoked on close
+        },
+        videoClose: id => {
+            const v = videos.get(id);
+            if (v) {
+                v.pause(); v.remove(); videos.delete(id);
+                if (v.dataset.blobUrl) URL.revokeObjectURL(v.dataset.blobUrl);
+            }
+        },
+        // play() rejection (no gesture, unmuted) is expected — the 'pause'-state truth above
+        // keeps the engine's controls honest, so the rejection needs no handling here.
+        videoPlay: id => { videos.get(id)?.play().catch(() => {}); },
+        videoPause: id => { videos.get(id)?.pause(); },
+        videoMuted: (id, m) => { const v = videos.get(id); if (v) v.muted = m; },
+        videoVolume: (id, vol) => { const v = videos.get(id); if (v) v.volume = vol; },
+        videoLoop: (id, l) => { const v = videos.get(id); if (v) v.loop = l; },
+        videoSeek: (id, t) => { const v = videos.get(id); if (v) v.currentTime = t; },
+        // Position/size/clip in canvas pixels (backing store == CSS px here). clip-path recreates
+        // the engine's scroll/overflow clipping, which a DOM element would otherwise ignore.
+        videoRect: (id, x, y, w, h, cT, cR, cB, cL, visible, fit) => {
+            const v = videos.get(id); if (!v) return;
+            if (!visible) { v.style.display = 'none'; return; }
+            const r = canvas.getBoundingClientRect();
+            v.style.display = '';
+            v.style.left = (r.left + window.scrollX + x) + 'px';
+            v.style.top = (r.top + window.scrollY + y) + 'px';
+            v.style.width = w + 'px';
+            v.style.height = h + 'px';
+            v.style.objectFit = fit === 'none' ? 'none' : fit;   // same keyword set as the engine
+            v.style.clipPath = (cT || cR || cB || cL) ? `inset(${cT}px ${cR}px ${cB}px ${cL}px)` : '';
+        },
+
+        // Fullscreen (0 toggle / 1 enter / 2 exit) on the canvas's container, so the underlaid
+        // videos come along. Escape exits natively; the resize event reflows the app.
+        windowCommand: cmd => {
+            const target = canvas.parentElement || document.documentElement;
+            const inFs = !!document.fullscreenElement;
+            if (cmd === 2 || (cmd === 0 && inFs)) { document.exitFullscreen?.(); return; }
+            if (cmd === 1 || cmd === 0) target.requestFullscreen?.().catch(() => {});
+        }
     });
 
     const config = getConfig();
@@ -93,6 +161,10 @@ try {
     const exports = await getAssemblyExports(config.mainAssemblyName);
     const I = exports.Interop;
     logBoot('exports ok');
+
+    // The browser can end fullscreen on its own (Esc goes to the BROWSER, not our key handler) —
+    // tell the engine so an element-fullscreened video returns to its place in the layout.
+    document.addEventListener('fullscreenchange', () => I.HostFullscreen(!!document.fullscreenElement));
 
     // Size the canvas backing store to its CSS box (the full window), and keep it in sync on
     // resize so Hybrid-Zoom scaling reflows to the viewport. Tick notices the size change and

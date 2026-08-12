@@ -465,6 +465,53 @@ CSS `width`/`height` (aspect preserved if you set only one); `fit` defaults to `
 <cupri-image src="https://example.com/banner.jpg" fit="cover" style="width:100%;height:120px"></cupri-image>
 ```
 
+**Video.** `<cupri-video>` plays video through whichever backend the HOST registered
+(`doc.UseVideo(...)` — the optional `CupriFace.Media` WebM decoder on desktop, the browser's own
+decoder on the web host; with no backend the `poster` shows and the controls are inert). `controls`
+adds an engine-drawn bar (play/pause, mute, fullscreen — real components, so they're themable and
+accessible); clicking the picture toggles playback. `autoplay` is honored **only together with
+`muted`** — the web's rule, applied on every host so one app behaves the same everywhere.
+Full-window video is just sizing (`width:100%;height:100%` + `fit="cover"`). The ⛶ button
+fullscreens **the video itself**, the way the web does it: the element expands over the whole
+viewport in the top layer (letterboxed on black, the bar still overlaid) *and* the window goes
+OS/browser-fullscreen through `WindowCommandRequested` — together the video fills the screen.
+Escape (or ⛶ again) undoes both; on the web the browser's own Esc is picked up via
+`fullscreenchange`, so the element never sticks.
+
+`src` resolves **exactly like an image** — the developer picks the scheme per element:
+an **embedded** asset (bare name, the assembly registered via `UseImages`), a **disk** file
+(`file://` or a path), an inline `data:` URI, or a **web URL** fetched under the document's
+`UseImageUrlOptions` policy (https-only, size cap, timeout by default). Remote sources open
+*deferred* — the poster stays up, playback starts when the bytes land, never blocking a frame; on
+the web host, remote URLs stream through the browser natively while embedded/disk/`data:` sources
+play from the same resolved bytes, so every scheme works on every host.
+```html
+<cupri-video src="Assets/intro.webm" poster="Assets/intro.png" controls muted autoplay loop
+             label="Product tour" fit="cover" style="width:100%;height:260px"></cupri-video>
+<cupri-video src="https://example.com/trailer.webm" controls muted></cupri-video>
+```
+**Wiring a backend.** The web host has one built in (the browser decodes). On desktop, add the
+optional **`CupriFace.Media`** package — WebM/VP9+Opus, with decoders for every desktop RID inside
+that single package — and attach it at the host composition root, *not* in your `CupriApp` (which
+a web build also compiles):
+```csharp
+DesktopHost.Run(new MyApp(), doc =>
+{
+    if (NativeDecoders.Available)                       // false → poster + disabled controls
+        doc.UseVideo(new WebmVideoBackend(new NativeDecoders(), SdlAudioSink.TryCreate()));
+});
+```
+Audio is optional (`TryCreate` returns null on a machine with no device — video still plays).
+Format scope is deliberately royalty-free: **WebM with VP9/VP8 video and Opus audio**; there is no
+H.264/MP4 path, by licence policy.
+
+*Where the decoders come from:* consuming the **NuGet package**, they're already inside it
+(`runtimes/<rid>/native/`) and .NET picks the right one — nothing to do. Building **this repo from
+source**, they aren't in git (they're build outputs of the pinned upstream sources): download the
+latest green **Codecs** workflow run's artifacts into `native/<rid>/` and every project here picks
+them up automatically. Without them `NativeDecoders.Available` is false and video degrades to the
+poster, which is exactly what a consumer without the package sees.
+
 **Resizable controls.** CSS `resize: both | horizontal | vertical` puts a grab handle in an
 element's bottom‑right corner — dragging it resizes the element, clamped to its
 `min-/max-width/height`. It's generic (works on any element — a textarea, an image frame, a panel)
@@ -487,6 +534,7 @@ to the bottom as new lines arrive (logging), *unless* the user has scrolled up:
 | Element | Purpose | Key attributes | Children | role |
 |---------|---------|----------------|----------|------|
 | `<cupri-image>` | Raster image (PNG/JPEG/WebP/GIF) | `src`, `alt`, `fit` (`contain`\|`cover`\|`fill`\|`none`) | — | `img` or decorative |
+| `<cupri-video>` | Video (host-registered backend) | `src`, `poster`, `fit`, `label`, `controls`, `autoplay` (with `muted`), `muted`, `loop` | — | `img` + button controls |
 | `<cupri-icon>` | Vector icon (current text colour) | `name`, `size` (24), `aria-label`? | — | `img` or decorative |
 | `<cupri-badge>` | Small pill label | — | text/HTML | — |
 | `<cupri-chip>` | Pill with optional close icon | `closable` | text/HTML | — |

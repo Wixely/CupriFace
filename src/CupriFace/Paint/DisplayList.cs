@@ -87,3 +87,18 @@ public sealed record ResizeGrip(float X, float Y, float Size, SKColor Color) : P
 /// the (optionally rounded) box.</summary>
 public sealed record DrawImage(
     float X, float Y, float W, float H, SKImage Image, ObjectFit Fit, float Radius) : PaintCommand;
+
+/// <summary>Punch a transparent hole (alpha 0, overriding everything painted below) — for a
+/// host-composited surface (the web host's underlaid <c>&lt;video&gt;</c> shows through it, while
+/// engine content painted AFTER this still composites on top). The host must present with
+/// per-pixel alpha for the hole to matter.</summary>
+public sealed record ClearHole(float X, float Y, float W, float H, float Radius) : PaintCommand;
+
+/// <summary>Draw a LIVE surface's current frame (video, future 3D viewports), resolved from the
+/// source AT RASTER TIME — not captured at build time like <see cref="DrawImage"/>. That's the
+/// surface fast path's foundation: a new video frame changes NOTHING in the display list (the
+/// source reference and geometry are identical), so the engine can re-raster the retained list
+/// clipped to this box instead of re-deriving the whole page. The record compares by source
+/// REFERENCE (players persist across rebuilds), keeping the damage diff exact.</summary>
+public sealed record DrawSurface(
+    float X, float Y, float W, float H, ISurfaceSource Source, ObjectFit Fit, float Radius) : PaintCommand;

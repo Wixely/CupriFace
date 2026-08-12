@@ -29,7 +29,19 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\CupriFace.Shell\CupriFace.Shell.csproj" />
+    <ProjectReference Include="..\..\src\CupriFace.Media\CupriFace.Media.csproj" />
     <ProjectReference Include="..\DemoApp\DemoApp.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Dev convenience: codec natives dropped into native/<rid>/ (codecs.yml artifacts) ride
+         along when running from source. Packaged consumers get them from the nupkg's runtimes/. -->
+    <None Include="..\..\native\win-x64\cupricodecs.dll" CopyToOutputDirectory="PreserveNewest"
+          Visible="false" Condition="Exists('..\..\native\win-x64\cupricodecs.dll')" />
+    <None Include="..\..\native\linux-x64\libcupricodecs.so" CopyToOutputDirectory="PreserveNewest"
+          Visible="false" Condition="Exists('..\..\native\linux-x64\libcupricodecs.so')" />
+    <None Include="..\..\native\osx-arm64\libcupricodecs.dylib" CopyToOutputDirectory="PreserveNewest"
+          Visible="false" Condition="Exists('..\..\native\osx-arm64\libcupricodecs.dylib')" />
   </ItemGroup>
 
 </Project>

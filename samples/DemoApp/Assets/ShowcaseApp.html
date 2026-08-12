@@ -287,6 +287,24 @@ doc.RenderToImage(800, 600);
         <cupri-image class="frame" src="Assets/torus-colony.jpg" fit="{{ImageFit}}"
                      alt="A torus colony's interior — Don Davis, 1970s"></cupri-image>
         <p class="credit">“A torus colony's interior” · Don Davis · 1970s · public domain · fit: {{ImageFit}}</p>
+
+        <div class="mlabel">Video — <code>&lt;cupri-video&gt;</code>, decoded by the host's backend</div>
+        <p class="sub">The clip is an <b>embedded asset</b> (src resolves like an image: embedded /
+          file / data: / https). On the web the browser decodes it — no codecs shipped; on desktop
+          the CupriFace.Media decoders play it (with no decoders installed the poster shows instead).
+          Click the picture or the controls; the last button fullscreens the video (Escape leaves).
+          The buttons beside the player resize it through a CSS <code>transition</code> on
+          width/height — a real layout animation, so the frames scale smoothly with the box.</p>
+        <div style="display:flex; gap:14px; align-items:flex-start">
+          <cupri-video src="Assets/demo.webm" poster="Assets/demo-poster.png" controls muted autoplay
+                       loop label="Generated test clip" style="{{VideoStyle}}"></cupri-video>
+          <div style="display:flex; flex-direction:column; gap:8px">
+            <cupri-button variant="ghost" data-set-path="VideoMode" data-set-value="large-fast">Large / Fast</cupri-button>
+            <cupri-button variant="ghost" data-set-path="VideoMode" data-set-value="small-fast">Small / Fast</cupri-button>
+            <cupri-button variant="ghost" data-set-path="VideoMode" data-set-value="large-slow">Large / Slow</cupri-button>
+            <cupri-button variant="ghost" data-set-path="VideoMode" data-set-value="small-slow">Small / Slow</cupri-button>
+          </div>
+        </div>
       </div>
 
       <!-- OVERLAYS -->
@@ -517,6 +535,14 @@ doc.RenderToImage(800, 600);
           <cupri-card style="width:180px"><cupri-stat label="GC collections 0/1/2" value="{{GcCounts}}"></cupri-stat></cupri-card>
           <cupri-card style="width:180px"><cupri-stat label="Threads" value="{{Threads}}"></cupri-stat></cupri-card>
           <cupri-card style="width:180px"><cupri-stat label="Uptime" value="{{Uptime}}"></cupri-stat></cupri-card>
+        </div>
+        <div class="mlabel">Frame pipeline — where the last rendered frame's time went</div>
+        <div class="row">
+          <cupri-card style="width:280px"><cupri-stat label="Build · layout / paint-list / diff" value="{{FrameBuild}}"></cupri-stat></cupri-card>
+          <cupri-card style="width:280px"><cupri-stat label="Raster · time / damage area" value="{{FrameRaster}}"></cupri-stat></cupri-card>
+        </div>
+        <div class="row">
+          <cupri-card style="width:574px"><cupri-stat label="Video playback" value="{{VideoDiag}}"></cupri-stat></cupri-card>
         </div>
         <cupri-button variant="ghost" class="act-gc">Force GC</cupri-button>
       </div>

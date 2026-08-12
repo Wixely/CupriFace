@@ -85,6 +85,22 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         }
     }
 
+    /// <summary>True while the window is fullscreen (see <see cref="SetFullscreen"/>).</summary>
+    public bool IsFullscreen { get; private set; }
+
+    /// <summary>Enter/leave fullscreen. Uses SDL's desktop-fullscreen (borderless at the desktop
+    /// resolution — instant, no display-mode switch); the size-changed event that follows resizes
+    /// the surface and reflows the app like any other resize.</summary>
+    public void SetFullscreen(bool on)
+    {
+        if (_window is null || IsFullscreen == on) return;
+        if (_sdl.SetWindowFullscreen(_window, on ? (uint)WindowFlags.FullscreenDesktop : 0) == 0)
+        {
+            IsFullscreen = on;
+            _presentDirty = true;
+        }
+    }
+
     /// <summary>OS clipboard text, for copy/cut/paste (SDL, via managed Silk bindings). SDL clipboard
     /// strings are UTF-8; marshal them explicitly (Silk's convenience *S/string overloads assume
     /// ANSI, which mangles non-ASCII like “—” into mojibake).</summary>
@@ -287,9 +303,19 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         return 0;
     }
 
+    /// <summary>Raised whenever the retained bitmap + texture were actually recreated (size change,
+    /// first creation) and thus hold NOTHING — the damage-diff producer must forget its last frame
+    /// and repaint in full, or only the next change's rect would be visible on black. The host wires
+    /// this to <c>CupriDocument.InvalidateRetainedFrame</c>.</summary>
+    public event Action? SurfaceRecreated;
+
     private void EnsureSurface(int w, int h)
     {
         if (w <= 0 || h <= 0) return;
+        // Same size and alive: keep the retained pixels. This matters beyond thrift — SDL delivers
+        // a size change both to the resize WATCH (which repaints) and again from the polled queue;
+        // recreating on the echo would throw away the frame the watch just painted.
+        if (_bitmap is not null && w == _width && h == _height) return;
         _width = w; _height = h;
         _canvas?.Dispose();
         _bitmap?.Dispose();
@@ -297,6 +323,7 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         _canvas = new SKCanvas(_bitmap);
         if (_texture is not null) _sdl.DestroyTexture(_texture);
         _texture = _sdl.CreateTexture(_renderer, PixelFormatArgb8888, (int)TextureAccess.Streaming, w, h);
+        SurfaceRecreated?.Invoke();
     }
 
     private void RenderFrame()
@@ -336,7 +363,31 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
 
         _sdl.RenderClear(_renderer);
         _sdl.RenderCopy(_renderer, _texture, null, null);
+        // Throttled: a full read-back + PNG encode per present would starve the UI thread (and
+        // with it the UIA provider). Every Nth present keeps the file ≲1 s stale.
+        if (_frameDumpPath is { } dump && ++_presentCount % 15 == 0) DumpPresentedPixels(dump);
         _sdl.RenderPresent(_renderer);
+    }
+
+    // CUPRIFACE_FRAME_DUMP=<file.png>: periodically read the pixels BACK FROM THE RENDER TARGET
+    // (not our bitmap — the texture upload is exactly what can silently go wrong) and overwrite
+    // the file. Ground truth of what the window presents, for environments where OS-level screen
+    // capture is unavailable (locked sessions, CI). Debug only, hence the env gate.
+    private readonly string? _frameDumpPath = Environment.GetEnvironmentVariable("CUPRIFACE_FRAME_DUMP");
+    private int _presentCount;
+
+    private void DumpPresentedPixels(string path)
+    {
+        try
+        {
+            using var bmp = new SKBitmap(new SKImageInfo(_width, _height, SKColorType.Bgra8888, SKAlphaType.Premul));
+            if (_sdl.RenderReadPixels(_renderer, null, PixelFormatArgb8888, (void*)bmp.GetPixels(), _width * 4) != 0) return;
+            using var img = SKImage.FromBitmap(bmp);
+            using var png = img.Encode(SKEncodedImageFormat.Png, 90);
+            using var f = File.Create(path);
+            png.SaveTo(f);
+        }
+        catch { /* diagnostics must never take the window down */ }
     }
 
     public void Dispose()

@@ -64,9 +64,7 @@ public sealed class ImageStore : IDisposable
     /// <summary>Intrinsic pixel size of <paramref name="src"/>, for layout; null if it can't load yet.</summary>
     public (int W, int H)? Size(string? src) => Get(src) is { } img ? (img.Width, img.Height) : null;
 
-    private static bool IsRemote(string src) =>
-        src.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-        src.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+    private static bool IsRemote(string src) => SourceResolver.IsRemote(src);
 
     private void StartRemoteLoad(string src) => Task.Run(() =>
     {
@@ -84,35 +82,11 @@ public sealed class ImageStore : IDisposable
     {
         try
         {
-            var bytes = LoadBytes(src);
+            // Resolution is SHARED with video (SourceResolver) — same schemes, same trust model.
+            var bytes = SourceResolver.Load(src, _assembly, UrlOptions);
             return bytes is { Length: > 0 } ? SKImage.FromEncodedData(bytes) : null;
         }
-        catch { return null; } // unresolved/undecodable → null (paint nothing), never throw
-    }
-
-    private byte[]? LoadBytes(string src)
-    {
-        if (src.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
-        {
-            var comma = src.IndexOf(',');
-            if (comma < 0) return null;
-            var payload = src[(comma + 1)..];
-            return src[..comma].Contains("base64", StringComparison.OrdinalIgnoreCase)
-                ? Convert.FromBase64String(payload)
-                : System.Text.Encoding.UTF8.GetBytes(Uri.UnescapeDataString(payload));
-        }
-        if (IsRemote(src))
-            return CupriSource.Url(new Uri(src), UrlOptions).ReadBytes();
-        if (src.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
-            return CupriSource.File(new Uri(src).LocalPath).ReadBytes();
-
-        // A bare/relative name: embedded in the app assembly if one is registered, else a local file.
-        if (_assembly is not null)
-        {
-            try { return CupriSource.Embedded(_assembly, src).ReadBytes(); }
-            catch (CupriResourceException) { /* not embedded → fall through to a file */ }
-        }
-        return CupriSource.File(src).ReadBytes();
+        catch { return null; } // undecodable → null (paint nothing), never throw
     }
 
     public void Dispose()

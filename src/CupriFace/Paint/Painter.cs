@@ -13,7 +13,9 @@ namespace CupriFace.Paint;
 public sealed class Painter
 {
     private readonly ImageStore? _images;
-    public Painter(ImageStore? images = null) => _images = images;
+    private readonly SurfaceRegistry? _surfaces;
+    public Painter(ImageStore? images = null, SurfaceRegistry? surfaces = null)
+    { _images = images; _surfaces = surfaces; }
 
     /// <summary>Dev overlay: outline every element's border box (scrollers in a second colour) on top
     /// of the normal paint. Toggled via <c>CupriDocument.DebugOverlay</c>.</summary>
@@ -240,12 +242,41 @@ public sealed class Painter
             list.Add(new FillPath(absX + node.ContentLeftInset, absY + node.ContentTopInset, iw, ih, 24f, iconPath, s.Color));
         }
 
+        // Live surface (video, future 3D viewports): the current frame, if one exists. Falls
+        // through to ImageSrc otherwise — which is exactly how a poster shows until the first
+        // frame arrives. Same DrawImage command, so object-fit/radius/damage all behave alike.
+        // A HOST-COMPOSITED surface (web underlay video) paints no frames at all: punch a
+        // transparent hole so the host's own element shows through; later paint stays on top.
+        SKImage? frame = null;
+        var surfaced = false; // a hole was punched OR a live surface command was emitted
+        if (node.SurfaceKey is { Length: > 0 } surfaceKey && _surfaces?.Get(surfaceKey) is { } source)
+        {
+            if (source.HostComposited)
+            {
+                surfaced = true; // the poster must not paint into it — the underlay is the picture now
+                list.Add(new ClearHole(
+                    absX + node.ContentLeftInset, absY + node.ContentTopInset,
+                    node.Width - node.HorizontalInsets, node.Height - node.VerticalInsets, s.BorderRadius));
+            }
+            else if (source.CurrentFrame is not null)
+            {
+                // Frames flow: emit a raster-time-resolved DrawSurface (NOT a captured DrawImage),
+                // so a new frame leaves the display list unchanged — the surface fast path.
+                surfaced = true;
+                list.Add(new DrawSurface(
+                    absX + node.ContentLeftInset, absY + node.ContentTopInset,
+                    node.Width - node.HorizontalInsets, node.Height - node.VerticalInsets,
+                    source, ParseFit(node.Element?.GetAttribute("data-object-fit")), s.BorderRadius));
+            }
+        }
+
         // Image: decode + draw into the content box, fitted per object-fit.
-        if (node.ImageSrc is { Length: > 0 } imageSrc && _images?.Get(imageSrc) is { } image)
+        if (frame is null && !surfaced && node.ImageSrc is { Length: > 0 } imageSrc) frame = _images?.Get(imageSrc);
+        if (frame is { } img)
             list.Add(new DrawImage(
                 absX + node.ContentLeftInset, absY + node.ContentTopInset,
                 node.Width - node.HorizontalInsets, node.Height - node.VerticalInsets,
-                image, ParseFit(node.Element?.GetAttribute("data-object-fit")), s.BorderRadius));
+                img, ParseFit(node.Element?.GetAttribute("data-object-fit")), s.BorderRadius));
 
         // Clip children if overflow is not visible.
         var clip = s.Overflow != OverflowMode.Visible;

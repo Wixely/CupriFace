@@ -12,10 +12,16 @@ using SkiaSharp;
 // against the Emscripten JS library in wwwroot/imports.js. Semantics mirror WebWasm/Program.cs.
 Console.WriteLine("[CupriFace] NativeAOT-LLVM host started.");
 
-public static unsafe class Interop
+public static unsafe partial class Interop
 {
     private static CupriApp _app = null!;
     private static CupriDocument _doc = null!;
+
+    // Hooks for the partial-class halves (BrowserVideo.cs): the video events arrive over the C ABI
+    // and need to nudge the same render-on-demand state the input exports use.
+    internal static void MarkDirty() => _dirty = true;
+    internal static void RefreshDoc() { _doc?.Refresh(); _dirty = true; }
+    internal static void NotifyHostFullscreen(bool active) { _doc?.NotifyHostFullscreen(active); _dirty = true; }
     private static SKColor _bg;
     private static bool _transparent;
     private static float _scale = 1f;
@@ -47,6 +53,9 @@ public static unsafe class Interop
 
     [DllImport("js", EntryPoint = "js_a11y")]
     private static extern void JsA11y(char* utf16, int len);
+
+    [DllImport("js", EntryPoint = "js_window_command")]
+    private static extern void JsWindowCommand(int command); // 0 toggle / 1 enter / 2 exit fullscreen
 
     // Synchronous JS calls inside the fixed scope — the pointer is only valid for the call.
     private static void SendCursor(string s) { fixed (char* p = s) JsCursor(p, s.Length); }
@@ -116,6 +125,11 @@ public static unsafe class Interop
             _transparent = _app.Transparent;
 
             _doc.Navigated += e => { if (e.External) SendNavigate(e.Href); };
+            // Video: the browser decodes into underlaid <video> elements (no codecs in the wasm
+            // binary) — the same design as the Mono host, over the C ABI. Fullscreen requests go
+            // to the browser's Fullscreen API.
+            _doc.UseVideo(new LlvmBrowserVideoBackend());
+            _doc.WindowCommandRequested += cmd => JsWindowCommand((int)cmd);
             _doc.ContextRequested += cmd =>
             {
                 switch (cmd)
@@ -188,20 +202,40 @@ public static unsafe class Interop
         if (damage is not { } d) return false;
 
         var present = _bitmap;
-        if (_transparent)
+        // Straight alpha whenever a video underlay can show pixels, not only for transparent
+        // apps: the engine punches alpha-0 holes over the underlays, and premultiplied bytes
+        // through putImageData would never let that transparency reach the page. Only the damage
+        // rect converts (the rest of the staging buffer already holds this frame's pixels) — a
+        // full-frame pass per present made every interaction pay for an open video.
+        if (_transparent || LlvmBrowserVideoBackend.AnyReady)
         {
-            if (_straight is null || _straight.Width != width || _straight.Height != height)
+            var fresh = _straight is null || _straight.Width != width || _straight.Height != height;
+            if (fresh)
             {
                 _straight?.Dispose();
                 _straight = new SKBitmap(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Unpremul));
             }
-            _bitmap.PeekPixels().ReadPixels(_straight.PeekPixels());
+            using var src = _bitmap.PeekPixels();
+            using var dstPix = _straight!.PeekPixels();
+            if (fresh)
+                src.ReadPixels(dstPix);
+            else
+            {
+                var rectInfo = new SKImageInfo(d.Width, d.Height, SKColorType.Rgba8888, SKAlphaType.Unpremul);
+                src.ReadPixels(rectInfo,
+                    (nint)((byte*)dstPix.GetPixels() + d.Top * dstPix.RowBytes + d.Left * 4),
+                    dstPix.RowBytes, d.Left, d.Top);
+            }
             present = _straight;
         }
 
         // TRUE zero-copy: the SKBitmap's pixels live in wasm linear memory; JS wraps HEAPU8 at this
         // address in a Uint8ClampedArray view and putImageData blits the damage rect.
         JsPresent((byte*)present.GetPixels(), width, height, d.Left, d.Top, d.Width, d.Height);
+
+        // Same JS task as the blit: the underlaid <video> rects/clips move WITH the hole, never
+        // a frame apart (scroll, reflow, the size-transition demo, fullscreen).
+        LlvmBrowserVideoBackend.SyncRects(_doc, _scale);
 
         if (!animating) SendA11y(_doc.BuildAriaHtml(p.LogicalWidth, p.LogicalHeight));
         return true;

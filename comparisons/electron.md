@@ -42,7 +42,7 @@ policy covering the latest three stable majors.*
 | Ecosystem | .NET/NuGet; no UI component market | npm, React/Vue/Svelte/Tailwind — colossal |
 | Accessibility | ARIA roles built in; **Windows UIA bridge (CI-gated)**; real a11y tree on the web host; no Linux/macOS bridge | **Chromium's** — best-in-class on every platform |
 | Text / i18n | HarfBuzz shaping; bidi partial; **no IME yet** | Every script, every input method, flawless |
-| Media | Images; charts drawn by the engine | Video, WebRTC, WebGL, WebGPU, PDF, audio |
+| Media | Images; charts drawn by the engine; **WebM video** (browser-decoded on web, VP9+Opus package on desktop) | Video incl. H.264/HEVC, WebRTC, WebGL, WebGPU, PDF, audio |
 | Rendering arbitrary web content | **Cannot** — by design | That's the entire point |
 | Testing | **Headless-first**: 270 tests click/type/pixel-assert, no display | Playwright/Spectron — real browser automation |
 | Embedding | `RenderToPixels` into any RGBA buffer | Electron owns the process |

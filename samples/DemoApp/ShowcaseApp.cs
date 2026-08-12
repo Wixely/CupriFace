@@ -19,6 +19,14 @@ public sealed class ShowcaseApp : CupriApp
     private static readonly HashSet<string> KnownSections =
         ["controls", "components", "charts", "images", "overlays", "layout", "motion", "styling", "settings", "diag"];
 
+    /// <summary>Optionally start on a given section (a sidebar id like "images") — the hosts pass
+    /// e.g. `--section images` through, so a dev (or a UI test) lands straight on the page under
+    /// work. Unknown ids keep the default.</summary>
+    public ShowcaseApp(string? section = null)
+    {
+        if (section is not null && KnownSections.Contains(section)) _model.Section = section;
+    }
+
     public override string Title => "CupriFace — Showcase";
     public override byte[] Icon => EmbeddedAsset("Assets/logo-512.png").ReadBytes();
     public override int Width => 940;
@@ -36,6 +44,7 @@ public sealed class ShowcaseApp : CupriApp
 
     public override void Configure(CupriDocument doc)
     {
+        _model.AttachDoc(doc); // the Diagnostics page reads live frame/video internals off the doc
         doc.OnClick(".nav", e => { if (e.Element.GetAttribute("data-section") is { } s) _model.Section = s; });
         // Links (<a href>): an internal href routes to that section (like the sidebar); external hrefs are
         // opened in a browser by the host (DesktopHost / the WASM page). #anchors the engine scrolls itself.
@@ -170,6 +179,22 @@ public sealed partial class ShowcaseModel
     public bool DarkMode { get; set; }
     public string Size { get; set; } = "medium";
     public string ImageFit { get; set; } = "contain"; // <cupri-image> object-fit, chosen via radios
+
+    // The video card's size demo: "<size>-<speed>" set by the buttons beside the player. The bound
+    // style carries BOTH the target size and a `transition` — the engine's width/height transitions
+    // are real layout animations, so the frames, the controls bar and the page all reflow per frame.
+    public string VideoMode { get; set; } = "small-fast";
+    public string VideoStyle
+    {
+        get
+        {
+            // Large is sized to still fit beside the buttons at the default window width — the
+            // flex row would otherwise clamp the video and the transition would stop short.
+            var (w, h) = VideoMode.StartsWith("large", StringComparison.Ordinal) ? (500, 281) : (320, 180);
+            var dur = VideoMode.EndsWith("slow", StringComparison.Ordinal) ? "1.5s" : "0.25s";
+            return $"width:{w}px;height:{h}px;border-radius:10px;transition:width {dur} ease, height {dur} ease";
+        }
+    }
     public bool DialogOpen { get; set; }
     public bool DialogBlur { get; set; } = true;  // frost the page behind the modal (toggle inside it)
     public bool DrawerOpen { get; set; }
@@ -246,4 +271,28 @@ public sealed partial class ShowcaseModel
     public string RamHistory { get { Sample(); return string.Join(",", _ram.Select(v => v.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))); } }
     public string RamCeiling { get { Sample(); return _ramCeil.ToString(System.Globalization.CultureInfo.InvariantCulture); } }
     public string RamNow { get { Sample(); return _ram.Count > 0 ? _ram[^1].ToString("0.0") + " MB" : "…"; } }
+
+    // ---- frame-pipeline + video internals (engine-provided; see CupriDocument.LastFrame) --------
+    private CupriDocument? _doc;
+    internal void AttachDoc(CupriDocument doc) => _doc = doc;
+
+    public string FrameBuild
+    {
+        get
+        {
+            if (_doc is null) return "…";
+            var f = _doc.LastFrame;
+            return $"{f.LayoutMs:0.00} / {f.PaintListMs:0.00} / {f.DiffMs:0.00} ms";
+        }
+    }
+    public string FrameRaster
+    {
+        get
+        {
+            if (_doc is null) return "…";
+            var f = _doc.LastFrame;
+            return f.DamagePixels > 0 ? $"{f.RasterMs:0.00} ms · {f.DamagePixels / 1000} kpx" : "clean";
+        }
+    }
+    public string VideoDiag => _doc?.VideoDiagnostics ?? "no open players";
 }

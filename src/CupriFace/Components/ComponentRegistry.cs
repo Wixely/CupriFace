@@ -123,6 +123,7 @@ public sealed class ComponentRegistry
         .Register(new PaginationComponent())
         // Content
         .Register(new ImageComponent())
+        .Register(new VideoComponent())
         .Register(new IconComponent())
         .Register(new BadgeComponent())
         .Register(new ChipComponent())
