@@ -292,10 +292,19 @@ doc.RenderToImage(800, 600);
         <p class="sub">The clip is an <b>embedded asset</b> (src resolves like an image: embedded /
           file / data: / https). On the web the browser decodes it — no codecs shipped; on desktop
           the CupriFace.Media decoders play it (no decoders installed → the poster shows instead).
-          Click the picture or the controls; the last button goes fullscreen (Escape leaves).</p>
-        <cupri-video src="Assets/demo.webm" poster="Assets/demo-poster.png" controls muted autoplay
-                     loop label="Generated test clip"
-                     style="width:320px;height:180px;border-radius:10px"></cupri-video>
+          Click the picture or the controls; the last button fullscreens the video (Escape leaves).
+          The buttons beside the player resize it through a CSS <code>transition</code> on
+          width/height — a real layout animation, so the frames scale smoothly with the box.</p>
+        <div style="display:flex; gap:14px; align-items:flex-start">
+          <cupri-video src="Assets/demo.webm" poster="Assets/demo-poster.png" controls muted autoplay
+                       loop label="Generated test clip" style="{{VideoStyle}}"></cupri-video>
+          <div style="display:flex; flex-direction:column; gap:8px">
+            <cupri-button variant="ghost" data-set-path="VideoMode" data-set-value="large-fast">Large / Fast</cupri-button>
+            <cupri-button variant="ghost" data-set-path="VideoMode" data-set-value="small-fast">Small / Fast</cupri-button>
+            <cupri-button variant="ghost" data-set-path="VideoMode" data-set-value="large-slow">Large / Slow</cupri-button>
+            <cupri-button variant="ghost" data-set-path="VideoMode" data-set-value="small-slow">Small / Slow</cupri-button>
+          </div>
+        </div>
       </div>
 
       <!-- OVERLAYS -->

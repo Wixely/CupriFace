@@ -178,6 +178,22 @@ public sealed partial class ShowcaseModel
     public bool DarkMode { get; set; }
     public string Size { get; set; } = "medium";
     public string ImageFit { get; set; } = "contain"; // <cupri-image> object-fit, chosen via radios
+
+    // The video card's size demo: "<size>-<speed>" set by the buttons beside the player. The bound
+    // style carries BOTH the target size and a `transition` — the engine's width/height transitions
+    // are real layout animations, so the frames, the controls bar and the page all reflow per frame.
+    public string VideoMode { get; set; } = "small-fast";
+    public string VideoStyle
+    {
+        get
+        {
+            // Large is sized to still fit beside the buttons at the default window width — the
+            // flex row would otherwise clamp the video and the transition would stop short.
+            var (w, h) = VideoMode.StartsWith("large", StringComparison.Ordinal) ? (500, 281) : (320, 180);
+            var dur = VideoMode.EndsWith("slow", StringComparison.Ordinal) ? "1.5s" : "0.25s";
+            return $"width:{w}px;height:{h}px;border-radius:10px;transition:width {dur} ease, height {dur} ease";
+        }
+    }
     public bool DialogOpen { get; set; }
     public bool DialogBlur { get; set; } = true;  // frost the page behind the modal (toggle inside it)
     public bool DrawerOpen { get; set; }

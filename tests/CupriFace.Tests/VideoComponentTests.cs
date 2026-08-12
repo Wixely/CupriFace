@@ -302,6 +302,75 @@ public class VideoComponentTests
         Assert.Null(t.Find(n => n.Element?.ClassList.Contains("cupri-video-fs") == true));
     }
 
+    private sealed class SizeModel
+    {
+        public string VideoMode { get; set; } = "small";
+        public string VideoStyle => (VideoMode == "large"
+            ? "width:560px;height:315px;" : "width:320px;height:180px;")
+            + "transition:width 1s linear, height 1s linear";
+    }
+
+    [Fact]
+    public void A_width_height_transition_animates_the_box_and_the_FRAME_follows_it()
+    {
+        // The size-button demo's contract: a model-driven style change tweens the element through
+        // `transition:width/height`, and the VIDEO PIXELS track the animated box every frame —
+        // not snap at the end. The fake player serves a solid lime frame so pixels are provable.
+        var backend = new FakeBackend();
+        var m = new SizeModel();
+        const string html = """
+            <body style="margin:0">
+              <div style="padding:10px">
+                <cupri-video src='clip.webm' fit='fill' style="{{VideoStyle}}"></cupri-video>
+                <cupri-button data-set-path="VideoMode" data-set-value="large">Large</cupri-button>
+              </div>
+            </body>
+            """;
+        using var t = new TestDoc(html, "", m, components: true, width: 800, height: 600);
+        t.Doc.UseVideo(backend);
+        using var lime = MakeFrame(SKColors.Lime);
+        backend.Players["clip.webm"].Fake.CurrentFrame = lime;
+        t.Doc.Animate(0.0);
+        t.Layout();
+        Assert.Equal(320, VideoNode(t).Width, 1);
+
+        t.ClickMatch(n => n.Element?.GetAttribute("data-set-value") == "large");
+        t.Doc.Animate(2.0);                                     // transition clock starts here
+        t.Doc.Animate(2.5);                                     // 0.5 of 1s, linear
+        t.Layout();
+        var mid = VideoNode(t);
+        Assert.Equal(440, mid.Width, 1);                        // half-way between 320 and 560
+        Assert.Equal(247.5, mid.Height, 1);
+        Assert.Equal(SKColors.Lime, Pixel(t, 400, 100));        // inside the tween box, OUTSIDE the small one
+        Assert.NotEqual(SKColors.Lime, Pixel(t, 520, 100));     // the large-only area isn't video YET
+
+        t.Doc.Animate(3.0);                                     // settled
+        t.Layout();
+        Assert.Equal(560, VideoNode(t).Width, 1);
+        Assert.Equal(315, VideoNode(t).Height, 1);
+        Assert.Equal(SKColors.Lime, Pixel(t, 520, 100));        // now it is
+    }
+
+    private static CupriFace.Dom.RenderNode VideoNode(TestDoc t) =>
+        t.Find(n => n.Element?.GetAttribute("data-cupri-video") == "clip.webm")!;
+
+    private static SKImage MakeFrame(SKColor colour)
+    {
+        using var s = SKSurface.Create(new SKImageInfo(160, 90));
+        s.Canvas.Clear(colour);
+        return s.Snapshot();
+    }
+
+    private static SKColor Pixel(TestDoc t, int x, int y)
+    {
+        using var bmp = new SKBitmap(new SKImageInfo(800, 600, SKColorType.Rgba8888, SKAlphaType.Premul));
+        using var canvas = new SKCanvas(bmp);
+        canvas.Clear(SKColors.White);
+        t.Doc.Render(canvas, 800, 600);
+        canvas.Flush();
+        return bmp.GetPixel(x, y);
+    }
+
     [Fact]
     public void Ended_flips_the_controls_back_on_the_next_host_poll()
     {

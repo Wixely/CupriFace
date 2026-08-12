@@ -546,15 +546,16 @@ public sealed partial class CupriDocument : IDisposable
         {
             var tail = n.Element?.HasAttribute("data-follow-tail") == true;
             var scroll = n.Style.Overflow == OverflowMode.Scroll && (n.ScrollY > 0.01f || tail);
-            var hTrans = n.ContentNaturalHeight > 0 && HasHeightTransition(n.Style);
+            // A node not laid out this cycle (a rebuild landed before the next layout) has a stale 0
+            // height — carry its last real displayed height (PrevHeight) forward instead, so a height
+            // transition doesn't think an open panel collapsed to nothing.
+            var displayH = n.LaidOut ? n.Height : n.PrevHeight;
+            // Carry for ANY on-screen height (not only measured-natural content): a definite-height
+            // element — the video card between its size presets — has no flow content, so natural
+            // height stays 0; without the carry its transition would animate up from zero.
+            var hTrans = (n.ContentNaturalHeight > 0 || displayH > 0) && HasHeightTransition(n.Style);
             if (scroll || n.ResizeW is not null || n.ResizeH is not null || n.ScrollX > 0.01f || hTrans || n.SplitGrow is not null)
-            {
-                // A node not laid out this cycle (a rebuild landed before the next layout) has a stale 0
-                // height — carry its last real displayed height (PrevHeight) forward instead, so a height
-                // transition doesn't think an open panel collapsed to nothing.
-                var displayH = n.LaidOut ? n.Height : n.PrevHeight;
                 (map ??= new())[PathOf(n)] = new NodeState(n.ScrollY, n.ScrollY >= n.MaxScrollY - 1f, tail, n.ResizeW, n.ResizeH, n.ScrollX, n.ContentNaturalHeight, displayH, n.SplitGrow);
-            }
             foreach (var c in n.Children) Walk(c);
         }
         Walk(_root);
