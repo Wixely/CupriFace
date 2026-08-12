@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using AngleSharp.Dom;
 using AngleSharp.Html.Parser;
@@ -662,6 +663,32 @@ public sealed partial class CupriDocument : IDisposable
     /// makes the next <see cref="RenderIncremental"/> a full repaint.</summary>
     public void InvalidateRetainedFrame() => _lastPresented = null;
 
+    /// <summary>Where the last rendered frame's time went — the observability the video work runs
+    /// on. Layout + paint-list come from <see cref="BuildFrame"/>; diff + raster + damage area
+    /// from <see cref="RenderIncremental"/> (a full <see cref="Render"/> reports raster only).</summary>
+    public readonly record struct FrameTimings(
+        double LayoutMs, double PaintListMs, double DiffMs, double RasterMs, int DamagePixels)
+    {
+        public double TotalMs => LayoutMs + PaintListMs + DiffMs + RasterMs;
+    }
+
+    /// <summary>Timings of the most recent rendered frame (see <see cref="FrameTimings"/>).</summary>
+    public FrameTimings LastFrame { get; private set; }
+    private double _tLayout, _tPaint; // BuildFrame's contribution to the frame being rendered
+
+    /// <summary>Live playback internals of every open video player that reports any
+    /// (<see cref="Media.IVideoPlayer.DiagnosticsSummary"/>) — one line per player, or null.</summary>
+    public string? VideoDiagnostics
+    {
+        get
+        {
+            List<string>? lines = null;
+            foreach (var p in _videoPlayers.Values)
+                if (p.DiagnosticsSummary is { Length: > 0 } s) (lines ??= []).Add(s);
+            return lines is null ? null : string.Join("\n", lines);
+        }
+    }
+
     /// <summary>Render for a host whose canvas RETAINS its pixels between frames (the SDL software
     /// bitmap, the WASM staging bitmap): diffs this frame's display list against the last one presented,
     /// clips the repaint to the damaged rectangle, and returns that rectangle — or <c>null</c> when the
@@ -674,11 +701,17 @@ public sealed partial class CupriDocument : IDisposable
     public SKRectI? RenderIncremental(SKCanvas canvas, float width, float height, SKColor background)
     {
         var list = BuildFrame(width, height);
+        var t0 = Stopwatch.GetTimestamp();
         var prev = _lastPresentedW == width && _lastPresentedH == height ? _lastPresented : null;
         var damage = Paint.DamageDiff.Compute(prev, list.Commands, width, height);
+        var t1 = Stopwatch.GetTimestamp();
         _lastPresented = list.Commands;
         _lastPresentedW = width; _lastPresentedH = height;
-        if (damage.IsEmpty) return null;                       // identical frame — nothing to present
+        if (damage.IsEmpty)
+        {
+            LastFrame = new FrameTimings(_tLayout, _tPaint, Ms(t0, t1), 0, 0);
+            return null;                                       // identical frame — nothing to present
+        }
 
         var rect = SKRectI.Ceiling(damage);
         canvas.Save();
@@ -686,8 +719,12 @@ public sealed partial class CupriDocument : IDisposable
         canvas.Clear(background);                              // Clear respects the clip
         _rasterizer.Paint(canvas, list);                       // full list; Skia rejects outside the clip
         canvas.Restore();
+        LastFrame = new FrameTimings(_tLayout, _tPaint, Ms(t0, t1), Ms(t1, Stopwatch.GetTimestamp()),
+            rect.Width * rect.Height);
         return rect;
     }
+
+    private static double Ms(long from, long to) => (to - from) * 1000.0 / Stopwatch.Frequency;
 
     /// <summary>The UI-thread half of the commit-snapshot seam: lay out, scroll the caret into view,
     /// and paint the render tree (with caret/selection/focus-ring) into an immutable
@@ -695,6 +732,7 @@ public sealed partial class CupriDocument : IDisposable
     /// thread (see <c>ThreadedPresenter</c>); <see cref="Render"/> just rasterises it inline.</summary>
     public DisplayList BuildFrame(float width, float height)
     {
+        var t0 = Stopwatch.GetTimestamp();
         // @media depends on viewport width — re-resolve styles when it changes.
         if (_hasMedia && Math.Abs(width - _viewportWidth) > 0.5f)
         {
@@ -705,6 +743,8 @@ public sealed partial class CupriDocument : IDisposable
         _laidOutWidth = width; _laidOutHeight = height; _layoutDirty = false;
         ScrollCaretIntoView();  // after layout, before paint: keep the caret visible in a scrolled field
         ScrollCaretIntoViewX(); // and horizontally, in a single-line (nowrap) field
+        var t1 = Stopwatch.GetTimestamp();
+        _tLayout = Ms(t0, t1);
 
         var list = _painter.Build(_root);
         // Caret + selection are drawn outside the scrolled subtree, so clip them to the focused
@@ -715,6 +755,7 @@ public sealed partial class CupriDocument : IDisposable
         AppendCaret(list);
         if (clip is not null) list.Add(new PopClip());
         AppendFocusRing(list);
+        _tPaint = Ms(t1, Stopwatch.GetTimestamp());
         return list;
     }
 

@@ -536,6 +536,14 @@ doc.RenderToImage(800, 600);
           <cupri-card style="width:180px"><cupri-stat label="Threads" value="{{Threads}}"></cupri-stat></cupri-card>
           <cupri-card style="width:180px"><cupri-stat label="Uptime" value="{{Uptime}}"></cupri-stat></cupri-card>
         </div>
+        <div class="mlabel">Frame pipeline — where the last rendered frame's time went</div>
+        <div class="row">
+          <cupri-card style="width:280px"><cupri-stat label="Build · layout / paint-list / diff" value="{{FrameBuild}}"></cupri-stat></cupri-card>
+          <cupri-card style="width:280px"><cupri-stat label="Raster · time / damage area" value="{{FrameRaster}}"></cupri-stat></cupri-card>
+        </div>
+        <div class="row">
+          <cupri-card style="width:574px"><cupri-stat label="Video playback" value="{{VideoDiag}}"></cupri-stat></cupri-card>
+        </div>
         <cupri-button variant="ghost" class="act-gc">Force GC</cupri-button>
       </div>
     </div>

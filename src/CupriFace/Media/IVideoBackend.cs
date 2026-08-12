@@ -80,4 +80,9 @@ public interface IVideoPlayer : IDisposable
 
     /// <summary>Playback reached the end (not raised when looping). Any thread.</summary>
     event Action? Ended;
+
+    /// <summary>One human-readable line of live playback internals (decode time, dropped frames,
+    /// queue depth — whatever the backend can honestly measure), for diagnostics surfaces. Default
+    /// null: a backend with nothing to report costs nothing.</summary>
+    string? DiagnosticsSummary => null;
 }

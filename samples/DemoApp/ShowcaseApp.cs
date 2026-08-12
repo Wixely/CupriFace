@@ -44,6 +44,7 @@ public sealed class ShowcaseApp : CupriApp
 
     public override void Configure(CupriDocument doc)
     {
+        _model.AttachDoc(doc); // the Diagnostics page reads live frame/video internals off the doc
         doc.OnClick(".nav", e => { if (e.Element.GetAttribute("data-section") is { } s) _model.Section = s; });
         // Links (<a href>): an internal href routes to that section (like the sidebar); external hrefs are
         // opened in a browser by the host (DesktopHost / the WASM page). #anchors the engine scrolls itself.
@@ -270,4 +271,28 @@ public sealed partial class ShowcaseModel
     public string RamHistory { get { Sample(); return string.Join(",", _ram.Select(v => v.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))); } }
     public string RamCeiling { get { Sample(); return _ramCeil.ToString(System.Globalization.CultureInfo.InvariantCulture); } }
     public string RamNow { get { Sample(); return _ram.Count > 0 ? _ram[^1].ToString("0.0") + " MB" : "…"; } }
+
+    // ---- frame-pipeline + video internals (engine-provided; see CupriDocument.LastFrame) --------
+    private CupriDocument? _doc;
+    internal void AttachDoc(CupriDocument doc) => _doc = doc;
+
+    public string FrameBuild
+    {
+        get
+        {
+            if (_doc is null) return "…";
+            var f = _doc.LastFrame;
+            return $"{f.LayoutMs:0.00} / {f.PaintListMs:0.00} / {f.DiffMs:0.00} ms";
+        }
+    }
+    public string FrameRaster
+    {
+        get
+        {
+            if (_doc is null) return "…";
+            var f = _doc.LastFrame;
+            return f.DamagePixels > 0 ? $"{f.RasterMs:0.00} ms · {f.DamagePixels / 1000} kpx" : "clean";
+        }
+    }
+    public string VideoDiag => _doc?.VideoDiagnostics ?? "no open players";
 }

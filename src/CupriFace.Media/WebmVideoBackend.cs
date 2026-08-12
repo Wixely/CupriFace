@@ -228,12 +228,23 @@ public sealed class WebmPlayer : IVideoPlayer, ISurfaceSource
             if (!_playing || !_loaded || _disposed) return;
             var time = MediaTimeLocked();
 
+            var presentedThisPump = 0;
             while (_nextVideo < _video.Count && _video[_nextVideo].TimeSeconds <= time)
             {
                 var block = _video[_nextVideo++];
+                var t0 = System.Diagnostics.Stopwatch.GetTimestamp();
                 var frame = _videoDecoder?.Decode(block.Data.Span, block.Keyframe);
-                if (frame is not null) Present(frame);
+                if (frame is not null)
+                {
+                    var ms = (System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+                    _decodeMsEma = _framesDecoded == 0 ? ms : _decodeMsEma * 0.9 + ms * 0.1;
+                    _framesDecoded++;
+                    presentedThisPump++;
+                    Present(frame);
+                }
             }
+            // More than one due frame in a single pump: the earlier ones never reached the screen.
+            if (presentedThisPump > 1) _framesLate += presentedThisPump - 1;
 
             while (_nextAudio < _audioBlocks.Count && _audioBlocks[_nextAudio].TimeSeconds <= time + 0.20)
             {
@@ -300,6 +311,20 @@ public sealed class WebmPlayer : IVideoPlayer, ISurfaceSource
         _wallBase = _now();
         _ended = false;
     }
+
+    // ---- live diagnostics (DiagnosticsSummary) ---------------------------------------------------
+    private double _decodeMsEma;   // smoothed per-frame video decode cost
+    private long _framesDecoded;
+    private long _framesLate;      // due frames that were decoded but replaced within the same pump
+
+    /// <summary>Smoothed per-frame video decode time (ms) — the number the SIMD work moves.</summary>
+    public double DecodeMsAverage => _decodeMsEma;
+    public long FramesDecoded => _framesDecoded;
+    public long FramesLate => _framesLate;
+
+    public string? DiagnosticsSummary =>
+        $"decode {_decodeMsEma:0.00} ms · {_framesDecoded} frames · {_framesLate} late"
+        + (_sink is { } s ? $" · audio queue {s.QueuedSeconds:0.00} s" : "");
 
     // Swap the new frame in; retire the old with two swaps of grace, honouring the surface
     // contract (the paint path may still be rasterising the previous reference).
