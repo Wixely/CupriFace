@@ -289,9 +289,12 @@ doc.RenderToImage(800, 600);
         <p class="credit">“A torus colony's interior” · Don Davis · 1970s · public domain · fit: {{ImageFit}}</p>
 
         <div class="mlabel">Video — <code>&lt;cupri-video&gt;</code>, decoded by the host's backend</div>
-        <p class="sub">On the web the browser decodes it (no codecs shipped); the desktop WebM backend
-          is the CupriFace.Media package. Click the picture or the controls; ⛶ goes fullscreen.</p>
-        <cupri-video src="Assets/demo.webm" controls muted autoplay loop label="Generated test clip"
+        <p class="sub">The clip is an <b>embedded asset</b> (src resolves like an image: embedded /
+          file / data: / https). On the web the browser decodes it — no codecs shipped; on desktop
+          the CupriFace.Media decoders play it (until they land, the poster below shows).
+          Click the picture or the controls; ⛶ goes fullscreen.</p>
+        <cupri-video src="Assets/demo.webm" poster="Assets/demo-poster.png" controls muted autoplay
+                     loop label="Generated test clip"
                      style="width:320px;height:180px;border-radius:10px"></cupri-video>
       </div>
 
