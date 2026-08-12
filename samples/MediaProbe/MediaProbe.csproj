@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Headless video decode check: opens a WebM, decodes frames, reports. Its real job is the
+       PORTABILITY GATE — CI publishes it framework-dependent on Windows, ships the untouched
+       output to the Linux runner, and runs it there with `dotnet MediaProbe.dll`. Same managed
+       binaries, different OS, real decode. -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>CupriFace.Samples.MediaProbe</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CupriFace.Media\CupriFace.Media.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\DemoApp\Assets\demo.webm" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <!-- Every RID's codec native travels with the app, like Skia's: one build runs anywhere. -->
+    <None Include="..\..\native\win-x64\cupricodecs.dll" CopyToOutputDirectory="PreserveNewest"
+          Visible="false" Condition="Exists('..\..\native\win-x64\cupricodecs.dll')" />
+    <None Include="..\..\native\linux-x64\libcupricodecs.so" CopyToOutputDirectory="PreserveNewest"
+          Visible="false" Condition="Exists('..\..\native\linux-x64\libcupricodecs.so')" />
+    <None Include="..\..\native\osx-arm64\libcupricodecs.dylib" CopyToOutputDirectory="PreserveNewest"
+          Visible="false" Condition="Exists('..\..\native\osx-arm64\libcupricodecs.dylib')" />
+  </ItemGroup>
+
+  <Import Project="..\..\src\SkiaNativeAssets.props" />
+
+</Project>
