@@ -76,6 +76,8 @@ public class VideoComponentTests
         var toggle = t.Find(n => n.Element?.GetAttribute("data-video-role") == "toggle")!;
         Assert.Contains("disabled", toggle.Element!.ClassList);
         Assert.Equal("true", toggle.Element!.GetAttribute("aria-disabled"));
+        var seek = t.Find(n => n.Element?.GetAttribute("data-video-role") == "seek")!;
+        Assert.Equal("true", seek.Element!.GetAttribute("aria-disabled")); // can't seek nothing
         var fullscreen = t.Find(n => n.Element?.GetAttribute("data-video-role") == "fullscreen")!;
         Assert.DoesNotContain("disabled", fullscreen.Element!.ClassList);
 
@@ -193,6 +195,77 @@ public class VideoComponentTests
         var node = t.Find(n => n.Element?.GetAttribute("data-cupri-video") == "clip.webm")!;
         Assert.Equal(320, node.Width, 1);
         Assert.Equal(180, node.Height, 1);
+    }
+
+    [Fact]
+    public void The_seek_bar_scrubs_by_pointer_arrows_and_AT_and_the_clocks_follow()
+    {
+        var backend = new FakeBackend();
+        using var t = new TestDoc("<body><cupri-video src='clip.webm' controls style='width:400px;height:225px'></cupri-video></body>",
+            "", components: true, width: 500, height: 300);
+        t.Doc.UseVideo(backend);
+        t.Layout();
+        var p = backend.Players["clip.webm"];
+
+        // Pointer: press at ~half the track → half the (10 s) duration; drag right → follows.
+        var seek = t.Find(n => n.Element?.GetAttribute("data-video-role") == "seek")!;
+        var box = CupriFace.Interaction.HitTesting.ScreenBox(seek);
+        var midY = box.Y + box.H / 2;
+        t.Doc.DispatchClick(box.X + box.W * 0.5f, midY, 1);
+        Assert.InRange(p.Position, 4.0, 6.0);
+        t.Doc.DispatchPointerMove(box.X + box.W * 0.9f, midY);
+        Assert.InRange(p.Position, 8.0, 10.0);
+        t.Doc.DispatchPointerUp(box.X + box.W * 0.9f, midY);
+
+        // The clocks + fill reflect the position after the rebuild the scrub caused.
+        t.Layout();
+        var time = t.Find(n => n.Element?.GetAttribute("data-video-role") == "time")!;
+        Assert.Equal("0:0" + (int)p.Position % 10, time.Element!.TextContent);
+        var seekEl = t.Find(n => n.Element?.GetAttribute("data-video-role") == "seek")!.Element!;
+        Assert.Equal(p.Position.ToString("0.#"), seekEl.GetAttribute("aria-valuenow"));
+
+        // Keyboard: arrows scrub ±5 s on the focused bar.
+        p.Position = 5;
+        t.Doc.AccessibilityFocus(FindSeekPath(t));
+        Assert.True(t.Doc.DispatchKey(null, CupriFace.Interaction.EditKey.Right));
+        Assert.Equal(10, p.Position, 1);                       // clamped at duration
+        Assert.True(t.Doc.DispatchKey(null, CupriFace.Interaction.EditKey.Left));
+        Assert.Equal(5, p.Position, 1);
+
+        // AT: RangeValue.SetValue in seconds.
+        Assert.True(t.Doc.AccessibilitySetValue(FindSeekPath(t), 7.5));
+        Assert.Equal(7.5, p.Position, 2);
+    }
+
+    private static string FindSeekPath(TestDoc t)
+    {
+        static CupriFace.Accessibility.AccessibilityNode? Walk(CupriFace.Accessibility.AccessibilityNode n)
+        {
+            if (n.Role == "slider") return n;
+            foreach (var c in n.Children) if (Walk(c) is { } hit) return hit;
+            return null;
+        }
+        return Walk(t.Doc.BuildAccessibilityTree(500, 300))!.Path;
+    }
+
+    [Fact]
+    public void The_clocks_advance_on_the_host_poll_while_playing()
+    {
+        var backend = new FakeBackend();
+        using var t = new TestDoc(Html, "", components: true, width: 500, height: 300);
+        t.Doc.UseVideo(backend);
+        t.Layout();
+        var p = backend.Players["clip.webm"];
+        Assert.True(p.Playing);                                 // muted autoplay
+        while (t.Doc.ConsumeImageArrived()) { }                 // drain the initial reflections
+
+        p.Position = 3.2;                                       // playback advanced (decode thread)
+        Assert.True(t.Doc.ConsumeImageArrived(), "a ~1 s position change must trigger a reflect");
+        t.Layout();
+        Assert.Equal("0:03", t.Find(n => n.Element?.GetAttribute("data-video-role") == "time")!.Element!.TextContent);
+
+        p.Position = 3.5;                                       // sub-second drift: no rebuild churn
+        Assert.False(t.Doc.ConsumeImageArrived());
     }
 
     [Fact]

@@ -468,7 +468,9 @@ CSS `width`/`height` (aspect preserved if you set only one); `fit` defaults to `
 **Video.** `<cupri-video>` plays video through whichever backend the HOST registered
 (`doc.UseVideo(...)` — the optional `CupriFace.Media` WebM decoder on desktop, the browser's own
 decoder on the web host; with no backend the `poster` shows and the controls are inert). `controls`
-adds an engine-drawn bar (play/pause, mute, fullscreen — real components, so they're themable and
+adds an engine-drawn bar (play/pause, mute, a seek slider with position/duration clocks —
+scrub with the pointer, arrow keys step ±5 s, and AT sets it through RangeValue — plus
+fullscreen; real components, so they're themable and
 accessible); clicking the picture toggles playback. `autoplay` is honored **only together with
 `muted`** — the web's rule, applied on every host so one app behaves the same everywhere.
 Full-window video is just sizing (`width:100%;height:100%` + `fit="cover"`). The ⛶ button

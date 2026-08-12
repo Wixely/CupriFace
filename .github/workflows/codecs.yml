@@ -160,7 +160,7 @@ jobs:
   # there. This is the promise CupriFace.Media makes — one package, every desktop OS, no per-OS
   # build — turned into a test that fails if it ever stops being true.
   portable-build-and-run:
-    needs: [ linux-x64, win-x64 ]
+    needs: [ linux-x64, win-x64, osx-arm64 ]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -170,6 +170,8 @@ jobs:
         with: { name: cupricodecs-win-x64, path: native/win-x64 }
       - uses: actions/download-artifact@v4
         with: { name: cupricodecs-linux-x64, path: native/linux-x64 }
+      - uses: actions/download-artifact@v4
+        with: { name: cupricodecs-osx-arm64, path: native/osx-arm64 }
       # Framework-dependent on purpose: no -r, so the output is portable IL plus every RID's
       # natives — exactly what `dotnet MyApp.dll` needs on any machine.
       - name: Publish on Windows
@@ -193,4 +195,22 @@ jobs:
         run: |
           set -euo pipefail
           ls -l probe/libcupricodecs.so probe/MediaProbe.dll
+          dotnet probe/MediaProbe.dll
+
+  # The third leg of the same promise — and the ONLY place the osx-arm64 codec library ever
+  # actually executes (its build job checks symbols, not behaviour): the Windows-built probe
+  # must decode real frames on macOS too.
+  portable-run-on-macos:
+    needs: portable-build-and-run
+    runs-on: macos-latest
+    steps:
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/download-artifact@v4
+        with: { name: mediaprobe-built-on-windows, path: probe }
+      - name: Run the WINDOWS-built binaries on macOS
+        run: |
+          set -euo pipefail
+          ls -l probe/libcupricodecs.dylib probe/MediaProbe.dll
           dotnet probe/MediaProbe.dll
