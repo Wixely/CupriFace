@@ -101,3 +101,4 @@ samples/WebWasm/publish*/
 
 # Locally packed NuGet output (CI packs into dist/ instead)
 nupkgs/
+native/

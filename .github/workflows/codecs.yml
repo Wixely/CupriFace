@@ -15,6 +15,10 @@ on:
 env:
   VPX_TAG: v1.14.1
   OPUS_TAG: v1.5.2
+  # The GitHub mirror, not chromium.googlesource.com: real tag objects and a plain https clone
+  # that every runner's git can do (the googlesource fetch died instantly on the MSYS2 leg).
+  VPX_REPO: https://github.com/webmproject/libvpx.git
+  OPUS_REPO: https://github.com/xiph/opus.git
 
 jobs:
   linux-x64:
@@ -25,7 +29,7 @@ jobs:
       - name: Build libvpx (decode only, PIC static)
         run: |
           set -euo pipefail
-          git clone --depth 1 --branch "$VPX_TAG" https://chromium.googlesource.com/webm/libvpx
+          git clone --depth 1 --branch "$VPX_TAG" "$VPX_REPO" libvpx
           cd libvpx
           ./configure --disable-examples --disable-docs --disable-unit-tests --disable-tools \
             --disable-vp8-encoder --disable-vp9-encoder --enable-vp8-decoder --enable-vp9-decoder \
@@ -34,7 +38,7 @@ jobs:
       - name: Build libopus (PIC static)
         run: |
           set -euo pipefail
-          git clone --depth 1 --branch "$OPUS_TAG" https://github.com/xiph/opus
+          git clone --depth 1 --branch "$OPUS_TAG" "$OPUS_REPO" opus
           cmake -S opus -B opus/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
             -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DOPUS_BUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF > /dev/null
           cmake --build opus/build -j > /dev/null
@@ -44,9 +48,12 @@ jobs:
           gcc -shared -o libcupricodecs.so \
             -Wl,--whole-archive libvpx/libvpx.a opus/build/libopus.a -Wl,--no-whole-archive \
             -lm -lpthread
-          # Sanity: both codecs' entry points must be exported.
-          nm -D libcupricodecs.so | grep -q vpx_codec_vp9_dx
-          nm -D libcupricodecs.so | grep -q opus_decoder_create
+          # Symbols to a FILE, never `nm | grep -q`: grep exits at the first match, nm dies of
+          # SIGPIPE, and pipefail fails the step even though the library is perfect (that is
+          # exactly how the macOS leg "failed" on its first run).
+          nm -D libcupricodecs.so > syms.txt
+          grep -q vpx_codec_vp9_dx syms.txt
+          grep -q opus_decoder_create syms.txt
           ls -l libcupricodecs.so
       - uses: actions/upload-artifact@v4
         with:
@@ -60,7 +67,7 @@ jobs:
       - name: Build libvpx (decode only, static)
         run: |
           set -euo pipefail
-          git clone --depth 1 --branch "$VPX_TAG" https://chromium.googlesource.com/webm/libvpx
+          git clone --depth 1 --branch "$VPX_TAG" "$VPX_REPO" libvpx
           cd libvpx
           ./configure --disable-examples --disable-docs --disable-unit-tests --disable-tools \
             --disable-vp8-encoder --disable-vp9-encoder --enable-vp8-decoder --enable-vp9-decoder \
@@ -69,7 +76,7 @@ jobs:
       - name: Build libopus (static)
         run: |
           set -euo pipefail
-          git clone --depth 1 --branch "$OPUS_TAG" https://github.com/xiph/opus
+          git clone --depth 1 --branch "$OPUS_TAG" "$OPUS_REPO" opus
           cmake -S opus -B opus/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
             -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DOPUS_BUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF > /dev/null
           cmake --build opus/build -j > /dev/null
@@ -78,8 +85,9 @@ jobs:
           set -euo pipefail
           clang -dynamiclib -o libcupricodecs.dylib \
             -Wl,-force_load,libvpx/libvpx.a -Wl,-force_load,opus/build/libopus.a
-          nm -gU libcupricodecs.dylib | grep -q vpx_codec_vp9_dx
-          nm -gU libcupricodecs.dylib | grep -q opus_decoder_create
+          nm -gU libcupricodecs.dylib > syms.txt   # see the Linux note: no pipe into grep -q
+          grep -q vpx_codec_vp9_dx syms.txt
+          grep -q opus_decoder_create syms.txt
           ls -l libcupricodecs.dylib
       - uses: actions/upload-artifact@v4
         with:
@@ -101,34 +109,45 @@ jobs:
           msystem: MINGW64
           update: false
           install: >-
-            git make nasm
+            git make nasm diffutils
             mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-cmake
+      # Clone in its OWN step (and traced): the first run died three seconds into a combined
+      # step, which named nothing. Whatever breaks next says so by step name.
+      - name: Clone sources
+        run: |
+          set -euxo pipefail
+          git --version
+          git clone --depth 1 --branch "$VPX_TAG" "$VPX_REPO" libvpx
+          git clone --depth 1 --branch "$OPUS_TAG" "$OPUS_REPO" opus
+          ls -d libvpx opus
       - name: Build libvpx (decode only, static)
         run: |
-          set -euo pipefail
-          git clone --depth 1 --branch "$VPX_TAG" https://chromium.googlesource.com/webm/libvpx
+          set -euxo pipefail
           cd libvpx
           ./configure --target=x86_64-win64-gcc \
             --disable-examples --disable-docs --disable-unit-tests --disable-tools \
             --disable-vp8-encoder --disable-vp9-encoder --enable-vp8-decoder --enable-vp9-decoder \
-            --disable-shared --enable-static > /dev/null
-          make -j"$(nproc)" > /dev/null
+            --disable-shared --enable-static
+          make -j"$(nproc)"
+          ls -l libvpx.a
       - name: Build libopus (static)
         run: |
-          set -euo pipefail
-          git clone --depth 1 --branch "$OPUS_TAG" https://github.com/xiph/opus
+          set -euxo pipefail
           cmake -S opus -B opus/build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_SHARED_LIBS=OFF -DOPUS_BUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF > /dev/null
-          cmake --build opus/build -j > /dev/null
+            -DBUILD_SHARED_LIBS=OFF -DOPUS_BUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF
+          cmake --build opus/build -j
+          find opus/build -name 'libopus.a'
       - name: Link cupricodecs
         run: |
-          set -euo pipefail
+          set -euxo pipefail
+          OPUS_A=$(find opus/build -name 'libopus.a' | head -1)
           gcc -shared -o cupricodecs.dll \
-            -Wl,--whole-archive libvpx/libvpx.a opus/build/libopus.a -Wl,--no-whole-archive \
+            -Wl,--whole-archive libvpx/libvpx.a "$OPUS_A" -Wl,--no-whole-archive \
             -static -static-libgcc -lwinpthread
-          objdump -p cupricodecs.dll | grep -qi vpx_codec_vp9_dx
-          objdump -p cupricodecs.dll | grep -qi opus_decoder_create
+          objdump -p cupricodecs.dll > syms.txt   # no pipe into grep -q (see the Linux note)
+          grep -qi vpx_codec_vp9_dx syms.txt
+          grep -qi opus_decoder_create syms.txt
           ls -l cupricodecs.dll
       - uses: actions/upload-artifact@v4
         with:
