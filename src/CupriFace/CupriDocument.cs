@@ -526,7 +526,7 @@ public sealed partial class CupriDocument : IDisposable
         _root = new StyleResolver(_rules, _viewportWidth).BuildTree(dom);
         _layoutDirty = true; // fresh tree: no geometry until the next layout
         RestoreScroll(scroll);
-        _transitions.Detect(_root); // (re)start transitions whose target value changed this rebuild
+        _transitions.Detect(_root, _laidOutWidth, _laidOutHeight); // (re)start transitions whose target value changed this rebuild
         Mark("style+tree");
         _hasActiveAnim = _keyframes.Count > 0 && AnyAnimated(_root);
         _dom = dom;
@@ -690,6 +690,12 @@ public sealed partial class CupriDocument : IDisposable
         if (changed) _inputsVersion++;
         return changed;
     }
+
+    /// <summary>Monotonic counter of input-driven content changes (dispatches, rebuilds, animation
+    /// writes, image arrivals) — live-surface frame swaps deliberately excluded. Lets a host skip
+    /// work that depends only on semantics/layout, e.g. re-publishing an accessibility snapshot
+    /// 60×/s while a video merely plays.</summary>
+    public int ContentVersion => _inputsVersion;
 
     // Union into `damage` the box of every DrawSurface whose frame changed since the last render,
     // remembering the new references. The damage DIFF can't see those changes — two DrawSurface
@@ -3165,7 +3171,7 @@ public sealed partial class CupriDocument : IDisposable
         _root = new StyleResolver(_rules, _viewportWidth).BuildTree(_dom);
         _layoutDirty = true; // fresh tree: no geometry until the next layout
         RestoreScroll(scroll);
-        _transitions.Detect(_root); // hover/focus/class change → (re)start any transitions that flipped
+        _transitions.Detect(_root, _laidOutWidth, _laidOutHeight); // hover/focus/class change → (re)start any transitions that flipped
     }
 
     private static double ParseAttr(IElement el, string name, double fallback) =>

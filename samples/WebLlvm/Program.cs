@@ -204,15 +204,28 @@ public static unsafe partial class Interop
         var present = _bitmap;
         // Straight alpha whenever a video underlay can show pixels, not only for transparent
         // apps: the engine punches alpha-0 holes over the underlays, and premultiplied bytes
-        // through putImageData would never let that transparency reach the page.
+        // through putImageData would never let that transparency reach the page. Only the damage
+        // rect converts (the rest of the staging buffer already holds this frame's pixels) — a
+        // full-frame pass per present made every interaction pay for an open video.
         if (_transparent || LlvmBrowserVideoBackend.AnyReady)
         {
-            if (_straight is null || _straight.Width != width || _straight.Height != height)
+            var fresh = _straight is null || _straight.Width != width || _straight.Height != height;
+            if (fresh)
             {
                 _straight?.Dispose();
                 _straight = new SKBitmap(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Unpremul));
             }
-            _bitmap.PeekPixels().ReadPixels(_straight.PeekPixels());
+            using var src = _bitmap.PeekPixels();
+            using var dstPix = _straight!.PeekPixels();
+            if (fresh)
+                src.ReadPixels(dstPix);
+            else
+            {
+                var rectInfo = new SKImageInfo(d.Width, d.Height, SKColorType.Rgba8888, SKAlphaType.Unpremul);
+                src.ReadPixels(rectInfo,
+                    (nint)((byte*)dstPix.GetPixels() + d.Top * dstPix.RowBytes + d.Left * 4),
+                    dstPix.RowBytes, d.Left, d.Top);
+            }
             present = _straight;
         }
 

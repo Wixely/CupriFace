@@ -226,6 +226,27 @@ public class VideoComponentTests
     }
 
     [Fact]
+    public void Fullscreen_SNAPS_even_when_the_author_gave_the_video_a_size_transition()
+    {
+        // The live regression: the resize demo's `transition:width/height` made ⛶ TWEEN toward
+        // fullscreen — and the percent target resolved against the parent card, pinning the video
+        // at ~card width forever. Fullscreen must snap to the viewport immediately, like the web.
+        using var t = new TestDoc(
+            "<body><div style='padding:40px'><cupri-video src='clip.webm' controls " +
+            "style='width:320px;height:180px;transition:width 0.25s ease, height 0.25s ease'></cupri-video></div></body>",
+            "", components: true, width: 800, height: 500);
+        t.Layout();
+        t.Doc.Animate(0.0);
+
+        t.ClickMatch(n => n.Element?.GetAttribute("data-video-cmd") == "fullscreen");
+        t.Doc.Animate(0.05);                                    // mid-tween, were it tweening
+        t.Layout();
+        var node = t.Find(n => n.Element?.GetAttribute("data-cupri-video") == "clip.webm")!;
+        Assert.Equal(800, node.Width, 1);                       // viewport at once — no tween, no card clamp
+        Assert.Equal(500, node.Height, 1);
+    }
+
+    [Fact]
     public void The_fullscreen_video_is_on_top_it_owns_a_click_anywhere()
     {
         var backend = new FakeBackend();

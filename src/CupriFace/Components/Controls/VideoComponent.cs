@@ -90,8 +90,10 @@ public sealed class VideoComponent : ComponentBase
     internal static void ApplyFullscreenState(IElement el)
     {
         el.ClassList.Add("cupri-video-fs");
+        // transition:none — entering fullscreen SNAPS, like the browser. An author's own
+        // width/height transition (the resize demo has one) must not tween into fullscreen.
         el.SetAttribute("style", (el.GetAttribute("style") ?? "")
-            + ";position:fixed;left:0;top:0;width:100%;height:100%;border-radius:0");
+            + ";position:fixed;left:0;top:0;width:100%;height:100%;border-radius:0;transition:none");
         if (el.QuerySelector("[data-video-role='fullscreen']") is { } button)
         {
             button.InnerHtml = IconMarkup("fullscreen-exit", 18);

@@ -146,12 +146,27 @@ public partial class Interop
         var present = _bitmap;
         if (_transparent || BrowserVideoBackend.AnyReady)
         {
-            if (_straight is null || _straight.Width != width || _straight.Height != height)
+            var fresh = _straight is null || _straight.Width != width || _straight.Height != height;
+            if (fresh)
             {
                 _straight?.Dispose();
                 _straight = new SKBitmap(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Unpremul));
             }
-            _bitmap.PeekPixels().ReadPixels(_straight.PeekPixels()); // premul → straight
+            using var src = _bitmap.PeekPixels();
+            using var dst = _straight!.PeekPixels();
+            if (fresh)
+                src.ReadPixels(dst);                     // new staging buffer: everything converts once
+            else
+                unsafe
+                {
+                    // Only the damage rect changed — converting the WHOLE bitmap per present cost a
+                    // full-frame pass for a 10 px repaint whenever any video was open. The rest of
+                    // the staging buffer already holds this frame's pixels from earlier presents.
+                    var rectInfo = new SKImageInfo(d.Width, d.Height, SKColorType.Rgba8888, SKAlphaType.Unpremul);
+                    src.ReadPixels(rectInfo,
+                        (nint)((byte*)dst.GetPixels() + d.Top * dst.RowBytes + d.Left * 4),
+                        dst.RowBytes, d.Left, d.Top);
+                }
             present = _straight;
         }
 
