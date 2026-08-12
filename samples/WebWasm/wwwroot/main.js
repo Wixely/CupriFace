@@ -132,8 +132,10 @@ try {
         videoLoop: (id, l) => { const v = videos.get(id); if (v) v.loop = l; },
         videoSeek: (id, t) => { const v = videos.get(id); if (v) v.currentTime = t; },
         // Position/size/clip in canvas pixels (backing store == CSS px here). clip-path recreates
-        // the engine's scroll/overflow clipping, which a DOM element would otherwise ignore.
-        videoRect: (id, x, y, w, h, cT, cR, cB, cL, visible, fit) => {
+        // the engine's scroll/overflow clipping, which a DOM element would otherwise ignore; the
+        // matrix mirrors any engine transform on the chain (hover lift, transform transition) —
+        // the painted hole moves through those, so the element must move identically.
+        videoRect: (id, x, y, w, h, cT, cR, cB, cL, visible, fit, ta, tb, tc, td, te, tf) => {
             const v = videos.get(id); if (!v) return;
             if (!visible) { v.style.display = 'none'; return; }
             const r = canvas.getBoundingClientRect();
@@ -144,6 +146,9 @@ try {
             v.style.height = h + 'px';
             v.style.objectFit = fit === 'none' ? 'none' : fit;   // same keyword set as the engine
             v.style.clipPath = (cT || cR || cB || cL) ? `inset(${cT}px ${cR}px ${cB}px ${cL}px)` : '';
+            const identity = ta === 1 && tb === 0 && tc === 0 && td === 1 && te === 0 && tf === 0;
+            v.style.transformOrigin = '0 0';
+            v.style.transform = identity ? '' : `matrix(${ta},${tb},${tc},${td},${te},${tf})`;
         },
 
         // Fullscreen (0 toggle / 1 enter / 2 exit) on the canvas's container, so the underlaid

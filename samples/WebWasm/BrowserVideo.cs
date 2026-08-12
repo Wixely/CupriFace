@@ -138,7 +138,7 @@ internal sealed class BrowserVideoBackend : IVideoBackend
             var node = Find(doc.Root, player.SurfaceKey);
             if (node is null || !node.LaidOut)
             {
-                Interop.VideoRect(player.Id, 0, 0, 0, 0, 0, 0, 0, 0, false, "");
+                Interop.VideoRect(player.Id, 0, 0, 0, 0, 0, 0, 0, 0, false, "", 1, 0, 0, 1, 0, 0);
                 continue;
             }
 
@@ -158,18 +158,32 @@ internal sealed class BrowserVideoBackend : IVideoBackend
 
             if (visR <= visL || visB <= visT)
             {
-                Interop.VideoRect(player.Id, 0, 0, 0, 0, 0, 0, 0, 0, false, "");
+                Interop.VideoRect(player.Id, 0, 0, 0, 0, 0, 0, 0, 0, false, "", 1, 0, 0, 1, 0, 0);
                 continue;
             }
 
             var fit = node.Element?.GetAttribute("data-object-fit") ?? "contain";
+
+            // A transformed ancestor (hover lift, transform transition) moves the painted HOLE —
+            // the element must follow the identical mapping. CSS matrix(a,b,c,d,e,f) with
+            // transform-origin 0 0 applies in the element's own frame at its laid-out position P:
+            // final = P + linear·local + (e,f). The engine's mapping is final = M·(P + local),
+            // so e,f = M·P − P (+ M's own translation), computed here in device pixels.
+            var m = CupriFace.Interaction.HitTesting.ScreenTransform(node);
+            double ta = m.ScaleX, tb = m.SkewY, tc = m.SkewX, td = m.ScaleY, te = 0, tf = 0;
+            if (!m.IsIdentity)
+            {
+                var mapped = m.MapPoint(x, y);
+                te = (mapped.X - x) * scale;
+                tf = (mapped.Y - y) * scale;
+            }
             Interop.VideoRect(player.Id,
                 x * scale, y * scale, w * scale, h * scale,
                 (visT - y) * scale,            // clip-path inset: top
                 (x + w - visR) * scale,        // right
                 (y + h - visB) * scale,        // bottom
                 (visL - x) * scale,            // left
-                true, fit);
+                true, fit, ta, tb, tc, td, te, tf);
         }
     }
 
@@ -238,7 +252,8 @@ public partial class Interop
     [JSImport("videoRect", "cupri")] internal static partial void VideoRect(int id,
         double x, double y, double w, double h,
         double clipTop, double clipRight, double clipBottom, double clipLeft,
-        bool visible, string fit);
+        bool visible, string fit,
+        double ta, double tb, double tc, double td, double te, double tf); // CSS matrix(a..f), identity = 1,0,0,1,0,0
 
     // Fullscreen request → the browser's Fullscreen API (0 toggle / 1 enter / 2 exit).
     [JSImport("windowCommand", "cupri")] internal static partial void WindowCommand(int command);

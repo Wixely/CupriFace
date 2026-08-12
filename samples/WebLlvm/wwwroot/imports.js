@@ -58,7 +58,7 @@ mergeInto(LibraryManager.library, {
     js_video_seek: (id, t) => { const v = globalThis.__cupri.videos.get(id); if (v) v.currentTime = t; },
     // Position/size/clip in canvas pixels. clip-path recreates the engine's scroll/overflow
     // clipping, which a DOM element would otherwise ignore.
-    js_video_rect: (id, x, y, w, h, cT, cR, cB, cL, visible, fitP, fitLen) => {
+    js_video_rect: (id, x, y, w, h, cT, cR, cB, cL, visible, fitP, fitLen, ta, tb, tc, td, te, tf) => {
         const g = globalThis.__cupri;
         const v = g.videos.get(id); if (!v) return;
         if (!visible) { v.style.display = "none"; return; }
@@ -71,6 +71,10 @@ mergeInto(LibraryManager.library, {
         const fit = UTF16ToString(fitP);
         v.style.objectFit = fit === "none" ? "none" : fit;   // same keyword set as the engine
         v.style.clipPath = (cT || cR || cB || cL) ? `inset(${cT}px ${cR}px ${cB}px ${cL}px)` : "";
+        // Any engine transform on the chain moved the painted hole — mirror it exactly.
+        const identity = ta === 1 && tb === 0 && tc === 0 && td === 1 && te === 0 && tf === 0;
+        v.style.transformOrigin = "0 0";
+        v.style.transform = identity ? "" : `matrix(${ta},${tb},${tc},${td},${te},${tf})`;
     },
 
     // Fullscreen (0 toggle / 1 enter / 2 exit) on the canvas's container, so the underlaid videos
