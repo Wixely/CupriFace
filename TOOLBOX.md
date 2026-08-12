@@ -501,6 +501,13 @@ Audio is optional (`TryCreate` returns null on a machine with no device — vide
 Format scope is deliberately royalty-free: **WebM with VP9/VP8 video and Opus audio**; there is no
 H.264/MP4 path, by licence policy.
 
+*Where the decoders come from:* consuming the **NuGet package**, they're already inside it
+(`runtimes/<rid>/native/`) and .NET picks the right one — nothing to do. Building **this repo from
+source**, they aren't in git (they're build outputs of the pinned upstream sources): download the
+latest green **Codecs** workflow run's artifacts into `native/<rid>/` and every project here picks
+them up automatically. Without them `NativeDecoders.Available` is false and video degrades to the
+poster, which is exactly what a consumer without the package sees.
+
 **Resizable controls.** CSS `resize: both | horizontal | vertical` puts a grab handle in an
 element's bottom‑right corner — dragging it resizes the element, clamped to its
 `min-/max-width/height`. It's generic (works on any element — a textarea, an image frame, a panel)
