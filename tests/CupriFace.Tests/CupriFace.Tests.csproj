@@ -30,6 +30,12 @@
     <None Include="..\..\samples\DemoApp\Assets\demo.webm" LinkBase="fixtures"
           CopyToOutputDirectory="PreserveNewest" />
     <EmbeddedResource Include="..\..\samples\DemoApp\Assets\demo.webm" LogicalName="fixtures.demo.webm" />
+    <!-- Codec natives when present (codecs.yml artifacts dropped into native/<rid>/): the
+         NativeDecodeTests then exercise the real libvpx/libopus binding instead of skipping. -->
+    <None Include="..\..\native\win-x64\cupricodecs.dll" CopyToOutputDirectory="PreserveNewest"
+          Visible="false" Condition="Exists('..\..\native\win-x64\cupricodecs.dll')" />
+    <None Include="..\..\native\linux-x64\libcupricodecs.so" CopyToOutputDirectory="PreserveNewest"
+          Visible="false" Condition="Exists('..\..\native\linux-x64\libcupricodecs.so')" />
   </ItemGroup>
 
   <!-- Native Skia + HarfBuzz so RenderToImage/decode run under `dotnet test`. -->

@@ -291,8 +291,8 @@ doc.RenderToImage(800, 600);
         <div class="mlabel">Video — <code>&lt;cupri-video&gt;</code>, decoded by the host's backend</div>
         <p class="sub">The clip is an <b>embedded asset</b> (src resolves like an image: embedded /
           file / data: / https). On the web the browser decodes it — no codecs shipped; on desktop
-          the CupriFace.Media decoders play it (until they land, the poster below shows).
-          Click the picture or the controls; ⛶ goes fullscreen.</p>
+          the CupriFace.Media decoders play it (no decoders installed → the poster shows instead).
+          Click the picture or the controls; the last button goes fullscreen (Escape leaves).</p>
         <cupri-video src="Assets/demo.webm" poster="Assets/demo-poster.png" controls muted autoplay
                      loop label="Generated test clip"
                      style="width:320px;height:180px;border-radius:10px"></cupri-video>

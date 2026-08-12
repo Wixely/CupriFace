@@ -12,7 +12,20 @@ namespace CupriFace.Tests;
 /// </summary>
 public class NativeDecodeTests
 {
-    private static bool Skip => !NativeDecoders.Available;
+    private readonly Xunit.Abstractions.ITestOutputHelper _out;
+    public NativeDecodeTests(Xunit.Abstractions.ITestOutputHelper o) => _out = o;
+
+    // A silent skip reads exactly like a pass, which is how a "green" run can prove nothing —
+    // so say so, loudly, in the test output.
+    private bool Skip
+    {
+        get
+        {
+            if (NativeDecoders.Available) return false;
+            _out.WriteLine("SKIPPED: cupricodecs native library not present beside the test binary.");
+            return true;
+        }
+    }
 
     private static byte[] Fixture() =>
         File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "fixtures", "demo.webm"));
@@ -52,6 +65,26 @@ public class NativeDecodeTests
         Assert.InRange(r / (double)pixels, 20, 235);   // not black, not blown out
         Assert.InRange(g / (double)pixels, 20, 235);
         Assert.InRange(b / (double)pixels, 20, 235);
+    }
+
+    [Fact]
+    public void A_cupri_video_element_paints_decoded_frames()
+    {
+        if (Skip) return;
+
+        // The whole desktop path in one assertion: markup → component → surface registry →
+        // WebM demux → libvpx → painter → rasterised pixels.
+        var clip = Path.Combine(AppContext.BaseDirectory, "fixtures", "demo.webm");
+        using var t = new TestDoc($"<body><cupri-video src='{clip.Replace("\\", "/")}' muted autoplay " +
+                                  "style='width:160px;height:90px'></cupri-video></body>", "", components: true);
+        t.Doc.UseVideo(new WebmVideoBackend(new NativeDecoders()));
+        t.Layout();
+
+        var px = t.Doc.RenderToPixels(160, 90, SkiaSharp.SKColors.Black);
+        var distinct = new HashSet<uint>();
+        for (var i = 0; i + 3 < px.Length; i += 4) distinct.Add(BitConverter.ToUInt32(px, i));
+        Assert.True(distinct.Count > 100,
+            $"the painted element must show the decoded picture, not a flat fill (got {distinct.Count} colours)");
     }
 
     [Fact]
