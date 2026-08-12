@@ -67,6 +67,27 @@ public class VideoComponentTests
     }
 
     [Fact]
+    public void Without_a_backend_the_transport_controls_read_disabled()
+    {
+        // A Play button that looks live and does nothing is a lie — no backend dims the
+        // transport (and AT announces it); fullscreen stays enabled (it needs no decoder).
+        using var t = new TestDoc("<body><cupri-video src='clip.webm' controls></cupri-video></body>", "", components: true);
+        t.Layout();
+        var toggle = t.Find(n => n.Element?.GetAttribute("data-video-role") == "toggle")!;
+        Assert.Contains("disabled", toggle.Element!.ClassList);
+        Assert.Equal("true", toggle.Element!.GetAttribute("aria-disabled"));
+        var fullscreen = t.Find(n => n.Element?.GetAttribute("data-window-command") is { Length: > 0 })!;
+        Assert.DoesNotContain("disabled", fullscreen.Element!.ClassList);
+
+        // Registering a backend un-dims them on the next rebuild.
+        var backend = new FakeBackend();
+        t.Doc.UseVideo(backend);
+        t.Layout();
+        var live = t.Find(n => n.Element?.GetAttribute("data-video-role") == "toggle")!;
+        Assert.DoesNotContain("disabled", live.Element!.ClassList);
+    }
+
+    [Fact]
     public void A_player_opens_once_and_survives_the_per_keystroke_rebuild()
     {
         var backend = new FakeBackend();

@@ -242,6 +242,8 @@ public sealed partial class CupriDocument : IDisposable
             (seen ??= new HashSet<string>(StringComparer.Ordinal)).Add(src);
             if (GetOrOpenPlayer(src, el) is { } player)
                 Components.Controls.VideoComponent.SyncControls(el, player);
+            else
+                Components.Controls.VideoComponent.MarkInert(el);   // no backend: honest controls
         }
 
         if (_videoPlayers.Count == 0) return;

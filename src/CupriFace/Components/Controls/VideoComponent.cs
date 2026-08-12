@@ -25,6 +25,8 @@ public sealed class VideoComponent : ComponentBase
         .cupri-video-btn { display:inline-flex; align-items:center; justify-content:center;
                            width:32px; height:32px; border-radius:6px; color:#ffffff; }
         .cupri-video-btn:hover { background:rgba(255,255,255,0.18); }
+        .cupri-video-btn.disabled { opacity:0.35; }
+        .cupri-video-btn.disabled:hover { background:transparent; }
         .cupri-video-title { color:#e6e9ef; flex:1; }
         """;
 
@@ -59,6 +61,20 @@ public sealed class VideoComponent : ComponentBase
               <div class='cupri-video-btn' role='button' aria-label='Fullscreen' data-window-command='toggle-fullscreen'>{IconMarkup("fullscreen", 18)}</div>
             </div>
             """;
+    }
+
+    /// <summary>No backend on this host (or the source failed to open): the transport controls
+    /// get the standard disabled treatment — dimmed, not-allowed cursor, announced by AT —
+    /// instead of looking clickable and doing nothing. Fullscreen stays live: it needs no
+    /// decoder, only the window.</summary>
+    internal static void MarkInert(IElement el)
+    {
+        foreach (var role in new[] { "toggle", "mute" })
+            if (el.QuerySelector($"[data-video-role='{role}']") is { } button)
+            {
+                button.ClassList.Add("disabled");
+                button.SetAttribute("aria-disabled", "true");
+            }
     }
 
     /// <summary>Reflect live player state into a freshly rebuilt element's controls (the DOM is
