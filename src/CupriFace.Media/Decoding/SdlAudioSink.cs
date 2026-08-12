@@ -69,6 +69,8 @@ public sealed unsafe class SdlAudioSink : IAudioSink
     public double QueuedSeconds =>
         _device == 0 ? 0 : _sdl.GetQueuedAudioSize(_device) / (double)(sizeof(float) * _channels * _rate);
 
+    public bool DeviceOpen => _device != 0;
+
     public void Pause(bool paused)
     {
         if (_device != 0) _sdl.PauseAudioDevice(_device, paused ? 1 : 0);

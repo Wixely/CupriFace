@@ -31,12 +31,15 @@ public class AudioTrackTests
     private static string AvPath => Path.Combine(AppContext.BaseDirectory, "fixtures", "demo-av.webm");
     private static WebmFile Av() => WebmFile.Parse(File.ReadAllBytes(AvPath));
 
-    /// <summary>Counts what the player pushes at it; no device, no platform, no flakiness.</summary>
+    /// <summary>Counts what the player pushes at it; no device, no platform, no flakiness.
+    /// DeviceOpen=false: it never drains, so it must not be mistaken for the audio-master clock
+    /// (submitted − queued would read a constant 0 and freeze the media time).</summary>
     private sealed class RecordingSink : IAudioSink
     {
         public int Rate, Channels, Samples, Flushes;
         public bool Paused = true, Disposed;
         public double Volume { get; set; } = 1;
+        public bool DeviceOpen => false;
         public double QueuedSeconds => Rate > 0 ? Samples / (double)(Rate * Math.Max(Channels, 1)) : 0;
         public void Start(int sampleRate, int channels) { Rate = sampleRate; Channels = channels; }
         public void Submit(ReadOnlySpan<float> pcm) => Samples += pcm.Length;
@@ -119,6 +122,49 @@ public class AudioTrackTests
         Assert.Equal(0, sink.Volume, 3);      // mute is a gain of zero…
         player.Muted = false;
         Assert.Equal(0.5, sink.Volume, 3);    // …and unmuting restores the level, not full blast
+    }
+
+    /// <summary>A sink that "drains" exactly as the test dictates — a deterministic stand-in for
+    /// a real device, so the audio-master clock is testable without hardware or wall time.</summary>
+    private sealed class DrainingSink : IAudioSink
+    {
+        public double Submitted, Drained;
+        public bool DeviceOpen => true;
+        public double QueuedSeconds => Math.Max(0, Submitted - Drained);
+        public double Volume { get; set; } = 1;
+        public void Start(int sampleRate, int channels) { }
+        public void Submit(ReadOnlySpan<float> pcm) => Submitted += pcm.Length / (2.0 * 48000);
+        public void Pause(bool paused) { }
+        public void Flush() { Submitted = 0; Drained = 0; }
+        public void Dispose() { }
+    }
+
+    [Fact]
+    public void The_media_clock_follows_audio_actually_PLAYED_not_the_wall()
+    {
+        // The 3-minute soak measured +27 ms/s of A/V drift under the wall clock (a browser
+        // recording carrying ~2.7% more PCM than its timeline claims). The fix: with a real
+        // device, the media clock IS submitted − queued. This pins that: the wall can race
+        // ahead all it likes — the position moves only when audio drains.
+        var bytes = File.ReadAllBytes(AvPath);
+        var clock = new[] { 0.0 };
+        var sink = new DrainingSink();
+        using var player = new WebmPlayer(() => bytes, deferred: false, new FakeAudioOnlyFactory(), sink, () => clock[0]);
+
+        player.Play();
+        clock[0] = 0.05;
+        player.Pump();                                   // feeds the ~0.2 s lookahead of blocks
+        Assert.True(sink.Submitted > 0.008, $"expected the lookahead's PCM, got {sink.Submitted}");
+        Assert.Equal(0, player.Position, 3);             // nothing drained yet → time stands still
+
+        sink.Drained = 0.004;
+        Assert.Equal(0.004, player.Position, 3);         // played 4 ms → the clock says 4 ms
+
+        clock[0] = 5.0;                                  // the wall races 5 s ahead…
+        Assert.Equal(0.004, player.Position, 3);         // …and the media clock doesn't care
+
+        sink.Drained = 0.008;
+        Assert.Equal(0.008, player.Position, 3);
     }
 
     /// <summary>Managed stand-in so the mute/volume contract can be asserted without codecs.</summary>
