@@ -16,7 +16,6 @@ internal sealed unsafe class VpxVideoDecoder : IVideoFrameDecoder
     private const int VPX_CODEC_OK = 0;
 
     private nint _ctx;      // vpx_codec_ctx_t, opaque: oversized + zeroed, only ever passed back in
-    private byte[] _rgba = [];
 
     public VpxVideoDecoder(bool vp9)
     {
@@ -51,40 +50,23 @@ internal sealed unsafe class VpxVideoDecoder : IVideoFrameDecoder
         return ToImage(in img);
     }
 
-    private SKImage ToImage(in VpxImagePrefix img)
+    // Frees a frame's pixel buffer when its SKImage is disposed (the player's retire ring).
+    private static readonly SKImageRasterReleaseDelegate FreePixels = (address, _) => NativeMemory.Free((void*)address);
+
+    private SKImage? ToImage(in VpxImagePrefix img)
     {
         int w = (int)img.DW, h = (int)img.DH;
-        if (_rgba.Length < w * h * 4) _rgba = new byte[w * h * 4];
+        // Convert straight into a buffer the SKImage will OWN (freed by its release proc): the old
+        // FromPixelCopy path copied every frame a second time — 8 MB per 1080p frame, ~500 MB/s of
+        // pure memcpy + GC churn at 60 fps.
+        var pixels = (byte*)NativeMemory.Alloc((nuint)(w * h * 4));
+        Yuv.I420ToRgba((byte*)img.Plane0, (byte*)img.Plane1, (byte*)img.Plane2,
+            img.Stride0, img.Stride1, img.Stride2, pixels, w, h);
 
-        var y = (byte*)img.Plane0;
-        var u = (byte*)img.Plane1;
-        var v = (byte*)img.Plane2;
-        fixed (byte* dst0 = _rgba)
-        {
-            for (var row = 0; row < h; row++)
-            {
-                var yRow = y + row * img.Stride0;
-                var uRow = u + (row >> 1) * img.Stride1;
-                var vRow = v + (row >> 1) * img.Stride2;
-                var dst = dst0 + row * w * 4;
-                for (var col = 0; col < w; col++)
-                {
-                    // BT.601 studio swing (16..235 luma), the WebM default.
-                    var c = 298 * (yRow[col] - 16);
-                    var d = uRow[col >> 1] - 128;
-                    var e = vRow[col >> 1] - 128;
-                    var r = (c + 409 * e + 128) >> 8;
-                    var g = (c - 100 * d - 208 * e + 128) >> 8;
-                    var b = (c + 516 * d + 128) >> 8;
-                    dst[0] = (byte)Math.Clamp(r, 0, 255);
-                    dst[1] = (byte)Math.Clamp(g, 0, 255);
-                    dst[2] = (byte)Math.Clamp(b, 0, 255);
-                    dst[3] = 255;
-                    dst += 4;
-                }
-            }
-            return SKImage.FromPixelCopy(new SKImageInfo(w, h, SKColorType.Rgba8888, SKAlphaType.Opaque), (nint)dst0, w * 4);
-        }
+        using var pixmap = new SKPixmap(new SKImageInfo(w, h, SKColorType.Rgba8888, SKAlphaType.Opaque), (nint)pixels, w * 4);
+        var image = SKImage.FromPixels(pixmap, FreePixels);
+        if (image is null) NativeMemory.Free(pixels);   // refused (bad info) — don't leak
+        return image;
     }
 
     public void Dispose()

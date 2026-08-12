@@ -7,6 +7,8 @@
     <LangVersion>latest</LangVersion>
     <IsPackable>false</IsPackable>
     <RootNamespace>CupriFace.Tests</RootNamespace>
+    <!-- The YUV kernel tests drive the pointer-based converter directly. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
