@@ -87,6 +87,35 @@ public class ReorderTests
     }
 
     [Fact]
+    public void Dragging_works_inside_a_scrolled_container()
+    {
+        // The field report: rows lifted and followed the pointer but the drop did nothing — the
+        // drop slots were computed from UNSCROLLED boxes (AbsoluteBox) while the pointer is in
+        // screen space, so inside a scrolled page no midline was ever crossed. Everything here
+        // must run through SCREEN coordinates, like a real pointer does.
+        (int From, int To)? drop = null;
+        var html = "<body><div style='height:300px; overflow:scroll'><div style='height:400px'></div>"
+            + Html.Substring("<body>".Length).Replace("</body>", "</div></body>");
+        using var t = new TestDoc(html, "", null, width: 300, height: 300, components: true);
+        t.Doc.OnReorder(e => drop = (e.From, e.To));
+
+        t.Doc.DispatchWheel(150, 150, 400f);        // bring the list into view
+        t.Layout();
+
+        var handle = t.Find(n => n.Element?.ClassList.Contains("cupri-reorder-handle") == true)!;
+        var (hx, hy) = TestDoc.Center(handle);
+        Assert.InRange(hy, 0, 300);                 // sanity: the grip really is on screen now
+
+        t.Doc.DispatchClick(hx, hy, 1);
+        Assert.True(Items(t)[0].Dragging, "grabbed row 0 through the scroll");
+        var targetY = TestDoc.Center(Items(t)[2]).Y + 8f;
+        t.Doc.DispatchPointerMove(hx, targetY);
+        t.Doc.DispatchPointerUp(hx, targetY);
+
+        Assert.Equal((0, 2), drop);
+    }
+
+    [Fact]
     public void A_grab_and_release_without_moving_is_not_a_reorder()
     {
         var fired = false;

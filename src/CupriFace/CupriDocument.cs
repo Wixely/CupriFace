@@ -2543,9 +2543,13 @@ public sealed partial class CupriDocument : IDisposable
         {
             var items = new List<RenderNode>();
             foreach (var c in lists[ci].Children) if (c.Element?.ClassList.Contains("cupri-reorder-item") == true) items.Add(c);
+            // ScreenBox, not AbsoluteBox: the pointer these mids are compared against is in SCREEN
+            // space. Inside a scrolled page the unscrolled boxes sit below where the pointer can
+            // reach — the row lifted and followed, but the target slot never changed, so the drop
+            // was a silent no-op (the field report: "drag row doesn't work").
             var mids = new float[items.Count];
-            for (var i = 0; i < items.Count; i++) { var b = HitTesting.AbsoluteBox(items[i]); mids[i] = b.Y + b.H / 2f; }
-            var lb = HitTesting.AbsoluteBox(lists[ci]);
+            for (var i = 0; i < items.Count; i++) { var b = HitTesting.ScreenBox(items[i]); mids[i] = b.Y + b.H / 2f; }
+            var lb = HitTesting.ScreenBox(lists[ci]);
             cols.Add(new ReorderCol(lists[ci], items, mids, lb.X, lb.X + lb.W));
             all.AddRange(items);
             var idx = items.IndexOf(item);

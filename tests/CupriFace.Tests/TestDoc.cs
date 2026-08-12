@@ -54,10 +54,12 @@ public sealed class TestDoc : IDisposable
     public RenderNode FindRole(string role) => Find(n => n.Element?.GetAttribute("role") == role)!;
     public RenderNode? FindText() => Find(n => n.IsText && n.Lines is { Count: > 0 });
 
-    /// <summary>Centre of a node's absolute box, for a pointer hit-test.</summary>
+    /// <summary>Centre of a node's ON-SCREEN box, for a pointer hit-test. ScreenBox, not
+    /// AbsoluteBox: inside a scrolled container only screen coordinates can actually be hit
+    /// (identical when nothing is scrolled).</summary>
     public static (float X, float Y) Center(RenderNode n)
     {
-        var b = HitTesting.AbsoluteBox(n);
+        var b = HitTesting.ScreenBox(n);
         return (b.X + b.W / 2f, b.Y + b.H / 2f);
     }
 
