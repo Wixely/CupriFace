@@ -1,0 +1,137 @@
+name: Codecs
+
+# Native decoders for CupriFace.Media: libvpx (VP8/VP9 decode only) + libopus, statically
+# linked into ONE shared library per RID — `cupricodecs` — so the managed binding has a single
+# DllImport name on every OS and the nupkg ships runtimes/<rid>/native/<lib> the Skia way.
+# Pinned tags; decode-only configure keeps the output small. Runs when this file changes (or on
+# demand); the artifacts feed the CupriFace.Media pack and local development.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, feature/video ]
+    paths: [ '.github/workflows/codecs.yml' ]
+
+env:
+  VPX_TAG: v1.14.1
+  OPUS_TAG: v1.5.2
+
+jobs:
+  linux-x64:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq nasm > /dev/null
+      - name: Build libvpx (decode only, PIC static)
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$VPX_TAG" https://chromium.googlesource.com/webm/libvpx
+          cd libvpx
+          ./configure --disable-examples --disable-docs --disable-unit-tests --disable-tools \
+            --disable-vp8-encoder --disable-vp9-encoder --enable-vp8-decoder --enable-vp9-decoder \
+            --enable-pic --disable-shared --enable-static > /dev/null
+          make -j"$(nproc)" > /dev/null
+      - name: Build libopus (PIC static)
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$OPUS_TAG" https://github.com/xiph/opus
+          cmake -S opus -B opus/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DOPUS_BUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF > /dev/null
+          cmake --build opus/build -j > /dev/null
+      - name: Link cupricodecs
+        run: |
+          set -euo pipefail
+          gcc -shared -o libcupricodecs.so \
+            -Wl,--whole-archive libvpx/libvpx.a opus/build/libopus.a -Wl,--no-whole-archive \
+            -lm -lpthread
+          # Sanity: both codecs' entry points must be exported.
+          nm -D libcupricodecs.so | grep -q vpx_codec_vp9_dx
+          nm -D libcupricodecs.so | grep -q opus_decoder_create
+          ls -l libcupricodecs.so
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cupricodecs-linux-x64
+          path: libcupricodecs.so
+          if-no-files-found: error
+
+  osx-arm64:
+    runs-on: macos-latest
+    steps:
+      - name: Build libvpx (decode only, static)
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$VPX_TAG" https://chromium.googlesource.com/webm/libvpx
+          cd libvpx
+          ./configure --disable-examples --disable-docs --disable-unit-tests --disable-tools \
+            --disable-vp8-encoder --disable-vp9-encoder --enable-vp8-decoder --enable-vp9-decoder \
+            --enable-pic --disable-shared --enable-static > /dev/null
+          make -j"$(sysctl -n hw.ncpu)" > /dev/null
+      - name: Build libopus (static)
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$OPUS_TAG" https://github.com/xiph/opus
+          cmake -S opus -B opus/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DOPUS_BUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF > /dev/null
+          cmake --build opus/build -j > /dev/null
+      - name: Link cupricodecs
+        run: |
+          set -euo pipefail
+          clang -dynamiclib -o libcupricodecs.dylib \
+            -Wl,-force_load,libvpx/libvpx.a -Wl,-force_load,opus/build/libopus.a
+          nm -gU libcupricodecs.dylib | grep -q vpx_codec_vp9_dx
+          nm -gU libcupricodecs.dylib | grep -q opus_decoder_create
+          ls -l libcupricodecs.dylib
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cupricodecs-osx-arm64
+          path: libcupricodecs.dylib
+          if-no-files-found: error
+
+  win-x64:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      # MinGW, deliberately: libvpx's configure has no supported MSVC shared path, and a MinGW
+      # static archive linked into our own DLL (with the runtime statically linked) yields a
+      # dependency-free binary that P/Invoke loads like any other.
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: >-
+            git make nasm
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-cmake
+      - name: Build libvpx (decode only, static)
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$VPX_TAG" https://chromium.googlesource.com/webm/libvpx
+          cd libvpx
+          ./configure --target=x86_64-win64-gcc \
+            --disable-examples --disable-docs --disable-unit-tests --disable-tools \
+            --disable-vp8-encoder --disable-vp9-encoder --enable-vp8-decoder --enable-vp9-decoder \
+            --disable-shared --enable-static > /dev/null
+          make -j"$(nproc)" > /dev/null
+      - name: Build libopus (static)
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$OPUS_TAG" https://github.com/xiph/opus
+          cmake -S opus -B opus/build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF -DOPUS_BUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF > /dev/null
+          cmake --build opus/build -j > /dev/null
+      - name: Link cupricodecs
+        run: |
+          set -euo pipefail
+          gcc -shared -o cupricodecs.dll \
+            -Wl,--whole-archive libvpx/libvpx.a opus/build/libopus.a -Wl,--no-whole-archive \
+            -static -static-libgcc -lwinpthread
+          objdump -p cupricodecs.dll | grep -qi vpx_codec_vp9_dx
+          objdump -p cupricodecs.dll | grep -qi opus_decoder_create
+          ls -l cupricodecs.dll
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cupricodecs-win-x64
+          path: cupricodecs.dll
+          if-no-files-found: error
