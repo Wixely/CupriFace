@@ -486,6 +486,20 @@ play from the same resolved bytes, so every scheme works on every host.
              label="Product tour" fit="cover" style="width:100%;height:260px"></cupri-video>
 <cupri-video src="https://example.com/trailer.webm" controls muted></cupri-video>
 ```
+**Wiring a backend.** The web host has one built in (the browser decodes). On desktop, add the
+optional **`CupriFace.Media`** package — WebM/VP9+Opus, with decoders for every desktop RID inside
+that single package — and attach it at the host composition root, *not* in your `CupriApp` (which
+a web build also compiles):
+```csharp
+DesktopHost.Run(new MyApp(), doc =>
+{
+    if (NativeDecoders.Available)                       // false → poster + disabled controls
+        doc.UseVideo(new WebmVideoBackend(new NativeDecoders(), SdlAudioSink.TryCreate()));
+});
+```
+Audio is optional (`TryCreate` returns null on a machine with no device — video still plays).
+Format scope is deliberately royalty-free: **WebM with VP9/VP8 video and Opus audio**; there is no
+H.264/MP4 path, by licence policy.
 
 **Resizable controls.** CSS `resize: both | horizontal | vertical` puts a grab handle in an
 element's bottom‑right corner — dragging it resizes the element, clamped to its
