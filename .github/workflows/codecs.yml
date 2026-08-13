@@ -361,7 +361,7 @@ jobs:
       - name: Run the WINDOWS-built binaries on Linux
         run: |
           set -euo pipefail
-          ls -l probe/libcupricodecs.so probe/MediaProbe.dll
+          ls -l probe/runtimes/linux-x64/native/libcupricodecs.so probe/MediaProbe.dll
           dotnet probe/MediaProbe.dll
 
   # Every remaining RID gets the SAME treatment: the Windows-built binaries, untouched, decoding
@@ -396,7 +396,7 @@ jobs:
       - name: Run the WINDOWS-built binaries on macOS (Apple silicon)
         run: |
           set -euo pipefail
-          ls -l probe/libcupricodecs.dylib probe/MediaProbe.dll
+          ls -l probe/runtimes/osx-arm64/native/libcupricodecs.dylib probe/MediaProbe.dll
           dotnet probe/MediaProbe.dll
 
   portable-run-on-macos-x64:
