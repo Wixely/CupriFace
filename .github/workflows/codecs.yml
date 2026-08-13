@@ -225,6 +225,11 @@ jobs:
           objdump -p cupricodecs.dll > syms.txt   # no pipe into grep -q (see the Linux note)
           grep -qi vpx_codec_vp9_dx syms.txt
           grep -qi opus_decoder_create syms.txt
+          # The static-runtime claim above, actually checked (see the arm64 job).
+          if grep -iE 'DLL Name' syms.txt | grep -qiE 'winpthread|libgcc|libstdc\+\+'; then
+            echo "::error::cupricodecs.dll imports a MinGW runtime DLL"; grep -i 'DLL Name' syms.txt; exit 1
+          fi
+          grep -i 'DLL Name' syms.txt
           ls -l cupricodecs.dll
       - uses: actions/upload-artifact@v4
         with:
@@ -283,11 +288,21 @@ jobs:
         run: |
           set -euxo pipefail
           OPUS_A=$(find opus/build -name 'libopus.a' | head -1)
+          # -lwinpthread: libvpx's threaded decoder calls pthreads, which on MinGW live there
+          # (the first ARM run linked without it and died on 18 undefined pthread_* symbols).
+          # -static pulls that plus the compiler runtime INTO the DLL — see the check below.
           clang -shared -o cupricodecs.dll \
-            -Wl,--whole-archive libvpx/libvpx.a "$OPUS_A" -Wl,--no-whole-archive
+            -Wl,--whole-archive libvpx/libvpx.a "$OPUS_A" -Wl,--no-whole-archive \
+            -static -lwinpthread
           llvm-objdump -p cupricodecs.dll > syms.txt
           grep -qi vpx_codec_vp9_dx syms.txt
           grep -qi opus_decoder_create syms.txt
+          # Dependency-free or it isn't portable: a MinGW runtime import would resolve on this
+          # runner (the toolchain is installed) and fail on a user's machine.
+          if grep -iE 'DLL Name' syms.txt | grep -qiE 'winpthread|libc\+\+|libunwind|libgcc'; then
+            echo "::error::cupricodecs.dll imports a MinGW runtime DLL"; grep -i 'DLL Name' syms.txt; exit 1
+          fi
+          grep -i 'DLL Name' syms.txt
           ls -l cupricodecs.dll
       - uses: actions/upload-artifact@v4
         with:
