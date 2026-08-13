@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <Import Project="..\..\src\CupriCodecNatives.props" />
+
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
@@ -35,13 +37,10 @@
 
   <ItemGroup>
     <!-- Dev convenience: codec natives dropped into native/<rid>/ (codecs.yml artifacts) ride
-         along when running from source. Packaged consumers get them from the nupkg's runtimes/. -->
-    <None Include="..\..\native\win-x64\cupricodecs.dll" CopyToOutputDirectory="PreserveNewest"
-          Visible="false" Condition="Exists('..\..\native\win-x64\cupricodecs.dll')" />
-    <None Include="..\..\native\linux-x64\libcupricodecs.so" CopyToOutputDirectory="PreserveNewest"
-          Visible="false" Condition="Exists('..\..\native\linux-x64\libcupricodecs.so')" />
-    <None Include="..\..\native\osx-arm64\libcupricodecs.dylib" CopyToOutputDirectory="PreserveNewest"
-          Visible="false" Condition="Exists('..\..\native\osx-arm64\libcupricodecs.dylib')" />
+         along when running from source, laid out per-RID (src/CupriCodecNatives.props) — with
+         six RIDs a flat copy can't work, three pairs share a filename. CodecLibraryResolver
+         loads the running one. Packaged consumers get them from the nupkg's runtimes/. -->
+    <None Include="@(CupriCodecNative)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
