@@ -133,10 +133,12 @@ jobs:
           path: libcupricodecs.dylib
           if-no-files-found: error
 
-  # Intel macOS (macos-13 is the last Intel image; macos-latest is Apple silicon). Unlike the
-  # arm64 leg this one DOES need nasm — libvpx's x86 paths are hand-written assembly.
+  # Intel macOS. The label is macos-15-intel: macos-13 (the old Intel image) is retired, and a
+  # job asking for it doesn't fail — it QUEUES FOREVER, which is how three runs sat at 35 minutes
+  # with nothing to report. Unlike the arm64 leg this one DOES need nasm: libvpx's x86 paths are
+  # hand-written assembly.
   osx-x64:
-    runs-on: macos-13
+    runs-on: macos-15-intel
     steps:
       - name: Tools
         run: brew install nasm > /dev/null
@@ -399,7 +401,7 @@ jobs:
 
   portable-run-on-macos-x64:
     needs: portable-build-and-run
-    runs-on: macos-13
+    runs-on: macos-15-intel
     steps:
       - uses: actions/setup-dotnet@v4
         with:
