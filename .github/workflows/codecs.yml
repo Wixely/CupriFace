@@ -61,6 +61,44 @@ jobs:
           path: libcupricodecs.so
           if-no-files-found: error
 
+  # ARM Linux, natively on GitHub's arm64 runner — no nasm (the x86 assembler): libvpx's arm
+  # paths are NEON intrinsics, and configure detects the host.
+  linux-arm64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Build libvpx (decode only, PIC static)
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$VPX_TAG" "$VPX_REPO" libvpx
+          cd libvpx
+          ./configure --disable-examples --disable-docs --disable-unit-tests --disable-tools \
+            --disable-vp8-encoder --disable-vp9-encoder --enable-vp8-decoder --enable-vp9-decoder \
+            --enable-pic --disable-shared --enable-static > /dev/null
+          make -j"$(nproc)" > /dev/null
+      - name: Build libopus (PIC static)
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$OPUS_TAG" "$OPUS_REPO" opus
+          cmake -S opus -B opus/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DOPUS_BUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF > /dev/null
+          cmake --build opus/build -j > /dev/null
+      - name: Link cupricodecs
+        run: |
+          set -euo pipefail
+          gcc -shared -o libcupricodecs.so \
+            -Wl,--whole-archive libvpx/libvpx.a opus/build/libopus.a -Wl,--no-whole-archive \
+            -lm -lpthread
+          nm -D libcupricodecs.so > syms.txt   # never `nm | grep -q` (see the linux-x64 note)
+          grep -q vpx_codec_vp9_dx syms.txt
+          grep -q opus_decoder_create syms.txt
+          file libcupricodecs.so
+          ls -l libcupricodecs.so
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cupricodecs-linux-arm64
+          path: libcupricodecs.so
+          if-no-files-found: error
+
   osx-arm64:
     runs-on: macos-latest
     steps:
@@ -92,6 +130,45 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: cupricodecs-osx-arm64
+          path: libcupricodecs.dylib
+          if-no-files-found: error
+
+  # Intel macOS (macos-13 is the last Intel image; macos-latest is Apple silicon). Unlike the
+  # arm64 leg this one DOES need nasm — libvpx's x86 paths are hand-written assembly.
+  osx-x64:
+    runs-on: macos-13
+    steps:
+      - name: Tools
+        run: brew install nasm > /dev/null
+      - name: Build libvpx (decode only, static)
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$VPX_TAG" "$VPX_REPO" libvpx
+          cd libvpx
+          ./configure --disable-examples --disable-docs --disable-unit-tests --disable-tools \
+            --disable-vp8-encoder --disable-vp9-encoder --enable-vp8-decoder --enable-vp9-decoder \
+            --enable-pic --disable-shared --enable-static > /dev/null
+          make -j"$(sysctl -n hw.ncpu)" > /dev/null
+      - name: Build libopus (static)
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$OPUS_TAG" "$OPUS_REPO" opus
+          cmake -S opus -B opus/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DOPUS_BUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF > /dev/null
+          cmake --build opus/build -j > /dev/null
+      - name: Link cupricodecs
+        run: |
+          set -euo pipefail
+          clang -dynamiclib -o libcupricodecs.dylib \
+            -Wl,-force_load,libvpx/libvpx.a -Wl,-force_load,opus/build/libopus.a
+          nm -gU libcupricodecs.dylib > syms.txt
+          grep -q vpx_codec_vp9_dx syms.txt
+          grep -q opus_decoder_create syms.txt
+          file libcupricodecs.dylib
+          ls -l libcupricodecs.dylib
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cupricodecs-osx-x64
           path: libcupricodecs.dylib
           if-no-files-found: error
 
@@ -155,12 +232,69 @@ jobs:
           path: cupricodecs.dll
           if-no-files-found: error
 
+  # Windows on ARM, natively (GitHub's windows-11-arm image). MSYS2's CLANGARM64 environment is
+  # the arm64 counterpart of MINGW64 above — clang instead of gcc, so the static-runtime flags
+  # differ (compiler-rt is linked in by default; there is no -static-libgcc).
+  win-arm64:
+    runs-on: windows-11-arm
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANGARM64
+          update: false
+          install: >-
+            git make diffutils
+            mingw-w64-clang-aarch64-toolchain
+            mingw-w64-clang-aarch64-cmake
+      - name: Clone sources
+        run: |
+          set -euxo pipefail
+          git clone --depth 1 --branch "$VPX_TAG" "$VPX_REPO" libvpx
+          git clone --depth 1 --branch "$OPUS_TAG" "$OPUS_REPO" opus
+      - name: Build libvpx (decode only, static)
+        run: |
+          set -euxo pipefail
+          cd libvpx
+          # arm64-win64-gcc is libvpx's mingw-style ARM64 Windows target (the -vs targets are
+          # MSVC project generators, which this toolchain isn't).
+          ./configure --target=arm64-win64-gcc \
+            --disable-examples --disable-docs --disable-unit-tests --disable-tools \
+            --disable-vp8-encoder --disable-vp9-encoder --enable-vp8-decoder --enable-vp9-decoder \
+            --disable-shared --enable-static
+          make -j"$(nproc)"
+          ls -l libvpx.a
+      - name: Build libopus (static)
+        run: |
+          set -euxo pipefail
+          cmake -S opus -B opus/build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF -DOPUS_BUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF
+          cmake --build opus/build -j
+          find opus/build -name 'libopus.a'
+      - name: Link cupricodecs
+        run: |
+          set -euxo pipefail
+          OPUS_A=$(find opus/build -name 'libopus.a' | head -1)
+          clang -shared -o cupricodecs.dll \
+            -Wl,--whole-archive libvpx/libvpx.a "$OPUS_A" -Wl,--no-whole-archive
+          objdump -p cupricodecs.dll > syms.txt
+          grep -qi vpx_codec_vp9_dx syms.txt
+          grep -qi opus_decoder_create syms.txt
+          ls -l cupricodecs.dll
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cupricodecs-win-arm64
+          path: cupricodecs.dll
+          if-no-files-found: error
+
   # THE PORTABILITY GATE: build the media sample ONCE on Windows, framework-dependent, then run
   # those untouched managed binaries on Linux with `dotnet MediaProbe.dll` and decode real video
   # there. This is the promise CupriFace.Media makes — one package, every desktop OS, no per-OS
   # build — turned into a test that fails if it ever stops being true.
   portable-build-and-run:
-    needs: [ linux-x64, win-x64, osx-arm64 ]
+    needs: [ linux-x64, linux-arm64, win-x64, win-arm64, osx-x64, osx-arm64 ]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -169,13 +303,23 @@ jobs:
       - uses: actions/download-artifact@v4
         with: { name: cupricodecs-win-x64, path: native/win-x64 }
       - uses: actions/download-artifact@v4
+        with: { name: cupricodecs-win-arm64, path: native/win-arm64 }
+      - uses: actions/download-artifact@v4
         with: { name: cupricodecs-linux-x64, path: native/linux-x64 }
+      - uses: actions/download-artifact@v4
+        with: { name: cupricodecs-linux-arm64, path: native/linux-arm64 }
+      - uses: actions/download-artifact@v4
+        with: { name: cupricodecs-osx-x64, path: native/osx-x64 }
       - uses: actions/download-artifact@v4
         with: { name: cupricodecs-osx-arm64, path: native/osx-arm64 }
       # Framework-dependent on purpose: no -r, so the output is portable IL plus every RID's
       # natives — exactly what `dotnet MyApp.dll` needs on any machine.
       - name: Publish on Windows
         run: dotnet publish samples/MediaProbe/MediaProbe.csproj -c Release -o probe
+      # The build machine is win-x64, so prove that RID right here — the other five legs below
+      # run these very binaries elsewhere.
+      - name: Decode on the build machine (win-x64)
+        run: dotnet probe/MediaProbe.dll
       - uses: actions/upload-artifact@v4
         with: { name: mediaprobe-built-on-windows, path: probe, if-no-files-found: error }
     runs-on: windows-latest
@@ -197,9 +341,26 @@ jobs:
           ls -l probe/libcupricodecs.so probe/MediaProbe.dll
           dotnet probe/MediaProbe.dll
 
-  # The third leg of the same promise — and the ONLY place the osx-arm64 codec library ever
-  # actually executes (its build job checks symbols, not behaviour): the Windows-built probe
-  # must decode real frames on macOS too.
+  # Every remaining RID gets the SAME treatment: the Windows-built binaries, untouched, decoding
+  # real frames on that machine. These legs are also the only place each library ever EXECUTES —
+  # the build jobs check symbols, not behaviour.
+  portable-run-on-linux-arm64:
+    needs: portable-build-and-run
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Native deps (Skia needs fontconfig even headless)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libfontconfig1 > /dev/null
+      - uses: actions/download-artifact@v4
+        with: { name: mediaprobe-built-on-windows, path: probe }
+      - name: Run the WINDOWS-built binaries on ARM Linux
+        run: |
+          set -euo pipefail
+          uname -m
+          dotnet probe/MediaProbe.dll
+
   portable-run-on-macos:
     needs: portable-build-and-run
     runs-on: macos-latest
@@ -209,8 +370,35 @@ jobs:
           dotnet-version: '10.0.x'
       - uses: actions/download-artifact@v4
         with: { name: mediaprobe-built-on-windows, path: probe }
-      - name: Run the WINDOWS-built binaries on macOS
+      - name: Run the WINDOWS-built binaries on macOS (Apple silicon)
         run: |
           set -euo pipefail
           ls -l probe/libcupricodecs.dylib probe/MediaProbe.dll
           dotnet probe/MediaProbe.dll
+
+  portable-run-on-macos-x64:
+    needs: portable-build-and-run
+    runs-on: macos-13
+    steps:
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/download-artifact@v4
+        with: { name: mediaprobe-built-on-windows, path: probe }
+      - name: Run the WINDOWS-built binaries on Intel macOS
+        run: |
+          set -euo pipefail
+          uname -m
+          dotnet probe/MediaProbe.dll
+
+  portable-run-on-windows-arm64:
+    needs: portable-build-and-run
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/download-artifact@v4
+        with: { name: mediaprobe-built-on-windows, path: probe }
+      - name: Run the x64-BUILT binaries on ARM Windows
+        run: dotnet probe/MediaProbe.dll
