@@ -259,18 +259,24 @@ jobs:
           set -euxo pipefail
           cd libvpx
           # arm64-win64-gcc is libvpx's mingw-style ARM64 Windows target (the -vs targets are
-          # MSVC project generators, which this toolchain isn't).
+          # MSVC project generators, which this toolchain isn't) — but that template hardcodes
+          # `gcc`, which CLANGARM64 doesn't ship. configure honours these from the environment;
+          # without them it fails with "Unable to invoke compiler: gcc" AND silently disables
+          # NEON first, because every feature probe compiles with the missing compiler.
+          CC=clang CXX=clang++ LD=clang AR=llvm-ar NM=llvm-nm STRIP=llvm-strip \
           ./configure --target=arm64-win64-gcc \
             --disable-examples --disable-docs --disable-unit-tests --disable-tools \
             --disable-vp8-encoder --disable-vp9-encoder --enable-vp8-decoder --enable-vp9-decoder \
             --disable-shared --enable-static
+          grep -E 'HAVE_NEON|CONFIG_VP9_DECODER' vpx_config.h || true   # NEON on = the probes ran
           make -j"$(nproc)"
           ls -l libvpx.a
       - name: Build libopus (static)
         run: |
           set -euxo pipefail
           cmake -S opus -B opus/build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_SHARED_LIBS=OFF -DOPUS_BUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF
+            -DCMAKE_C_COMPILER=clang -DBUILD_SHARED_LIBS=OFF \
+            -DOPUS_BUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF
           cmake --build opus/build -j
           find opus/build -name 'libopus.a'
       - name: Link cupricodecs
@@ -279,7 +285,7 @@ jobs:
           OPUS_A=$(find opus/build -name 'libopus.a' | head -1)
           clang -shared -o cupricodecs.dll \
             -Wl,--whole-archive libvpx/libvpx.a "$OPUS_A" -Wl,--no-whole-archive
-          objdump -p cupricodecs.dll > syms.txt
+          llvm-objdump -p cupricodecs.dll > syms.txt
           grep -qi vpx_codec_vp9_dx syms.txt
           grep -qi opus_decoder_create syms.txt
           ls -l cupricodecs.dll
