@@ -440,28 +440,36 @@ internal sealed class AtSpiBridge : IPathMethodHandler
             {
                 var index = context.Request.GetBodyReader().ReadInt32();
                 var child = ChildOf(snap, node, isRoot, index);
-                using var w = context.CreateReplyWriter("(so)");
-                WriteRef(w, child);
-                context.Reply(w.CreateMessage());
+                var w = context.CreateReplyWriter("(so)");
+                try { WriteRef(ref w, child); context.Reply(w.CreateMessage()); }
+                finally { w.Dispose(); }
                 return;
             }
             case "GetChildren":
             {
-                using var w = context.CreateReplyWriter("a(so)");
-                var arr = w.WriteArrayStart(DBusType.Struct);
-                if (isRoot) WriteRef(w, RootChildPath(snap));
-                else foreach (var c in node!.Children) WriteRef(w, PathFor(snap, c));
-                w.WriteArrayEnd(arr);
-                context.Reply(w.CreateMessage());
+                var w = context.CreateReplyWriter("a(so)");
+                try
+                {
+                    var arr = w.WriteArrayStart(DBusType.Struct);
+                    if (isRoot) WriteRef(ref w, RootChildPath(snap));
+                    else foreach (var c in node!.Children) WriteRef(ref w, PathFor(snap, c));
+                    w.WriteArrayEnd(arr);
+                    context.Reply(w.CreateMessage());
+                }
+                finally { w.Dispose(); }
                 return;
             }
             case "GetParent":
             {
-                using var w = context.CreateReplyWriter("(so)");
-                if (isRoot) { w.WriteStructureStart(); w.WriteString(_desktopName); w.WriteObjectPath(_desktopPath); }
-                else if (node!.Parent is { } parent) WriteRef(w, PathFor(snap, parent));
-                else { w.WriteStructureStart(); w.WriteString(_uniqueName); w.WriteObjectPath(AtSpi.RootPath); }
-                context.Reply(w.CreateMessage());
+                var w = context.CreateReplyWriter("(so)");
+                try
+                {
+                    if (isRoot) { w.WriteStructureStart(); w.WriteString(_desktopName); w.WriteObjectPath(_desktopPath); }
+                    else if (node!.Parent is { } parent) WriteRef(ref w, PathFor(snap, parent));
+                    else { w.WriteStructureStart(); w.WriteString(_uniqueName); w.WriteObjectPath(AtSpi.RootPath); }
+                    context.Reply(w.CreateMessage());
+                }
+                finally { w.Dispose(); }
                 return;
             }
             case "GetIndexInParent":
@@ -530,35 +538,39 @@ internal sealed class AtSpiBridge : IPathMethodHandler
     /// advertises the real signature, which is how the mismatch was finally caught.</summary>
     private void CacheGetItems(MethodContext context, Snapshot snap)
     {
-        using var w = context.CreateReplyWriter("a((so)(so)(so)a(so)assusau)");
-        var arr = w.WriteArrayStart(DBusType.Struct);
+        var w = context.CreateReplyWriter("a((so)(so)(so)a(so)assusau)");
         var written = 0;
-
-        // The application object, whose only child is the window (our tree root).
-        WriteCacheItem(w, snap, AtSpi.RootPath, isApplication: true, node: null);
-        written++;
-
-        for (var id = 0; id < snap.ById.Count; id++)
+        try
         {
-            var node = snap.ById[id];
-            // Gaps (ids minted for nodes that have since vanished) hold the root; skip those
-            // duplicates so the cache describes each object exactly once.
-            if (id != 0 && ReferenceEquals(node, snap.Root)) continue;
-            WriteCacheItem(w, snap, ObjectPathFor(id), isApplication: false, node: node);
-            written++;
-        }
+            var arr = w.WriteArrayStart(DBusType.Struct);
 
-        w.WriteArrayEnd(arr);
-        context.Reply(w.CreateMessage());
+            // The application object, whose only child is the window (our tree root).
+            WriteCacheItem(ref w, snap, AtSpi.RootPath, isApplication: true, node: null);
+            written++;
+
+            for (var id = 0; id < snap.ById.Count; id++)
+            {
+                var node = snap.ById[id];
+                // Gaps (ids minted for nodes that have since vanished) hold the root; skip those
+                // duplicates so the cache describes each object exactly once.
+                if (id != 0 && ReferenceEquals(node, snap.Root)) continue;
+                WriteCacheItem(ref w, snap, ObjectPathFor(id), isApplication: false, node: node);
+                written++;
+            }
+
+            w.WriteArrayEnd(arr);
+            context.Reply(w.CreateMessage());
+        }
+        finally { w.Dispose(); }
         Log($"Cache.GetItems -> wrote {written} items");
     }
 
-    private void WriteCacheItem(MessageWriter w, Snapshot snap, string path, bool isApplication, AccessibilityNode? node)
+    private void WriteCacheItem(ref MessageWriter w, Snapshot snap, string path, bool isApplication, AccessibilityNode? node)
     {
         w.WriteStructureStart();
 
-        WriteRef(w, path);                                     // this object
-        WriteRef(w, AtSpi.RootPath);                           // its application (always us)
+        WriteRef(ref w, path);                                     // this object
+        WriteRef(ref w, AtSpi.RootPath);                           // its application (always us)
 
         // Parent: the application's is the desktop the registry handed back; a node's is its
         // tree parent, or the application for the root.
@@ -570,16 +582,16 @@ internal sealed class AtSpiBridge : IPathMethodHandler
         }
         else if (node!.Parent is { } parent && snap.IdByPath.TryGetValue(parent.Path, out var pid))
         {
-            WriteRef(w, ObjectPathFor(pid));
+            WriteRef(ref w, ObjectPathFor(pid));
         }
-        else WriteRef(w, AtSpi.RootPath);
+        else WriteRef(ref w, AtSpi.RootPath);
 
         // Children, as references — the field an earlier version got wrong.
         var kids = w.WriteArrayStart(DBusType.Struct);
-        if (isApplication) WriteRef(w, PathFor(snap, snap.Root));
+        if (isApplication) WriteRef(ref w, PathFor(snap, snap.Root));
         else
             foreach (var child in node!.Children)
-                if (snap.IdByPath.TryGetValue(child.Path, out var cid)) WriteRef(w, ObjectPathFor(cid));
+                if (snap.IdByPath.TryGetValue(child.Path, out var cid)) WriteRef(ref w, ObjectPathFor(cid));
         w.WriteArrayEnd(kids);
 
         var ifaces = w.WriteArrayStart(DBusType.String);
@@ -769,7 +781,12 @@ internal sealed class AtSpiBridge : IPathMethodHandler
         return PathFor(snap, node.Children[index]);
     }
 
-    private void WriteRef(MessageWriter w, string objectPath)
+    /// <summary>An AT-SPI object reference (so) — bus name plus path. The writer is passed BY
+    /// REFERENCE on purpose: MessageWriter is a ref struct, and taking it by value gives the
+    /// helper a copy whose advanced position is discarded on return. The bytes still reach the
+    /// shared buffer, so nothing errors — the caller simply closes arrays at length zero and
+    /// truncates its own body. That is exactly how 46 cache items became an empty reply.</summary>
+    private void WriteRef(ref MessageWriter w, string objectPath)
     {
         w.WriteStructureStart();
         w.WriteString(_uniqueName);
