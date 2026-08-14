@@ -1,0 +1,64 @@
+name: AT-SPI probe
+
+# FEASIBILITY PROBE, not a gate (manual dispatch only). Before writing a Linux accessibility
+# bridge, find out whether a hosted runner can host a real AT-SPI stack — because a bridge no
+# CI machine can verify is a bridge nobody should trust. The Windows one earned its keep by
+# being driven by a real UIA client (FlaUI); this asks whether Linux can have the same.
+#
+# Questions: does the a11y bus start headlessly; can a process discover its address the way the
+# bridge will (org.a11y.Bus.GetAddress); what TRANSPORT comes back (abstract sockets need a
+# leading NUL in the sockaddr, path sockets don't — a real difference in the connect code); can
+# a genuine AT client (pyatspi) enumerate the desktop; and does Tmds.DBus.Protocol stay
+# managed-only and trim-clean, since CupriFace is AOT trim-clean and must stay that way.
+#
+# Every step reports and none asserts: the point is to learn, so nothing may mask a finding.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  stack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install an AT-SPI stack
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            at-spi2-core dbus-x11 python3-gi gir1.2-atspi-2.0 python3-pyatspi > /dev/null
+          dpkg -l | grep -E 'at-spi2-core|pyatspi|gir1.2-atspi' || true
+
+      - name: Bus, registry, address and transport
+        run: |
+          chmod +x tools/atspi-probe.sh
+          dbus-run-session -- tools/atspi-probe.sh
+
+      - name: Can a real AT client enumerate the desktop?
+        run: |
+          chmod +x tools/atspi-probe.sh
+          dbus-run-session -- bash -c 'tools/atspi-probe.sh > /dev/null 2>&1; python3 tools/atspi-probe.py'
+
+  dependency:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Is Tmds.DBus.Protocol managed-only and trim-clean?
+        run: |
+          set -x
+          mkdir -p /tmp/dbusprobe && cd /tmp/dbusprobe
+          dotnet new console -o . --force > /dev/null
+          dotnet add package Tmds.DBus.Protocol || echo "PACKAGE ADD FAILED"
+          printf 'using Tmds.DBus.Protocol;\nSystem.Console.WriteLine("session=" + (Address.Session ?? "(null)"));\n' > Program.cs
+          # CupriFace is trim-clean; a bridge dependency has to be too. Single-warn off so every
+          # trim warning is named rather than collapsed into one line.
+          dotnet publish -c Release -r linux-x64 --self-contained true \
+            -p:PublishTrimmed=true -p:TrimmerSingleWarn=false > publish.log 2>&1 || true
+          echo "--- trim/AOT warnings (empty = clean) ---"
+          grep -iE "IL2[0-9]{3}|IL3[0-9]{3}|warn" publish.log | head -30 || echo "(none)"
+          echo "--- native libraries pulled in beyond the runtime's own ---"
+          find bin/Release -name "*.so" -printf "%f\n" 2>/dev/null | sort -u | grep -viE "^libSystem|^libclrjit|^libcoreclr|^libhostpolicy|^libhostfxr|^libmscordaccore|^libmscordbi" | head -20 || true
+          echo "--- assembly size ---"
+          find ~/.nuget/packages/tmds.dbus.protocol -name "*.dll" -printf "%f %s bytes\n" 2>/dev/null | head
