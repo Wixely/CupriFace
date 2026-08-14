@@ -38,7 +38,10 @@ on:
   workflow_dispatch:
   push:
     branches: [ feature/atspi ]
-    paths: [ '.github/workflows/atspi-probe.yml', 'tools/atspi-probe.sh', 'tools/atspi-probe.py' ]
+    paths:
+      - '.github/workflows/atspi-probe.yml'
+      - 'tools/atspi-*'
+      - 'src/CupriFace.Shell/Accessibility/**'
 
 jobs:
   stack:
@@ -86,3 +89,23 @@ jobs:
           find bin/Release -name "*.so" -printf "%f\n" 2>/dev/null | sort -u | grep -viE "^libSystem|^libclrjit|^libcoreclr|^libhostpolicy|^libhostfxr|^libmscordaccore|^libmscordbi" | head -20 || true
           echo "--- assembly size ---"
           find ~/.nuget/packages/tmds.dbus.protocol -name "*.dll" -printf "%f %s bytes\n" 2>/dev/null | head
+
+  # THE GATE: the bridge, driven by a real AT client. Until this passes, the Linux
+  # accessibility claim is unproven — exactly the standard the Windows leg is held to.
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install the AT-SPI stack and Skia's deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq             at-spi2-core dbus-x11 xvfb python3-gi gir1.2-atspi-2.0 libfontconfig1 > /dev/null
+      - name: Publish the Viewer
+        run: dotnet publish samples/Viewer/Viewer.csproj -c Release -r linux-x64 --self-contained true -o viewer
+      - name: Drive it as an assistive technology would
+        run: |
+          chmod +x tools/atspi-gate.sh tools/atspi-gate.py
+          dbus-run-session -- tools/atspi-gate.sh "$PWD/viewer/Viewer"
