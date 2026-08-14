@@ -22,6 +22,7 @@ echo "a11y bus: $(busctl --user call org.a11y.Bus /org/a11y/bus org.a11y.Bus Get
 # The software window: this box has no GPU, and it is also the path every headless Linux
 # machine takes, so it is the honest one to verify.
 export CUPRIFACE_SOFTWARE=1
+export CUPRIFACE_ATSPI_DEBUG=1
 chmod +x "$VIEWER"
 xvfb-run -a stdbuf -oL -eL "$VIEWER" > viewer.log 2>&1 &
 VIEWER_PID=$!
@@ -33,6 +34,21 @@ if ! kill -0 $VIEWER_PID 2>/dev/null; then
   echo "::error::the Viewer exited before the gate could talk to it"
   cat viewer.log
   exit 1
+fi
+
+# Ground truth BEFORE libatspi's interpretation of it: ask the app's own cache object directly.
+# If this shows objects and the client still sees none, the fault is in what we say, not whether
+# we say it.
+A11Y=$(busctl --user call org.a11y.Bus /org/a11y/bus org.a11y.Bus GetAddress 2>/dev/null | sed 's/^s //; s/"//g')
+if [ -n "$A11Y" ]; then
+  echo "--- names on the a11y bus ---"
+  busctl --address="$A11Y" list --no-pager 2>&1 | head -20 || true
+  for n in $(busctl --address="$A11Y" list --no-pager 2>/dev/null | awk '/^:1\./ {print $1}'); do
+    echo "--- $n: Accessible.ChildCount / Cache.GetItems (first bytes) ---"
+    busctl --address="$A11Y" get-property "$n" /org/a11y/atspi/accessible/root       org.a11y.atspi.Accessible ChildCount 2>&1 | head -2 || true
+    busctl --address="$A11Y" call "$n" /org/a11y/atspi/cache       org.a11y.atspi.Cache GetItems 2>&1 | head -c 600 || true
+    echo
+  done
 fi
 
 set +e

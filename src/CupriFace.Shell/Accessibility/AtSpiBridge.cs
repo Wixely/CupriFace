@@ -59,6 +59,17 @@ internal sealed class AtSpiBridge : IPathMethodHandler
 
     internal Snapshot? Current => _snapshot;
 
+    /// <summary>CUPRIFACE_ATSPI_DEBUG=1 traces the conversation to stderr — what name we own,
+    /// what the registry handed back, how big each published tree is, and what the cache serves.
+    /// A bridge you cannot see into is a bridge you debug by guessing.</summary>
+    private static readonly bool Trace =
+        Environment.GetEnvironmentVariable("CUPRIFACE_ATSPI_DEBUG") is "1" or "true";
+
+    private static void Log(string message)
+    {
+        if (Trace) Console.Error.WriteLine("[atspi] " + message);
+    }
+
     /// <summary>Kill switch, mirroring CUPRIFACE_UIA on the Windows side.</summary>
     internal static bool Enabled =>
         Environment.GetEnvironmentVariable("CUPRIFACE_ATSPI") is not ("0" or "false" or "FALSE");
@@ -101,6 +112,7 @@ internal sealed class AtSpiBridge : IPathMethodHandler
         _bus = bus;
         _uniqueName = bus.UniqueName ?? "";
         bus.AddMethodHandler(this);
+        Log($"connected to {address}; our name is '{_uniqueName}'");
 
         // Embed: hand the registry our (bus name, root path); it hands back the desktop object
         // that becomes our parent. This is the moment the app appears to every AT on the box.
@@ -127,6 +139,7 @@ internal sealed class AtSpiBridge : IPathMethodHandler
             }, null).ConfigureAwait(false);
         _desktopName = name;
         _desktopPath = path;
+        Log($"embedded; desktop is '{_desktopName}' {_desktopPath}");
     }
 
     private static async Task<string> GetA11yBusAddressAsync()
@@ -183,6 +196,7 @@ internal sealed class AtSpiBridge : IPathMethodHandler
         }
         Index(root);
 
+        if (_snapshot is null) Log($"first snapshot: {idByPath.Count} nodes, root role '{root.Role}'");
         var previousFocus = _snapshot?.FocusedPath;
         _snapshot = new Snapshot(root, byId, idByPath, focusedPath,
             scale <= 0 ? 1f : scale, clientOrigin.X, clientOrigin.Y);
@@ -282,7 +296,10 @@ internal sealed class AtSpiBridge : IPathMethodHandler
             case AtSpi.IfaceComponent when node is not null: Component(context, snapshot, node, member); return;
             case AtSpi.IfaceAction when node is not null: ActionIface(context, snapshot, node, member); return;
             case AtSpi.IfaceApplication when isRoot: ApplicationIface(context, member); return;
-            default: context.ReplyUnknownMethodError(); return;
+            default:
+                Log($"unknown: {iface}.{member} on {path}");
+                context.ReplyUnknownMethodError();
+                return;
         }
     }
 
@@ -508,6 +525,7 @@ internal sealed class AtSpiBridge : IPathMethodHandler
     /// interfaces, name, role, description, state set.</summary>
     private void CacheGetItems(MethodContext context, Snapshot snap)
     {
+        Log($"Cache.GetItems -> {snap.IdByPath.Count} objects (+ the application)");
         using var w = context.CreateReplyWriter("a((so)(so)(so)iiassusau)");
         var arr = w.WriteArrayStart(DBusType.Struct);
 
