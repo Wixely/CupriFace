@@ -12,6 +12,24 @@ name: AT-SPI probe
 # managed-only and trim-clean, since CupriFace is AOT trim-clean and must stay that way.
 #
 # Every step reports and none asserts: the point is to learn, so nothing may mask a finding.
+#
+# FINDINGS (run 1, ubuntu-24.04, 2026-08-14) — all five green:
+#   1. at-spi2-core 2.52.0 and pyatspi 2.46.1 install from apt; no PPA, no build.
+#   2. The a11y bus starts HEADLESSLY — `at-spi-bus-launcher --launch-immediately` inside a
+#      `dbus-run-session`, with no X server and no desktop session at all.
+#   3. org.a11y.Bus.GetAddress answers, so the bridge's startup discovery works as designed.
+#   4. Transport is a PATH socket: unix:path=/run/user/<uid>/at-spi/bus — NOT abstract, so the
+#      connect code needs no leading-NUL sockaddr special case.
+#   5. at-spi2-registryd owns org.a11y.atspi.Registry on that bus, and a real AT client
+#      (pyatspi) enumerates: desktop name='main', children=0.
+#   That last zero is the gate's baseline: nothing accessible is registered on a bare runner, so
+#   "children becomes 1, and the tree beneath it carries our roles and names" is an assertion
+#   that can only pass if the bridge genuinely works — the AT-SPI counterpart of the FlaUI gate.
+#
+#   Dependency verdict: Tmds.DBus.Protocol 0.94.2 publishes trim-clean (zero IL2xxx/IL3xxx
+#   warnings under PublishTrimmed) and pulls in NO native library — ~240 KB of managed IL. So it
+#   keeps the portability posture intact: a Windows app carries it and never loads it, and the
+#   bridge itself needs no P/Invoke, unlike UiaInterop.cs on the Windows side.
 
 on:
   # workflow_dispatch alone would be useless here: GitHub only offers it for workflows already
