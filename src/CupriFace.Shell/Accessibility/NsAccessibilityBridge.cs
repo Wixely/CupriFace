@@ -39,7 +39,8 @@ internal sealed class NsAccessibilityBridge : IDisposable
         string? FocusedPath,
         double WindowX,          // content origin in AppKit screen space (bottom-left origin)
         double WindowY,
-        double ContentHeight);
+        double ContentHeight,
+        double Scale);           // logical units -> points; NOT 1 on a scaled display
 
     // The IMPs are static (the Objective-C runtime calls plain function pointers), so they reach
     // the bridge through this. One window, one bridge — asserted by TryAttach refusing a second.
@@ -245,7 +246,7 @@ internal sealed class NsAccessibilityBridge : IDisposable
                 $"content {content.Width}x{content.Height}, logical {logicalWidth}x{logicalHeight}, scale {scale}");
         var previousFocus = _snapshot?.FocusedPath;
         _snapshot = new Snapshot(root, byId, idByPath, focusedPath,
-            frame.X, frame.Y, content.Height);
+            frame.X, frame.Y, content.Height, scale <= 0 ? 1 : scale);
 
         if (focusedPath is not null && focusedPath != previousFocus &&
             idByPath.TryGetValue(focusedPath, out var focusedId))
@@ -378,18 +379,31 @@ internal sealed class NsAccessibilityBridge : IDisposable
         catch { return ObjC.NSArray([]); }
     }
 
-    /// <summary>Screen rectangle, in AppKit's bottom-left-origin space. The engine measures from the
-    /// top-left of the content area, so the Y axis is flipped against the content height here —
-    /// the one conversion this whole file exists to get right.</summary>
+    /// <summary>Screen rectangle, in AppKit's bottom-left-origin space. Two conversions, and this
+    /// method is most of the reason the file exists:
+    ///
+    /// SCALE. Node bounds are LOGICAL units, and AppKit works in points; on this CI display the
+    /// factor is 0.897, so an unscaled 30-unit button claims to be 30 points when it is really
+    /// 26.9 — an error that grows with distance from the origin until controls at the far edge sit
+    /// outside the window entirely. <see cref="AtSpiBridge"/> scales for the same reason.
+    ///
+    /// ORIGIN. The engine measures down from the top-left of the content area; AppKit measures up
+    /// from the bottom-left of the screen. Get this wrong and every rectangle is individually
+    /// plausible and collectively mirrored.
+    ///
+    /// (Worth knowing when reading a gate log: the AX CLIENT api reports frames top-left-origin.
+    /// macOS converts what is returned here, so the numbers a client prints are not these numbers.)
+    /// </summary>
     [UnmanagedCallersOnly]
     private static ObjC.NSRect ElementFrame(nint self, nint sel)
     {
         if (Resolve(self) is not { } r) return default;
         var (x, y, w, h) = r.Node.Bounds;
+        var scale = r.Snap.Scale;
         return new ObjC.NSRect(
-            r.Snap.WindowX + x,
-            r.Snap.WindowY + (r.Snap.ContentHeight - y - h),
-            w, h);
+            r.Snap.WindowX + x * scale,
+            r.Snap.WindowY + (r.Snap.ContentHeight - (y + h) * scale),
+            w * scale, h * scale);
     }
 
     [UnmanagedCallersOnly]

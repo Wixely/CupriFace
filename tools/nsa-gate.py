@@ -159,21 +159,39 @@ def check_frames(app):
     if br is None or wr is None:
         return
 
-    # GEOMETRY, not just non-zero numbers. AX coordinates put the origin at the BOTTOM left, and
-    # the engine measures from the TOP left, so a bridge that forgets to flip Y produces rectangles
-    # that are individually plausible and collectively mirrored. Two assertions catch that:
-    #   1. the control lies inside its own window;
-    #   2. a TOOLBAR button — which is at the top of the document — sits in the top half of it.
-    inside = (wr[0] - 1 <= br[0] and br[0] + br[2] <= wr[0] + wr[2] + 1 and
-              wr[1] - 1 <= br[1] and br[1] + br[3] <= wr[1] + wr[3] + 1)
-    check("the control lies within its window", inside,
-          f"button {br[0]:.0f},{br[1]:.0f} {br[2]:.0f}x{br[3]:.0f} vs window "
-          f"{wr[0]:.0f},{wr[1]:.0f} {wr[2]:.0f}x{wr[3]:.0f}")
+    # GEOMETRY, not just non-zero numbers.
+    #
+    # MIND THE COORDINATE SPACES, because they are not the same on both sides of the API. A bridge
+    # RETURNS accessibilityFrame in AppKit space (origin bottom-left of the screen); a client READS
+    # AXFrame in top-left-origin space, macOS having converted in between. So down here, in client
+    # space, a control at the top of the document has a SMALLER y than the window's midpoint.
+    #
+    # Two assertions, each catching a different real failure:
+    #   1. every named control lies inside its own window. This is what catches a forgotten
+    #      logical-units -> points scale: the error is proportional to distance from the origin, so
+    #      controls near the far edge fall outside the window while ones near the origin look fine.
+    #   2. "Toggle sidebar" — literally the first element in ShowcaseApp.html — is in the top half.
+    #      That is what catches a missing or doubled Y flip, which containment alone cannot see
+    #      because a perfectly mirrored tree is still inside the window.
+    def contained(r):
+        return (wr[0] - 1 <= r[0] and r[0] + r[2] <= wr[0] + wr[2] + 1 and
+                wr[1] - 1 <= r[1] and r[1] + r[3] <= wr[1] + wr[3] + 1)
+
+    escapees = []
+    for _, element in walk(app):
+        if not named(element) or attr(element, "AXRole") in (None, "AXWindow", "AXApplication"):
+            continue
+        r = rect(element)
+        if r and not contained(r):
+            escapees.append(f"{named(element)} at {r[0]:.0f},{r[1]:.0f} {r[2]:.0f}x{r[3]:.0f}")
+    check("every named control lies within its window", not escapees,
+          f"window {wr[0]:.0f},{wr[1]:.0f} {wr[2]:.0f}x{wr[3]:.0f}; "
+          + (f"{len(escapees)} outside: " + "; ".join(escapees[:3]) if escapees else "none outside"))
 
     centre_y = br[1] + br[3] / 2
     midpoint = wr[1] + wr[3] / 2
-    check("Y is flipped into AppKit space (a toolbar button is in the window's top half)",
-          centre_y > midpoint, f"button centre y={centre_y:.0f}, window midpoint y={midpoint:.0f}")
+    check("Y is flipped correctly (the first control is in the window's top half)",
+          centre_y < midpoint, f"button centre y={centre_y:.0f}, window midpoint y={midpoint:.0f}")
 
 
 def check_press(app):
