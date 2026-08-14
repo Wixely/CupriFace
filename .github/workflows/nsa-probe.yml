@@ -1,0 +1,111 @@
+name: NSAccessibility probe
+
+# FEASIBILITY PROBE, not a gate. Before writing the macOS accessibility bridge, answer the two
+# questions that could make it not worth writing — the same discipline that preceded the AT-SPI
+# bridge, where probing first turned out to be what made the gate possible at all.
+#
+# Q1. CAN IT BE PROVEN? Reading another app's accessibility tree on macOS needs the "Accessibility"
+#     privacy permission, and CI machines exist to withhold exactly that. Both shipping bridges
+#     (UIA, AT-SPI) are credible because a real AT client drives them in CI. If no client can be
+#     granted access on a hosted runner, an NSAccessibility bridge could be written but never
+#     proven — and by this project's standard that is not done, it is asserted.
+#
+# Q2. CAN IT BE PURE C#? NSAccessibility is not answered over a socket the way AT-SPI is: the OS
+#     sends Objective-C messages to your view. Serving that from C# means creating an Obj-C class
+#     AT RUNTIME with managed function pointers as its method implementations. If libobjc P/Invoke
+#     can do that, macOS costs ONE quarantined interop file, like UiaInterop.cs. If it needs a
+#     compiled Objective-C shim, macOS becomes the first platform to force a hand-written native
+#     library into the project, and the design has to change before any code is written.
+#
+# Every step reports and none asserts: a probe that can fail can hide a finding.
+#
+# FINDINGS (run 1, macos-26-arm64 / macOS 26.5.2, 2026-08-14) — both questions YES:
+#
+#   Q1, CAN IT BE PROVEN — yes, and more cheaply than feared. AXIsProcessTrusted() is ALREADY
+#   True on a hosted runner: no TCC surgery, no sudo, no sqlite. (SIP reports "disabled" there,
+#   which is why the fallback would have worked too — but it was never needed, so the gate does
+#   not depend on SIP staying off.) Cross-process reads work: Finder answers AXRole=AXApplication
+#   from a different process. So a real AT client can drive the app in CI, exactly as pyatspi does
+#   on Linux and FlaUI does on Windows.
+#
+#   Q2, CAN IT BE PURE C# — yes, end to end, no native shim:
+#     objc_allocateClassPair → class_addMethod (BOTH a BOOL-returning and an object-returning
+#     method, as [UnmanagedCallersOnly] pointers) → objc_registerClassPair → alloc/init →
+#     objc_msgSend dispatches INTO managed code → an NSString built in C# reads back as "AXButton".
+#   So macOS costs one quarantined interop file, the shape UiaInterop.cs already established.
+#   Note for the implementation: objc_msgSend must be imported once per return-type shape — it is
+#   variadic in the headers, and a mismatched signature disagrees about registers on arm64.
+#
+#   THE BASELINE a gate would have to beat — what the Viewer exposes TODAY, with no bridge:
+#     AXApplication "Viewer"
+#       AXWindow "CupriFace — Showcase"
+#         AXButton, AXButton > AXGroup, AXButton, AXStaticText     <- the window's own chrome
+#       AXMenuBar > (the standard Apple menu)
+#   Three unnamed buttons (the traffic lights), one static text, and the system menu bar. NONE of
+#   the app's own controls are visible: SDL's NSView exposes nothing, so the whole semantics tree
+#   is missing. "The Showcase's named controls appear, with roles and actions" is therefore an
+#   assertion that can only pass if a bridge genuinely works — the macOS counterpart of AT-SPI's
+#   "desktop children=0".
+#
+#   Incidental, worth knowing: this runner has no OpenGL ("GL probe failed (no OpenGL here)"), so
+#   macOS CI now exercises the SDL software path. Same caveat as the other two gates.
+#
+#   OUTCOME: the bridge exists, and the gate that proves it is now a BLOCKING step in ci.yml
+#   (viewer job, macOS leg). Against the baseline above it serves 155 AX elements with the app's
+#   own named controls, AXPress toggles a checkbox, AXValue moves a slider, and the root fills the
+#   window's content area in points. Two bugs the gate caught that a weaker one would not have:
+#   logical units reaching AppKit unscaled (a 30-unit button claiming 30 points instead of 26.9),
+#   and — in the gate itself — the assumption that a client reads AXFrame in the same bottom-left
+#   space the bridge returns it in. It does not; macOS converts to top-left origin in between.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ feature/nsaccessibility ]
+    paths:
+      - '.github/workflows/nsa-probe.yml'
+      - 'tools/nsa-*'
+      - 'tools/NsaObjcProbe/**'
+      - 'src/CupriFace.Shell/Accessibility/**'
+
+jobs:
+  # Q2 — the design-deciding one, and the cheaper of the two.
+  objc-interop:
+    name: Can C# serve Objective-C without a shim?
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build an Objective-C class from C# at runtime
+        run: dotnet run --project tools/NsaObjcProbe/NsaObjcProbe.csproj -c Release
+
+  # Q1 — can a real AT client be granted access here?
+  ax-client:
+    name: Can a real AT client run on a hosted runner?
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install a real accessibility client (pyobjc)
+        run: |
+          python3 -m pip install --break-system-packages --quiet \
+            pyobjc-framework-Cocoa pyobjc-framework-ApplicationServices || \
+            python3 -m pip install --quiet pyobjc-framework-Cocoa pyobjc-framework-ApplicationServices
+          python3 -c "import ApplicationServices; print('pyobjc ok')"
+
+      - name: Publish the Viewer
+        run: >
+          dotnet publish samples/Viewer/Viewer.csproj -c Release -r osx-arm64
+          --self-contained -p:PublishSingleFile=true -o viewer
+
+      - name: Point the client at it
+        run: |
+          chmod +x tools/nsa-probe.sh tools/nsa-probe.py
+          tools/nsa-probe.sh "$PWD/viewer/Viewer"
+
+  # (The gate now lives in ci.yml, beside the FlaUI and pyatspi ones. See the note above.)

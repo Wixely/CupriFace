@@ -210,6 +210,19 @@ jobs:
           chmod +x tools/atspi-gate.sh tools/atspi-gate.py
           dbus-run-session -- tools/atspi-gate.sh "$PWD/publish/${{ matrix.rid }}/Viewer"
 
+      # The macOS accessibility gate, BLOCKING: the third sibling, driven by the AX client API —
+      # the channel VoiceOver uses. Asserts what only a working bridge can produce: the app's own
+      # named controls (the window chrome alone has unnamed buttons and nothing else), AXPress
+      # genuinely toggling a checkbox, AXValue moving a slider, and the geometry being right — the
+      # root must fill the window's content area in POINTS, which is what catches the engine's
+      # logical units reaching AppKit unscaled.
+      - name: NSAccessibility smoke test (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          python3 -m pip install --break-system-packages --quiet             pyobjc-framework-Cocoa pyobjc-framework-ApplicationServices ||             python3 -m pip install --quiet pyobjc-framework-Cocoa pyobjc-framework-ApplicationServices
+          chmod +x tools/nsa-gate.sh tools/nsa-gate.py
+          tools/nsa-gate.sh "$PWD/publish/${{ matrix.rid }}/Viewer"
+
       # The accessibility gate, BLOCKING: interrogate the published exe as a real UIA client
       # (FlaUI) — the same channel Narrator and NVDA use. Asserts the semantics tree is served,
       # a named checkbox toggles, a slider answers RangeValue reads AND writes, and Tab focus is

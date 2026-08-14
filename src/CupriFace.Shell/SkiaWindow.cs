@@ -42,6 +42,10 @@ public sealed class SkiaWindow : IDisposable
     /// on every other OS. What the UIA bridge attaches to.</summary>
     public nint? Win32Hwnd => _window?.Native?.Win32?.Hwnd;
 
+    /// <summary>The NSWindow once the window exists; null before <see cref="Run"/> and on every
+    /// other OS. What the NSAccessibility bridge subclasses the content view of.</summary>
+    public nint? CocoaWindow => _window?.Native?.Cocoa;
+
     /// <summary>Screen position of the client area's top-left (GLFW reports the content area, which
     /// is exactly the origin pointer coordinates are relative to).</summary>
     public (int X, int Y) ScreenPosition => _window is { } w ? (w.Position.X, w.Position.Y) : (0, 0);

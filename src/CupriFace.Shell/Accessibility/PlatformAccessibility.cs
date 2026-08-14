@@ -17,23 +17,34 @@ namespace CupriFace.Shell.Accessibility;
 internal sealed class PlatformAccessibility(CupriFace.CupriDocument doc, Action requestFrame, string appTitle)
     : IDisposable
 {
-    private object? _bridge;                                   // UiaBridge | AtSpiBridge | null
+    private object? _bridge;                    // UiaBridge | AtSpiBridge | NsAccessibilityBridge | null
     private bool _tried;
     private (int Version, float W, float H, float Scale, int X, int Y) _published;
 
-    /// <summary>Per-frame UI-thread work: attach on the first opportunity (Windows needs the HWND,
-    /// which doesn't exist until the window is up), then run any actions an AT queued. Returns
-    /// true when something ran, so the caller can mark the frame dirty.</summary>
-    public bool Tick(Func<nint?> win32Hwnd)
+    /// <summary>Per-frame UI-thread work: attach on the first opportunity (Windows and macOS both
+    /// need a native window handle, which doesn't exist until the window is up), then run any
+    /// actions an AT queued. Returns true when something ran, so the caller can mark the frame
+    /// dirty.</summary>
+    /// <param name="nativeWindow">The handle this OS's bridge attaches to: the HWND on Windows, the
+    /// NSWindow on macOS. Unused on Linux, where AT-SPI needs no window at all.</param>
+    public bool Tick(Func<nint?> nativeWindow)
     {
         if (!_tried)
         {
             if (OperatingSystem.IsWindows())
             {
-                if (UiaBridge.Enabled && win32Hwnd() is { } hwnd)
+                if (UiaBridge.Enabled && nativeWindow() is { } hwnd)
                 {
                     _tried = true;
                     _bridge = UiaBridge.TryAttach(hwnd, doc, requestFrame);
+                }
+            }
+            else if (OperatingSystem.IsMacOS())
+            {
+                if (NsAccessibilityBridge.Enabled && nativeWindow() is { } nsWindow)
+                {
+                    _tried = true;
+                    _bridge = NsAccessibilityBridge.TryAttach(nsWindow, doc, requestFrame, appTitle);
                 }
             }
             else if (OperatingSystem.IsLinux())
@@ -43,7 +54,7 @@ internal sealed class PlatformAccessibility(CupriFace.CupriDocument doc, Action 
             }
             else
             {
-                _tried = true;      // macOS: NSAccessibility bridge not written yet (ROADMAP §1)
+                _tried = true;
             }
         }
 
@@ -51,6 +62,7 @@ internal sealed class PlatformAccessibility(CupriFace.CupriDocument doc, Action 
         {
             UiaBridge uia when OperatingSystem.IsWindows() => uia.DrainActions(),
             AtSpiBridge atSpi when OperatingSystem.IsLinux() => atSpi.DrainActions(),
+            NsAccessibilityBridge nsa when OperatingSystem.IsMacOS() => nsa.DrainActions(),
             _ => false,
         };
     }
@@ -72,12 +84,16 @@ internal sealed class PlatformAccessibility(CupriFace.CupriDocument doc, Action 
             case AtSpiBridge atSpi when OperatingSystem.IsLinux():
                 atSpi.PublishFrame(logicalWidth, logicalHeight, scale, clientOrigin);
                 break;
+            case NsAccessibilityBridge nsa when OperatingSystem.IsMacOS():
+                nsa.PublishFrame(logicalWidth, logicalHeight, scale, clientOrigin);
+                break;
         }
     }
 
     public void Dispose()
     {
         if (_bridge is AtSpiBridge atSpi && OperatingSystem.IsLinux()) atSpi.Dispose();
+        if (_bridge is NsAccessibilityBridge nsa && OperatingSystem.IsMacOS()) nsa.Dispose();
         _bridge = null;
     }
 }
