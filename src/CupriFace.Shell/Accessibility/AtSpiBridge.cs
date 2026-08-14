@@ -519,76 +519,87 @@ internal sealed class AtSpiBridge : IPathMethodHandler
         }
     }
 
-    /// <summary>org.a11y.atspi.Cache.GetItems — the whole tree in one reply, which is both what
-    /// libatspi expects and far fewer round trips than walking node by node. Reply signature is
-    /// a((so)(so)(so)iiassusau): reference, application, parent, index-in-parent, child count,
-    /// interfaces, name, role, description, state set.</summary>
+    /// <summary>org.a11y.atspi.Cache.GetItems — the whole tree in one reply, which is what
+    /// libatspi uses to populate an application and is far fewer round trips than walking node by
+    /// node.
+    ///
+    /// The signature is a((so)(so)(so)a(so)assusau): reference, application, parent, CHILDREN,
+    /// interfaces, name, role, description, states. Note the children ARRAY — an earlier version
+    /// of this used (index, child-count) ints there, which marshalled without complaint and left
+    /// every client seeing an application with nothing inside it. The registry's own Cache
+    /// advertises the real signature, which is how the mismatch was finally caught.</summary>
     private void CacheGetItems(MethodContext context, Snapshot snap)
     {
-        Log($"Cache.GetItems -> {snap.IdByPath.Count} objects (+ the application)");
-        using var w = context.CreateReplyWriter("a((so)(so)(so)iiassusau)");
+        using var w = context.CreateReplyWriter("a((so)(so)(so)a(so)assusau)");
         var arr = w.WriteArrayStart(DBusType.Struct);
+        var written = 0;
 
-        // The application object first, then every node in the published snapshot.
-        WriteCacheItem(w, snap, AtSpi.RootPath, AtSpi.RootPath, _desktopName, _desktopPath,
-            indexInParent: 0, childCount: 1, node: null);
+        // The application object, whose only child is the window (our tree root).
+        WriteCacheItem(w, snap, AtSpi.RootPath, isApplication: true, node: null);
+        written++;
 
         for (var id = 0; id < snap.ById.Count; id++)
         {
             var node = snap.ById[id];
-            // Gaps (ids minted for nodes that have since vanished) point at the root; skip the
+            // Gaps (ids minted for nodes that have since vanished) hold the root; skip those
             // duplicates so the cache describes each object exactly once.
             if (id != 0 && ReferenceEquals(node, snap.Root)) continue;
-            var parentPath = node.Parent is { } p && snap.IdByPath.TryGetValue(p.Path, out var pid)
-                ? ObjectPathFor(pid)
-                : AtSpi.RootPath;
-            WriteCacheItem(w, snap, ObjectPathFor(id), parentPath, _uniqueName, AtSpi.RootPath,
-                indexInParent: node.Parent?.Children.IndexOf(node) ?? 0,
-                childCount: node.Children.Count, node: node);
+            WriteCacheItem(w, snap, ObjectPathFor(id), isApplication: false, node: node);
+            written++;
         }
 
         w.WriteArrayEnd(arr);
         context.Reply(w.CreateMessage());
+        Log($"Cache.GetItems -> wrote {written} items");
     }
 
-    private void WriteCacheItem(MessageWriter w, Snapshot snap, string path, string parentPath,
-        string parentName, string parentPathOverride, int indexInParent, int childCount, AccessibilityNode? node)
+    private void WriteCacheItem(MessageWriter w, Snapshot snap, string path, bool isApplication, AccessibilityNode? node)
     {
         w.WriteStructureStart();
 
         WriteRef(w, path);                                     // this object
-        w.WriteStructureStart();                               // its application
-        w.WriteString(_uniqueName);
-        w.WriteObjectPath(AtSpi.RootPath);
-        if (node is null)                                      // the app's parent IS the desktop
+        WriteRef(w, AtSpi.RootPath);                           // its application (always us)
+
+        // Parent: the application's is the desktop the registry handed back; a node's is its
+        // tree parent, or the application for the root.
+        if (isApplication)
         {
             w.WriteStructureStart();
-            w.WriteString(parentName);
-            w.WriteObjectPath(parentPathOverride);
+            w.WriteString(_desktopName);
+            w.WriteObjectPath(_desktopPath);
         }
-        else WriteRef(w, parentPath);
+        else if (node!.Parent is { } parent && snap.IdByPath.TryGetValue(parent.Path, out var pid))
+        {
+            WriteRef(w, ObjectPathFor(pid));
+        }
+        else WriteRef(w, AtSpi.RootPath);
 
-        w.WriteInt32(indexInParent);
-        w.WriteInt32(childCount);
+        // Children, as references — the field an earlier version got wrong.
+        var kids = w.WriteArrayStart(DBusType.Struct);
+        if (isApplication) WriteRef(w, PathFor(snap, snap.Root));
+        else
+            foreach (var child in node!.Children)
+                if (snap.IdByPath.TryGetValue(child.Path, out var cid)) WriteRef(w, ObjectPathFor(cid));
+        w.WriteArrayEnd(kids);
 
         var ifaces = w.WriteArrayStart(DBusType.String);
         w.WriteString(AtSpi.IfaceAccessible);
-        if (node is null) w.WriteString(AtSpi.IfaceApplication);
+        if (isApplication) w.WriteString(AtSpi.IfaceApplication);
         else
         {
             w.WriteString(AtSpi.IfaceComponent);
-            if (AtSpi.ActionNameOf(node) is not null) w.WriteString(AtSpi.IfaceAction);
-            if (AtSpi.HasValue(node)) w.WriteString(AtSpi.IfaceValue);
+            if (AtSpi.ActionNameOf(node!) is not null) w.WriteString(AtSpi.IfaceAction);
+            if (AtSpi.HasValue(node!)) w.WriteString(AtSpi.IfaceValue);
         }
         w.WriteArrayEnd(ifaces);
 
-        w.WriteString(node is null ? _appName : NameOf(node));
-        w.WriteUInt32(node is null ? AtSpi.RoleApplication : AtSpi.RoleOf(node.Role));
+        w.WriteString(isApplication ? _appName : NameOf(node!));
+        w.WriteUInt32(isApplication ? AtSpi.RoleApplication : AtSpi.RoleOf(node!.Role));
         w.WriteString("");                                     // description
 
-        var (low, high) = node is null
+        var (low, high) = isApplication
             ? ((1u << 8) | (1u << 24) | (1u << 25) | (1u << 30), 0u)
-            : AtSpi.StatesOf(node);
+            : AtSpi.StatesOf(node!);
         var states = w.WriteArrayStart(DBusType.UInt32);
         w.WriteUInt32(low);
         w.WriteUInt32(high);
