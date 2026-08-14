@@ -30,7 +30,27 @@ name: Android probe
 #   - WART FOUND: an Android build still restores SkiaSharp.NativeAssets.Linux, because
 #     src/SkiaNativeAssets.props is imported unconditionally by the engine. Desktop natives should
 #     not follow a mobile app around; that props file needs a TFM condition.
-#   (Q1 and Q2 need a booted device, which is what the job below is for.)
+#
+# FINDINGS (CI, ubuntu-24.04 + android-34 x86_64 emulator, run 5):
+#   - Q3 ANSWERED, and the two toolchains agree: arm64 12,011,747 bytes on Linux against
+#     12,011,736 locally on Windows. x86_64 is 12,445,728.
+#   - The emulator path works end to end: boot_completed=1, the APK installs, and the launcher
+#     activity resolves (crc64f2bbf9978b7e0819.MainActivity — a mangled name, so guessing it was
+#     never going to work; `cmd package resolve-activity` is the only reliable way to get it).
+#   - Q1/Q2 NOT YET ANSWERED, and for a real reason rather than a broken harness: the app STARTS
+#     and then dies in OnCreate with a NullReferenceException. So the engine renders happily
+#     headless on Android (the class-library check proved that) but the real app does not survive
+#     startup on a device. That is the single most valuable thing this probe has found, and it is
+#     exactly the class of problem that only shows up on the target.
+#   - Suspicion, not yet evidence: asset loading. The Showcase reads its markup and CSS through
+#     the resources source generator, and Android is the first platform where the app is neither
+#     a plain file on disk nor a wasm bundle. The next run logs the exception in full.
+#
+# Harness bugs found and fixed on the way, recorded so the next person skips them: sdkmanager is
+# not on PATH (it lives under cmdline-tools/latest/bin); /dev/kvm is root:kvm 0660 and needs a udev
+# rule or the emulator silently falls back to slow emulation; avdmanager and the emulator disagree
+# about the AVD directory unless ANDROID_AVD_HOME is pinned; and `am start` prints "Error:" while
+# exiting 0, so its output has to be read rather than its exit code trusted.
 
 on:
   workflow_dispatch:

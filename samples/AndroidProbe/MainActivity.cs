@@ -41,11 +41,23 @@ public class MainActivity : Activity
         base.OnCreate(savedInstanceState);
         _density = Resources?.DisplayMetrics?.Density ?? 1f;
 
+        // Everything here is logged rather than allowed to crash the process. The first run on a
+        // device died with a bare "NullReferenceException in OnCreate" and no more, which is the
+        // least useful possible answer — a probe that cannot name what failed has not probed.
         var t0 = Clock.Elapsed.TotalMilliseconds;
-        _app = new ShowcaseApp();
-        _doc = _app.CreateDocument();          // the SAME call the desktop and web hosts make
-        Log.Info(Tag, $"document built in {Clock.Elapsed.TotalMilliseconds - t0:F0} ms " +
-                      $"(density {_density}, {Clock.Elapsed.TotalMilliseconds:F0} ms since start)");
+        try
+        {
+            _app = new ShowcaseApp();
+            Log.Info(Tag, $"app constructed at {Clock.Elapsed.TotalMilliseconds:F0} ms");
+            _doc = _app.CreateDocument();      // the SAME call the desktop and web hosts make
+            Log.Info(Tag, $"document built in {Clock.Elapsed.TotalMilliseconds - t0:F0} ms " +
+                          $"(density {_density}, {Clock.Elapsed.TotalMilliseconds:F0} ms since start)");
+        }
+        catch (Exception ex)
+        {
+            Log.Error(Tag, $"BUILDING THE DOCUMENT FAILED: {ex}");
+            return;                            // leave the Activity up so logcat can be read
+        }
 
         _view = new SKGLSurfaceView(this);
         _view.PaintSurface += OnPaintSurface;
