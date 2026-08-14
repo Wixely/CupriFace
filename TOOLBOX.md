@@ -812,7 +812,8 @@ the built‑ins use), rather than reinventing input handling:
 - Accessibility: the portable semantics tree is
   [src/CupriFace/Accessibility/](src/CupriFace/Accessibility/); the per-OS bridges that serve it
   to screen readers live in [src/CupriFace.Shell/Accessibility/](src/CupriFace.Shell/Accessibility/)
-  (UIA on Windows, AT-SPI on Linux). You do not call these — set `role`/`aria-*` and they follow.
+  (UIA on Windows, AT-SPI on Linux, NSAccessibility on macOS). You do not call these — set
+  `role`/`aria-*` and they follow.
 - Web host (raw WASM): [samples/WebWasm/](samples/WebWasm/)
 - Runnable samples: [samples/](samples/) — `Viewer` (desktop showcase), `Interactive`,
   `ControlsGallery`, `Keyboard`, `Scaling`, and more.

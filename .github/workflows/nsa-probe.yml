@@ -49,6 +49,14 @@ name: NSAccessibility probe
 #
 #   Incidental, worth knowing: this runner has no OpenGL ("GL probe failed (no OpenGL here)"), so
 #   macOS CI now exercises the SDL software path. Same caveat as the other two gates.
+#
+#   OUTCOME: the bridge exists, and the gate that proves it is now a BLOCKING step in ci.yml
+#   (viewer job, macOS leg). Against the baseline above it serves 155 AX elements with the app's
+#   own named controls, AXPress toggles a checkbox, AXValue moves a slider, and the root fills the
+#   window's content area in points. Two bugs the gate caught that a weaker one would not have:
+#   logical units reaching AppKit unscaled (a 30-unit button claiming 30 points instead of 26.9),
+#   and — in the gate itself — the assumption that a client reads AXFrame in the same bottom-left
+#   space the bridge returns it in. It does not; macOS converts to top-left origin in between.
 
 on:
   workflow_dispatch:
@@ -100,25 +108,4 @@ jobs:
           chmod +x tools/nsa-probe.sh tools/nsa-probe.py
           tools/nsa-probe.sh "$PWD/viewer/Viewer"
 
-  # THE GATE, driven by the AX client API — the channel VoiceOver uses. It lives here only while
-  # the bridge is being built; once green it moves into ci.yml beside the FlaUI and pyatspi gates,
-  # which is where a blocking gate belongs.
-  gate:
-    name: Does VoiceOver see the app?
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-      - name: Install a real accessibility client (pyobjc)
-        run: |
-          python3 -m pip install --break-system-packages --quiet             pyobjc-framework-Cocoa pyobjc-framework-ApplicationServices ||             python3 -m pip install --quiet pyobjc-framework-Cocoa pyobjc-framework-ApplicationServices
-      - name: Publish the Viewer
-        run: >
-          dotnet publish samples/Viewer/Viewer.csproj -c Release -r osx-arm64
-          --self-contained -p:PublishSingleFile=true -o viewer
-      - name: Drive it as VoiceOver would
-        run: |
-          chmod +x tools/nsa-gate.sh tools/nsa-gate.py
-          tools/nsa-gate.sh "$PWD/viewer/Viewer"
+  # (The gate now lives in ci.yml, beside the FlaUI and pyatspi ones. See the note above.)
