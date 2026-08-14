@@ -74,13 +74,30 @@ jobs:
       - name: Install the Android workload
         run: dotnet workload install android --skip-manifest-update
 
-      # Q3 — size, both shapes: what a store build ships, and what the emulator needs.
+      # Q3 — size, both shapes: what a store build ships (arm64), and what the emulator needs (x64).
+      #
+      # The x64 build comes in FOUR variants, because the crash on-device has the signature of a
+      # runtime defect, not an app defect: NullReferenceException whose top frame is the static
+      # String.Equals(String, String) — an overload that null-checks and cannot NRE — under
+      # three-line component code that runs on every other platform. On Mono, a native fault in
+      # AOT-compiled code surfaces exactly like this. One variant per suspect, one variable each:
+      #   default  Mono + profiled AOT + trimmed   (the Release default; the known-crashing control)
+      #   noaot    Mono JIT, still trimmed          (isolates the AOT compiler)
+      #   notrim   Mono + AOT, untrimmed            (isolates the trimmer)
+      #   coreclr  CoreCLR, default trim            (isolates the Mono runtime itself)
       - name: Build the APK
         run: |
           dotnet publish samples/AndroidProbe/AndroidProbe.csproj -c Release -r android-arm64 \
             -o out/arm64
           dotnet publish samples/AndroidProbe/AndroidProbe.csproj -c Release -r android-x64 \
-            -o out/x64
+            -o out/default
+          dotnet publish samples/AndroidProbe/AndroidProbe.csproj -c Release -r android-x64 \
+            -p:RunAOTCompilation=false -o out/noaot
+          dotnet publish samples/AndroidProbe/AndroidProbe.csproj -c Release -r android-x64 \
+            -p:PublishTrimmed=false -o out/notrim
+          dotnet publish samples/AndroidProbe/AndroidProbe.csproj -c Release -r android-x64 \
+            -p:UseMonoRuntime=false -o out/coreclr \
+            || echo "::warning::CoreCLR variant did not build — noted, continuing"
           echo "### APK size" >> $GITHUB_STEP_SUMMARY
           for f in $(find out -name "*-Signed.apk"); do
             printf '%-14s %s bytes\n' "$(basename $(dirname $f))" "$(stat -c%s $f)" | tee -a $GITHUB_STEP_SUMMARY
@@ -137,31 +154,32 @@ jobs:
           adb devices
           tail -20 emulator.log || true
 
-      - name: Install it and watch it draw
+      - name: Install each variant and watch it draw
         run: |
           set -x
           if [ -z "$(adb devices | grep -w device)" ]; then
-            echo "::warning::no device — Q1/Q2 unanswered this run; the build numbers above still stand"
+            echo "::warning::no device — the on-device questions stay unanswered this run"
             exit 0
           fi
-          adb logcat -c || true
-          adb install -r out/x64/*-Signed.apk
-          # Ask the package manager for the launcher activity rather than guessing its name. The
-          # previous run passed a literal `crc*.MainActivity` — adb shell does not expand that glob,
-          # and `am start` printed "Error: ... does not exist" while exiting 0, so the `||` fallback
-          # never fired and the app simply never started.
-          ACTIVITY=$(adb shell cmd package resolve-activity --brief com.cupriface.androidprobe | tail -1 | tr -d '\r')
-          echo "launcher activity: $ACTIVITY"
-          adb shell am start -n "$ACTIVITY" 2>&1 | tee start.log
-          if grep -q "Error:" start.log; then
-            echo "::warning::am start refused; falling back to monkey"
-            adb shell monkey -p com.cupriface.androidprobe -c android.intent.category.LAUNCHER 1
-          fi
-          sleep 45
-          echo "### What the app reported" >> $GITHUB_STEP_SUMMARY
-          adb logcat -d -s cupri:I | tee -a $GITHUB_STEP_SUMMARY
-          echo "--- crashes, if any ---"
-          adb logcat -d -s AndroidRuntime:E DEBUG:F | tail -40
+          for v in default noaot notrim coreclr; do
+            [ -d "out/$v" ] || continue
+            echo "### variant: $v" >> $GITHUB_STEP_SUMMARY
+            adb uninstall com.cupriface.androidprobe > /dev/null 2>&1 || true
+            adb logcat -c || true
+            adb install -r out/$v/*-Signed.apk
+            # Ask the package manager for the launcher activity rather than guessing: the name is
+            # crc-mangled, adb does not expand globs, and am start prints "Error:" while exiting 0.
+            ACTIVITY=$(adb shell cmd package resolve-activity --brief com.cupriface.androidprobe | tail -1 | tr -d '\r')
+            adb shell am start -n "$ACTIVITY" 2>&1 | tee start.log
+            if grep -q "Error:" start.log; then
+              echo "::warning::$v: am start refused"
+              continue
+            fi
+            sleep 35
+            adb logcat -d -s cupri:I | tee -a $GITHUB_STEP_SUMMARY
+            adb logcat -d -s AndroidRuntime:E DEBUG:F | tail -25
+            adb shell am force-stop com.cupriface.androidprobe || true
+          done
 
       - uses: actions/upload-artifact@v4
         with:
