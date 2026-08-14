@@ -310,12 +310,23 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         }
     }
 
+    /// <summary>Frames drawn from inside the resize watch rather than the main loop — the ones that
+    /// make a drag-resize stream instead of snapping on release. Zero of these after a drag means
+    /// the watch below is not firing, whatever the window looked like.</summary>
+    public int ResizeFrames { get; private set; }
+
+    /// <summary>SDL delivers size events to an event watch synchronously, from INSIDE the OS's modal
+    /// resize loop — which is the whole reason this exists, because <see cref="Run"/>'s loop gets no
+    /// turn until the mouse is released.</summary>
     private int ResizeWatch(void* userData, Event* e)
     {
         if ((EventType)e->Type == EventType.Windowevent && (WindowEventID)e->Window.Event == WindowEventID.SizeChanged)
         {
             EnsureSurface(e->Window.Data1, e->Window.Data2);
             RenderFrame();
+            ResizeFrames++;
+            if (SkiaWindow.ResizeDebug)
+                Console.Error.WriteLine($"[resize] frame {ResizeFrames} at {e->Window.Data1}x{e->Window.Data2}");
         }
         return 0;
     }
