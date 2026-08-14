@@ -31,13 +31,18 @@ name: AT-SPI probe
 #   keeps the portability posture intact: a Windows app carries it and never loads it, and the
 #   bridge itself needs no P/Invoke, unlike UiaInterop.cs on the Windows side.
 
+#   OUTCOME: the bridge exists and the gate that proved it is now a BLOCKING step in ci.yml
+#   (viewer job, Linux leg), beside the FlaUI one. What it asserts there: the app registers on the
+#   bus, 46 accessibles are served with real roles and screen extents, DoAction genuinely flips a
+#   checkbox, that flip comes back as object:state-changed:checked, and Value.Set moves a slider.
+#   The gate job that used to live here has moved rather than been copied — one gate, one place.
+#   What remains here is the pair of questions that stay worth re-asking: can a hosted runner still
+#   host the stack, and is Tmds.DBus.Protocol still managed-only and trim-clean.
+
 on:
-  # workflow_dispatch alone would be useless here: GitHub only offers it for workflows already
-  # on the DEFAULT branch, and this one is being developed on a branch. Push-triggered on its
-  # own files, the same shape codecs.yml uses.
   workflow_dispatch:
   push:
-    branches: [ feature/atspi ]
+    branches: [ main ]
     paths:
       - '.github/workflows/atspi-probe.yml'
       - 'tools/atspi-*'
@@ -90,22 +95,4 @@ jobs:
           echo "--- assembly size ---"
           find ~/.nuget/packages/tmds.dbus.protocol -name "*.dll" -printf "%f %s bytes\n" 2>/dev/null | head
 
-  # THE GATE: the bridge, driven by a real AT client. Until this passes, the Linux
-  # accessibility claim is unproven — exactly the standard the Windows leg is held to.
-  gate:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-      - name: Install the AT-SPI stack and Skia's deps
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq             at-spi2-core dbus-x11 xvfb python3-gi gir1.2-atspi-2.0 libfontconfig1 > /dev/null
-      - name: Publish the Viewer
-        run: dotnet publish samples/Viewer/Viewer.csproj -c Release -r linux-x64 --self-contained true -o viewer
-      - name: Drive it as an assistive technology would
-        run: |
-          chmod +x tools/atspi-gate.sh tools/atspi-gate.py
-          dbus-run-session -- tools/atspi-gate.sh "$PWD/viewer/Viewer"
+  # (The gate itself now lives in ci.yml — see the OUTCOME note at the top of this file.)

@@ -56,7 +56,8 @@ fi
 # signature shows up here as a message we sent and libatspi warned about).
 MON_PID=""
 if [ -n "$A11Y" ]; then
-  dbus-monitor --address="$A11Y" "type='signal'" > signals.log 2>&1 &
+  # NOTE: --address takes the next argv (unlike busctl's --address=X, which dbus-monitor rejects).
+  dbus-monitor --address "$A11Y" "type='signal'" > signals.log 2>&1 &
   MON_PID=$!
 fi
 
@@ -68,7 +69,7 @@ set -e
 if [ -n "$MON_PID" ]; then kill "$MON_PID" 2>/dev/null || true; fi
 echo "--- signals seen on the bus (raw) ---"
 grep -oE "member=(StateChanged|PropertyChange|Focus|AddAccessible|RemoveAccessible)" signals.log 2>/dev/null \
-  | sort | uniq -c || echo "(none captured)"
+  | sort | uniq -c || { echo "(no matching signal captured; monitor said:)"; head -3 signals.log 2>/dev/null; }
 
 echo "--- viewer output (bridge attach/failure notes land here) ---"
 cat viewer.log || true

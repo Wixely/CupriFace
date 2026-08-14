@@ -809,6 +809,10 @@ the built‑ins use), rather than reinventing input handling:
   [ComponentRegistry](src/CupriFace/Components/ComponentRegistry.cs)
 - Binding: [src/CupriFace/Binding/](src/CupriFace/Binding/) (`[CupriBindable]`, `IBindableAccessor`)
 - Desktop host: [src/CupriFace.Shell/DesktopHost.cs](src/CupriFace.Shell/DesktopHost.cs)
+- Accessibility: the portable semantics tree is
+  [src/CupriFace/Accessibility/](src/CupriFace/Accessibility/); the per-OS bridges that serve it
+  to screen readers live in [src/CupriFace.Shell/Accessibility/](src/CupriFace.Shell/Accessibility/)
+  (UIA on Windows, AT-SPI on Linux). You do not call these — set `role`/`aria-*` and they follow.
 - Web host (raw WASM): [samples/WebWasm/](samples/WebWasm/)
 - Runnable samples: [samples/](samples/) — `Viewer` (desktop showcase), `Interactive`,
   `ControlsGallery`, `Keyboard`, `Scaling`, and more.

@@ -11,6 +11,7 @@ DoAction and silently does nothing passes the first kind of test and is useless 
 """
 import sys
 import time
+import warnings
 
 import gi
 gi.require_version("Atspi", "2.0")
@@ -171,8 +172,10 @@ def check_button(app):
     n_actions = button.get_n_actions()
     check("it advertises an action", n_actions >= 1, f"{n_actions} action(s)")
     if n_actions >= 1:
-        check("that action is named", (button.get_action_name(0) or "") == "click",
-              repr(button.get_action_name(0)))
+        with warnings.catch_warnings():          # get_action_name is deprecated; it is also the
+            warnings.simplefilter("ignore")      # only accessor libatspi offers for this
+            named = button.get_action_name(0) or ""
+        check("that action is named", named == "click", repr(named))
         check("DoAction is accepted", button.do_action(0) is not False, "invoked")
         # ...and the tree still answers afterwards, which is what proves the bridge survives the
         # rebuild an activation causes (stale ids here would read as "the application no longer

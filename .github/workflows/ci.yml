@@ -59,10 +59,13 @@ jobs:
           dotnet-version: '10.0.x'
 
       # Skia needs fontconfig to raster text, and xvfb gives the smoke test below a display to
-      # open its window on.
+      # open its window on. The at-spi2/pygobject packages are for the accessibility gate further
+      # down — the Linux counterpart of the FlaUI one.
       - name: Install native deps
         if: runner.os == 'Linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq libfontconfig1 xvfb > /dev/null
+        run: >
+          sudo apt-get update -qq && sudo apt-get install -y -qq
+          libfontconfig1 xvfb at-spi2-core dbus-x11 python3-gi gir1.2-atspi-2.0 > /dev/null
 
       - name: Restore
         run: dotnet restore samples/Viewer/Viewer.csproj -r ${{ matrix.rid }}
@@ -190,6 +193,22 @@ jobs:
           }
           Write-Host "still running — OK"
           Stop-Process -Id $p.Id -Force
+
+      # The Linux accessibility gate, BLOCKING: the AT-SPI sibling of the UIA one below, and held
+      # to the same standard — a real AT client (pyatspi over libatspi, the channel Orca uses)
+      # driving the published binary, not a mock. It stands up a private a11y bus and registry,
+      # then asserts: the app registers on the bus, the tree is served with real roles and screen
+      # extents, DoAction genuinely toggles a control, that change arrives back as a state-changed
+      # signal, and Value.Set moves a slider.
+      #
+      # Why those last three and not "the call returned true": a bridge that accepts every action
+      # and does nothing, or one that answers every query from a snapshot it never updates, passes
+      # the weaker test and is useless to a screen-reader user.
+      - name: AT-SPI smoke test (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          chmod +x tools/atspi-gate.sh tools/atspi-gate.py
+          dbus-run-session -- tools/atspi-gate.sh "$PWD/publish/${{ matrix.rid }}/Viewer"
 
       # The accessibility gate, BLOCKING: interrogate the published exe as a real UIA client
       # (FlaUI) — the same channel Narrator and NVDA use. Asserts the semantics tree is served,
