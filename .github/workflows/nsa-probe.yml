@@ -1,0 +1,71 @@
+name: NSAccessibility probe
+
+# FEASIBILITY PROBE, not a gate. Before writing the macOS accessibility bridge, answer the two
+# questions that could make it not worth writing — the same discipline that preceded the AT-SPI
+# bridge, where probing first turned out to be what made the gate possible at all.
+#
+# Q1. CAN IT BE PROVEN? Reading another app's accessibility tree on macOS needs the "Accessibility"
+#     privacy permission, and CI machines exist to withhold exactly that. Both shipping bridges
+#     (UIA, AT-SPI) are credible because a real AT client drives them in CI. If no client can be
+#     granted access on a hosted runner, an NSAccessibility bridge could be written but never
+#     proven — and by this project's standard that is not done, it is asserted.
+#
+# Q2. CAN IT BE PURE C#? NSAccessibility is not answered over a socket the way AT-SPI is: the OS
+#     sends Objective-C messages to your view. Serving that from C# means creating an Obj-C class
+#     AT RUNTIME with managed function pointers as its method implementations. If libobjc P/Invoke
+#     can do that, macOS costs ONE quarantined interop file, like UiaInterop.cs. If it needs a
+#     compiled Objective-C shim, macOS becomes the first platform to force a hand-written native
+#     library into the project, and the design has to change before any code is written.
+#
+# Every step reports and none asserts: a probe that can fail can hide a finding.
+#
+# FINDINGS: (recorded here once the first run reports — same as atspi-probe.yml)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ feature/nsaccessibility ]
+    paths:
+      - '.github/workflows/nsa-probe.yml'
+      - 'tools/nsa-*'
+      - 'tools/NsaObjcProbe/**'
+
+jobs:
+  # Q2 — the design-deciding one, and the cheaper of the two.
+  objc-interop:
+    name: Can C# serve Objective-C without a shim?
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build an Objective-C class from C# at runtime
+        run: dotnet run --project tools/NsaObjcProbe/NsaObjcProbe.csproj -c Release
+
+  # Q1 — can a real AT client be granted access here?
+  ax-client:
+    name: Can a real AT client run on a hosted runner?
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install a real accessibility client (pyobjc)
+        run: |
+          python3 -m pip install --break-system-packages --quiet \
+            pyobjc-framework-Cocoa pyobjc-framework-ApplicationServices || \
+            python3 -m pip install --quiet pyobjc-framework-Cocoa pyobjc-framework-ApplicationServices
+          python3 -c "import ApplicationServices; print('pyobjc ok')"
+
+      - name: Publish the Viewer
+        run: >
+          dotnet publish samples/Viewer/Viewer.csproj -c Release -r osx-arm64
+          --self-contained -p:PublishSingleFile=true -o viewer
+
+      - name: Point the client at it
+        run: |
+          chmod +x tools/nsa-probe.sh tools/nsa-probe.py
+          tools/nsa-probe.sh "$PWD/viewer/Viewer"
