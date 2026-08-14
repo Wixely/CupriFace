@@ -357,6 +357,19 @@ public sealed partial class CupriDocument : IDisposable
             Refresh();
             return true;
         }
+        // The seek bar's clocks and fill live in the DOM, which only changes on rebuilds — but
+        // Position advances continuously while playing (frames ride the fast path and rebuild
+        // nothing). Reflect it about once a second: one ordinary rebuild per second per playing
+        // video, with the fast path carrying every frame in between.
+        foreach (var (src, player) in _videoPlayers)
+        {
+            if (!player.Playing) continue;
+            var pos = player.Position;
+            if (Math.Abs(pos - _reflectedPositions.GetValueOrDefault(src, -10)) < 0.95) continue;
+            _reflectedPositions[src] = pos;
+            Refresh();
+            return true;
+        }
         // A loaded IMAGE changes the display list (DrawImage captures at build time) — invalidate
         // the fast path. A live-surface frame does NOT (DrawSurface resolves at raster time):
         // that's exactly the case the fast path exists for, so it must not bump.
@@ -364,6 +377,8 @@ public sealed partial class CupriDocument : IDisposable
         if (image) _inputsVersion++;
         return image | Surfaces.TakeArrived();
     }
+
+    private readonly Dictionary<string, double> _reflectedPositions = new(StringComparer.Ordinal);
 
     public RenderNode Root => _root;
 
@@ -1455,8 +1470,16 @@ public sealed partial class CupriDocument : IDisposable
     private bool AccessibilitySetValueCore(string path, double value)
     {
         EnsureLaidOut();
-        if (NodeAtPath(path)?.Element is not { } el || _model is null) return false;
+        if (NodeAtPath(path)?.Element is not { } el) return false;
         if (el.GetAttribute("role") is not "slider") return false;
+        // The video seek bar: AT's RangeValue.SetValue seeks the player, seconds in = seconds set.
+        if (SeekPlayerOf(el) is { } seekPlayer)
+        {
+            seekPlayer.Position = Math.Clamp(value, 0, Math.Max(seekPlayer.Duration, 0));
+            Refresh();
+            return true;
+        }
+        if (_model is null) return false;
         if (el.GetAttribute("data-bind-value") is not { Length: > 0 } bind) return false;
         var min = ParseAttr(el, "min", 0);
         var max = ParseAttr(el, "max", 100);
@@ -1849,6 +1872,14 @@ public sealed partial class CupriDocument : IDisposable
     private bool NudgeSlider(RenderNode node, int dir)
     {
         var el = node.Element!;
+        // The video seek bar: arrows scrub the PLAYER — 5 s steps, the players' convention.
+        if (SeekPlayerOf(el) is { } seekPlayer)
+        {
+            seekPlayer.Position = Math.Clamp(seekPlayer.Position + dir * 5, 0, Math.Max(seekPlayer.Duration, 0));
+            _focusVisible = true;
+            Refresh();
+            return true;
+        }
         if (el.GetAttribute("data-bind-value") is not { Length: > 0 } path || _model is null) return false;
         var min = double.TryParse(el.GetAttribute("min"), out var mn) ? mn : 0;
         var max = double.TryParse(el.GetAttribute("max"), out var mx) ? mx : 100;
@@ -2661,9 +2692,37 @@ public sealed partial class CupriDocument : IDisposable
         return true;
     }
 
+    // The player a video-seek slider controls: the element marks itself data-video-role='seek'
+    // and its enclosing <cupri-video> names the src. Null when it isn't a seek bar (or the video
+    // has no player — no backend — in which case the bar is marked disabled anyway).
+    private Media.IVideoPlayer? SeekPlayerOf(IElement el)
+    {
+        if (el.GetAttribute("data-video-role") != "seek" || el.GetAttribute("aria-disabled") == "true") return null;
+        for (var e = (IElement?)el; e is not null; e = e.ParentElement)
+            if (e.GetAttribute("data-cupri-video") is { Length: > 0 } src && _videoPlayers.TryGetValue(src, out var p))
+                return p;
+        return null;
+    }
+
     // Begin a slider interaction: cache its geometry so drag-moves don't need the node.
     private bool StartSliderDrag(RenderNode node, IElement el, float x)
     {
+        // The video seek bar: same geometry mapping, but the value goes to the PLAYER (there is
+        // no model path). Scrubbing works because Position-setting presents the landing frame.
+        if (SeekPlayerOf(el) is { } seekPlayer)
+        {
+            var sBox = HitTesting.ScreenBox(node);
+            _dragging = true;
+            _dragX0 = sBox.X;
+            _dragPad = node.ContentLeftInset;
+            _dragInnerW = sBox.W - node.HorizontalInsets;
+            _dragMin = 0;
+            _dragMax = Math.Max(seekPlayer.Duration, 0.01);
+            _dragPath = null;
+            _dragSeek = seekPlayer;
+            return ApplySliderValue(x);
+        }
+
         var path = el.GetAttribute("data-bind-value");
         if (path is null || _model is null) return false;
 
@@ -2675,14 +2734,23 @@ public sealed partial class CupriDocument : IDisposable
         _dragMin = ParseAttr(el, "min", 0);
         _dragMax = ParseAttr(el, "max", 100);
         _dragPath = path;
+        _dragSeek = null;
         return ApplySliderValue(x);
     }
 
+    private Media.IVideoPlayer? _dragSeek; // the seek bar's player while a scrub drag is live
+
     private bool ApplySliderValue(float x)
     {
-        if (_dragPath is null || _model is null) return false;
         var ratio = _dragInnerW > 0 ? Math.Clamp((x - _dragX0 - _dragPad) / _dragInnerW, 0, 1) : 0;
         var value = _dragMin + ratio * (_dragMax - _dragMin);
+        if (_dragSeek is { } seek)
+        {
+            seek.Position = value;   // unrounded: sub-second scrubbing
+            Refresh();               // clocks + fill track the thumb while dragging
+            return true;
+        }
+        if (_dragPath is null || _model is null) return false;
         return BindingEngine.TrySet(_model, _dragPath, Math.Round(value));
     }
 
@@ -3072,7 +3140,7 @@ public sealed partial class CupriDocument : IDisposable
         if (_reorderItems is not null) { EndReorder(); return true; }
         if (_splitA is not null) { _splitA = null; _splitB = null; return true; }
         if (_colPath is not null) { _colPath = null; return true; }
-        _dragging = false; _textDrag = false; _scrollDrag = null; _resizeDrag = null; return ClearActive();
+        _dragging = false; _dragSeek = null; _textDrag = false; _scrollDrag = null; _resizeDrag = null; return ClearActive();
     }
 
     /// <summary>Scroll wheel: scroll the nearest scrollable element under the pointer by pixels.</summary>

@@ -13,19 +13,17 @@
     <RootNamespace>CupriFace.Samples.MediaProbe</RootNamespace>
   </PropertyGroup>
 
+  <Import Project="..\..\src\CupriCodecNatives.props" />
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\CupriFace.Media\CupriFace.Media.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <None Include="..\DemoApp\Assets\demo.webm" CopyToOutputDirectory="PreserveNewest" Visible="false" />
-    <!-- Every RID's codec native travels with the app, like Skia's: one build runs anywhere. -->
-    <None Include="..\..\native\win-x64\cupricodecs.dll" CopyToOutputDirectory="PreserveNewest"
-          Visible="false" Condition="Exists('..\..\native\win-x64\cupricodecs.dll')" />
-    <None Include="..\..\native\linux-x64\libcupricodecs.so" CopyToOutputDirectory="PreserveNewest"
-          Visible="false" Condition="Exists('..\..\native\linux-x64\libcupricodecs.so')" />
-    <None Include="..\..\native\osx-arm64\libcupricodecs.dylib" CopyToOutputDirectory="PreserveNewest"
-          Visible="false" Condition="Exists('..\..\native\osx-arm64\libcupricodecs.dylib')" />
+    <!-- Every RID's codec native travels with the app, like Skia's: one build runs anywhere
+         (the list lives in src/CupriCodecNatives.props). -->
+    <None Include="@(CupriCodecNative)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <Import Project="..\..\src\SkiaNativeAssets.props" />

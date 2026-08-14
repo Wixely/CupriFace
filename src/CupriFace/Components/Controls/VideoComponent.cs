@@ -30,7 +30,13 @@ public sealed class VideoComponent : ComponentBase
         .cupri-video-btn:hover { background:rgba(255,255,255,0.18); }
         .cupri-video-btn.disabled { opacity:0.35; }
         .cupri-video-btn.disabled:hover { background:transparent; }
-        .cupri-video-title { color:#e6e9ef; flex:1; }
+        .cupri-video-time { color:#e6e9ef; font-size:12px; flex:none; }
+        .cupri-video-seek { flex:1; padding:8px 2px; cursor:pointer; }
+        .cupri-video-seek.disabled { opacity:0.35; cursor:not-allowed; }
+        .cupri-video-seek-track { position:relative; height:4px; background:rgba(255,255,255,0.28); border-radius:2px; }
+        .cupri-video-seek-fill { position:absolute; top:0; left:0; height:4px; background:var(--cupri-accent,#B87333); border-radius:2px; }
+        .cupri-video-seek-thumb { position:absolute; top:-4px; width:12px; height:12px; background:white; border-radius:6px;
+                                  box-shadow:0 1px 4px #00000059; }
         .cupri-video-fs { z-index:90; background:#000; }
         """;
 
@@ -39,7 +45,6 @@ public sealed class VideoComponent : ComponentBase
         var src = Str(el, "src");
         var poster = Str(el, "poster");
         var label = Str(el, "label", src);
-        var esc = System.Net.WebUtility.HtmlEncode(label);
 
         // The element ITSELF is the picture — surface + poster + object-fit live on it, so it
         // sizes exactly like <cupri-image> (CSS width/height, aspect kept, else intrinsic video
@@ -57,14 +62,33 @@ public sealed class VideoComponent : ComponentBase
         if (Flag(el, "muted")) el.SetAttribute("data-video-muted", "");
         if (Flag(el, "loop")) el.SetAttribute("data-video-loop", "");
 
+        // The bar: transport, current time, the seek slider (a real role=slider — pointer scrub,
+        // arrow keys, AT SetValue all route to the player), duration, fullscreen. The clip's label
+        // lives on the ELEMENT's aria-label — the bar has no room for a title once a seek bar
+        // exists, which is also every real player's layout.
         el.InnerHtml = !Flag(el, "controls") ? "" : $"""
             <div class='cupri-video-bar'>
               <div class='cupri-video-btn' role='button' aria-label='Play' data-video-role='toggle' data-video-cmd='toggle'>{IconMarkup("play", 18)}</div>
               <div class='cupri-video-btn' role='button' aria-label='Mute' data-video-role='mute' data-video-cmd='mute'>{IconMarkup("volume", 18)}</div>
-              <span class='cupri-video-title'>{esc}</span>
+              <span class='cupri-video-time' data-video-role='time'>0:00</span>
+              <div class='cupri-video-seek' role='slider' tabindex='0' aria-label='Seek' data-video-role='seek'
+                   aria-valuemin='0' aria-valuemax='0' aria-valuenow='0'>
+                <div class='cupri-video-seek-track'>
+                  <div class='cupri-video-seek-fill' style='width:0%'></div>
+                  <div class='cupri-video-seek-thumb' style='left:0%'></div>
+                </div>
+              </div>
+              <span class='cupri-video-time' data-video-role='duration'>0:00</span>
               <div class='cupri-video-btn' role='button' aria-label='Fullscreen' data-video-role='fullscreen' data-video-cmd='fullscreen'>{IconMarkup("fullscreen", 18)}</div>
             </div>
             """;
+    }
+
+    internal static string FormatTime(double seconds)
+    {
+        if (double.IsNaN(seconds) || seconds < 0) seconds = 0;
+        var t = TimeSpan.FromSeconds(seconds);
+        return t.TotalHours >= 1 ? $"{(int)t.TotalHours}:{t.Minutes:00}:{t.Seconds:00}" : $"{t.Minutes}:{t.Seconds:00}";
     }
 
     /// <summary>No backend on this host (or the source failed to open): the transport controls
@@ -73,11 +97,11 @@ public sealed class VideoComponent : ComponentBase
     /// decoder, only the window.</summary>
     internal static void MarkInert(IElement el)
     {
-        foreach (var role in new[] { "toggle", "mute" })
-            if (el.QuerySelector($"[data-video-role='{role}']") is { } button)
+        foreach (var role in new[] { "toggle", "mute", "seek" })
+            if (el.QuerySelector($"[data-video-role='{role}']") is { } control)
             {
-                button.ClassList.Add("disabled");
-                button.SetAttribute("aria-disabled", "true");
+                control.ClassList.Add("disabled");
+                control.SetAttribute("aria-disabled", "true");
             }
     }
 
@@ -115,6 +139,25 @@ public sealed class VideoComponent : ComponentBase
         {
             mute.InnerHtml = IconMarkup(player.Muted ? "volume-off" : "volume", 18);
             mute.SetAttribute("aria-label", player.Muted ? "Unmute" : "Mute");
+        }
+
+        // Seek bar + clocks: position/duration as text, fill/thumb as inline percentages, and the
+        // slider's ARIA range so AT reads and SETS the same values the pixels show.
+        var duration = player.Duration;
+        var position = Math.Clamp(player.Position, 0, duration > 0 ? duration : double.MaxValue);
+        if (el.QuerySelector("[data-video-role='time']") is { } time) time.TextContent = FormatTime(position);
+        if (el.QuerySelector("[data-video-role='duration']") is { } total) total.TextContent = FormatTime(duration);
+        if (el.QuerySelector("[data-video-role='seek']") is { } seek)
+        {
+            seek.SetAttribute("aria-valuemin", "0");
+            seek.SetAttribute("aria-valuemax", Math.Round(duration, 1).ToString(System.Globalization.CultureInfo.InvariantCulture));
+            seek.SetAttribute("aria-valuenow", Math.Round(position, 1).ToString(System.Globalization.CultureInfo.InvariantCulture));
+            seek.SetAttribute("aria-valuetext", $"{FormatTime(position)} of {FormatTime(duration)}");
+            var pct = duration > 0 ? Math.Clamp(position / duration * 100, 0, 100) : 0;
+            var pctText = pct.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+            if (seek.QuerySelector(".cupri-video-seek-fill") is { } fill) fill.SetAttribute("style", $"width:{pctText}%");
+            if (seek.QuerySelector(".cupri-video-seek-thumb") is { } thumb)
+                thumb.SetAttribute("style", $"left:{pctText}%;margin-left:-6px"); // centre the 12px thumb
         }
     }
 }

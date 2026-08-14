@@ -468,7 +468,9 @@ CSS `width`/`height` (aspect preserved if you set only one); `fit` defaults to `
 **Video.** `<cupri-video>` plays video through whichever backend the HOST registered
 (`doc.UseVideo(...)` — the optional `CupriFace.Media` WebM decoder on desktop, the browser's own
 decoder on the web host; with no backend the `poster` shows and the controls are inert). `controls`
-adds an engine-drawn bar (play/pause, mute, fullscreen — real components, so they're themable and
+adds an engine-drawn bar (play/pause, mute, a seek slider with position/duration clocks —
+scrub with the pointer, arrow keys step ±5 s, and AT sets it through RangeValue — plus
+fullscreen; real components, so they're themable and
 accessible); clicking the picture toggles playback. `autoplay` is honored **only together with
 `muted`** — the web's rule, applied on every host so one app behaves the same everywhere.
 Full-window video is just sizing (`width:100%;height:100%` + `fit="cover"`). The ⛶ button
@@ -506,11 +508,17 @@ Format scope is deliberately royalty-free: **WebM with VP9/VP8 video and Opus au
 H.264/MP4 path, by licence policy.
 
 *Where the decoders come from:* consuming the **NuGet package**, they're already inside it
-(`runtimes/<rid>/native/`) and .NET picks the right one — nothing to do. Building **this repo from
-source**, they aren't in git (they're build outputs of the pinned upstream sources): download the
-latest green **Codecs** workflow run's artifacts into `native/<rid>/` and every project here picks
-them up automatically. Without them `NativeDecoders.Available` is false and video degrades to the
-poster, which is exactly what a consumer without the package sees.
+(`runtimes/<rid>/native/` for all **six** desktop RIDs — win/linux/osx × x64/arm64) and .NET picks
+the right one — nothing to do. Building **this repo from source**, they aren't in git (they're
+build outputs of the pinned upstream sources): download the latest green **Codecs** workflow run's
+artifacts into `native/<rid>/` and every project here picks them up automatically, laying them out
+per-RID beside the app (a flat copy can't work — `cupricodecs.dll` is *both* Windows RIDs) with
+`CodecLibraryResolver` loading the running one. Without them `NativeDecoders.Available` is false
+and video degrades to the poster, which is exactly what a consumer without the package sees.
+
+Every one of those six libraries is *executed* in CI, not merely built: the Codecs workflow
+publishes MediaProbe once on Windows and decodes real frames from those same binaries on x64 and
+ARM Linux, Intel and Apple-silicon macOS, and x64 and ARM Windows.
 
 **Resizable controls.** CSS `resize: both | horizontal | vertical` puts a grab handle in an
 element's bottom‑right corner — dragging it resizes the element, clamped to its

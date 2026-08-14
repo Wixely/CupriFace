@@ -42,6 +42,10 @@ public interface IAudioSink : IDisposable
     void Submit(ReadOnlySpan<float> interleavedPcm);
     /// <summary>Seconds of submitted-but-unplayed audio (the audio-master clock reads this).</summary>
     double QueuedSeconds { get; }
+    /// <summary>False when <see cref="Start"/> found no usable output (headless box, RDP session
+    /// with no endpoint): the sink swallows audio silently and its queue reads 0 by definition —
+    /// timing metrics (lag, underruns) are meaningless and must not be computed. Default true.</summary>
+    bool DeviceOpen => true;
     void Pause(bool paused);
     /// <summary>Drop queued audio (seek).</summary>
     void Flush();

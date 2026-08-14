@@ -183,7 +183,22 @@ public sealed class WebmPlayer : IVideoPlayer, ISurfaceSource
         set { lock (_lock) { if (_loaded) SeekLocked(Math.Clamp(value, 0, Duration)); } }
     }
 
-    private double MediaTimeLocked() => _playing && _loaded ? _mediaBase + (_now() - _wallBase) : _mediaBase;
+    // The media clock. With a REAL audio device the clock IS the audio actually played
+    // (submitted − still-queued): video schedules against it, so A/V sync holds by construction
+    // even when the clip's PCM doesn't match its own timeline — the 3-minute soak measured a
+    // browser-recorded clip drifting +27 ms per SECOND (4.7 s over the clip) under the wall
+    // clock, with zero underruns: the container simply carries ~2.7% more audio than its
+    // timestamps claim, and only slaving to the audio can absorb that. Without usable audio
+    // (no track, deaf sink, or the audio ran out before the video) the wall clock drives.
+    private double MediaTimeLocked()
+    {
+        if (!_playing || !_loaded) return _mediaBase;
+        if (!_audioClockDone && _sink is { DeviceOpen: true } s && _audioSubmittedSeconds > 0)
+            return Math.Max(_mediaBase, _audioSubmittedSeconds - s.QueuedSeconds);
+        return _mediaBase + (_now() - _wallBase);
+    }
+
+    private bool _audioClockDone; // audio exhausted → hand off to the wall clock (set in Pump)
 
     // ---- the pump ----------------------------------------------------------------------------
 
@@ -252,12 +267,29 @@ public sealed class WebmPlayer : IVideoPlayer, ISurfaceSource
                 if (_audioDecoder is { } dec && _sink is { } sink)
                 {
                     var pcm = dec.Decode(block.Data.Span);
-                    if (!pcm.IsEmpty) sink.Submit(pcm.Span);
+                    if (!pcm.IsEmpty)
+                    {
+                        // Underrun = the DEVICE drained everything before this refill — only
+                        // meaningful with a real (open) device; a deaf sink reads 0 forever.
+                        if (sink.DeviceOpen && _audioSubmittedSeconds > 0 && sink.QueuedSeconds < 0.01) _audioUnderruns++;
+                        sink.Submit(pcm.Span);
+                        _audioSubmittedSeconds += pcm.Length / (double)(dec.SampleRate * Math.Max(1, dec.Channels));
+                    }
                 }
             }
 
             var videoDone = _nextVideo >= _video.Count;
             var audioDone = _nextAudio >= _audioBlocks.Count;
+
+            // Audio exhausted and (nearly) drained: the audio clock is about to freeze — hand
+            // off to the wall clock FROM the audio position, so a video tail keeps advancing.
+            if (!_audioClockDone && audioDone && _audioSubmittedSeconds > 0
+                && _sink is { DeviceOpen: true } drained && drained.QueuedSeconds < 0.02)
+            {
+                _mediaBase = _audioSubmittedSeconds;
+                _wallBase = _now();
+                _audioClockDone = true;
+            }
             if (videoDone && audioDone && time >= Duration)
             {
                 if (Loop)
@@ -307,6 +339,8 @@ public sealed class WebmPlayer : IVideoPlayer, ISurfaceSource
         _nextAudio = 0;
         while (_nextAudio < _audioBlocks.Count && _audioBlocks[_nextAudio].TimeSeconds < target) _nextAudio++;
         _sink?.Flush();
+        _audioSubmittedSeconds = target;   // re-baseline the audio clock: queued audio was dropped
+        _audioClockDone = false;           // audio may drive again from here
         _mediaBase = target;
         _wallBase = _now();
         _ended = false;
@@ -316,15 +350,32 @@ public sealed class WebmPlayer : IVideoPlayer, ISurfaceSource
     private double _decodeMsEma;   // smoothed per-frame video decode cost
     private long _framesDecoded;
     private long _framesLate;      // due frames that were decoded but replaced within the same pump
+    private double _audioSubmittedSeconds; // total PCM handed to the sink (media seconds)
+    private long _audioUnderruns;  // refills that found the queue dry — each one shifts audio later
 
     /// <summary>Smoothed per-frame video decode time (ms) — the number the SIMD work moves.</summary>
     public double DecodeMsAverage => _decodeMsEma;
     public long FramesDecoded => _framesDecoded;
     public long FramesLate => _framesLate;
+    public long AudioUnderruns => _audioUnderruns;
+
+    /// <summary>How far the audio the LISTENER hears sits behind the media clock, in seconds:
+    /// media time − (submitted − still-queued). At steady state this is the device's own latency
+    /// (small, constant); GROWTH over minutes is A/V drift — the soak's number. NaN without audio.</summary>
+    public double AudioLagSeconds
+    {
+        get
+        {
+            if (_sink is not { DeviceOpen: true } s || _audioSubmittedSeconds <= 0) return double.NaN;
+            lock (_lock) return MediaTimeLocked() - (_audioSubmittedSeconds - s.QueuedSeconds);
+        }
+    }
 
     public string? DiagnosticsSummary =>
         $"decode {_decodeMsEma:0.00} ms · {_framesDecoded} frames · {_framesLate} late"
-        + (_sink is { } s ? $" · audio queue {s.QueuedSeconds:0.00} s" : "");
+        + (_sink is { } s
+            ? $" · audio queue {s.QueuedSeconds:0.00} s · lag {AudioLagSeconds * 1000:0} ms · {_audioUnderruns} underruns"
+            : "");
 
     // Swap the new frame in; retire the old with two swaps of grace, honouring the surface
     // contract (the paint path may still be rasterising the previous reference).

@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <Import Project="..\..\src\CupriCodecNatives.props" />
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -37,10 +39,7 @@
     <EmbeddedResource Include="..\..\samples\DemoApp\Assets\demo.webm" LogicalName="fixtures.demo.webm" />
     <!-- Codec natives when present (codecs.yml artifacts dropped into native/<rid>/): the
          NativeDecodeTests then exercise the real libvpx/libopus binding instead of skipping. -->
-    <None Include="..\..\native\win-x64\cupricodecs.dll" CopyToOutputDirectory="PreserveNewest"
-          Visible="false" Condition="Exists('..\..\native\win-x64\cupricodecs.dll')" />
-    <None Include="..\..\native\linux-x64\libcupricodecs.so" CopyToOutputDirectory="PreserveNewest"
-          Visible="false" Condition="Exists('..\..\native\linux-x64\libcupricodecs.so')" />
+    <None Include="@(CupriCodecNative)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- Native Skia + HarfBuzz so RenderToImage/decode run under `dotnet test`. -->

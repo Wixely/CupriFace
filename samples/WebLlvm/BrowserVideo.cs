@@ -100,7 +100,8 @@ internal sealed unsafe class LlvmBrowserVideoBackend : IVideoBackend
     [DllImport("js", EntryPoint = "js_video_rect")] private static extern void JsVideoRect(int id,
         double x, double y, double w, double h,
         double clipTop, double clipRight, double clipBottom, double clipLeft,
-        int visible, char* fit, int fitLen);
+        int visible, char* fit, int fitLen,
+        double ta, double tb, double tc, double td, double te, double tf); // CSS matrix(a..f)
 
     /// <summary>Any underlay able to show pixels — the present path must then hand the browser
     /// straight alpha, or the holes' transparency never reaches the page.</summary>
@@ -151,7 +152,7 @@ internal sealed unsafe class LlvmBrowserVideoBackend : IVideoBackend
             var node = Find(doc.Root, player.SurfaceKey);
             if (node is null || !node.LaidOut)
             {
-                SendRect(player.Id, 0, 0, 0, 0, 0, 0, 0, 0, false, "");
+                SendRect(player.Id, 0, 0, 0, 0, 0, 0, 0, 0, false, "", 1, 0, 0, 1, 0, 0);
                 continue;
             }
 
@@ -171,25 +172,37 @@ internal sealed unsafe class LlvmBrowserVideoBackend : IVideoBackend
 
             if (visR <= visL || visB <= visT)
             {
-                SendRect(player.Id, 0, 0, 0, 0, 0, 0, 0, 0, false, "");
+                SendRect(player.Id, 0, 0, 0, 0, 0, 0, 0, 0, false, "", 1, 0, 0, 1, 0, 0);
                 continue;
             }
 
             var fit = node.Element?.GetAttribute("data-object-fit") ?? "contain";
+
+            // Transformed ancestors move the painted hole — the element follows the identical
+            // mapping (see the Mono host's SyncRects for the CSS matrix derivation).
+            var m = CupriFace.Interaction.HitTesting.ScreenTransform(node);
+            double ta = m.ScaleX, tb = m.SkewY, tc = m.SkewX, td = m.ScaleY, te = 0, tf = 0;
+            if (!m.IsIdentity)
+            {
+                var mapped = m.MapPoint(x, y);
+                te = (mapped.X - x) * scale;
+                tf = (mapped.Y - y) * scale;
+            }
             SendRect(player.Id,
                 x * scale, y * scale, w * scale, h * scale,
                 (visT - y) * scale,            // clip-path inset: top
                 (x + w - visR) * scale,        // right
                 (y + h - visB) * scale,        // bottom
                 (visL - x) * scale,            // left
-                true, fit);
+                true, fit, ta, tb, tc, td, te, tf);
         }
     }
 
     private static void SendRect(int id, double x, double y, double w, double h,
-        double cT, double cR, double cB, double cL, bool visible, string fit)
+        double cT, double cR, double cB, double cL, bool visible, string fit,
+        double ta, double tb, double tc, double td, double te, double tf)
     {
-        fixed (char* p = fit) JsVideoRect(id, x, y, w, h, cT, cR, cB, cL, visible ? 1 : 0, p, fit.Length);
+        fixed (char* p = fit) JsVideoRect(id, x, y, w, h, cT, cR, cB, cL, visible ? 1 : 0, p, fit.Length, ta, tb, tc, td, te, tf);
     }
 
     private static RenderNode? Find(RenderNode n, string key)

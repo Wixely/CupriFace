@@ -83,4 +83,32 @@ public static class HitTesting
         }
         return (x, y, node.Width, node.Height);
     }
+
+    /// <summary>The accumulated CSS-transform matrix mapping this node's untransformed
+    /// <see cref="ScreenBox"/> to where the rasteriser actually painted it — the same per-node
+    /// matrices the paint path applies (centre = each transformed node's own box centre),
+    /// composed outermost-first like the nested transform scopes. Identity when nothing on the
+    /// chain is transformed. A host compositing an underlay under a painted hole (the web
+    /// <c>&lt;video&gt;</c>) needs this: the HOLE paints through the transforms, so the element
+    /// must follow the very same mapping or the two shear apart.</summary>
+    public static SkiaSharp.SKMatrix ScreenTransform(RenderNode node)
+    {
+        var m = SkiaSharp.SKMatrix.Identity;
+        Accumulate(node);
+        return m;
+
+        void Accumulate(RenderNode n)
+        {
+            if (n.Parent is { } parent) Accumulate(parent);   // outermost transform applies first
+            var s = n.Style;
+            if (!s.HasTransform) return;
+            var (x, y, w, h) = ScreenBox(n);
+            float cx = x + w / 2f, cy = y + h / 2f;
+            var local = SkiaSharp.SKMatrix.CreateTranslation(cx + s.TranslateX, cy + s.TranslateY);
+            local = local.PreConcat(SkiaSharp.SKMatrix.CreateRotationDegrees(s.RotateDeg));
+            local = local.PreConcat(SkiaSharp.SKMatrix.CreateScale(s.ScaleX, s.ScaleY));
+            local = local.PreConcat(SkiaSharp.SKMatrix.CreateTranslation(-cx, -cy));
+            m = m.PreConcat(local);
+        }
+    }
 }

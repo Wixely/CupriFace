@@ -1,0 +1,42 @@
+<Project>
+  <!--
+    The codec natives, one list, several consumers: CupriFace.Media packs them into
+    runtimes/<rid>/native (each item carries its own PackagePath) and apps that reference the
+    PROJECT copy them beside the app in the same runtimes/<rid>/native shape (each item's Link).
+    Built by .github/workflows/codecs.yml into native/<rid>/ — files that aren't there are simply
+    skipped, so a source build without them still compiles and NativeDecoders.Available reports
+    false at runtime.
+
+    Why the per-RID layout rather than flat: six RIDs mean three pairs share a filename
+    (cupricodecs.dll is BOTH Windows RIDs), so a flat copy is not merely untidy — the SDK fails
+    the publish outright (NETSDK1152). Package consumers get the RID resolved from deps.json;
+    for the loose layout, CodecLibraryResolver probes runtimes/<rid>/native at load time.
+
+    Adding a RID: a build job in codecs.yml, a runnable leg in its portability gate, one entry
+    here, and the fetch list in ci.yml's release job. Nothing else.
+  -->
+  <PropertyGroup>
+    <CupriNativeDir>$(MSBuildThisFileDirectory)..\native\</CupriNativeDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <CupriCodecNative Include="$(CupriNativeDir)win-x64\cupricodecs.dll"
+                      PackagePath="runtimes/win-x64/native" Link="runtimes\win-x64\native\cupricodecs.dll"
+                      Visible="false" Condition="Exists('$(CupriNativeDir)win-x64\cupricodecs.dll')" />
+    <CupriCodecNative Include="$(CupriNativeDir)win-arm64\cupricodecs.dll"
+                      PackagePath="runtimes/win-arm64/native" Link="runtimes\win-arm64\native\cupricodecs.dll"
+                      Visible="false" Condition="Exists('$(CupriNativeDir)win-arm64\cupricodecs.dll')" />
+    <CupriCodecNative Include="$(CupriNativeDir)linux-x64\libcupricodecs.so"
+                      PackagePath="runtimes/linux-x64/native" Link="runtimes\linux-x64\native\libcupricodecs.so"
+                      Visible="false" Condition="Exists('$(CupriNativeDir)linux-x64\libcupricodecs.so')" />
+    <CupriCodecNative Include="$(CupriNativeDir)linux-arm64\libcupricodecs.so"
+                      PackagePath="runtimes/linux-arm64/native" Link="runtimes\linux-arm64\native\libcupricodecs.so"
+                      Visible="false" Condition="Exists('$(CupriNativeDir)linux-arm64\libcupricodecs.so')" />
+    <CupriCodecNative Include="$(CupriNativeDir)osx-x64\libcupricodecs.dylib"
+                      PackagePath="runtimes/osx-x64/native" Link="runtimes\osx-x64\native\libcupricodecs.dylib"
+                      Visible="false" Condition="Exists('$(CupriNativeDir)osx-x64\libcupricodecs.dylib')" />
+    <CupriCodecNative Include="$(CupriNativeDir)osx-arm64\libcupricodecs.dylib"
+                      PackagePath="runtimes/osx-arm64/native" Link="runtimes\osx-arm64\native\libcupricodecs.dylib"
+                      Visible="false" Condition="Exists('$(CupriNativeDir)osx-arm64\libcupricodecs.dylib')" />
+  </ItemGroup>
+</Project>

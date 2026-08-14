@@ -152,4 +152,35 @@ public class SurfaceTests
         t.Doc.Surfaces.Register("s2", new FakeSurface());
         Assert.True(t.Doc.ConsumeImageArrived());    // registration repaints too (shows first state)
     }
+
+    [Fact]
+    public void ScreenTransform_matches_the_paint_paths_matrix()
+    {
+        // The web underlay follows this matrix; the painted hole follows the rasteriser's. They
+        // must be the SAME mapping — centre = the transformed node's own box centre, transforms
+        // composed outermost-first. Box (20,20,100,60), centre (70,50), translateX(10) scale(2):
+        // origin (20,20) → (70+10 + 2·(20−70), 50 + 2·(20−50)) = (−20, −10).
+        using var t = new TestDoc(
+            "<body style='margin:0'><div style='margin:20px; width:100px; height:60px; " +
+            "transform: translateX(10px) scale(2)' data-cupri-surface='probe'></div></body>",
+            "", components: true, width: 400, height: 300);
+        t.Layout();
+
+        var node = t.Find(n => n.Element?.GetAttribute("data-cupri-surface") == "probe")!;
+        var m = CupriFace.Interaction.HitTesting.ScreenTransform(node);
+        Assert.False(m.IsIdentity);
+        Assert.Equal(2, m.ScaleX, 3);
+        Assert.Equal(2, m.ScaleY, 3);
+        Assert.Equal(0, m.SkewX, 3);
+        var mapped = m.MapPoint(20, 20);
+        Assert.Equal(-20, mapped.X, 1);
+        Assert.Equal(-10, mapped.Y, 1);
+
+        // An untransformed node reports identity — hosts then skip the CSS transform entirely.
+        using var plain = new TestDoc("<body><div data-cupri-surface='p2' style='width:50px;height:20px'></div></body>",
+            "", components: true);
+        plain.Layout();
+        Assert.True(CupriFace.Interaction.HitTesting.ScreenTransform(
+            plain.Find(n => n.Element?.GetAttribute("data-cupri-surface") == "p2")!).IsIdentity);
+    }
 }

@@ -302,7 +302,7 @@ jobs:
           RUN=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow codecs.yml --status success \
                   --limit 1 --json databaseId --jq '.[0].databaseId' || true)
           if [ -z "$RUN" ]; then echo "::warning::no successful Codecs run — packing without natives"; exit 0; fi
-          for rid in win-x64 linux-x64 osx-arm64; do
+          for rid in win-x64 win-arm64 linux-x64 linux-arm64 osx-x64 osx-arm64; do
             mkdir -p "native/$rid"
             gh run download "$RUN" --repo "$GITHUB_REPOSITORY" --name "cupricodecs-$rid" --dir "native/$rid" \
               || echo "::warning::codec native missing for $rid"
