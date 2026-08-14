@@ -102,3 +102,6 @@ samples/WebWasm/publish*/
 # Locally packed NuGet output (CI packs into dist/ instead)
 nupkgs/
 native/
+
+# Local editor preferences (Peacock colours etc.) — personal, not project config.
+.vscode/settings.json

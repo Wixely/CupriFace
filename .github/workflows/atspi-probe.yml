@@ -1,0 +1,98 @@
+name: AT-SPI probe
+
+# FEASIBILITY PROBE, not a gate (manual dispatch only). Before writing a Linux accessibility
+# bridge, find out whether a hosted runner can host a real AT-SPI stack — because a bridge no
+# CI machine can verify is a bridge nobody should trust. The Windows one earned its keep by
+# being driven by a real UIA client (FlaUI); this asks whether Linux can have the same.
+#
+# Questions: does the a11y bus start headlessly; can a process discover its address the way the
+# bridge will (org.a11y.Bus.GetAddress); what TRANSPORT comes back (abstract sockets need a
+# leading NUL in the sockaddr, path sockets don't — a real difference in the connect code); can
+# a genuine AT client (pyatspi) enumerate the desktop; and does Tmds.DBus.Protocol stay
+# managed-only and trim-clean, since CupriFace is AOT trim-clean and must stay that way.
+#
+# Every step reports and none asserts: the point is to learn, so nothing may mask a finding.
+#
+# FINDINGS (run 1, ubuntu-24.04, 2026-08-14) — all five green:
+#   1. at-spi2-core 2.52.0 and pyatspi 2.46.1 install from apt; no PPA, no build.
+#   2. The a11y bus starts HEADLESSLY — `at-spi-bus-launcher --launch-immediately` inside a
+#      `dbus-run-session`, with no X server and no desktop session at all.
+#   3. org.a11y.Bus.GetAddress answers, so the bridge's startup discovery works as designed.
+#   4. Transport is a PATH socket: unix:path=/run/user/<uid>/at-spi/bus — NOT abstract, so the
+#      connect code needs no leading-NUL sockaddr special case.
+#   5. at-spi2-registryd owns org.a11y.atspi.Registry on that bus, and a real AT client
+#      (pyatspi) enumerates: desktop name='main', children=0.
+#   That last zero is the gate's baseline: nothing accessible is registered on a bare runner, so
+#   "children becomes 1, and the tree beneath it carries our roles and names" is an assertion
+#   that can only pass if the bridge genuinely works — the AT-SPI counterpart of the FlaUI gate.
+#
+#   Dependency verdict: Tmds.DBus.Protocol 0.94.2 publishes trim-clean (zero IL2xxx/IL3xxx
+#   warnings under PublishTrimmed) and pulls in NO native library — ~240 KB of managed IL. So it
+#   keeps the portability posture intact: a Windows app carries it and never loads it, and the
+#   bridge itself needs no P/Invoke, unlike UiaInterop.cs on the Windows side.
+
+#   OUTCOME: the bridge exists and the gate that proved it is now a BLOCKING step in ci.yml
+#   (viewer job, Linux leg), beside the FlaUI one. What it asserts there: the app registers on the
+#   bus, 46 accessibles are served with real roles and screen extents, DoAction genuinely flips a
+#   checkbox, that flip comes back as object:state-changed:checked, and Value.Set moves a slider.
+#   The gate job that used to live here has moved rather than been copied — one gate, one place.
+#   What remains here is the pair of questions that stay worth re-asking: can a hosted runner still
+#   host the stack, and is Tmds.DBus.Protocol still managed-only and trim-clean.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/atspi-probe.yml'
+      - 'tools/atspi-*'
+      - 'src/CupriFace.Shell/Accessibility/**'
+
+jobs:
+  stack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install an AT-SPI stack
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            at-spi2-core dbus-x11 python3-gi gir1.2-atspi-2.0 python3-pyatspi > /dev/null
+          dpkg -l | grep -E 'at-spi2-core|pyatspi|gir1.2-atspi' || true
+
+      - name: Bus, registry, address and transport
+        run: |
+          chmod +x tools/atspi-probe.sh
+          dbus-run-session -- tools/atspi-probe.sh
+
+      - name: Can a real AT client enumerate the desktop?
+        run: |
+          chmod +x tools/atspi-probe.sh
+          dbus-run-session -- bash -c 'tools/atspi-probe.sh > /dev/null 2>&1; python3 tools/atspi-probe.py'
+
+  dependency:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Is Tmds.DBus.Protocol managed-only and trim-clean?
+        run: |
+          set -x
+          mkdir -p /tmp/dbusprobe && cd /tmp/dbusprobe
+          dotnet new console -o . --force > /dev/null
+          dotnet add package Tmds.DBus.Protocol || echo "PACKAGE ADD FAILED"
+          printf 'using Tmds.DBus.Protocol;\nSystem.Console.WriteLine("session=" + (Address.Session ?? "(null)"));\n' > Program.cs
+          # CupriFace is trim-clean; a bridge dependency has to be too. Single-warn off so every
+          # trim warning is named rather than collapsed into one line.
+          dotnet publish -c Release -r linux-x64 --self-contained true \
+            -p:PublishTrimmed=true -p:TrimmerSingleWarn=false > publish.log 2>&1 || true
+          echo "--- trim/AOT warnings (empty = clean) ---"
+          grep -iE "IL2[0-9]{3}|IL3[0-9]{3}|warn" publish.log | head -30 || echo "(none)"
+          echo "--- native libraries pulled in beyond the runtime's own ---"
+          find bin/Release -name "*.so" -printf "%f\n" 2>/dev/null | sort -u | grep -viE "^libSystem|^libclrjit|^libcoreclr|^libhostpolicy|^libhostfxr|^libmscordaccore|^libmscordbi" | head -20 || true
+          echo "--- assembly size ---"
+          find ~/.nuget/packages/tmds.dbus.protocol -name "*.dll" -printf "%f %s bytes\n" 2>/dev/null | head
+
+  # (The gate itself now lives in ci.yml — see the OUTCOME note at the top of this file.)

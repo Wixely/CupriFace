@@ -592,11 +592,17 @@ The stack is layered so OS-specific code is isolated and opt-in:
   from `SkiaSharp.Views.Blazor`.
 - **Windowing (`CupriFace.Shell`)** — two cross-platform backends: **GL** (Silk.NET) and
   **SDL software** (no-GPU present). Both reach native code through *managed* Silk.NET
-  bindings, so the project ships **no hand-written P/Invoke** (grep: 0 `DllImport`). The
-  engine has **no** windowing dependency at all. (An earlier Win32 GDI backend was removed
-  in favour of SDL to keep our code fully managed.)
-- **Accessibility** — `IAccessibilityBridge` is portable; `WindowsUiaBridge` is one
-  implementation. AT-SPI (Linux) and NSAccessibility (macOS) are the missing siblings.
+  bindings, so windowing ships **no hand-written P/Invoke**. The engine has **no** windowing
+  dependency at all. (An earlier Win32 GDI backend was removed in favour of SDL to keep our
+  code fully managed.)
+- **Accessibility** — the semantics tree is portable; the bridges are not, and they are the
+  only place OS-specific accessibility code is allowed to live. **UIA** (Windows) and
+  **AT-SPI** (Linux) both ship, each with a blocking CI gate driven by a real AT client;
+  **NSAccessibility** (macOS) is the missing sibling. The two differ in one way worth naming:
+  UIA is an OS API, so `UiaInterop.cs` is the project's single quarantined P/Invoke file;
+  AT-SPI is D-Bus over a Unix socket — IPC, not an OS API — so its bridge is *pure managed
+  IL with no interop at all*, and a Windows build carries the D-Bus library without ever
+  loading it.
 - **Web** — the same engine to `<canvas>` via WASM.
 
 Net: to add a platform you implement (at most) a windowing backend + an a11y bridge; the
@@ -631,7 +637,8 @@ engine, layout, binding, components, and hit-test/dispatch are identical on both
 - **SDL window & WASM**: **build-verified** only — a live SDL window needs a desktop
   display, and the WASM app needs a browser; neither runs in this headless session.
 - `:hover`/`:active`, full (spec) UBA bidi, transitions (vs `@keyframes`), and a
-  *complete* UIA/AT-SPI/NSAccessibility provider remain as refinements.
+  *complete* NSAccessibility provider remain as refinements. (UIA and AT-SPI now ship and
+  are gated in CI; the refinements left inside each are listed in ROADMAP §1.)
 
 ---
 
