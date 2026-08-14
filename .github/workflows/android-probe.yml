@@ -1,0 +1,101 @@
+name: Android probe
+
+# FEASIBILITY PROBE, not a gate. Before writing a mobile host package, answer the three questions
+# that decide whether one is worth writing — the same discipline that preceded the AT-SPI and
+# NSAccessibility bridges, where probing first is what made those gates possible at all.
+#
+#   Q1. Does the engine render on a REAL GPU surface on Android — GL ES through an SKGLSurfaceView,
+#       on a booted device — rather than merely rastering into a buffer?
+#   Q2. What does startup cost once Skia and HarfBuzz have to load on a phone?
+#   Q3. How big is the APK?
+#
+# WHAT THIS IS NOT: a MAUI app. samples/AndroidProbe is the bare .NET for Android project type —
+# an Activity and a view, no XAML, no second UI toolkit, no Java or Kotlin. That is deliberately
+# the shape a real CupriFace mobile host would take.
+#
+# The emulator is driven with the SDK's own tools rather than a third-party action, to keep the
+# supply chain the same size it is everywhere else in this repo.
+#
+# Every step reports and none asserts: a probe that can fail can hide a finding.
+#
+# FINDINGS (local, Windows, 2026-08-14) — recorded before the first CI run:
+#   - The engine compiles for net10.0-android untouched: it is plain net10.0 with no windowing
+#     dependency, so a `net10.0-android` project can reference it directly.
+#   - SkiaSharp.NativeAssets.Android 3.116.1 supplies Skia for all four ABIs; HarfBuzz's Android
+#     natives arrive transitively. GPU-capable Skia on Android needs no new package work.
+#   - The whole "host" is ~100 lines: Activity + SKGLSurfaceView + touch forwarding. Everything
+#     after `CupriApp.CreateDocument()` is the code the desktop and web hosts already run.
+#   - APK size, Release, real Showcase app: 23.3 MB for arm64-v8a + x86_64, and 11.5 MB for a
+#     store-shaped arm64-only build. libSkiaSharp is the single largest item at 8.6 MB (arm64).
+#   - WART FOUND: an Android build still restores SkiaSharp.NativeAssets.Linux, because
+#     src/SkiaNativeAssets.props is imported unconditionally by the engine. Desktop natives should
+#     not follow a mobile app around; that props file needs a TFM condition.
+#   (Q1 and Q2 need a booted device, which is what the job below is for.)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ feature/android-probe ]
+    paths:
+      - '.github/workflows/android-probe.yml'
+      - 'samples/AndroidProbe/**'
+
+jobs:
+  probe:
+    name: Does it render on a phone?
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install the Android workload
+        run: dotnet workload install android --skip-manifest-update
+
+      # Q3 — size, both shapes: what a store build ships, and what the emulator needs.
+      - name: Build the APK
+        run: |
+          dotnet publish samples/AndroidProbe/AndroidProbe.csproj -c Release -r android-arm64 \
+            -o out/arm64
+          dotnet publish samples/AndroidProbe/AndroidProbe.csproj -c Release -r android-x64 \
+            -o out/x64
+          echo "### APK size" >> $GITHUB_STEP_SUMMARY
+          for f in $(find out -name "*-Signed.apk"); do
+            printf '%-14s %s bytes\n' "$(basename $(dirname $f))" "$(stat -c%s $f)" | tee -a $GITHUB_STEP_SUMMARY
+          done
+
+      # Q1/Q2 — a booted emulator is the only honest answer to "does it render".
+      - name: Boot an emulator
+        run: |
+          set -x
+          sudo modprobe kvm || true
+          ls -l /dev/kvm || echo "::warning::no /dev/kvm — the emulator will be very slow or fail"
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager --install "system-images;android-34;google_apis;x86_64" "platform-tools" "emulator" > /dev/null
+          echo no | avdmanager create avd -n probe -k "system-images;android-34;google_apis;x86_64" --force
+          $ANDROID_HOME/emulator/emulator -avd probe -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect &
+          adb wait-for-device
+          # Booted != ready: wait for the package manager rather than guessing with a sleep.
+          timeout 300 adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 2; done' || true
+          adb shell getprop sys.boot_completed
+          adb devices
+
+      - name: Install it and watch it draw
+        run: |
+          set -x
+          adb logcat -c || true
+          adb install -r out/x64/*-Signed.apk
+          adb shell am start -n com.cupriface.androidprobe/crc*.MainActivity \
+            || adb shell monkey -p com.cupriface.androidprobe -c android.intent.category.LAUNCHER 1
+          sleep 45
+          echo "### What the app reported" >> $GITHUB_STEP_SUMMARY
+          adb logcat -d -s cupri:I | tee -a $GITHUB_STEP_SUMMARY
+          echo "--- crashes, if any ---"
+          adb logcat -d -s AndroidRuntime:E DEBUG:F | tail -40
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-probe-apk
+          path: out/arm64/*-Signed.apk
+          if-no-files-found: warn

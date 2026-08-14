@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    FEASIBILITY PROBE, not a host. It exists to answer three questions about running CupriFace as a
+    standalone Android app, before anyone writes a real host package:
+
+      1. Does the engine render on a REAL GPU surface (GL ES via SKGLSurfaceView), not just raster
+         into a buffer the way the class-library check already proved?
+      2. What does startup cost, once the Skia and HarfBuzz natives have to load on a phone?
+      3. How big is the APK?
+
+    Deliberately NOT a MAUI app: this is the bare .NET for Android project type (an Activity and a
+    view), which is what a real CupriFace mobile host would be. There is no XAML, no second UI
+    toolkit, and no Java or Kotlin source.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-android</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <SupportedOSPlatformVersion>24.0</SupportedOSPlatformVersion>
+    <ApplicationId>com.cupriface.androidprobe</ApplicationId>
+    <ApplicationVersion>1</ApplicationVersion>
+    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <!-- An APK (not an AAB) so the probe can measure one installable artifact. -->
+    <AndroidPackageFormat>apk</AndroidPackageFormat>
+    <!-- Not in the solution, and not part of the product: keep it out of any pack/release path. -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The REAL Showcase, not a toy page: markup, CSS, components, binding and assets, so the
+         size and startup numbers mean something. -->
+    <ProjectReference Include="..\DemoApp\DemoApp.csproj" />
+    <!-- SKGLSurfaceView: a GLSurfaceView with a GRContext on its EGL context — the same model
+         SkiaWindow already uses with Silk.NET on desktop. -->
+    <PackageReference Include="SkiaSharp.Views" Version="3.116.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Android" Version="3.116.1" />
+  </ItemGroup>
+
+</Project>
