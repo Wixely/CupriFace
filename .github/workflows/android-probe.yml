@@ -83,21 +83,24 @@ jobs:
       # AOT-compiled code surfaces exactly like this. One variant per suspect, one variable each:
       #   default  Mono + profiled AOT + trimmed   (the Release default; the known-crashing control)
       #   noaot    Mono JIT, still trimmed          (isolates the AOT compiler)
-      #   notrim   Mono + AOT, untrimmed            (isolates the trimmer)
+      #   notrim   Mono JIT, untrimmed              (AOT requires trimming — XA1030 — so untrimmed
+      #                                              must also be JIT; if noaot crashes and this
+      #                                              does not, the trimmer is the culprit)
       #   coreclr  CoreCLR, default trim            (isolates the Mono runtime itself)
       - name: Build the APK
         run: |
           dotnet publish samples/AndroidProbe/AndroidProbe.csproj -c Release -r android-arm64 \
             -o out/arm64
-          dotnet publish samples/AndroidProbe/AndroidProbe.csproj -c Release -r android-x64 \
-            -o out/default
-          dotnet publish samples/AndroidProbe/AndroidProbe.csproj -c Release -r android-x64 \
-            -p:RunAOTCompilation=false -o out/noaot
-          dotnet publish samples/AndroidProbe/AndroidProbe.csproj -c Release -r android-x64 \
-            -p:PublishTrimmed=false -o out/notrim
-          dotnet publish samples/AndroidProbe/AndroidProbe.csproj -c Release -r android-x64 \
-            -p:UseMonoRuntime=false -o out/coreclr \
-            || echo "::warning::CoreCLR variant did not build — noted, continuing"
+          # Each variant tolerates its own failure: one unbuildable permutation must not kill the
+          # experiment (run 7 died whole because `notrim` alone is contradictory — XA1030 says AOT
+          # requires trimming, so the untrimmed variant must be JIT as well; the matrix stays
+          # conclusive, per the table above).
+          v() { dotnet publish samples/AndroidProbe/AndroidProbe.csproj -c Release -r android-x64 \
+                  -o "out/$1" "${@:2}" || echo "::warning::variant $1 did not build"; }
+          v default
+          v noaot   -p:RunAOTCompilation=false
+          v notrim  -p:RunAOTCompilation=false -p:PublishTrimmed=false
+          v coreclr -p:UseMonoRuntime=false
           echo "### APK size" >> $GITHUB_STEP_SUMMARY
           for f in $(find out -name "*-Signed.apk"); do
             printf '%-14s %s bytes\n' "$(basename $(dirname $f))" "$(stat -c%s $f)" | tee -a $GITHUB_STEP_SUMMARY
