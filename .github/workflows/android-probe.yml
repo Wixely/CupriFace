@@ -84,7 +84,20 @@ jobs:
 
           yes | sdkmanager --licenses > /dev/null 2>&1 || true
           sdkmanager --install "system-images;android-34;google_apis;x86_64" "platform-tools" "emulator" > /dev/null
+          # avdmanager and the emulator disagree about where AVDs live unless told: the emulator
+          # searches $ANDROID_AVD_HOME, then $ANDROID_SDK_HOME/avd, then $HOME/.android/avd, and
+          # the previous run created one none of those resolved to ("Unknown AVD name [probe]").
+          export ANDROID_AVD_HOME="$HOME/.android/avd"
+          echo "ANDROID_AVD_HOME=$ANDROID_AVD_HOME" >> $GITHUB_ENV
+          mkdir -p "$ANDROID_AVD_HOME"
           echo no | avdmanager create avd -n probe -k "system-images;android-34;google_apis;x86_64" --force
+          # Prove it exists before booting, rather than discovering it from the emulator's stderr.
+          emulator -list-avds
+          if ! emulator -list-avds | grep -qx probe; then
+            echo "::warning::the AVD was not created; Q1/Q2 unanswered this run"
+            ls -la "$ANDROID_AVD_HOME" || true
+            exit 0
+          fi
           # swiftshader_indirect: the runner has no GPU, so GL ES is software-rasterised. That still
           # exercises the real EGL/GRContext path — the same caveat the desktop gates carry, where
           # llvmpipe stands in for a GPU.
