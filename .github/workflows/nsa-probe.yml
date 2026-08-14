@@ -19,7 +19,36 @@ name: NSAccessibility probe
 #
 # Every step reports and none asserts: a probe that can fail can hide a finding.
 #
-# FINDINGS: (recorded here once the first run reports — same as atspi-probe.yml)
+# FINDINGS (run 1, macos-26-arm64 / macOS 26.5.2, 2026-08-14) — both questions YES:
+#
+#   Q1, CAN IT BE PROVEN — yes, and more cheaply than feared. AXIsProcessTrusted() is ALREADY
+#   True on a hosted runner: no TCC surgery, no sudo, no sqlite. (SIP reports "disabled" there,
+#   which is why the fallback would have worked too — but it was never needed, so the gate does
+#   not depend on SIP staying off.) Cross-process reads work: Finder answers AXRole=AXApplication
+#   from a different process. So a real AT client can drive the app in CI, exactly as pyatspi does
+#   on Linux and FlaUI does on Windows.
+#
+#   Q2, CAN IT BE PURE C# — yes, end to end, no native shim:
+#     objc_allocateClassPair → class_addMethod (BOTH a BOOL-returning and an object-returning
+#     method, as [UnmanagedCallersOnly] pointers) → objc_registerClassPair → alloc/init →
+#     objc_msgSend dispatches INTO managed code → an NSString built in C# reads back as "AXButton".
+#   So macOS costs one quarantined interop file, the shape UiaInterop.cs already established.
+#   Note for the implementation: objc_msgSend must be imported once per return-type shape — it is
+#   variadic in the headers, and a mismatched signature disagrees about registers on arm64.
+#
+#   THE BASELINE a gate would have to beat — what the Viewer exposes TODAY, with no bridge:
+#     AXApplication "Viewer"
+#       AXWindow "CupriFace — Showcase"
+#         AXButton, AXButton > AXGroup, AXButton, AXStaticText     <- the window's own chrome
+#       AXMenuBar > (the standard Apple menu)
+#   Three unnamed buttons (the traffic lights), one static text, and the system menu bar. NONE of
+#   the app's own controls are visible: SDL's NSView exposes nothing, so the whole semantics tree
+#   is missing. "The Showcase's named controls appear, with roles and actions" is therefore an
+#   assertion that can only pass if a bridge genuinely works — the macOS counterpart of AT-SPI's
+#   "desktop children=0".
+#
+#   Incidental, worth knowing: this runner has no OpenGL ("GL probe failed (no OpenGL here)"), so
+#   macOS CI now exercises the SDL software path. Same caveat as the other two gates.
 
 on:
   workflow_dispatch:
