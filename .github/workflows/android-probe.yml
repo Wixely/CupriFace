@@ -126,8 +126,17 @@ jobs:
           fi
           adb logcat -c || true
           adb install -r out/x64/*-Signed.apk
-          adb shell am start -n com.cupriface.androidprobe/crc*.MainActivity \
-            || adb shell monkey -p com.cupriface.androidprobe -c android.intent.category.LAUNCHER 1
+          # Ask the package manager for the launcher activity rather than guessing its name. The
+          # previous run passed a literal `crc*.MainActivity` — adb shell does not expand that glob,
+          # and `am start` printed "Error: ... does not exist" while exiting 0, so the `||` fallback
+          # never fired and the app simply never started.
+          ACTIVITY=$(adb shell cmd package resolve-activity --brief com.cupriface.androidprobe | tail -1 | tr -d '\r')
+          echo "launcher activity: $ACTIVITY"
+          adb shell am start -n "$ACTIVITY" 2>&1 | tee start.log
+          if grep -q "Error:" start.log; then
+            echo "::warning::am start refused; falling back to monkey"
+            adb shell monkey -p com.cupriface.androidprobe -c android.intent.category.LAUNCHER 1
+          fi
           sleep 45
           echo "### What the app reported" >> $GITHUB_STEP_SUMMARY
           adb logcat -d -s cupri:I | tee -a $GITHUB_STEP_SUMMARY
