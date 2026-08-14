@@ -51,10 +51,24 @@ if [ -n "$A11Y" ]; then
   done
 fi
 
+# Same idea for the events: watch the raw bus while the gate drives the app, so "no signal
+# arrived" can be told apart from "a signal arrived and the client rejected it" (a wrong
+# signature shows up here as a message we sent and libatspi warned about).
+MON_PID=""
+if [ -n "$A11Y" ]; then
+  dbus-monitor --address="$A11Y" "type='signal'" > signals.log 2>&1 &
+  MON_PID=$!
+fi
+
 set +e
 python3 "$HERE/atspi-gate.py"
 RC=$?
 set -e
+
+if [ -n "$MON_PID" ]; then kill "$MON_PID" 2>/dev/null || true; fi
+echo "--- signals seen on the bus (raw) ---"
+grep -oE "member=(StateChanged|PropertyChange|Focus|AddAccessible|RemoveAccessible)" signals.log 2>/dev/null \
+  | sort | uniq -c || echo "(none captured)"
 
 echo "--- viewer output (bridge attach/failure notes land here) ---"
 cat viewer.log || true

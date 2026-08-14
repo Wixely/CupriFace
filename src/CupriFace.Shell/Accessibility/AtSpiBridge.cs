@@ -197,12 +197,12 @@ internal sealed class AtSpiBridge : IPathMethodHandler
         Index(root);
 
         if (_snapshot is null) Log($"first snapshot: {idByPath.Count} nodes, root role '{root.Role}'");
-        var previousFocus = _snapshot?.FocusedPath;
+        var previous = _snapshot;
         _snapshot = new Snapshot(root, byId, idByPath, focusedPath,
             scale <= 0 ? 1f : scale, clientOrigin.X, clientOrigin.Y);
 
-        if (focusedPath is not null && focusedPath != previousFocus && idByPath.TryGetValue(focusedPath, out var fid))
-            EmitFocusChanged(fid);
+        if (focusedPath != previous?.FocusedPath) EmitFocusMoved(previous?.FocusedPath, focusedPath, idByPath);
+        EmitChanges(previous, _snapshot);
     }
 
     private int IdFor(string path)
@@ -219,16 +219,126 @@ internal sealed class AtSpiBridge : IPathMethodHandler
 
     // ---- events -------------------------------------------------------------------------------
 
-    /// <summary>What makes Tab talk: state-changed(focused) plus the legacy focus event, which
-    /// older ATs still listen for.</summary>
-    private void EmitFocusChanged(int id)
+    /// <summary>What makes Tab talk: state-changed(focused) on BOTH ends of the move — the control
+    /// that lost focus and the one that gained it — plus the legacy focus event older ATs still
+    /// listen for.</summary>
+    private void EmitFocusMoved(string? from, string? to, IReadOnlyDictionary<string, int> idByPath)
     {
         try
         {
-            Emit(AtSpi.EventObject, "StateChanged", ObjectPathFor(id), "focused", 1, 0);
-            Emit(AtSpi.EventFocus, "Focus", ObjectPathFor(id), "", 0, 0);
+            if (from is not null && idByPath.TryGetValue(from, out var lost))
+                Emit(AtSpi.EventObject, "StateChanged", ObjectPathFor(lost), "focused", 0, 0);
+            if (to is not null && idByPath.TryGetValue(to, out var gained))
+            {
+                Emit(AtSpi.EventObject, "StateChanged", ObjectPathFor(gained), "focused", 1, 0);
+                Emit(AtSpi.EventFocus, "Focus", ObjectPathFor(gained), "", 0, 0);
+            }
         }
         catch { /* an AT that vanished mid-signal is its problem, not ours */ }
+    }
+
+    /// <summary>Everything else that moved between two frames. The cache an AT loaded at startup is
+    /// a photograph; without these signals it stays a photograph, and the user hears the state a
+    /// control had when the app launched rather than the one it has now.
+    ///
+    /// Three kinds, each the mechanism AT-SPI actually defines for it: StateChanged per flipped
+    /// state bit, PropertyChange for a renamed control, and Cache.AddAccessible/RemoveAccessible
+    /// for structure — the last being how an app pushes a rebuilt subtree into libatspi's cache
+    /// (CupriFace rebuilds the tree per keystroke, so this is the common case, not the rare one).
+    /// </summary>
+    private void EmitChanges(Snapshot? old, Snapshot now)
+    {
+        if (old is null) return;                       // the first frame IS the initial state
+        var emitted = 0;
+        // A section switch can replace the whole tree; bounded so a pathological rebuild can't
+        // spend the frame budget shouting at an AT that has already stopped listening.
+        const int Budget = 512;
+        try
+        {
+            foreach (var (path, id) in now.IdByPath)
+            {
+                if (emitted >= Budget) break;
+                var node = now.ById[id];
+
+                if (!old.IdByPath.TryGetValue(path, out var oldId))
+                {
+                    EmitCacheAdd(now, id);             // brand new object
+                    emitted++;
+                    continue;
+                }
+
+                var before = old.ById[oldId];
+                var changed = AtSpi.StateBitsOf(before) ^ AtSpi.StateBitsOf(node);
+                if (changed != 0)
+                {
+                    var current = AtSpi.StateBitsOf(node);
+                    foreach (var (bit, name) in AtSpi.NotifiedStates)
+                    {
+                        var mask = 1UL << bit;
+                        if ((changed & mask) == 0) continue;
+                        Emit(AtSpi.EventObject, "StateChanged", ObjectPathFor(id), name,
+                             (current & mask) != 0 ? 1 : 0, 0);
+                        emitted++;
+                    }
+                }
+
+                if (!string.Equals(NameOf(before), NameOf(node), StringComparison.Ordinal))
+                {
+                    Emit(AtSpi.EventObject, "PropertyChange", ObjectPathFor(id), "accessible-name", 0, 0);
+                    emitted++;
+                }
+
+                if (ChildrenDiffer(before, node)) { EmitCacheAdd(now, id); emitted++; }
+            }
+
+            foreach (var (path, oldId) in old.IdByPath)
+            {
+                if (emitted >= Budget) break;
+                if (now.IdByPath.ContainsKey(path)) continue;
+                EmitCacheRemove(ObjectPathFor(oldId));
+                emitted++;
+            }
+        }
+        catch { /* never let a signal failure break the frame that produced it */ }
+
+        if (emitted > 0) Log($"changes: {emitted} signal(s)");
+    }
+
+    private static bool ChildrenDiffer(AccessibilityNode before, AccessibilityNode after)
+    {
+        if (before.Children.Count != after.Children.Count) return true;
+        for (var i = 0; i < after.Children.Count; i++)
+            if (!string.Equals(before.Children[i].Path, after.Children[i].Path, StringComparison.Ordinal))
+                return true;
+        return false;
+    }
+
+    /// <summary>Push one object's current cache item at every listener — the signal form of the
+    /// GetItems reply, and the same writer, so the two can never describe an object differently.</summary>
+    private void EmitCacheAdd(Snapshot snap, int id)
+    {
+        if (_bus is not { } bus) return;
+        var w = bus.GetMessageWriter();
+        try
+        {
+            w.WriteSignalHeader(destination: null, path: AtSpi.CachePath, @interface: AtSpi.IfaceCache,
+                member: "AddAccessible", signature: "((so)(so)(so)a(so)assusau)");
+            WriteCacheItem(ref w, snap, ObjectPathFor(id), isApplication: false, node: snap.ById[id]);
+            bus.TrySendMessage(w.CreateMessage());
+        }
+        finally { w.Dispose(); }
+    }
+
+    private void EmitCacheRemove(string path)
+    {
+        if (_bus is not { } bus) return;
+        using var w = bus.GetMessageWriter();
+        w.WriteSignalHeader(destination: null, path: AtSpi.CachePath, @interface: AtSpi.IfaceCache,
+            member: "RemoveAccessible", signature: "(so)");
+        w.WriteStructureStart();
+        w.WriteString(_uniqueName);
+        w.WriteObjectPath(path);
+        bus.TrySendMessage(w.CreateMessage());
     }
 
     private void Emit(string iface, string member, string path, string detail, int detail1, int detail2)

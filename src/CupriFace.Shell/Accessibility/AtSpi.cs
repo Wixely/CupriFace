@@ -171,11 +171,24 @@ internal static class AtSpi
     private const int StateShowing = 25;
     private const int StateVisible = 30;
 
-    /// <summary>The AT-SPI state set as its wire form: a 64-bit mask split into two uint32s
-    /// (low bits first). Anything an AT asks "is this checked / focused / enabled" answers from
-    /// here, so the mapping is the difference between a control that announces its state and one
-    /// that stays silent about it.</summary>
-    internal static (uint Low, uint High) StatesOf(AccessibilityNode n)
+    /// <summary>The states worth a signal when they flip between two frames. An AT learns the
+    /// initial state from the cache, but it only learns about a CHANGE from an event — a checkbox
+    /// that never emits this is one a screen-reader user ticks and hears nothing about.
+    /// "focused" is absent on purpose: the bridge emits it around the focus move itself, where it
+    /// can also announce the node that LOST focus (which a both-frames diff would miss).</summary>
+    internal static readonly (int Bit, string Name)[] NotifiedStates =
+    [
+        (StateChecked, "checked"),
+        (StateEnabled, "enabled"),
+        (StateSensitive, "sensitive"),
+        (StateSelected, "selected"),
+        (StateExpanded, "expanded"),
+        (StateShowing, "showing"),
+        (StateVisible, "visible"),
+    ];
+
+    /// <summary>The AT-SPI state set as one 64-bit mask.</summary>
+    internal static ulong StateBitsOf(AccessibilityNode n)
     {
         ulong bits = 0;
         void Set(int state) => bits |= 1UL << state;
@@ -192,6 +205,15 @@ internal static class AtSpi
         if (n.Expanded == true) Set(StateExpanded);
         if (n.Role is "textbox" or "combobox" && !n.Disabled) Set(StateEditable);
 
+        return bits;
+    }
+
+    /// <summary>The same set in its wire form: two uint32s, low bits first. Anything an AT asks
+    /// ("is this checked / focused / enabled") answers from here, so the mapping is the difference
+    /// between a control that announces its state and one that stays silent about it.</summary>
+    internal static (uint Low, uint High) StatesOf(AccessibilityNode n)
+    {
+        var bits = StateBitsOf(n);
         return ((uint)(bits & 0xFFFFFFFF), (uint)(bits >> 32));
     }
 
