@@ -58,6 +58,7 @@ on:
       - '.github/workflows/nsa-probe.yml'
       - 'tools/nsa-*'
       - 'tools/NsaObjcProbe/**'
+      - 'src/CupriFace.Shell/Accessibility/**'
 
 jobs:
   # Q2 — the design-deciding one, and the cheaper of the two.
@@ -98,3 +99,26 @@ jobs:
         run: |
           chmod +x tools/nsa-probe.sh tools/nsa-probe.py
           tools/nsa-probe.sh "$PWD/viewer/Viewer"
+
+  # THE GATE, driven by the AX client API — the channel VoiceOver uses. It lives here only while
+  # the bridge is being built; once green it moves into ci.yml beside the FlaUI and pyatspi gates,
+  # which is where a blocking gate belongs.
+  gate:
+    name: Does VoiceOver see the app?
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install a real accessibility client (pyobjc)
+        run: |
+          python3 -m pip install --break-system-packages --quiet             pyobjc-framework-Cocoa pyobjc-framework-ApplicationServices ||             python3 -m pip install --quiet pyobjc-framework-Cocoa pyobjc-framework-ApplicationServices
+      - name: Publish the Viewer
+        run: >
+          dotnet publish samples/Viewer/Viewer.csproj -c Release -r osx-arm64
+          --self-contained -p:PublishSingleFile=true -o viewer
+      - name: Drive it as VoiceOver would
+        run: |
+          chmod +x tools/nsa-gate.sh tools/nsa-gate.py
+          tools/nsa-gate.sh "$PWD/viewer/Viewer"

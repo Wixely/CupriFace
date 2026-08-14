@@ -73,6 +73,23 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         }
     }
 
+    /// <summary>The NSWindow once the window exists; null before <see cref="Run"/> and on every
+    /// other OS. What the NSAccessibility bridge subclasses the content view of — and, as on
+    /// Windows, this software window is the path a GPU-less Mac actually takes, so it has to serve
+    /// accessibility too.</summary>
+    public nint? CocoaWindow
+    {
+        get
+        {
+            if (_window is null || !OperatingSystem.IsMacOS()) return null;
+            var info = new SysWMInfo();
+            _sdl.GetVersion(&info.Version);   // SDL refuses WM info without the caller's version
+            if (!_sdl.GetWindowWMInfo(_window, &info)) return null;
+            var window = (nint)info.Info.Cocoa.Window;
+            return window == 0 ? null : window;
+        }
+    }
+
     /// <summary>Screen position of the client area's top-left (SDL positions windows by client
     /// area, matching the origin pointer coordinates are relative to).</summary>
     public (int X, int Y) ScreenPosition

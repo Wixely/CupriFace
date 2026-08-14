@@ -123,7 +123,7 @@ public static class DesktopHost
             // frame — the subscription order after Draw is what sequences that. No-ops on a
             // platform without a bridge, under its kill switch, or if attaching failed.
             using var a11y = new Accessibility.PlatformAccessibility(doc, () => dirty = true, app.Title);
-            window.Tick += () => { if (a11y.Tick(() => window.Win32Hwnd)) dirty = true; };
+            window.Tick += () => { if (a11y.Tick(() => OperatingSystem.IsMacOS() ? window.CocoaWindow : window.Win32Hwnd)) dirty = true; };
             window.Render += _ => a11y.Publish(logicalW, logicalH, scale, window.ScreenPosition);
 
             window.PointerDown += (x, y, clicks) => { Mark(doc.DispatchClick(x / scale, y / scale, clicks)); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
@@ -164,7 +164,7 @@ public static class DesktopHost
             // VMs, CI runners, and every headless Linux box) actually take, so assistive tech
             // must work here, not only on GL.
             using var a11y = new Accessibility.PlatformAccessibility(doc, () => dirty = true, app.Title);
-            window.Tick += () => { if (a11y.Tick(() => window.Win32Hwnd)) dirty = true; };
+            window.Tick += () => { if (a11y.Tick(() => OperatingSystem.IsMacOS() ? window.CocoaWindow : window.Win32Hwnd)) dirty = true; };
 
             // Commit-snapshot render thread (opt-in): build the display list on this UI thread and let
             // a background thread rasterise it; present the latest completed frame each vsync. Targets
