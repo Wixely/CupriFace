@@ -196,8 +196,12 @@ def check_frames(app):
     # reach anything. macOS's idiom is element hiding — an off-screen node stops being an element
     # and the system splices it out — so the proof is simply that nothing reachable is outside the
     # window. This counted 88 before the tree learned to compute visibility.
+    # Walk the WINDOW, not the app: an app's tree also contains the system menu bar, which macOS
+    # provides for every process and which sits outside the window by definition (the Apple menu is
+    # at the top of the screen, and its menus draw wherever they like). Those are not ours to hide,
+    # and scoping to the window is the difference between testing the bridge and testing macOS.
     escapees = [f"{named(e)} at {rect(e)[0]:.0f},{rect(e)[1]:.0f}"
-                for _, e in walk(app)
+                for _, e in walk(window)
                 if named(e) and attr(e, "AXRole") not in (None, "AXWindow", "AXApplication")
                 and rect(e) and not contained(rect(e))]
     check("nothing off screen is reachable (content below the fold is skipped)", not escapees,
