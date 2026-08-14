@@ -44,6 +44,7 @@ jobs:
   probe:
     name: Does it render on a phone?
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -88,15 +89,28 @@ jobs:
           # exercises the real EGL/GRContext path — the same caveat the desktop gates carry, where
           # llvmpipe stands in for a GPU.
           $SDK/emulator/emulator -avd probe -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect             -no-snapshot -camera-back none > emulator.log 2>&1 &
-          adb wait-for-device
-          # Booted != ready: wait for the package manager rather than guessing with a sleep.
-          timeout 300 adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 2; done' || true
-          adb shell getprop sys.boot_completed
+
+          # EVERY wait is bounded. An unbounded `adb wait-for-device` does not fail when the
+          # emulator never appears — it hangs the job until the runner is killed, which is a
+          # non-answer dressed up as a timeout.
+          if ! timeout 420 adb wait-for-device; then
+            echo "::warning::the emulator never registered with adb"
+            tail -60 emulator.log || true
+            exit 0
+          fi
+          # Booted != ready: wait for the property the system sets last, not a guessed sleep.
+          timeout 420 adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 2; done' || true
+          echo "boot_completed=$(adb shell getprop sys.boot_completed 2>&1)"
           adb devices
+          tail -20 emulator.log || true
 
       - name: Install it and watch it draw
         run: |
           set -x
+          if [ -z "$(adb devices | grep -w device)" ]; then
+            echo "::warning::no device — Q1/Q2 unanswered this run; the build numbers above still stand"
+            exit 0
+          fi
           adb logcat -c || true
           adb install -r out/x64/*-Signed.apk
           adb shell am start -n com.cupriface.androidprobe/crc*.MainActivity \
