@@ -166,28 +166,39 @@ def check_frames(app):
     # AXFrame in top-left-origin space, macOS having converted in between. So down here, in client
     # space, a control at the top of the document has a SMALLER y than the window's midpoint.
     #
-    # Two assertions, each catching a different real failure:
-    #   1. every named control lies inside its own window. This is what catches a forgotten
-    #      logical-units -> points scale: the error is proportional to distance from the origin, so
-    #      controls near the far edge fall outside the window while ones near the origin look fine.
-    #   2. "Toggle sidebar" — literally the first element in ShowcaseApp.html — is in the top half.
-    #      That is what catches a missing or doubled Y flip, which containment alone cannot see
-    #      because a perfectly mirrored tree is still inside the window.
+    # Two assertions, each catching a different real failure.
+    #
+    # 1. THE ROOT FILLS THE CONTENT AREA. The engine's root node covers the whole viewport, so its
+    #    frame must equal the window's content rectangle. This is the check that catches a dropped
+    #    logical-units -> points scale exactly: with scale 0.897 the root is 940 points wide, and
+    #    unscaled it would claim 1047 — against a 940-wide window.
+    #    (Containment over every control is NOT the right test, and was tried: the semantics tree
+    #    covers the whole document including everything below the fold, so ~88 controls legitimately
+    #    report coordinates outside the window. Reported below as information, not as a failure.)
+    root = find(app, lambda n: attr(n, "AXRole") == "AXGroup")
+    rr = rect(root) if root is not None else None
+    if rr:
+        width_ok = abs(rr[2] - wr[2]) <= 4
+        # The content area is the window minus its title bar, so a little shorter and never taller.
+        height_ok = wr[3] - 44 <= rr[3] <= wr[3] + 1
+        check("the root fills the window's content area (units are points, not logical)",
+              width_ok and height_ok,
+              f"root {rr[2]:.0f}x{rr[3]:.0f} vs window {wr[2]:.0f}x{wr[3]:.0f}")
+    else:
+        check("the root container is exposed", False, "no AXGroup found")
+
     def contained(r):
         return (wr[0] - 1 <= r[0] and r[0] + r[2] <= wr[0] + wr[2] + 1 and
                 wr[1] - 1 <= r[1] and r[1] + r[3] <= wr[1] + wr[3] + 1)
 
-    escapees = []
-    for _, element in walk(app):
-        if not named(element) or attr(element, "AXRole") in (None, "AXWindow", "AXApplication"):
-            continue
-        r = rect(element)
-        if r and not contained(r):
-            escapees.append(f"{named(element)} at {r[0]:.0f},{r[1]:.0f} {r[2]:.0f}x{r[3]:.0f}")
-    check("every named control lies within its window", not escapees,
-          f"window {wr[0]:.0f},{wr[1]:.0f} {wr[2]:.0f}x{wr[3]:.0f}; "
-          + (f"{len(escapees)} outside: " + "; ".join(escapees[:3]) if escapees else "none outside"))
+    outside = sum(1 for _, e in walk(app)
+                  if named(e) and attr(e, "AXRole") not in (None, "AXWindow", "AXApplication")
+                  and (rect(e) or (0, 0, 0, 0)) and not contained(rect(e) or (0, 0, 0, 0)))
+    print(f"  note: {outside} named controls lie outside the window — expected, that is the content "
+          f"below the fold (see ROADMAP: off-screen nodes are not yet marked hidden)", flush=True)
 
+    # 2. Y IS FLIPPED. Containment cannot see this — a perfectly mirrored tree is still inside the
+    #    window — so it takes a control whose position in the document is known.
     centre_y = br[1] + br[3] / 2
     midpoint = wr[1] + wr[3] / 2
     check("Y is flipped correctly (the first control is in the window's top half)",
