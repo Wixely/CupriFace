@@ -239,7 +239,10 @@ internal sealed class NsAccessibilityBridge : IDisposable
         var frame = ObjC.SendRect(_window, ObjC.Sel("frame"));
         var content = ObjC.SendRect(_view, ObjC.Sel("frame"));
 
-        if (_snapshot is null) Log($"first snapshot: {idByPath.Count} nodes, root role '{root.Role}'");
+        if (_snapshot is null)
+            Log($"first snapshot: {idByPath.Count} nodes, root role '{root.Role}'; " +
+                $"window frame ({frame.X},{frame.Y} {frame.Width}x{frame.Height}), " +
+                $"content {content.Width}x{content.Height}, logical {logicalWidth}x{logicalHeight}, scale {scale}");
         var previousFocus = _snapshot?.FocusedPath;
         _snapshot = new Snapshot(root, byId, idByPath, focusedPath,
             frame.X, frame.Y, content.Height);

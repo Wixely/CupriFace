@@ -118,22 +118,62 @@ def check_tree(app):
               f"{roles.get(role, 0)} found")
 
 
+def rect(element):
+    """An element's AXFrame as (x, y, w, h). It arrives as an AXValue wrapping a CGRect, which
+    pyobjc will not unwrap by attribute access — AXValueGetValue is the supported way out."""
+    value = attr(element, "AXFrame")
+    if value is None:
+        return None
+    try:
+        from ApplicationServices import AXValueGetValue, kAXValueCGRectType
+        from Quartz import CGRect
+        ok, r = AXValueGetValue(value, kAXValueCGRectType, None)
+        if ok:
+            return (r.origin.x, r.origin.y, r.size.width, r.size.height)
+    except Exception:                                            # noqa: BLE001
+        pass
+    # Fall back to parsing the description, which prints the rect verbatim.
+    import re
+    m = re.search(r"x:([-\d.]+)\s+y:([-\d.]+)\s+w:([-\d.]+)\s+h:([-\d.]+)", str(value))
+    return tuple(float(g) for g in m.groups()) if m else None
+
+
 def check_frames(app):
-    button = find(app, lambda n: attr(n, "AXRole") == "AXButton" and named(n))
+    window = find(app, lambda n: attr(n, "AXRole") == "AXWindow")
+    wr = rect(window) if window is not None else None
+    if wr:
+        print(f"  window frame: x={wr[0]:.0f} y={wr[1]:.0f} w={wr[2]:.0f} h={wr[3]:.0f}", flush=True)
+
+    # By NAME, not by position: "Toggle sidebar" is the first element in ShowcaseApp.html
+    # (sidebar > brand-row > collapse-btn), i.e. the top-left of the window. Naming it makes the
+    # assumption the flip check rests on auditable instead of implicit.
+    button = find(app, lambda n: named(n) == "Toggle sidebar") \
+        or find(app, lambda n: attr(n, "AXRole") == "AXButton" and named(n))
     if not check("a named button is addressable", button is not None,
                  named(button) if button else "none"):
         return
-    frame = attr(button, "AXFrame")
-    # AXFrame comes back as an NSValue-wrapped CGRect; pyobjc renders it as a struct-like object.
-    ok = frame is not None
-    size = ""
-    if ok:
-        try:
-            size = f"{frame.size.width:.0f}x{frame.size.height:.0f} at {frame.origin.x:.0f},{frame.origin.y:.0f}"
-            ok = frame.size.width > 0 and frame.size.height > 0
-        except Exception:                                        # noqa: BLE001
-            size = str(frame)
-    check("it reports real on-screen extents", ok, size or "no AXFrame")
+
+    br = rect(button)
+    check("it reports real on-screen extents", br is not None and br[2] > 0 and br[3] > 0,
+          f"{br[2]:.0f}x{br[3]:.0f} at {br[0]:.0f},{br[1]:.0f}" if br else "no AXFrame")
+    if br is None or wr is None:
+        return
+
+    # GEOMETRY, not just non-zero numbers. AX coordinates put the origin at the BOTTOM left, and
+    # the engine measures from the TOP left, so a bridge that forgets to flip Y produces rectangles
+    # that are individually plausible and collectively mirrored. Two assertions catch that:
+    #   1. the control lies inside its own window;
+    #   2. a TOOLBAR button — which is at the top of the document — sits in the top half of it.
+    inside = (wr[0] - 1 <= br[0] and br[0] + br[2] <= wr[0] + wr[2] + 1 and
+              wr[1] - 1 <= br[1] and br[1] + br[3] <= wr[1] + wr[3] + 1)
+    check("the control lies within its window", inside,
+          f"button {br[0]:.0f},{br[1]:.0f} {br[2]:.0f}x{br[3]:.0f} vs window "
+          f"{wr[0]:.0f},{wr[1]:.0f} {wr[2]:.0f}x{wr[3]:.0f}")
+
+    centre_y = br[1] + br[3] / 2
+    midpoint = wr[1] + wr[3] / 2
+    check("Y is flipped into AppKit space (a toolbar button is in the window's top half)",
+          centre_y > midpoint, f"button centre y={centre_y:.0f}, window midpoint y={midpoint:.0f}")
 
 
 def check_press(app):
