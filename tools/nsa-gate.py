@@ -191,11 +191,18 @@ def check_frames(app):
         return (wr[0] - 1 <= r[0] and r[0] + r[2] <= wr[0] + wr[2] + 1 and
                 wr[1] - 1 <= r[1] and r[1] + r[3] <= wr[1] + wr[3] + 1)
 
-    outside = sum(1 for _, e in walk(app)
-                  if named(e) and attr(e, "AXRole") not in (None, "AXWindow", "AXApplication")
-                  and (rect(e) or (0, 0, 0, 0)) and not contained(rect(e) or (0, 0, 0, 0)))
-    print(f"  note: {outside} named controls lie outside the window — expected, that is the content "
-          f"below the fold (see ROADMAP: off-screen nodes are not yet marked hidden)", flush=True)
+    # Off-screen content must not be reachable. VoiceOver walks what the app exposes, so a bridge
+    # that hands over the whole document makes the user page through everything below the fold to
+    # reach anything. macOS's idiom is element hiding — an off-screen node stops being an element
+    # and the system splices it out — so the proof is simply that nothing reachable is outside the
+    # window. This counted 88 before the tree learned to compute visibility.
+    escapees = [f"{named(e)} at {rect(e)[0]:.0f},{rect(e)[1]:.0f}"
+                for _, e in walk(app)
+                if named(e) and attr(e, "AXRole") not in (None, "AXWindow", "AXApplication")
+                and rect(e) and not contained(rect(e))]
+    check("nothing off screen is reachable (content below the fold is skipped)", not escapees,
+          f"{len(escapees)} reachable outside the window"
+          + (": " + "; ".join(escapees[:3]) if escapees else ""))
 
     # 2. Y IS FLIPPED. Containment cannot see this — a perfectly mirrored tree is still inside the
     #    window — so it takes a control whose position in the document is known.

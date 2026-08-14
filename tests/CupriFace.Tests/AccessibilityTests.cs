@@ -196,4 +196,63 @@ public class AccessibilityTests
         using var t = new TestDoc("<body><cupri-switch checked=\"{{On}}\">X</cupri-switch></body>", "", m, components: true);
         Assert.Equal("On", FindRole(t.Doc.BuildAccessibilityTree(400, 300), "switch")!.AutomationId);
     }
+
+    // ---- off-screen ------------------------------------------------------------------------------
+    // A screen reader should read the visible page, not the whole document. All three bridges hang
+    // off the flag these cover: Narrator's IsOffscreen, Orca's not-SHOWING, VoiceOver's element
+    // hiding. The Showcase's landing page carries 88 such controls, so the difference is not subtle.
+
+    private static AccessibilityNode? FindNamed(AccessibilityNode n, string name)
+    {
+        if (n.Name == name) return n;
+        foreach (var c in n.Children) { var f = FindNamed(c, name); if (f is not null) return f; }
+        return null;
+    }
+
+    private const string ScrollerCss = ".box{height:100px;overflow:auto;} .row{height:100px;} .tall{height:1000px;}";
+
+    [Fact]
+    public void A_control_below_the_viewport_is_offscreen()
+    {
+        // The viewport is 300 tall; this button starts at 500.
+        const string html =
+            "<body><div style=\"height:500px\"></div>" +
+            "<div role=\"button\" aria-label=\"Below\">x</div></body>";
+        using var t = new TestDoc(html, "", height: 300);
+        Assert.True(FindNamed(t.Doc.BuildAccessibilityTree(400, 300), "Below")!.Offscreen);
+    }
+
+    [Fact]
+    public void A_control_clipped_away_by_an_overflow_ancestor_is_offscreen()
+    {
+        // Inside the viewport by its own coordinates, but its scroller crops it — which is why the
+        // test cannot be "is it within the window" and has to follow the clip chain.
+        const string html =
+            "<body><div class=\"box\">" +
+            "<div class=\"row\" role=\"button\" aria-label=\"First\">a</div>" +
+            "<div class=\"tall\" role=\"button\" aria-label=\"Far\">b</div>" +
+            "</div></body>";
+        using var t = new TestDoc(html, ScrollerCss, height: 300);
+        var tree = t.Doc.BuildAccessibilityTree(400, 300);
+        Assert.False(FindNamed(tree, "First")!.Offscreen);   // fills the 100px scroller
+        Assert.True(FindNamed(tree, "Far")!.Offscreen);      // starts below its clipped bottom edge
+    }
+
+    [Fact]
+    public void A_control_only_half_scrolled_into_view_still_counts_as_visible()
+    {
+        // Reachable and readable, so hiding it would be worse than announcing it: any overlap counts.
+        const string html =
+            "<body><div style=\"height:280px\"></div>" +
+            "<div class=\"row\" role=\"button\" aria-label=\"Straddling\">x</div></body>";
+        using var t = new TestDoc(html, ScrollerCss, height: 300);
+        Assert.False(FindNamed(t.Doc.BuildAccessibilityTree(400, 300), "Straddling")!.Offscreen);
+    }
+
+    [Fact]
+    public void Controls_on_the_visible_page_are_not_offscreen()
+    {
+        using var t = new TestDoc("<body><div role=\"button\" aria-label=\"Here\">x</div></body>", "", height: 300);
+        Assert.False(FindNamed(t.Doc.BuildAccessibilityTree(400, 300), "Here")!.Offscreen);
+    }
 }

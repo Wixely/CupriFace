@@ -193,8 +193,11 @@ internal static class AtSpi
         ulong bits = 0;
         void Set(int state) => bits |= 1UL << state;
 
+        // AT-SPI separates the two, and the difference is exactly what off-screen means here:
+        // VISIBLE is "would be rendered if you scrolled to it", SHOWING is "is on screen now".
+        // Orca skips anything not SHOWING, which is how a reader stays on the visible page.
         Set(StateVisible);
-        Set(StateShowing);
+        if (!n.Offscreen) Set(StateShowing);
         if (!n.Disabled) { Set(StateEnabled); Set(StateSensitive); }
         if (n.Focusable) Set(StateFocusable);
         if (n.Focused) Set(StateFocused);

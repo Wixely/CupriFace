@@ -210,6 +210,7 @@ internal static class UiaIds
     public const int HelpTextProperty = 30013;
     public const int IsControlElementProperty = 30016;
     public const int IsContentElementProperty = 30017;
+    public const int IsOffscreenProperty = 30022;
     public const int FrameworkIdProperty = 30024;
 
     // Control types

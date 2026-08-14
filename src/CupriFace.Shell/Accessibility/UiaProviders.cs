@@ -129,6 +129,9 @@ internal sealed class UiaNodeProvider :
             UiaIds.FrameworkIdProperty => "CupriFace",
             UiaIds.IsControlElementProperty => true,
             UiaIds.IsContentElementProperty => true,
+            // Scrolled past, or clipped away by an overflow ancestor. Narrator uses this to skip a
+            // control rather than read the whole document aloud.
+            UiaIds.IsOffscreenProperty => n.Offscreen,
             _ => null,
         };
     }

@@ -25,6 +25,14 @@ public sealed class AccessibilityNode
     public bool? Expanded;                // aria-expanded, where the role carries it
     public double? Now, Min, Max;         // slider / progressbar / spinbutton
     public (float X, float Y, float W, float H) Bounds;   // on-screen CSS px (scroll applied)
+
+    /// <summary>True when the node's box lies entirely outside what is actually on screen — scrolled
+    /// past, or clipped away by an <c>overflow</c> ancestor. It is still in the tree (an AT may
+    /// legitimately want the whole document), but every bridge marks it so a screen reader does not
+    /// stop on it. Without this a reader walks the entire document instead of the visible page: the
+    /// Showcase's landing page alone carries 88 such controls.</summary>
+    public bool Offscreen;
+
     public AccessibilityNode? Parent;
     public readonly List<AccessibilityNode> Children = new();
 
@@ -51,8 +59,11 @@ public static class AccessibilityTree
     public static AccessibilityNode Build(RenderNode root, Func<IElement, bool>? isFocusable, RenderNode? focused)
     {
         var node = new AccessibilityNode { Role = "document", Bounds = (root.X, root.Y, root.Width, root.Height) };
+        // The viewport is the outermost clip: anything landing outside it is off screen by
+        // definition, and everything inside narrows from here.
+        var viewport = (root.X, root.Y, root.Width, root.Height);
         for (var i = 0; i < root.Children.Count; i++)
-            Collect(root.Children[i], root.X, ChildOriginY(root, root.Y), "/" + i, node, isFocusable, focused);
+            Collect(root.Children[i], root.X, ChildOriginY(root, root.Y), "/" + i, node, isFocusable, focused, viewport, viewport);
         return node;
     }
 
@@ -63,13 +74,16 @@ public static class AccessibilityTree
         ay - (n.IsScrollable ? Math.Clamp(n.ScrollY, 0, n.MaxScrollY) : 0f);
 
     private static void Collect(RenderNode render, float originX, float originY, string path,
-        AccessibilityNode parent, Func<IElement, bool>? isFocusable, RenderNode? focused)
+        AccessibilityNode parent, Func<IElement, bool>? isFocusable, RenderNode? focused,
+        (float X, float Y, float W, float H) clip, (float X, float Y, float W, float H) viewport)
     {
         if (render.Style.Display == DisplayType.None) return;
 
         // Top-layer nodes (overlays, position:fixed) already hold absolute viewport coordinates.
         var ax = (render.IsTopLayer ? 0 : originX) + render.X;
         var ay = (render.IsTopLayer ? 0 : originY) + render.Y;
+        // ...and they escape their ancestors' clipping too, which is the point of the top layer.
+        if (render.IsTopLayer) clip = viewport;
 
         var role = RoleOf(render);
         var target = parent;
@@ -88,15 +102,42 @@ public static class AccessibilityTree
                 Focused = focused is not null && ReferenceEquals(render, focused),
                 Disabled = IsDisabled(el),
                 AutomationId = FirstAttr(el, "id", "data-bind-value", "data-bind-checked"),
+                Offscreen = !Intersects(clip, ax, ay, render.Width, render.Height),
             };
             ApplyValues(sem, render, el, role);
             parent.Children.Add(sem);
             target = sem;
         }
+        // A node whose overflow is not `visible` clips its children — the SAME condition the painter
+        // uses to emit a PushClip, so what paints clipped and what reads as off screen cannot
+        // disagree.
+        var childClip = clip;
+        if (render.Style.Overflow != OverflowMode.Visible)
+            childClip = Intersect(clip,
+                ax + render.BorderLeftW, ay + render.BorderTopW,
+                render.Width - render.BorderLeftW - render.BorderRightW,
+                render.Height - render.BorderTopW - render.BorderBottomW);
+
         var childOy = ChildOriginY(render, ay);
         for (var i = 0; i < render.Children.Count; i++)
-            Collect(render.Children[i], ax, childOy, path + "/" + i, target, isFocusable, focused);
+            Collect(render.Children[i], ax, childOy, path + "/" + i, target, isFocusable, focused, childClip, viewport);
     }
+
+    private static (float X, float Y, float W, float H) Intersect(
+        (float X, float Y, float W, float H) a, float x, float y, float w, float h)
+    {
+        var left = Math.Max(a.X, x);
+        var top = Math.Max(a.Y, y);
+        var right = Math.Min(a.X + a.W, x + w);
+        var bottom = Math.Min(a.Y + a.H, y + h);
+        return (left, top, Math.Max(0, right - left), Math.Max(0, bottom - top));
+    }
+
+    /// <summary>Any overlap at all counts as on screen: a control half scrolled into view is one the
+    /// user can see and reach, so a strict containment test would hide it.</summary>
+    private static bool Intersects((float X, float Y, float W, float H) clip, float x, float y, float w, float h) =>
+        w > 0 && h > 0 && clip.W > 0 && clip.H > 0 &&
+        x < clip.X + clip.W && x + w > clip.X && y < clip.Y + clip.H && y + h > clip.Y;
 
     /// <summary>The engine-wide definition of "disabled": the <c>disabled</c> attribute, the
     /// <c>disabled</c> class the components emit (e.g. a pagination arrow on the first page), or
