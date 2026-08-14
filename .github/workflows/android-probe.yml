@@ -57,7 +57,12 @@ name: Android probe
 #   Q2 ANSWERED (SwiftShader software GL, so a floor not a ceiling): app constructed 17 ms,
 #   document built 366 ms, FIRST FRAME 841 ms from process start, 60 frames by 2967 ms.
 #   Q3 REVISED: the working runtime costs size — CoreCLR x64 APK is 21,779,862 bytes against
-#   Mono's 12,445,728. The arm64 CoreCLR number lands in this run's summary.
+#   Mono's 12,445,728; the store-shaped arm64 build is 20,686,272 under CoreCLR against
+#   12,011,747 under Mono (run 9). ~19.7 MB is still an ordinary mobile app, and the gap is
+#   worth re-measuring as Android CoreCLR matures — its trimming is visibly younger than Mono's.
+#
+#   REPRODUCED in run 9 with the runtimes pinned per leg: all three Mono variants crash
+#   identically, CoreCLR renders — document 356 ms, first frame 1152 ms, 60 frames by 3944 ms.
 #
 # Harness bugs found and fixed on the way, recorded so the next person skips them: sdkmanager is
 # not on PATH (it lives under cmdline-tools/latest/bin); /dev/kvm is root:kvm 0660 and needs a udev
