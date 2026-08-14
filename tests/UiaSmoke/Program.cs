@@ -65,6 +65,32 @@ try
         return (cupri >= 15, $"{all.Length} elements, {cupri} from CupriFace");
     });
 
+    // Content below the fold must say so. Narrator uses IsOffscreen to skip a control; a bridge that
+    // reports every node as on screen makes the user walk the whole document to reach the page.
+    // Both halves matter: that something IS marked, and that the marking agrees with the geometry.
+    Check("content below the fold reports IsOffscreen", () =>
+    {
+        var all = window.FindAllDescendants();
+        var offscreen = 0;
+        var lying = new List<string>();
+        var bounds = window.BoundingRectangle;
+        foreach (var e in all)
+        {
+            try
+            {
+                if (e.Properties.FrameworkId.ValueOrDefault != "CupriFace") continue;
+                if (e.Properties.IsOffscreen.ValueOrDefault) { offscreen++; continue; }
+                var r = e.BoundingRectangle;
+                if (r.Width > 0 && r.Height > 0 && !bounds.IntersectsWith(r))
+                    lying.Add($"{e.Properties.Name.ValueOrDefault} at {r.X},{r.Y}");
+            }
+            catch { /* an element that vanished mid-walk is not a finding */ }
+        }
+        return (offscreen >= 1 && lying.Count == 0,
+            $"{offscreen} offscreen; {lying.Count} claim on-screen but sit outside the window"
+            + (lying.Count > 0 ? ": " + string.Join("; ", lying.Take(3)) : ""));
+    });
+
     Check("a named button advertises Invoke", () =>
     {
         var button = window.FindAllDescendants(cf => cf.ByControlType(ControlType.Button))

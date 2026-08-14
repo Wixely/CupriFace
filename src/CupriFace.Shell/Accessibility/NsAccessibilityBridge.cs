@@ -364,6 +364,25 @@ internal sealed class NsAccessibilityBridge : IDisposable
         return r.Bridge._view;
     }
 
+    /// <summary>An off-screen subtree is not handed over at all.
+    ///
+    /// This is where macOS genuinely differs from the other two platforms, and the difference is not
+    /// a preference. UIA has IsOffscreen and AT-SPI has SHOWING: the node stays in the tree, carries
+    /// a flag, and the screen reader skips it. VoiceOver has no such flag to honour — it navigates
+    /// whatever <c>accessibilityChildren</c> returns — so the only way for content below the fold to
+    /// be genuinely unreachable is to leave it out. (<c>isAccessibilityElement</c> answering NO stops
+    /// VoiceOver LANDING on a node; it does not remove it from a client's walk, which is exactly
+    /// what the gate caught.)</summary>
+    private static bool Reachable(AccessibilityNode n)
+    {
+        if (!n.Offscreen) return true;
+        // A clipped-away container can still hold something visible — absolute positioning escapes
+        // its parent's box — so an off-screen node is only dropped when nothing under it shows.
+        foreach (var child in n.Children)
+            if (Reachable(child)) return true;
+        return false;
+    }
+
     [UnmanagedCallersOnly]
     private static nint ElementChildren(nint self, nint sel)
     {
@@ -372,7 +391,7 @@ internal sealed class NsAccessibilityBridge : IDisposable
             if (Resolve(self) is not { } r) return ObjC.NSArray([]);
             var kids = new List<nint>(r.Node.Children.Count);
             foreach (var child in r.Node.Children)
-                if (r.Snap.IdByPath.TryGetValue(child.Path, out var cid))
+                if (Reachable(child) && r.Snap.IdByPath.TryGetValue(child.Path, out var cid))
                     kids.Add(r.Bridge.ElementFor(cid));
             return ObjC.NSArray(kids.ToArray());
         }
