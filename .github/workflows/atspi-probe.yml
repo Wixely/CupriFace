@@ -14,7 +14,13 @@ name: AT-SPI probe
 # Every step reports and none asserts: the point is to learn, so nothing may mask a finding.
 
 on:
+  # workflow_dispatch alone would be useless here: GitHub only offers it for workflows already
+  # on the DEFAULT branch, and this one is being developed on a branch. Push-triggered on its
+  # own files, the same shape codecs.yml uses.
   workflow_dispatch:
+  push:
+    branches: [ feature/atspi ]
+    paths: [ '.github/workflows/atspi-probe.yml', 'tools/atspi-probe.sh', 'tools/atspi-probe.py' ]
 
 jobs:
   stack:
