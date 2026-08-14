@@ -69,12 +69,25 @@ jobs:
       - name: Boot an emulator
         run: |
           set -x
-          sudo modprobe kvm || true
-          ls -l /dev/kvm || echo "::warning::no /dev/kvm — the emulator will be very slow or fail"
+          # The SDK's tools are not on PATH on this image; sdkmanager lives under cmdline-tools.
+          SDK=${ANDROID_SDK_ROOT:-$ANDROID_HOME}
+          export PATH="$SDK/cmdline-tools/latest/bin:$SDK/platform-tools:$SDK/emulator:$PATH"
+          echo "PATH=$PATH" >> $GITHUB_ENV
+
+          # /dev/kvm exists on this runner but is root:kvm 0660, so the emulator cannot open it.
+          # Without this the run falls back to pure emulation and takes minutes per boot.
+          ls -l /dev/kvm || echo "::warning::no /dev/kvm — the emulator will be very slow"
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"'             | sudo tee /etc/udev/rules.d/99-kvm4all.rules > /dev/null
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm || true
+          ls -l /dev/kvm
+
           yes | sdkmanager --licenses > /dev/null 2>&1 || true
           sdkmanager --install "system-images;android-34;google_apis;x86_64" "platform-tools" "emulator" > /dev/null
           echo no | avdmanager create avd -n probe -k "system-images;android-34;google_apis;x86_64" --force
-          $ANDROID_HOME/emulator/emulator -avd probe -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect &
+          # swiftshader_indirect: the runner has no GPU, so GL ES is software-rasterised. That still
+          # exercises the real EGL/GRContext path — the same caveat the desktop gates carry, where
+          # llvmpipe stands in for a GPU.
+          $SDK/emulator/emulator -avd probe -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect             -no-snapshot -camera-back none > emulator.log 2>&1 &
           adb wait-for-device
           # Booted != ready: wait for the package manager rather than guessing with a sleep.
           timeout 300 adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 2; done' || true
