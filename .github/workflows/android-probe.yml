@@ -46,6 +46,19 @@ name: Android probe
 #     the resources source generator, and Android is the first platform where the app is neither
 #     a plain file on disk nor a wasm bundle. The next run logs the exception in full.
 #
+# VERDICT (run 8, the four-variant experiment) — the crash is MONO ITSELF, and CoreCLR is the fix:
+#   Mono+AOT+trimmed: crash.  Mono JIT+trimmed: crash.  Mono JIT untrimmed: crash (same stack,
+#   now with parameter names — trimming exonerated).  CoreCLR: runs the full Showcase.
+#   JIT and AOT share Mono's code generator, which is why disabling AOT changed nothing; a native
+#   fault in the vectorised String.Equals surfacing as a managed NRE fits every observation.
+#   The probe app now sets UseMonoRuntime=false, which is also where Android .NET is heading.
+#
+#   Q1 ANSWERED: YES — the engine renders the real Showcase on a GL surface on a booted device.
+#   Q2 ANSWERED (SwiftShader software GL, so a floor not a ceiling): app constructed 17 ms,
+#   document built 366 ms, FIRST FRAME 841 ms from process start, 60 frames by 2967 ms.
+#   Q3 REVISED: the working runtime costs size — CoreCLR x64 APK is 21,779,862 bytes against
+#   Mono's 12,445,728. The arm64 CoreCLR number lands in this run's summary.
+#
 # Harness bugs found and fixed on the way, recorded so the next person skips them: sdkmanager is
 # not on PATH (it lives under cmdline-tools/latest/bin); /dev/kvm is root:kvm 0660 and needs a udev
 # rule or the emulator silently falls back to slow emulation; avdmanager and the emulator disagree
@@ -81,12 +94,14 @@ jobs:
       # String.Equals(String, String) — an overload that null-checks and cannot NRE — under
       # three-line component code that runs on every other platform. On Mono, a native fault in
       # AOT-compiled code surfaces exactly like this. One variant per suspect, one variable each:
-      #   default  Mono + profiled AOT + trimmed   (the Release default; the known-crashing control)
-      #   noaot    Mono JIT, still trimmed          (isolates the AOT compiler)
-      #   notrim   Mono JIT, untrimmed              (AOT requires trimming — XA1030 — so untrimmed
-      #                                              must also be JIT; if noaot crashes and this
-      #                                              does not, the trimmer is the culprit)
-      #   coreclr  CoreCLR, default trim            (isolates the Mono runtime itself)
+      #   mono         Mono + profiled AOT + trimmed  (the old Release default; the crashing control)
+      #   mono-noaot   Mono JIT, still trimmed        (isolates the AOT compiler)
+      #   mono-notrim  Mono JIT, untrimmed            (AOT requires trimming — XA1030 — so untrimmed
+      #                                               must also be JIT; crash here + in mono-noaot
+      #                                               exonerates the trimmer)
+      #   coreclr      CoreCLR, default trim          (the csproj default since the verdict; green)
+      # Every Mono leg pins UseMonoRuntime=true explicitly — the csproj now defaults to CoreCLR,
+      # and a control that silently stops being Mono stops being a control.
       - name: Build the APK
         run: |
           dotnet publish samples/AndroidProbe/AndroidProbe.csproj -c Release -r android-arm64 \
@@ -97,10 +112,10 @@ jobs:
           # conclusive, per the table above).
           v() { dotnet publish samples/AndroidProbe/AndroidProbe.csproj -c Release -r android-x64 \
                   -o "out/$1" "${@:2}" || echo "::warning::variant $1 did not build"; }
-          v default
-          v noaot   -p:RunAOTCompilation=false
-          v notrim  -p:RunAOTCompilation=false -p:PublishTrimmed=false
-          v coreclr -p:UseMonoRuntime=false
+          v mono        -p:UseMonoRuntime=true
+          v mono-noaot  -p:UseMonoRuntime=true -p:RunAOTCompilation=false
+          v mono-notrim -p:UseMonoRuntime=true -p:RunAOTCompilation=false -p:PublishTrimmed=false
+          v coreclr
           echo "### APK size" >> $GITHUB_STEP_SUMMARY
           for f in $(find out -name "*-Signed.apk"); do
             printf '%-14s %s bytes\n' "$(basename $(dirname $f))" "$(stat -c%s $f)" | tee -a $GITHUB_STEP_SUMMARY
@@ -164,7 +179,7 @@ jobs:
             echo "::warning::no device — the on-device questions stay unanswered this run"
             exit 0
           fi
-          for v in default noaot notrim coreclr; do
+          for v in mono mono-noaot mono-notrim coreclr; do
             [ -d "out/$v" ] || continue
             echo "### variant: $v" >> $GITHUB_STEP_SUMMARY
             adb uninstall com.cupriface.androidprobe > /dev/null 2>&1 || true

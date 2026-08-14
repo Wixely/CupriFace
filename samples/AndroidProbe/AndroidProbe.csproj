@@ -24,6 +24,15 @@
     <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
     <!-- An APK (not an AAB) so the probe can measure one installable artifact. -->
     <AndroidPackageFormat>apk</AndroidPackageFormat>
+    <!-- CoreCLR, not MonoVM — and this line is the probe's biggest single finding. Under Mono the
+         app dies in OnCreate with an impossible stack: NullReferenceException whose top frame is
+         the static String.Equals(String, String), an overload that null-checks and cannot NRE.
+         The four-variant experiment (workflow run 8) pinned it: Mono+AOT crashes, Mono JIT crashes,
+         Mono JIT untrimmed crashes — JIT and AOT share Mono's code generator, so disabling AOT
+         changed nothing — and CoreCLR runs the full Showcase to first frame in 841 ms. A native
+         fault in Mono's vectorised string comparison surfacing as a managed NRE fits every
+         observation. Revisit when the Mono runtime pack moves past 10.0.11. -->
+    <UseMonoRuntime>false</UseMonoRuntime>
     <!-- Not in the solution, and not part of the product: keep it out of any pack/release path. -->
     <IsPackable>false</IsPackable>
   </PropertyGroup>
