@@ -16,6 +16,10 @@ internal static class AtSpi
     internal const string RootPath = "/org/a11y/atspi/accessible/root";
     internal const string NullPath = "/org/a11y/atspi/null";
     internal const string PathPrefix = "/org/a11y/atspi/accessible/";
+    internal const string CachePath = "/org/a11y/atspi/cache";
+    /// <summary>Everything we serve hangs off here, so ONE subtree handler covers the accessible
+    /// objects and the cache alike.</summary>
+    internal const string TreeRoot = "/org/a11y/atspi";
 
     internal const string IfaceAccessible = "org.a11y.atspi.Accessible";
     internal const string IfaceApplication = "org.a11y.atspi.Application";
@@ -23,6 +27,7 @@ internal static class AtSpi
     internal const string IfaceAction = "org.a11y.atspi.Action";
     internal const string IfaceValue = "org.a11y.atspi.Value";
     internal const string IfaceSocket = "org.a11y.atspi.Socket";
+    internal const string IfaceCache = "org.a11y.atspi.Cache";
     internal const string IfaceProperties = "org.freedesktop.DBus.Properties";
     internal const string IfaceIntrospectable = "org.freedesktop.DBus.Introspectable";
 

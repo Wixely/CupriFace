@@ -54,7 +54,7 @@ internal sealed class AtSpiBridge : IPathMethodHandler
     private readonly List<string> _pathById = new();
     private readonly object _idLock = new();
 
-    string IPathMethodHandler.Path => AtSpi.PathPrefix.TrimEnd('/');
+    string IPathMethodHandler.Path => AtSpi.TreeRoot;
     bool IPathMethodHandler.HandlesChildPaths => true;
 
     internal Snapshot? Current => _snapshot;
@@ -254,6 +254,16 @@ internal sealed class AtSpiBridge : IPathMethodHandler
 
         var snapshot = _snapshot;
         if (snapshot is null) { context.ReplyError("org.freedesktop.DBus.Error.Failed", "no frame published yet"); return; }
+
+        // The Cache interface is how libatspi bulk-loads an application's tree; without it a
+        // client sees the app and NOTHING inside it (which is exactly what the first gate run
+        // reported, right after "GetItems ... doesn't exist").
+        if (path == AtSpi.CachePath)
+        {
+            if (iface == AtSpi.IfaceCache && member == "GetItems") { CacheGetItems(context, snapshot); return; }
+            context.ReplyUnknownMethodError();
+            return;
+        }
 
         var isRoot = path == AtSpi.RootPath;
         AccessibilityNode? node = null;
@@ -490,6 +500,81 @@ internal sealed class AtSpiBridge : IPathMethodHandler
             }
             default: context.ReplyUnknownMethodError(); return;
         }
+    }
+
+    /// <summary>org.a11y.atspi.Cache.GetItems — the whole tree in one reply, which is both what
+    /// libatspi expects and far fewer round trips than walking node by node. Reply signature is
+    /// a((so)(so)(so)iiassusau): reference, application, parent, index-in-parent, child count,
+    /// interfaces, name, role, description, state set.</summary>
+    private void CacheGetItems(MethodContext context, Snapshot snap)
+    {
+        using var w = context.CreateReplyWriter("a((so)(so)(so)iiassusau)");
+        var arr = w.WriteArrayStart(DBusType.Struct);
+
+        // The application object first, then every node in the published snapshot.
+        WriteCacheItem(w, snap, AtSpi.RootPath, AtSpi.RootPath, _desktopName, _desktopPath,
+            indexInParent: 0, childCount: 1, node: null);
+
+        for (var id = 0; id < snap.ById.Count; id++)
+        {
+            var node = snap.ById[id];
+            // Gaps (ids minted for nodes that have since vanished) point at the root; skip the
+            // duplicates so the cache describes each object exactly once.
+            if (id != 0 && ReferenceEquals(node, snap.Root)) continue;
+            var parentPath = node.Parent is { } p && snap.IdByPath.TryGetValue(p.Path, out var pid)
+                ? ObjectPathFor(pid)
+                : AtSpi.RootPath;
+            WriteCacheItem(w, snap, ObjectPathFor(id), parentPath, _uniqueName, AtSpi.RootPath,
+                indexInParent: node.Parent?.Children.IndexOf(node) ?? 0,
+                childCount: node.Children.Count, node: node);
+        }
+
+        w.WriteArrayEnd(arr);
+        context.Reply(w.CreateMessage());
+    }
+
+    private void WriteCacheItem(MessageWriter w, Snapshot snap, string path, string parentPath,
+        string parentName, string parentPathOverride, int indexInParent, int childCount, AccessibilityNode? node)
+    {
+        w.WriteStructureStart();
+
+        WriteRef(w, path);                                     // this object
+        w.WriteStructureStart();                               // its application
+        w.WriteString(_uniqueName);
+        w.WriteObjectPath(AtSpi.RootPath);
+        if (node is null)                                      // the app's parent IS the desktop
+        {
+            w.WriteStructureStart();
+            w.WriteString(parentName);
+            w.WriteObjectPath(parentPathOverride);
+        }
+        else WriteRef(w, parentPath);
+
+        w.WriteInt32(indexInParent);
+        w.WriteInt32(childCount);
+
+        var ifaces = w.WriteArrayStart(DBusType.String);
+        w.WriteString(AtSpi.IfaceAccessible);
+        if (node is null) w.WriteString(AtSpi.IfaceApplication);
+        else
+        {
+            w.WriteString(AtSpi.IfaceComponent);
+            if (AtSpi.ActionNameOf(node) is not null) w.WriteString(AtSpi.IfaceAction);
+            if (AtSpi.HasValue(node)) w.WriteString(AtSpi.IfaceValue);
+        }
+        w.WriteArrayEnd(ifaces);
+
+        w.WriteString(node is null ? _appName : NameOf(node));
+        w.WriteUInt32(node is null ? AtSpi.RoleApplication : AtSpi.RoleOf(node.Role));
+        w.WriteString("");                                     // description
+
+        var (low, high) = node is null
+            ? ((1u << 8) | (1u << 24) | (1u << 25) | (1u << 30), 0u)
+            : AtSpi.StatesOf(node);
+        var states = w.WriteArrayStart(DBusType.UInt32);
+        w.WriteUInt32(low);
+        w.WriteUInt32(high);
+        w.WriteArrayEnd(states);
     }
 
     private void Component(MethodContext context, Snapshot snap, AccessibilityNode node, string member)
