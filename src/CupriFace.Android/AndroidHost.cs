@@ -54,6 +54,16 @@ public sealed class AndroidHost : IDisposable
         _context = context;
         _app = app;
         _configure = configure;
+
+        // Portable apps print with Console (the MobileApp's gate markers, a user's own
+        // diagnostics); on CoreCLR-Android that goes NOWHERE — the Mono-era stdout→logcat
+        // redirector does not exist. Bridge it, once, so Console output lands under our tag and
+        // is greppable by the CI gate and by humans alike.
+        if (!_consoleBridged)
+        {
+            _consoleBridged = true;
+            Console.SetOut(TextWriter.Synchronized(new LogcatWriter()));
+        }
         var t0 = _clock.Elapsed.TotalMilliseconds;
         _doc = app.CreateDocument();                     // the SAME call desktop and web make
         configure?.Invoke(_doc);                         // host-composition hook (DesktopHost parity)
@@ -351,4 +361,39 @@ public sealed class AndroidHost : IDisposable
             : null;
 
     public void Dispose() => _doc.Dispose();
+
+    private static bool _consoleBridged;
+
+    /// <summary>Console → logcat, line-buffered. CoreCLR on Android has no stdout destination;
+    /// without this, a portable app's Console output silently vanishes.</summary>
+    private sealed class LogcatWriter : TextWriter
+    {
+        private readonly System.Text.StringBuilder _line = new();
+        public override System.Text.Encoding Encoding => System.Text.Encoding.UTF8;
+
+        public override void Write(char value)
+        {
+            if (value == '\n') Flush();
+            else if (value != '\r') _line.Append(value);
+        }
+
+        public override void Write(string? value)
+        {
+            if (value is null) return;
+            foreach (var c in value) Write(c);
+        }
+
+        public override void WriteLine(string? value)
+        {
+            Write(value);
+            Flush();
+        }
+
+        public override void Flush()
+        {
+            if (_line.Length == 0) return;
+            Log(_line.ToString());
+            _line.Clear();
+        }
+    }
 }
