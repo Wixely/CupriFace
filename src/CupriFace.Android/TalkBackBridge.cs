@@ -49,6 +49,25 @@ internal sealed class TalkBackBridge : AccessibilityNodeProvider
     /// burst calls this instead of announcing a tree that may already be superseded.</summary>
     internal System.Action? TrailingRepublish;
 
+    private long _lastPublishUptime;                               // stamped on every Publish
+
+    /// <summary>The trailing edge of a publish burst — a real debounce: while publishes are
+    /// still arriving (a fling in flight), DEFER rather than fire, or every 120 ms mid-burst
+    /// produces a forced unthrottled announce — an event storm that kept uiautomator's
+    /// wait-for-idle from ever seeing idle (run 24: dumps timing out for 11 s and writing
+    /// nothing). One forced republish + announce, after the burst has actually ended.</summary>
+    private void TrailingFlush()
+    {
+        bool defer;
+        lock (_gate)
+        {
+            defer = SystemClock.UptimeMillis() - _lastPublishUptime < 100;
+            if (!defer) { _trailingArmed = false; _lastContentEvent = SystemClock.UptimeMillis(); }
+        }
+        if (defer) { _view.Handler?.PostDelayed(TrailingFlush, 120); return; }
+        TrailingRepublish?.Invoke();
+    }
+
     /// <summary>The WINDOW_CONTENT_CHANGED announcement, callable by the host after a forced
     /// republish so the event always postdates the tree it announces.</summary>
     internal void AnnounceContentChanged()
@@ -135,21 +154,12 @@ internal sealed class TalkBackBridge : AccessibilityNodeProvider
         var sendNow = false;
         lock (_gate)
         {
+            _lastPublishUptime = now;
             if (now - _lastContentEvent >= 100) { _lastContentEvent = now; sendNow = true; }
             else if (!_trailingArmed)
             {
                 _trailingArmed = true;
-                _view.Handler?.PostDelayed(() =>
-                {
-                    lock (_gate) { _trailingArmed = false; _lastContentEvent = SystemClock.UptimeMillis(); }
-                    // Not just an event: REBUILD first. The pipeline between this provider and a
-                    // reader snapshots around event time — the instrumented runs proved the host
-                    // published the correct settle tree (ledger: first='Row 16') while every
-                    // reader stably saw a mid-fling one. The host re-publishes the CURRENT
-                    // document and only then announces the change, so whatever state the
-                    // announcement freezes IS the final one.
-                    TrailingRepublish?.Invoke();
-                }, 120);
+                _view.Handler?.PostDelayed(TrailingFlush, 120);
             }
         }
         if (sendNow) SendEvent(EventTypes.WindowContentChanged, -1);

@@ -497,7 +497,14 @@ jobs:
           # AccessibilityNodeProvider exposes — one opaque GL view, or a real virtual hierarchy.
           # The first dump also CONNECTS the client, which is what makes the view hand out the
           # provider; warm up, then give the post-frame publish a beat to land.
-          dump() { adb shell uiautomator dump /sdcard/ui.xml > /dev/null 2>&1; adb shell cat /sdcard/ui.xml; }
+          # The file is DELETED first and the tool's own verdict goes to the log: run 24 spent
+          # three attempts grepping a stale file because the dump was silently timing out and
+          # cat kept serving the previous success.
+          dump() {
+            adb shell rm -f /sdcard/ui.xml
+            adb shell uiautomator dump /sdcard/ui.xml 1>&2
+            adb shell cat /sdcard/ui.xml 2>/dev/null || true
+          }
           dump > /dev/null || true
           sleep 2
           adb logcat -d -s cupri:I | grep -q "talkback bridge attached" \
