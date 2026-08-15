@@ -242,7 +242,7 @@ public sealed class AndroidHost : IDisposable
             _a11yVersion = _doc.ContentVersion;
             _a11yWidth = p.LogicalWidth;
             _a11yHeight = p.LogicalHeight;
-            tb.Publish(_doc.BuildAccessibilityTree(p.LogicalWidth, p.LogicalHeight), inputScale);
+            tb.Publish(_doc.BuildAccessibilityTree(p.LogicalWidth, p.LogicalHeight), inputScale, forced);
             if (forced) tb.AnnounceContentChanged();
         }
 

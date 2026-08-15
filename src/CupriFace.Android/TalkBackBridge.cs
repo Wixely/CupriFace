@@ -125,7 +125,13 @@ internal sealed class TalkBackBridge : AccessibilityNodeProvider
     /// <summary>Swap in a freshly built semantics tree. Called on the GL thread after a frame;
     /// everything stored is immutable-after-publish, so UI-thread reads only need the lock for
     /// the swap itself.</summary>
-    internal void Publish(AccessibilityNode root, float inputScale)
+    /// <param name="forced">This publish IS the trailing flush's own republish. It must never
+    /// arm another flush: a forced publish is followed by an explicit announcement, that
+    /// announcement lands inside the throttle window, the next publish would arm again, and the
+    /// pair would ping-pong forever — ~7 unthrottled events a second, for the life of the
+    /// process, after any fling. (Which is precisely what happened: uiautomator could never find
+    /// an idle window, and on a real device TalkBack would have been interrupted endlessly.)</param>
+    internal void Publish(AccessibilityNode root, float inputScale, bool forced = false)
     {
         var byId = new Dictionary<int, AccessibilityNode>();
         var parentOf = new Dictionary<int, int>();
@@ -152,14 +158,17 @@ internal sealed class TalkBackBridge : AccessibilityNodeProvider
         // burst ended on.
         var now = SystemClock.UptimeMillis();
         var sendNow = false;
-        lock (_gate)
+        lock (_gate) _lastPublishUptime = now;
+        if (!forced)
         {
-            _lastPublishUptime = now;
-            if (now - _lastContentEvent >= 100) { _lastContentEvent = now; sendNow = true; }
-            else if (!_trailingArmed)
+            lock (_gate)
             {
-                _trailingArmed = true;
-                _view.Handler?.PostDelayed(TrailingFlush, 120);
+                if (now - _lastContentEvent >= 100) { _lastContentEvent = now; sendNow = true; }
+                else if (!_trailingArmed)
+                {
+                    _trailingArmed = true;
+                    _view.Handler?.PostDelayed(TrailingFlush, 120);
+                }
             }
         }
         if (sendNow) SendEvent(EventTypes.WindowContentChanged, -1);
