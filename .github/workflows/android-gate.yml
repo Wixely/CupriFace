@@ -279,8 +279,14 @@ jobs:
           sleep 4
           dump > ui4.xml
           if grep -q 'text="Row 3 ' ui4.xml; then fail "row 3 still exposed after a 700dp fling"; fi
-          ROWS=$(grep -c 'text="Row ' ui4.xml || true)
+          # The dump is ONE line of XML, so count OCCURRENCES (grep -c counts lines — run 14's
+          # lesson: it reported 1 while a whole windowful of rows sat on that line).
+          ROWS=$(grep -o 'text="Row ' ui4.xml | wc -l)
           test "$ROWS" -ge 5 || fail "only $ROWS rows exposed after the fling - the window did not follow"
+          # And the arrived window must be a LATER one: ~750dp of travel / 48dp rows puts the
+          # first exposed row in the mid-teens.
+          MIN=$(grep -o 'text="Row [0-9]*' ui4.xml | grep -oE '[0-9]+' | sort -n | head -1)
+          test "$MIN" -gt 10 || fail "first exposed row is $MIN - the window barely moved"
 
           echo "### TalkBack bridge assertions all green" >> $GITHUB_STEP_SUMMARY
           echo "switch round-trip via dump bounds; list window followed a fling ($ROWS rows exposed)" >> $GITHUB_STEP_SUMMARY
