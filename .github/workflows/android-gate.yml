@@ -154,9 +154,16 @@ jobs:
           nav() { tap $(( DPW * (2 * $1 + 1) / 10 )) $(( DPH - 28 )); sleep 2; }
 
           # --- tap = activation exactly once, on finger-up ---------------------------------------
+          # Warmup tap first, on Home's FIRST card (plain text — no action, and safely above the
+          # third card's external link): run 13 saw the emulator swallow the very first injected
+          # tap of the session — this pushes one full Down/Up through the dispatch path before
+          # anything is asserted, without touching the toggle count.
+          tap $(( DPW / 2 )) 100
+          sleep 1
           nav 3   # Settings
           tap $(( DPW - 56 )) 99
           sleep 2
+          adb logcat -d -s cupri:I | grep -c 'cupri-gate: toggle=' || true   # breadcrumb after tap 1
           tap $(( DPW - 56 )) 99
           sleep 2
           # Markers arrive on the HOST's logcat tag: the host bridges Console -> logcat,
