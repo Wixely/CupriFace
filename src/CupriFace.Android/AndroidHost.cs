@@ -44,6 +44,9 @@ public sealed class AndroidHost : IDisposable
     /// <summary>The last published frame snapshot; null before the first frame.</summary>
     public Snapshot? Current => _snapshot;
 
+    /// <summary>The live document — for the bridge's GL-thread-queued actions only.</summary>
+    internal CupriDocument Document => _doc;
+
     /// <summary>Diagnostics for the CI gate and for humans: CUPRIFACE_ANDROID_DEBUG has no
     /// environment on Android, so markers are always on — they are cheap, and they are the only
     /// window CI has into the app.</summary>
@@ -220,6 +223,18 @@ public sealed class AndroidHost : IDisposable
         _snapshot = new Snapshot(_doc.ContentVersion, p.LogicalWidth, p.LogicalHeight, inputScale,
             _doc.GetTextInputState());
 
+        // TalkBack: republish the semantics tree when content moved (Animate bumps the version
+        // when a fling steps, so scrolled bounds follow the viewport). The bridge only exists
+        // once an accessibility client asked the view for it — until then this line costs nothing.
+        if (_talkBack is { } tb && (_doc.ContentVersion != _a11yVersion
+                                    || p.LogicalWidth != _a11yWidth || p.LogicalHeight != _a11yHeight))
+        {
+            _a11yVersion = _doc.ContentVersion;
+            _a11yWidth = p.LogicalWidth;
+            _a11yHeight = p.LogicalHeight;
+            tb.Publish(_doc.BuildAccessibilityTree(p.LogicalWidth, p.LogicalHeight), inputScale);
+        }
+
         if (!_firstFrameLogged)
         {
             _firstFrameLogged = true;
@@ -243,6 +258,18 @@ public sealed class AndroidHost : IDisposable
     }
 
     private bool _wasFlinging;
+    private TalkBackBridge? _talkBack;
+    private int _a11yVersion = -1;
+    private float _a11yWidth, _a11yHeight;
+
+    /// <summary>An accessibility client asked the view for its provider: start publishing, and
+    /// force a frame so the first query doesn't read an empty tree.</summary>
+    internal void AttachTalkBack(TalkBackBridge bridge)
+    {
+        _talkBack = bridge;
+        Log("talkback bridge attached");
+        MarkDirty();
+    }
 
     private static float MaxScrollOffset(CupriFace.Dom.RenderNode n)
     {

@@ -114,6 +114,24 @@ public class MobileAppTests
     }
 
     [Fact]
+    public void The_list_rows_are_readable_by_assistive_tech()
+    {
+        // role=listitem puts each materialised row in the semantics tree — what the Android
+        // bridge exposes to TalkBack and what the CI gate's uiautomator dump greps for.
+        var app = new MobileApp();
+        using var doc = Doc(app);
+        var tree = doc.BuildAccessibilityTree(400, 800);
+        Assert.True(doc.AccessibilityActivate(FindNamed(tree, "List")!.Path));
+        using var _ = doc.RenderToImage(400, 800);
+
+        tree = doc.BuildAccessibilityTree(400, 800);
+        var row = FindNamed(tree, "Row 3 — tap and fling")
+                  ?? throw new Xunit.Sdk.XunitException("row 3 not in the a11y tree");
+        Assert.Equal("listitem", row.Role);
+        Assert.Null(FindNamed(tree, "Row 400 — tap and fling"));   // 19000px away: virtualised out
+    }
+
+    [Fact]
     public void The_gate_anchors_hold_in_phone_landscape_too()
     {
         // The CI gate's rotation leg taps (dpW-56, 99) — valid only while the phone layout stays

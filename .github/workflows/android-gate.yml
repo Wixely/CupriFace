@@ -20,10 +20,16 @@ name: Android gate
 #             swipe flings with real momentum (settled travel beyond the finger's);
 #             the soft keyboard appears on field focus and leaves on blur (dumpsys mInputShown);
 #             rotation relayouts and the SAME dp arithmetic still lands taps (marker fires again).
+#   Phase 8 — the TalkBack bridge, driven by uiautomator (a REAL accessibility client — its dump
+#             shows only what the AccessibilityNodeProvider exposes): named controls with real
+#             bounds; a tap at the DUMP'S OWN rectangle flips the model and the re-dump shows the
+#             new checked state (geometry round-trip); the tree's window follows a fling.
 #
 # What is NOT claimed automatable, stated plainly: real IME COMPOSITION (adb's `input text` sends
 # hardware key events, bypassing any IME) — that behaviour is pinned by fifteen headless engine
-# tests and a documented manual Gboard pass.
+# tests and a documented manual Gboard pass. Likewise SPOKEN TalkBack output: uiautomator proves
+# the exposed tree, actions and geometry; what TalkBack says aloud is a documented human pass —
+# the same standard the Narrator/Orca/VoiceOver gates hold.
 
 on:
   workflow_dispatch:
@@ -200,6 +206,77 @@ jobs:
 
           echo "### Gate assertions all green" >> $GITHUB_STEP_SUMMARY
           adb logcat -d -s cupri:I | tail -20 >> $GITHUB_STEP_SUMMARY
+
+      - name: The accessibility tree, read by a real client (Phase 8)
+        run: |
+          set -x
+          set -o pipefail
+          fail() { echo "::error::$1"; adb logcat -d -s cupri:I | tail -60; exit 1; }
+          # uiautomator IS an accessibility client: its dump contains ONLY what the view's
+          # AccessibilityNodeProvider exposes — one opaque GL view, or a real virtual hierarchy.
+          # The first dump also CONNECTS the client, which is what makes the view hand out the
+          # provider; warm up, then give the post-frame publish a beat to land.
+          dump() { adb shell uiautomator dump /sdcard/ui.xml > /dev/null 2>&1; adb shell cat /sdcard/ui.xml; }
+          dump > /dev/null || true
+          sleep 2
+          adb logcat -d -s cupri:I | grep -q "talkback bridge attached" \
+            || fail "the provider was never asked for - no accessibility client saw the view"
+
+          # Phase 7 left the app on Settings (portrait, Notifications ON after three toggles).
+          dump > ui1.xml
+          for name in Home List Form Settings About; do
+            grep -q "\"$name\"" ui1.xml || fail "nav '$name' missing from the accessibility tree"
+          done
+          SW=$(grep -o 'text="Notifications"[^>]*' ui1.xml | head -1)
+          [ -n "$SW" ] || fail "the Notifications switch is missing from the accessibility tree"
+          echo "$SW" | grep -q 'checked="true"' || fail "switch not checked=true (model says Notify=True)"
+
+          # Geometry round-trip (the NSA-gate lesson): tap the centre of the DUMP'S OWN bounds.
+          # If the exposed rectangles are wrong, this misses and the marker count stays 3.
+          B=$(echo "$SW" | grep -oE 'bounds="\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]"' | grep -oE '[0-9]+' | tr '\n' ' ')
+          set -- $B
+          adb shell input tap $(( ($1 + $3) / 2 )) $(( ($2 + $4) / 2 ))
+          sleep 2
+          N=$(adb logcat -d -s cupri:I | grep -c 'cupri-gate: toggle=')
+          test "$N" = "4" || fail "tap at the dump's own rectangle missed (toggles=$N) - exposed geometry is wrong"
+          dump > ui2.xml
+          grep -o 'text="Notifications"[^>]*' ui2.xml | head -1 | grep -q 'checked="false"' \
+            || fail "re-dump still says checked=true after the toggle"
+
+          # The tree follows the viewport. View-space helpers, as in Phase 7:
+          D=$(adb shell wm density | grep -oE '[0-9]+' | tail -1)
+          LINE=$(adb logcat -d -s cupri:I | grep "view origin" | tail -1)
+          OX=$(echo "$LINE" | grep -oE 'origin [0-9]+,[0-9]+' | grep -oE '[0-9]+' | head -1)
+          OY=$(echo "$LINE" | grep -oE 'origin [0-9]+,[0-9]+' | grep -oE '[0-9]+' | tail -1)
+          VW=$(echo "$LINE" | grep -oE 'size [0-9]+x[0-9]+' | grep -oE '[0-9]+' | head -1)
+          VH=$(echo "$LINE" | grep -oE 'size [0-9]+x[0-9]+' | grep -oE '[0-9]+' | tail -1)
+          DPW=$(( VW * 160 / D )); DPH=$(( VH * 160 / D ))
+          tap() { adb shell input tap $(( OX + $1 * D / 160 )) $(( OY + $2 * D / 160 )); }
+          tap $(( DPW * 3 / 10 )) $(( DPH - 28 ))   # nav 1: List
+          sleep 2
+          # Deterministic start: two downward swipes clamp the list back to the top (wherever the
+          # Phase 7 fling left it), then dump — early rows must be exposed, distant ones not.
+          for i in 1 2; do
+            adb shell input swipe $(( OX + DPW * D / 320 )) $(( OY + 150 * D / 160 )) \
+                                  $(( OX + DPW * D / 320 )) $(( OY + 500 * D / 160 )) 250
+            sleep 2
+          done
+          dump > ui3.xml
+          grep -q 'text="Row 3 ' ui3.xml || fail "row 3 not exposed at the top of the list"
+          if grep -q 'text="Row 400 ' ui3.xml; then fail "row 400 exposed while 19000px away"; fi
+          # Fling down, let it settle, re-dump: the early rows must have LEFT the tree (scrolled
+          # out = virtualised away or clipped-not-visible — both are correct for a reader) and a
+          # later window arrived.
+          adb shell input swipe $(( OX + DPW * D / 320 )) $(( OY + 500 * D / 160 )) \
+                                $(( OX + DPW * D / 320 )) $(( OY + 150 * D / 160 )) 250
+          sleep 4
+          dump > ui4.xml
+          if grep -q 'text="Row 3 ' ui4.xml; then fail "row 3 still exposed after a 700dp fling"; fi
+          ROWS=$(grep -c 'text="Row ' ui4.xml || true)
+          test "$ROWS" -ge 5 || fail "only $ROWS rows exposed after the fling - the window did not follow"
+
+          echo "### TalkBack bridge assertions all green" >> $GITHUB_STEP_SUMMARY
+          echo "switch round-trip via dump bounds; list window followed a fling ($ROWS rows exposed)" >> $GITHUB_STEP_SUMMARY
 
       - uses: actions/upload-artifact@v4
         with:

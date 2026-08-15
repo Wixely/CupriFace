@@ -51,9 +51,43 @@ public sealed class CupriHostView : SKGLSurfaceView
         base.OnLayout(changed, left, top, right, bottom);
         var loc = new int[2];
         GetLocationOnScreen(loc);
+        _talkBack?.SetViewOrigin(loc[0], loc[1]);        // a11y bounds are SCREEN rects
         global::Android.Util.Log.Info(AndroidHost.Tag,
             $"view origin {loc[0]},{loc[1]} size {Width}x{Height} density {_density}");
     }
+
+    // ---- TalkBack -----------------------------------------------------------------------------
+
+    private TalkBackBridge? _talkBack;
+    private bool _talkBackKilled;
+
+    /// <summary>The framework reads this when an accessibility client (TalkBack, uiautomator)
+    /// inspects the view — the moment the virtual hierarchy comes alive. Lazy so the bridge (and
+    /// its per-frame publish) costs nothing until a client actually exists.</summary>
+    public override global::Android.Views.Accessibility.AccessibilityNodeProvider? AccessibilityNodeProvider
+    {
+        get
+        {
+            if (_talkBack is null && !_talkBackKilled)
+            {
+                _talkBack = TalkBackBridge.Create(this, _host);
+                if (_talkBack is { } tb)
+                {
+                    var loc = new int[2];
+                    GetLocationOnScreen(loc);
+                    tb.SetViewOrigin(loc[0], loc[1]);
+                    _host.AttachTalkBack(tb);
+                }
+                else _talkBackKilled = true;             // the sysprop kill switch said no
+            }
+            return _talkBack;
+        }
+    }
+
+    /// <summary>Explore-by-touch: while TalkBack is on, finger movement arrives as HOVER events;
+    /// the bridge maps them to virtual nodes so TalkBack's focus follows the finger.</summary>
+    protected override bool DispatchHoverEvent(MotionEvent? e) =>
+        (_talkBack?.OnHover(e) ?? false) || base.DispatchHoverEvent(e!);
 
     /// <summary>Surface (re)created — first show, or EGL loss on background/foreground, which is
     /// ROUTINE on Android. The host must drop any retained-frame assumption.</summary>

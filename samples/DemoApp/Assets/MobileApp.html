@@ -21,11 +21,13 @@
         </div>
       </div>
 
-      <!-- List: the fling exerciser. 500 rows, virtualised to a screenful. -->
+      <!-- List: the fling exerciser. 500 rows, virtualised to a screenful. role=listitem puts
+           each row in the accessibility tree, so TalkBack reads what the finger flings — and the
+           CI gate watches the tree's window FOLLOW the scroll (early rows leave, later arrive). -->
       <div class="page" style="display:{{PgList}}">
         <h1>List</h1>
-        <cupri-virtual height="620" item-height="48" class="biglist">
-          <div class="lrow" data-repeat="Rows">{{.}}</div>
+        <cupri-virtual height="620" item-height="48" class="biglist" role="list">
+          <div class="lrow" role="listitem" data-repeat="Rows">{{.}}</div>
         </cupri-virtual>
       </div>
 
