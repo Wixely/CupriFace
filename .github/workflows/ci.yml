@@ -506,13 +506,24 @@ jobs:
           # The file is DELETED first and the tool's own verdict goes to the log: run 24 spent
           # three attempts grepping a stale file because the dump was silently timing out and
           # cat kept serving the previous success.
+          # A dump can fail for reasons that have nothing to do with the tree: uiautomator waits
+          # for an idle window and gives up with "could not get idle state" if the app is busy.
+          # Retry HERE, so callers always get either a real tree or an honest empty string, and
+          # never a stale file (the path is deleted first). `|| true` throughout: the runner's
+          # default shell is bash -e and a nonzero adb here must not kill the step.
           dump() {
-            adb shell rm -f /sdcard/ui.xml
-            # `|| true` is load-bearing: the runner's default shell is bash -e, and an
-            # occasional "could not get idle state" (nonzero) must fall through to the CALLING
-            # loop's retry, not kill the whole step mid-function (run 26 died exactly there).
-            adb shell uiautomator dump /sdcard/ui.xml 1>&2 || true
-            adb shell cat /sdcard/ui.xml 2>/dev/null || true
+            local try
+            for try in 1 2 3; do
+              adb shell rm -f /sdcard/ui.xml || true
+              adb shell uiautomator dump /sdcard/ui.xml 1>&2 || true
+              if adb shell test -s /sdcard/ui.xml 2>/dev/null; then
+                adb shell cat /sdcard/ui.xml 2>/dev/null || true
+                return 0
+              fi
+              echo "dump attempt $try produced nothing - retrying" 1>&2
+              sleep 3
+            done
+            echo ""   # honest empty: the caller's own retry loop decides what that means
           }
           dump > /dev/null || true
           sleep 2
@@ -602,10 +613,12 @@ jobs:
           S=$(adb logcat -d -s cupri:I | grep -oE 'fling settled y=[0-9]+' | tail -1 | grep -oE '[0-9]+$')
           [ -n "$S" ] || fail "no settle marker for the phase-8 fling"
           WANT=$(( S / 48 + 1 ))
-          AGREE=0
-          for attempt in 1 2; do
+          # Nothing inside this loop may hard-fail before the last attempt — an empty or thin
+          # dump is a reason to look again, not a verdict (run 29 died on attempt 1 of 2 with
+          # ROWS=0 from a dump that never happened). Diagnose after the loop, once.
+          AGREE=0; ROWS=0; MIN=0
+          for attempt in 1 2 3; do
             dump > ui4.xml
-            if grep -q 'text="Row 3 — tap and fling"' ui4.xml; then fail "row 3 still exposed after a 700dp fling"; fi
             # EXACT individual-node text, closing quote and all: run 27 revealed the list
             # CONTAINER once carried every materialised row concatenated as its own name, and
             # prefix patterns matched (or missed) that blob instead of the row nodes. The
@@ -613,15 +626,20 @@ jobs:
             # match a real row node either way. Count occurrences, not lines: the dump is one
             # line of XML.
             ROWS=$(grep -o 'text="Row [0-9]* — tap and fling"' ui4.xml | wc -l)
-            test "$ROWS" -ge 5 || fail "only $ROWS rows exposed after the fling - the window did not follow"
             MIN=$(grep -o 'text="Row [0-9]* — tap and fling"' ui4.xml | grep -oE '[0-9]+' | sort -n | head -1)
-            if test "$MIN" -ge $(( WANT - 1 )) && test "$MIN" -le $(( WANT + 3 )); then AGREE=1; break; fi
-            echo "attempt $attempt: first row $MIN vs expected ~$WANT - re-dumping"
+            MIN=${MIN:-0}
+            echo "attempt $attempt: $ROWS rows, first $MIN (expected ~$WANT after a ${S}dp settle)"
+            if grep -q 'text="Row 3 — tap and fling"' ui4.xml; then
+              fail "row 3 still exposed after a 700dp fling"        # a real contradiction: stop
+            fi
+            if test "$ROWS" -ge 5 && test "$MIN" -ge $(( WANT - 1 )) && test "$MIN" -le $(( WANT + 3 )); then
+              AGREE=1; break
+            fi
             echo "attempt $attempt texts: $(grep -o 'text="[^"]*"' ui4.xml | head -8 | tr '\n' ' ')"
             sleep 2
           done
           test "$AGREE" = "1" \
-            || fail "first exposed row $MIN disagrees with the settled scroll (${S}dp -> expected ~$WANT) - stale tree"
+            || fail "after the fling: $ROWS rows exposed, first row $MIN, expected ~$WANT for a ${S}dp settle"
 
           echo "### TalkBack bridge assertions all green" >> $GITHUB_STEP_SUMMARY
           echo "switch round-trip via dump bounds; list window followed a fling ($ROWS rows exposed)" >> $GITHUB_STEP_SUMMARY
