@@ -41,6 +41,11 @@ public abstract class CupriActivity : global::Android.App.Activity
     {
         base.OnCreate(savedInstanceState);
 
+        // No system title bar: the app IS the chrome. (Without this, the default Material theme
+        // put a black ActionBar with the app's label above every CupriFace app — the first thing
+        // a real device showed that no emulator gate had asserted on.)
+        ActionBar?.Hide();
+
         _host = new AndroidHost(this, CreateApp(), ConfigureDocument);
         _host.FullscreenRequested += cmd => SetImmersive(cmd switch
         {
@@ -49,11 +54,49 @@ public abstract class CupriActivity : global::Android.App.Activity
             _ => !_immersive,
         });
         _view = new CupriHostView(this, _host);
-        SetContentView(_view);
-        // The soft keyboard RESIZES the surface rather than overlaying it: the next frame lays out
-        // at the smaller height and the engine's own ScrollCaretIntoView keeps the caret visible —
-        // no host-side pan logic to get wrong.
-        Window?.SetSoftInputMode(SoftInput.AdjustResize);
+
+        // Edge-to-edge, DELIBERATELY, wherever insets can be controlled (API 30+): Android 15
+        // forces it anyway — the system bars become transparent overlays and a view that ignores
+        // them puts its bottom nav underneath the gesture bar, which is exactly what the first
+        // real-device test hit (unpressable tabs). Opting in everywhere gives one behaviour
+        // instead of two. A container pads the view by the LIVE insets — system bars, display
+        // cutout, and the IME: the keyboard inset is how "AdjustResize" works in this world (the
+        // view shrinks, the next frame lays out, ScrollCaretIntoView keeps the caret visible).
+        // The padding band shows the container's background, painted the app's own colour so the
+        // strip behind the transparent status bar belongs to the app, not to a default black.
+        if (OperatingSystem.IsAndroidVersionAtLeast(30) && Window is { } w)
+        {
+            w.SetDecorFitsSystemWindows(false);
+#pragma warning disable CA1422 // bar colours: deprecated AT 35 (enforced transparent there) — set below it
+            if (!OperatingSystem.IsAndroidVersionAtLeast(35))
+            {
+                w.SetStatusBarColor(global::Android.Graphics.Color.Transparent);
+                w.SetNavigationBarColor(global::Android.Graphics.Color.Transparent);
+            }
+#pragma warning restore CA1422
+
+            var bg = _host.AppBackground;
+            // A light app needs DARK bar icons or the clock vanishes into the background.
+            var luminance = (0.299 * bg.Red + 0.587 * bg.Green + 0.114 * bg.Blue) / 255.0;
+            if (luminance > 0.5 && w.InsetsController is { } ic)
+            {
+                var light = (int)(WindowInsetsControllerAppearance.LightStatusBars
+                                  | WindowInsetsControllerAppearance.LightNavigationBars);
+                ic.SetSystemBarsAppearance(light, light);
+            }
+
+            var container = new global::Android.Widget.FrameLayout(this);
+            container.SetBackgroundColor(new global::Android.Graphics.Color(bg.Red, bg.Green, bg.Blue, bg.Alpha));
+            container.AddView(_view);
+            container.SetOnApplyWindowInsetsListener(new InsetsPadder());
+            SetContentView(container);
+        }
+        else
+        {
+            SetContentView(_view);
+            // Pre-30: the legacy resize path — the window itself shrinks under the keyboard.
+            Window?.SetSoftInputMode(SoftInput.AdjustResize);
+        }
 
         // The eventless work (refresh cadence while idle, image decodes finishing) needs a slow
         // heartbeat; 250 ms is imperceptible for both and costs nothing measurable.
@@ -66,8 +109,34 @@ public abstract class CupriActivity : global::Android.App.Activity
         _pump.PostDelayed(_pumpTick, 250);
     }
 
-    protected override void OnResume() { base.OnResume(); _view?.OnResume(); }
+    protected override void OnResume()
+    {
+        base.OnResume();
+        _view?.OnResume();
+        // A WhenDirty view paints nothing until asked: after a pause/resume round-trip the
+        // surface is fresh and blank, and only an explicit render request fills it again.
+        _host?.MarkDirty();
+    }
+
     protected override void OnPause() { _view?.OnPause(); base.OnPause(); }
+
+    /// <summary>Applies the live window insets (system bars, display cutout, the soft keyboard)
+    /// as padding, so the app's content sits in the truly-usable rectangle while the container's
+    /// background fills the strips behind the transparent bars.</summary>
+    private sealed class InsetsPadder : global::Java.Lang.Object, View.IOnApplyWindowInsetsListener
+    {
+        public WindowInsets OnApplyWindowInsets(View v, WindowInsets insets)
+        {
+            if (OperatingSystem.IsAndroidVersionAtLeast(30))
+            {
+                var i = insets.GetInsets(WindowInsets.Type.SystemBars()
+                                         | WindowInsets.Type.Ime()
+                                         | WindowInsets.Type.DisplayCutout());
+                v.SetPadding(i.Left, i.Top, i.Right, i.Bottom);
+            }
+            return insets;
+        }
+    }
 
     protected override void OnDestroy()
     {

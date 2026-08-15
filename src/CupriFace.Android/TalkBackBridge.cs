@@ -44,6 +44,38 @@ internal sealed class TalkBackBridge : AccessibilityNodeProvider
     private long _lastContentEvent;                                // throttle WINDOW_CONTENT_CHANGED
     private bool _trailingArmed;                                   // a deferred flush is pending
 
+    /// <summary>Wired by the host: rebuild + republish the current tree on the document thread,
+    /// then announce it (<see cref="AnnounceContentChanged"/>). The trailing edge of a publish
+    /// burst calls this instead of announcing a tree that may already be superseded.</summary>
+    internal System.Action? TrailingRepublish;
+
+    private long _lastPublishUptime;                               // stamped on every Publish
+
+    /// <summary>The trailing edge of a publish burst — a real debounce: while publishes are
+    /// still arriving (a fling in flight), DEFER rather than fire, or every 120 ms mid-burst
+    /// produces a forced unthrottled announce — an event storm that kept uiautomator's
+    /// wait-for-idle from ever seeing idle (run 24: dumps timing out for 11 s and writing
+    /// nothing). One forced republish + announce, after the burst has actually ended.</summary>
+    private void TrailingFlush()
+    {
+        bool defer;
+        lock (_gate)
+        {
+            defer = SystemClock.UptimeMillis() - _lastPublishUptime < 100;
+            if (!defer) { _trailingArmed = false; _lastContentEvent = SystemClock.UptimeMillis(); }
+        }
+        if (defer) { _view.Handler?.PostDelayed(TrailingFlush, 120); return; }
+        TrailingRepublish?.Invoke();
+    }
+
+    /// <summary>The WINDOW_CONTENT_CHANGED announcement, callable by the host after a forced
+    /// republish so the event always postdates the tree it announces.</summary>
+    internal void AnnounceContentChanged()
+    {
+        lock (_gate) { _lastContentEvent = SystemClock.UptimeMillis(); }
+        SendEvent(EventTypes.WindowContentChanged, -1);
+    }
+
     private TalkBackBridge(CupriHostView view, AndroidHost host)
     {
         _view = view;
@@ -68,6 +100,25 @@ internal sealed class TalkBackBridge : AccessibilityNodeProvider
     }
 
     internal void SetViewOrigin(int x, int y) { lock (_gate) { _originX = x; _originY = y; } }
+
+    /// <summary>Diagnostics: the first on-screen listitem in the LAST PUBLISHED tree — the
+    /// settle ledger logs it so a stale-tree failure can say whether the staleness was built
+    /// here or introduced on the reader's side of the protocol.</summary>
+    internal string FirstVisibleListitem()
+    {
+        lock (_gate)
+        {
+            if (_root is null) return "(no tree)";
+            string? found = null;
+            void Walk(AccessibilityNode n)
+            {
+                if (found is null && n.Role == "listitem" && !n.Offscreen) found = n.Name;
+                foreach (var c in n.Children) { if (found is not null) return; Walk(c); }
+            }
+            Walk(_root);
+            return found ?? "(none)";
+        }
+    }
 
     // ---- publish (GL thread) ------------------------------------------------------------------
 
@@ -103,15 +154,12 @@ internal sealed class TalkBackBridge : AccessibilityNodeProvider
         var sendNow = false;
         lock (_gate)
         {
+            _lastPublishUptime = now;
             if (now - _lastContentEvent >= 100) { _lastContentEvent = now; sendNow = true; }
             else if (!_trailingArmed)
             {
                 _trailingArmed = true;
-                _view.Handler?.PostDelayed(() =>
-                {
-                    lock (_gate) { _trailingArmed = false; _lastContentEvent = SystemClock.UptimeMillis(); }
-                    SendEvent(EventTypes.WindowContentChanged, -1);
-                }, 120);
+                _view.Handler?.PostDelayed(TrailingFlush, 120);
             }
         }
         if (sendNow) SendEvent(EventTypes.WindowContentChanged, -1);

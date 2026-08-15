@@ -39,6 +39,12 @@ public sealed class CupriHostView : SKGLSurfaceView
         // maps onto exactly this. (Must be set after the base ctor installs its renderer.)
         RenderMode = Rendermode.WhenDirty;
 
+        // Keep the EGL context across pause when the device allows: without this, every
+        // background/foreground round-trip destroys the context under SkiaSharp's GRContext and
+        // the first real device came back to a permanently blank surface. Where the OS still
+        // reclaims it, SurfaceCreated fires and the retained-frame invalidation covers the rest.
+        PreserveEGLContextOnPause = true;
+
         PaintSurface += (_, e) =>
             _host.PaintFrame(e.Surface.Canvas, e.BackendRenderTarget.Width, e.BackendRenderTarget.Height, _density);
     }

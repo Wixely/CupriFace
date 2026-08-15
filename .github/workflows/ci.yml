@@ -406,25 +406,37 @@ jobs:
           nav() { tap $(( DPW * (2 * $1 + 1) / 10 )) $(( DPH - 28 )); sleep 2; }
 
           # --- tap = activation exactly once, on finger-up ---------------------------------------
+          # The emulator drops injected gestures at random (runs 13, 16 and 22 each ate a
+          # different one), so every switch tap retries DELIVERY — while the assert stays exact:
+          # the marker count must advance by PRECISELY one per delivered tap. A dropped tap is
+          # the harness's problem; a double activation is the engine's, and still fails.
+          tap_toggle() {
+            local before after
+            before=$(adb logcat -d -s cupri:I | grep -c 'cupri-gate: toggle=' || true)
+            after=$before
+            for i in 1 2 3; do
+              tap "$1" "$2"
+              sleep 2
+              after=$(adb logcat -d -s cupri:I | grep -c 'cupri-gate: toggle=' || true)
+              [ "$after" -gt "$before" ] && break
+              echo "switch tap not delivered (attempt $i)"
+            done
+            test "$after" = "$(( before + 1 ))" || fail "one tap produced $(( after - before )) toggles"
+          }
           # Warmup tap first, on Home's FIRST card (plain text — no action, and safely above the
-          # third card's external link): run 13 saw the emulator swallow the very first injected
-          # tap of the session — this pushes one full Down/Up through the dispatch path before
+          # third card's external link): pushes one full Down/Up through the dispatch path before
           # anything is asserted, without touching the toggle count.
           tap $(( DPW / 2 )) 100
           sleep 1
           nav 3   # Settings
-          tap $(( DPW - 56 )) 99
-          sleep 2
-          adb logcat -d -s cupri:I | grep -c 'cupri-gate: toggle=' || true   # breadcrumb after tap 1
-          tap $(( DPW - 56 )) 99
-          sleep 2
+          tap_toggle $(( DPW - 56 )) 99
+          tap_toggle $(( DPW - 56 )) 99
           # Markers arrive on the HOST's logcat tag: the host bridges Console -> logcat,
-          # because CoreCLR-Android has no stdout destination of its own.
+          # because CoreCLR-Android has no stdout destination of its own. The helper proved the
+          # counts; these prove the ALTERNATION (off -> on -> off).
           adb logcat -d -s cupri:I | grep "cupri-gate:" | tee gate-markers.txt || true
           grep -q "toggle=True" gate-markers.txt || fail "no toggle=True marker after the first tap"
           grep -q "toggle=False" gate-markers.txt || fail "no toggle=False after the second tap"
-          N=$(grep -c 'cupri-gate: toggle=' gate-markers.txt)
-          test "$N" = "2" || fail "expected exactly 2 toggles (one activation per tap), got $N"
 
           # --- swipe flings with real momentum ---------------------------------------------------
           nav 1   # List
@@ -446,9 +458,15 @@ jobs:
           sleep 4  # let the momentum integrator run to a stop
           adb logcat -d -s cupri:I | grep "fling settled" | tee fling.txt \
             || fail "no fling-settled marker after $TRIES swipe(s)"
+          # Momentum = COAST: where the fling started (logged at finger-up, after the drag)
+          # versus where it settled. Run 25 showed why finger-travel arithmetic can't work: a
+          # flaky injector can deliver drag-only gestures (moves too sparse for the velocity
+          # ring) before one carries a fling, and every dp those drags scrolled counts against
+          # a travel-based threshold.
+          START=$(adb logcat -d -s cupri:I | grep -oE 'fling started y=[0-9]+' | tail -1 | grep -oE '[0-9]+$')
           SETTLED=$(grep -oE 'y=[0-9]+' fling.txt | tail -1 | cut -d= -f2)
-          echo "finger travelled $(( 350 * TRIES ))dp over $TRIES swipe(s); settled at ${SETTLED}dp"
-          test "$SETTLED" -gt $(( 350 * TRIES )) || fail "settled ${SETTLED}dp <= finger travel - no momentum"
+          echo "fling: started ${START}dp, settled ${SETTLED}dp - coast $(( SETTLED - START ))dp over $TRIES swipe(s)"
+          test $(( SETTLED - START )) -gt 50 || fail "coast $(( SETTLED - START ))dp - the integrator barely ran"
 
           # --- the soft keyboard follows focus ---------------------------------------------------
           nav 2   # Form
@@ -468,10 +486,9 @@ jobs:
           sleep 4
           geom     # the view re-laid-out: re-read its origin and size, same anchors apply
           nav 3    # Settings (landscape)
-          tap $(( DPW - 56 )) 99
-          sleep 2
+          tap_toggle $(( DPW - 56 )) 99   # delivery-retried; still exactly one activation
           N=$(adb logcat -d -s cupri:I | grep -c 'cupri-gate: toggle=')
-          test "$N" = "3" || fail "post-rotation tap missed, toggles=$N (density/relayout mapping broke)"
+          test "$N" = "3" || fail "post-rotation toggles=$N (density/relayout mapping broke)"
           adb shell settings put system user_rotation 0
 
           echo "### Gate assertions all green" >> $GITHUB_STEP_SUMMARY
@@ -486,7 +503,17 @@ jobs:
           # AccessibilityNodeProvider exposes — one opaque GL view, or a real virtual hierarchy.
           # The first dump also CONNECTS the client, which is what makes the view hand out the
           # provider; warm up, then give the post-frame publish a beat to land.
-          dump() { adb shell uiautomator dump /sdcard/ui.xml > /dev/null 2>&1; adb shell cat /sdcard/ui.xml; }
+          # The file is DELETED first and the tool's own verdict goes to the log: run 24 spent
+          # three attempts grepping a stale file because the dump was silently timing out and
+          # cat kept serving the previous success.
+          dump() {
+            adb shell rm -f /sdcard/ui.xml
+            # `|| true` is load-bearing: the runner's default shell is bash -e, and an
+            # occasional "could not get idle state" (nonzero) must fall through to the CALLING
+            # loop's retry, not kill the whole step mid-function (run 26 died exactly there).
+            adb shell uiautomator dump /sdcard/ui.xml 1>&2 || true
+            adb shell cat /sdcard/ui.xml 2>/dev/null || true
+          }
           dump > /dev/null || true
           sleep 2
           adb logcat -d -s cupri:I | grep -q "talkback bridge attached" \
@@ -502,13 +529,21 @@ jobs:
           echo "$SW" | grep -q 'checked="true"' || fail "switch not checked=true (model says Notify=True)"
 
           # Geometry round-trip (the NSA-gate lesson): tap the centre of the DUMP'S OWN bounds.
-          # If the exposed rectangles are wrong, this misses and the marker count stays 3.
+          # Delivery-retried (the emulator drops injected taps at random) but exact: the count
+          # must advance by precisely one, or the exposed geometry / activation model is wrong.
           B=$(echo "$SW" | grep -oE 'bounds="\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]"' | grep -oE '[0-9]+' | tr '\n' ' ')
           set -- $B
-          adb shell input tap $(( ($1 + $3) / 2 )) $(( ($2 + $4) / 2 ))
-          sleep 2
-          N=$(adb logcat -d -s cupri:I | grep -c 'cupri-gate: toggle=')
-          test "$N" = "4" || fail "tap at the dump's own rectangle missed (toggles=$N) - exposed geometry is wrong"
+          BEFORE=$(adb logcat -d -s cupri:I | grep -c 'cupri-gate: toggle=' || true)
+          N=$BEFORE
+          for i in 1 2 3; do
+            adb shell input tap $(( ($1 + $3) / 2 )) $(( ($2 + $4) / 2 ))
+            sleep 2
+            N=$(adb logcat -d -s cupri:I | grep -c 'cupri-gate: toggle=' || true)
+            [ "$N" -gt "$BEFORE" ] && break
+            echo "dump-bounds tap not delivered (attempt $i)"
+          done
+          test "$N" = "$(( BEFORE + 1 ))" \
+            || fail "tap at the dump's own rectangle: toggles $BEFORE -> $N - exposed geometry or activation is wrong"
           dump > ui2.xml
           grep -o 'text="Notifications"[^>]*' ui2.xml | head -1 | grep -q 'checked="false"' \
             || fail "re-dump still says checked=true after the toggle"
@@ -529,13 +564,21 @@ jobs:
           # isn't showing.
           for i in 1 2 3 4; do
             dump > ui3.xml
-            grep -q 'text="Row 3 ' ui3.xml && break
+            # What did the reader ACTUALLY see? The ledger keeps proving the published tree
+            # right while dumps disagree — print each dump's device mtime and first texts so
+            # the failure names the tree the reader was served, not a guess about it. (ls is
+            # guarded: after a failed dump the file legitimately does not exist, and the
+            # runner's bash -e would turn the diagnostic itself into the killer.)
+            adb shell ls -l /sdcard/ui.xml || true
+            echo "dump $i texts: $(grep -o 'text="[^"]*"' ui3.xml | head -8 | tr '\n' ' ')"
+            echo "dump $i individual rows: $(grep -o 'text="Row [0-9]* — tap and fling"' ui3.xml | wc -l)"
+            grep -q 'text="Row 3 — tap and fling"' ui3.xml && break
             adb shell input swipe $(( OX + DPW * D / 320 )) $(( OY + 150 * D / 160 )) \
                                   $(( OX + DPW * D / 320 )) $(( OY + 500 * D / 160 )) 250
             sleep 2
           done
-          grep -q 'text="Row 3 ' ui3.xml || fail "row 3 not exposed at the top of the list"
-          if grep -q 'text="Row 400 ' ui3.xml; then fail "row 400 exposed while 19000px away"; fi
+          grep -q 'text="Row 3 — tap and fling"' ui3.xml || fail "row 3 not exposed at the top of the list"
+          if grep -q 'text="Row 400 —' ui3.xml; then fail "row 400 exposed while 19000px away"; fi
           # Fling down (delivery-retried, breaking on the engine's own "fling started"), let it
           # settle, re-dump: the early rows must have LEFT the tree (scrolled out = virtualised
           # away or clipped-not-visible — both are correct for a reader) and a later window
@@ -549,16 +592,36 @@ jobs:
             [ "$NOW" -gt "$BASE" ] && break
           done
           sleep 4
-          dump > ui4.xml
-          if grep -q 'text="Row 3 ' ui4.xml; then fail "row 3 still exposed after a 700dp fling"; fi
-          # The dump is ONE line of XML, so count OCCURRENCES (grep -c counts lines — run 14's
-          # lesson: it reported 1 while a whole windowful of rows sat on that line).
-          ROWS=$(grep -o 'text="Row ' ui4.xml | wc -l)
-          test "$ROWS" -ge 5 || fail "only $ROWS rows exposed after the fling - the window did not follow"
-          # And the arrived window must be a LATER one: ~750dp of travel / 48dp rows puts the
-          # first exposed row in the mid-teens.
-          MIN=$(grep -o 'text="Row [0-9]*' ui4.xml | grep -oE '[0-9]+' | sort -n | head -1)
-          test "$MIN" -gt 10 || fail "first exposed row is $MIN - the window barely moved"
+          # The exposed window must AGREE with where the engine says the scroll settled — not
+          # with a magic row number (fling velocity varies run to run; a fixed threshold sat on
+          # a knife edge). Rows are 48dp: the first exposed row is the one straddling the
+          # settled offset. A stale served tree sits ~5 rows low and fails this. One re-dump is
+          # allowed two seconds later: if the second agrees, the staleness was a transient on
+          # the CLIENT side of the a11y protocol, and the host's own "a11y at settle" ledger
+          # line (in the failure tail) says which side it really was.
+          S=$(adb logcat -d -s cupri:I | grep -oE 'fling settled y=[0-9]+' | tail -1 | grep -oE '[0-9]+$')
+          [ -n "$S" ] || fail "no settle marker for the phase-8 fling"
+          WANT=$(( S / 48 + 1 ))
+          AGREE=0
+          for attempt in 1 2; do
+            dump > ui4.xml
+            if grep -q 'text="Row 3 — tap and fling"' ui4.xml; then fail "row 3 still exposed after a 700dp fling"; fi
+            # EXACT individual-node text, closing quote and all: run 27 revealed the list
+            # CONTAINER once carried every materialised row concatenated as its own name, and
+            # prefix patterns matched (or missed) that blob instead of the row nodes. The
+            # engine no longer names containers from content; these patterns can only ever
+            # match a real row node either way. Count occurrences, not lines: the dump is one
+            # line of XML.
+            ROWS=$(grep -o 'text="Row [0-9]* — tap and fling"' ui4.xml | wc -l)
+            test "$ROWS" -ge 5 || fail "only $ROWS rows exposed after the fling - the window did not follow"
+            MIN=$(grep -o 'text="Row [0-9]* — tap and fling"' ui4.xml | grep -oE '[0-9]+' | sort -n | head -1)
+            if test "$MIN" -ge $(( WANT - 1 )) && test "$MIN" -le $(( WANT + 3 )); then AGREE=1; break; fi
+            echo "attempt $attempt: first row $MIN vs expected ~$WANT - re-dumping"
+            echo "attempt $attempt texts: $(grep -o 'text="[^"]*"' ui4.xml | head -8 | tr '\n' ' ')"
+            sleep 2
+          done
+          test "$AGREE" = "1" \
+            || fail "first exposed row $MIN disagrees with the settled scroll (${S}dp -> expected ~$WANT) - stale tree"
 
           echo "### TalkBack bridge assertions all green" >> $GITHUB_STEP_SUMMARY
           echo "switch round-trip via dump bounds; list window followed a fling ($ROWS rows exposed)" >> $GITHUB_STEP_SUMMARY

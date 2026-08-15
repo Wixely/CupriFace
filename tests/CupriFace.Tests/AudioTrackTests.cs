@@ -153,7 +153,18 @@ public class AudioTrackTests
 
         player.Play();
         clock[0] = 0.05;
-        player.Pump();                                   // feeds the ~0.2 s lookahead of blocks
+        // The demuxer fills the block list on its own thread, and a single Pump on a slow
+        // shared runner races it — feeding only the sliver demuxed so far (CI saw 0.0075 s
+        // against the 0.008 threshold, twice, on two OSes). The assert is about the size of
+        // the ~0.2 s lookahead, not about winning a thread race: pump until it stops growing.
+        var quiet = 0;
+        for (var i = 0; i < 300 && quiet < 3; i++)
+        {
+            var before = sink.Submitted;
+            player.Pump();
+            if (sink.Submitted == before) { quiet++; Thread.Sleep(10); }
+            else quiet = 0;
+        }
         Assert.True(sink.Submitted > 0.008, $"expected the lookahead's PCM, got {sink.Submitted}");
         Assert.Equal(0, player.Position, 3);             // nothing drained yet → time stands still
 

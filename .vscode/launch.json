@@ -43,6 +43,19 @@
       "browser": "edge"
     },
     {
+      "name": "AndroidViewer — emulator/device (managed debug, needs .NET MAUI extension)",
+      "type": "maui",
+      "request": "launch",
+      "projectPath": "${workspaceFolder}/samples/AndroidViewer/AndroidViewer.csproj"
+    },
+    {
+      "name": "AndroidViewer — emulator/device (run + logcat, no extension)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "dotnet build samples/AndroidViewer/AndroidViewer.csproj -f net10.0-android -t:Run -c Debug && adb logcat -s cupri:I",
+      "cwd": "${workspaceFolder}"
+    },
+    {
       "name": "Viewer — live window (stays open)",
       "type": "coreclr",
       "request": "launch",

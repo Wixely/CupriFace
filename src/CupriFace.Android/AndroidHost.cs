@@ -47,6 +47,10 @@ public sealed class AndroidHost : IDisposable
     /// <summary>The live document — for the bridge's GL-thread-queued actions only.</summary>
     internal CupriDocument Document => _doc;
 
+    /// <summary>The app's clear colour — the activity paints the edge-to-edge inset strips with
+    /// it so the band behind the transparent status bar belongs to the app.</summary>
+    internal SkiaSharp.SKColor AppBackground => _app.Transparent ? SkiaSharp.SKColors.Black : _app.Background;
+
     /// <summary>Diagnostics for the CI gate and for humans: CUPRIFACE_ANDROID_DEBUG has no
     /// environment on Android, so markers are always on — they are cheap, and they are the only
     /// window CI has into the app.</summary>
@@ -226,13 +230,20 @@ public sealed class AndroidHost : IDisposable
         // TalkBack: republish the semantics tree when content moved (Animate bumps the version
         // when a fling steps, so scrolled bounds follow the viewport). The bridge only exists
         // once an accessibility client asked the view for it — until then this line costs nothing.
-        if (_talkBack is { } tb && (_doc.ContentVersion != _a11yVersion
+        // A trailing-edge force also lands here: after a publish burst (a fling) ends, the tree
+        // is rebuilt from the CURRENT document and only then announced — the accessibility
+        // pipeline snapshots around announcements, and announcing a superseded tree left every
+        // reader half a second behind the settle.
+        if (_talkBack is { } tb && (_a11yForce || _doc.ContentVersion != _a11yVersion
                                     || p.LogicalWidth != _a11yWidth || p.LogicalHeight != _a11yHeight))
         {
+            var forced = _a11yForce;
+            _a11yForce = false;
             _a11yVersion = _doc.ContentVersion;
             _a11yWidth = p.LogicalWidth;
             _a11yHeight = p.LogicalHeight;
             tb.Publish(_doc.BuildAccessibilityTree(p.LogicalWidth, p.LogicalHeight), inputScale);
+            if (forced) tb.AnnounceContentChanged();
         }
 
         if (!_firstFrameLogged)
@@ -249,6 +260,13 @@ public sealed class AndroidHost : IDisposable
         {
             var y = MaxScrollOffset(_doc.Root);
             Log($"fling settled y={y:F0}");
+            // The a11y freshness ledger: if the published version equals the document's here,
+            // the settle-frame TREE went out and any staleness a reader sees is on the client
+            // side of the accessibility protocol; if they differ, the publish gate skipped the
+            // frame that mattered. The first-visible listitem of the published tree pins WHICH
+            // tree went out. One line, and the gate's stale-tree diagnosis stops guessing.
+            if (_talkBack is { } bridge)
+                Log($"a11y at settle v={_a11yVersion} docv={_doc.ContentVersion} first='{bridge.FirstVisibleListitem()}'");
         }
         _wasFlinging = _doc.FlingActive;
 
@@ -267,9 +285,16 @@ public sealed class AndroidHost : IDisposable
     internal void AttachTalkBack(TalkBackBridge bridge)
     {
         _talkBack = bridge;
+        bridge.TrailingRepublish = () => OnGlThread(() =>
+        {
+            _a11yForce = true;      // next frame republishes even at an unchanged version
+            MarkDirty();
+        });
         Log("talkback bridge attached");
         MarkDirty();
     }
+
+    private bool _a11yForce;
 
     private static float MaxScrollOffset(CupriFace.Dom.RenderNode n)
     {
@@ -311,7 +336,10 @@ public sealed class AndroidHost : IDisposable
     internal void TouchUp(float x, float y, double t)
     {
         if (_touch.Up(x / InputScale(), y / InputScale(), t)) MarkDirty();
-        if (_doc.FlingActive) Log("fling started");        // diagnostic pair of "fling settled"
+        // The diagnostic pair of "fling settled" — WITH the position, so settle minus start is
+        // the coast: the CI gate's momentum assert, independent of how many drag-only gestures
+        // a flaky injector delivered before one carried a fling.
+        if (_doc.FlingActive) Log($"fling started y={MaxScrollOffset(_doc.Root):F0}");
     }
     internal void TouchCancel(double t) { if (_touch.Cancel(t)) MarkDirty(); }
     internal void TouchTick(double t) { if (_touch.Tick(t)) MarkDirty(); }
