@@ -92,6 +92,8 @@ public sealed class AndroidHost : IDisposable
 
         // The engine's fullscreen request (the video ⛶ button) maps to immersive mode here.
         _doc.WindowCommandRequested += cmd => RunOnUi(() => FullscreenRequested?.Invoke(cmd));
+
+        _touch = new TouchInput(_doc);
     }
 
     /// <summary>Raised on the UI thread when the document asks for fullscreen; the activity maps
@@ -189,12 +191,16 @@ public sealed class AndroidHost : IDisposable
 
     // ---- input (called on the GL thread via the view's queue) ---------------------------------
 
-    /// <summary>Interim probe-grade touch: down IS the click, exactly like a mouse. Phase 2
-    /// replaces this with the engine's TouchInput (tap-vs-scroll slop, fling, long-press) — until
-    /// then scrolling by touch does not exist, and activation fires on finger-down.</summary>
-    internal void TouchDown(float x, float y) { if (_doc.DispatchClick(x / InputScale(), y / InputScale())) MarkDirty(); }
-    internal void TouchMove(float x, float y) { if (_doc.DispatchPointerMove(x / InputScale(), y / InputScale())) MarkDirty(); }
-    internal void TouchUp(float x, float y) { if (_doc.DispatchPointerUp(x / InputScale(), y / InputScale())) MarkDirty(); }
+    // The engine's gesture recognizer: tap-vs-scroll slop, fling, long-press context menu,
+    // double-tap escalation — and, structurally, no hover. Timestamps come from MotionEvent's
+    // uptime clock; the long-press deadline is fired by a UI-thread timer queueing Tick.
+    private readonly TouchInput _touch;
+
+    internal void TouchDown(float x, float y, double t) { if (_touch.Down(x / InputScale(), y / InputScale(), t)) MarkDirty(); }
+    internal void TouchMove(float x, float y, double t) { if (_touch.Move(x / InputScale(), y / InputScale(), t)) MarkDirty(); }
+    internal void TouchUp(float x, float y, double t) { if (_touch.Up(x / InputScale(), y / InputScale(), t)) MarkDirty(); }
+    internal void TouchCancel(double t) { if (_touch.Cancel(t)) MarkDirty(); }
+    internal void TouchTick(double t) { if (_touch.Tick(t)) MarkDirty(); }
 
     internal void Key(EditKey key, KeyMods mods = KeyMods.None)
     { if (_doc.DispatchKey(null, key, mods)) MarkDirty(); }

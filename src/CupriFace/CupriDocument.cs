@@ -538,6 +538,8 @@ public sealed partial class CupriDocument : IDisposable
         Mark("validate");
 
         _hoverChain.Clear();
+        _activeChain.Clear();   // same reason as hover: the fresh DOM carries no data-active, and a
+                                // stale chain would hand ClearActive() dead elements on pointer-up
         _root = new StyleResolver(_rules, _viewportWidth).BuildTree(dom);
         _layoutDirty = true; // fresh tree: no geometry until the next layout
         RestoreScroll(scroll);
@@ -637,6 +639,7 @@ public sealed partial class CupriDocument : IDisposable
             any = true;
         }
         if (EaseReorder(timeSeconds)) any = true; // slide reorder rows into their gap
+        if (StepFling(timeSeconds)) any = true;   // momentum scrolling (touch fling)
         // Animation wrote style/offset values this frame → the retained fast-path list is stale.
         // A quiet call (rules exist, nothing active — every page of an app with a spinner
         // somewhere) must NOT bump, or the surface fast path would never fire anywhere.
@@ -653,7 +656,7 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>True while a CSS transition is mid-flight (a continuous host should keep calling
     /// <see cref="Animate"/> and repainting until it settles). Also true while a masked field is
     /// peeking its last-typed char, so the host keeps ticking until <see cref="Animate"/> re-masks it.</summary>
-    public bool HasActiveTransitions => _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending;
+    public bool HasActiveTransitions => _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || FlingActive;
 
     /// <summary>True only if a *visible* node is currently animating (display:none subtrees are
     /// absent from the render tree). Lets a host render continuously only when it must, instead
@@ -661,7 +664,7 @@ public sealed partial class CupriDocument : IDisposable
     /// set only changes when the tree does), so a host may poll it every frame for free. Also true
     /// while a masked field peeks its last-typed char (see <see cref="HasActiveTransitions"/>),
     /// and while any live surface (a playing video) is producing frames.</summary>
-    public bool HasActiveAnimations => _hasActiveAnim || _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || Surfaces.AnyTicking;
+    public bool HasActiveAnimations => _hasActiveAnim || _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || Surfaces.AnyTicking || FlingActive;
     private bool _hasActiveAnim;
 
     private static bool AnyAnimated(RenderNode n)
@@ -1542,36 +1545,9 @@ public sealed partial class CupriDocument : IDisposable
             return blurred || strayClosed;
         }
 
-        // Grabbing a resize grip (bottom-right corner) starts a resize-drag — corner takes priority.
-        for (var n = hit; n is not null; n = n.Parent)
-            if (InResizeGrip(n, x, y))
-            {
-                _resizeDrag = n; _resizeX0 = x; _resizeY0 = y;
-                _resizeW0 = n.ResizeW ?? n.Width; _resizeH0 = n.ResizeH ?? n.Height;
-                return true;
-            }
-
-        // Grabbing a resizable table's column boundary (a header cell's right edge) starts a column drag.
-        for (var n = hit; n is not null; n = n.Parent)
-            if (StartColumnResize(n, x)) return true;
-
-        // Grabbing a scrollbar thumb starts a scroll-drag (takes priority; doesn't focus/blur).
-        for (var n = hit; n is not null; n = n.Parent)
-            if (ThumbRect(n) is { } tr && x >= tr.X - 6 && x <= tr.X + tr.W + 8 && y >= tr.Y && y <= tr.Y + tr.H)
-            {
-                _scrollDrag = n; _scrollDragScroll0 = Math.Clamp(n.ScrollY, 0, n.MaxScrollY); _scrollDragY0 = y;
-                return true;
-            }
-
-        // Grabbing a drag-reorder handle starts a reorder drag (paint-time; doesn't focus/blur).
-        for (var n = hit; n is not null; n = n.Parent)
-            if (n.Element?.ClassList.Contains("cupri-reorder-handle") == true && StartReorder(n, x, y))
-                return true;
-
-        // Grabbing a split-pane divider starts a split-resize drag.
-        for (var n = hit; n is not null; n = n.Parent)
-            if (n.Element?.ClassList.Contains("cupri-split-divider") == true && StartSplit(n, x, y))
-                return true;
+        // Drag surfaces (grips, boundaries, thumbs, handles) grab the pointer before anything
+        // else — shared with the touch layer, which must know these drag from the FIRST touch.
+        if (TryGrabDragSurface(hit, x, y)) return true;
 
         // :active press feedback — mark the pressed element chain (restyled below; cleared on pointer-up).
         SetActive(hit.Element);
@@ -1615,6 +1591,157 @@ public sealed partial class CupriDocument : IDisposable
         else if (_activeChain.Count > 0) ReStyle(); // show the :active press even if nothing else changed
         ReconcileScope(); // a click may have opened/closed an overlay → update the focus scope
         return handled || focusChanged || strayClosed || _activeChain.Count > 0;
+    }
+
+    /// <summary>Try to grab a drag surface under the pointer — resize grip, table column boundary,
+    /// scrollbar thumb, reorder handle, split divider — starting the drag when one is hit. The
+    /// priority order is load-bearing (corner grip beats thumb beats content). Shared by the mouse
+    /// path (this IS the old top of DispatchClickCore, verbatim) and the touch layer.</summary>
+    private bool TryGrabDragSurface(RenderNode hit, float x, float y)
+    {
+        // Grabbing a resize grip (bottom-right corner) starts a resize-drag — corner takes priority.
+        for (var n = hit; n is not null; n = n.Parent)
+            if (InResizeGrip(n, x, y))
+            {
+                _resizeDrag = n; _resizeX0 = x; _resizeY0 = y;
+                _resizeW0 = n.ResizeW ?? n.Width; _resizeH0 = n.ResizeH ?? n.Height;
+                return true;
+            }
+
+        // Grabbing a resizable table's column boundary (a header cell's right edge) starts a column drag.
+        for (var n = hit; n is not null; n = n.Parent)
+            if (StartColumnResize(n, x)) return true;
+
+        // Grabbing a scrollbar thumb starts a scroll-drag (takes priority; doesn't focus/blur).
+        for (var n = hit; n is not null; n = n.Parent)
+            if (ThumbRect(n) is { } tr && x >= tr.X - 6 && x <= tr.X + tr.W + 8 && y >= tr.Y && y <= tr.Y + tr.H)
+            {
+                _scrollDrag = n; _scrollDragScroll0 = Math.Clamp(n.ScrollY, 0, n.MaxScrollY); _scrollDragY0 = y;
+                return true;
+            }
+
+        // Grabbing a drag-reorder handle starts a reorder drag (paint-time; doesn't focus/blur).
+        for (var n = hit; n is not null; n = n.Parent)
+            if (n.Element?.ClassList.Contains("cupri-reorder-handle") == true && StartReorder(n, x, y))
+                return true;
+
+        // Grabbing a split-pane divider starts a split-resize drag.
+        for (var n = hit; n is not null; n = n.Parent)
+            if (n.Element?.ClassList.Contains("cupri-split-divider") == true && StartSplit(n, x, y))
+                return true;
+
+        return false;
+    }
+
+    // ---- the touch layer's view of a press (TouchInput; internal, same assembly) --------------
+
+    /// <summary>What a finger landed on, decided WITHOUT side effects — the touch layer defers
+    /// activation for everything except dedicated drag surfaces, which drag from the first touch.</summary>
+    internal enum PressKind { Empty, DragSurface, TextField, Other }
+
+    internal PressKind ClassifyPress(float x, float y)
+    {
+        EnsureLaidOut();
+        var hit = HitTesting.HitTest(_root, x, y);
+        if (hit is null) return PressKind.Empty;
+
+        // Pure mirrors of TryGrabDragSurface's conditions (no drag is started), plus the slider:
+        // ActivateFrom starts a slider drag on click, so to a finger it too is a drag surface.
+        for (var n = hit; n is not null; n = n.Parent)
+        {
+            if (InResizeGrip(n, x, y)) return PressKind.DragSurface;
+            if (ColumnBoundaryAt(n, x) is not null) return PressKind.DragSurface;
+            if (ThumbRect(n) is { } tr && x >= tr.X - 6 && x <= tr.X + tr.W + 8 && y >= tr.Y && y <= tr.Y + tr.H)
+                return PressKind.DragSurface;
+            if (n.Element?.ClassList.Contains("cupri-reorder-handle") == true) return PressKind.DragSurface;
+            if (n.Element?.ClassList.Contains("cupri-split-divider") == true) return PressKind.DragSurface;
+            if (n.Element?.GetAttribute("role") == "slider") return PressKind.DragSurface;
+        }
+
+        for (var n = hit; n is not null; n = n.Parent)
+            if (n.Element?.GetAttribute("role") is "textbox" or "spinbutton") return PressKind.TextField;
+
+        return PressKind.Other;
+    }
+
+    /// <summary>Press feedback for a deferred tap: :active on the chain under the finger — and
+    /// nothing else. No focus, no activation; those happen at finger-up if the press turns out to
+    /// be a tap.</summary>
+    internal bool SetPressed(float x, float y)
+    {
+        EnsureLaidOut();
+        var hit = HitTesting.HitTest(_root, x, y);
+        if (hit?.Element is null) return false;
+        SetActive(hit.Element);
+        ReStyle();
+        return true;
+    }
+
+    /// <summary>The press became a scroll (or was cancelled): drop the :active feedback.</summary>
+    internal bool ClearPressed() => ClearActive();
+
+    /// <summary>The structural path of the scroller a drag at (x, y) would move — captured once at
+    /// gesture start so a fling can outlive the per-keystroke rebuild (paths survive; node
+    /// references do not).</summary>
+    internal string? ScrollTargetAt(float x, float y)
+    {
+        EnsureLaidOut();
+        for (var n = HitTesting.HitTest(_root, x, y); n is not null; n = n.Parent)
+            if (n.IsScrollable) return PathOf(n);
+        return null;
+    }
+
+    // ---- fling (momentum scrolling) ------------------------------------------------------------
+    // Lives in the DOCUMENT, not the gesture recognizer, so every host's existing wake gate
+    // (HasActiveAnimations) and drive gate (HasActiveTransitions) see it with zero host changes.
+    // State is a structural path + a velocity — nothing that can dangle across a rebuild.
+
+    private string? _flingPath;
+    private float _flingV;
+    private double _flingT = double.NaN;
+    private const float FlingDecay = 3f;        // exp decay per second — calm, native-adjacent feel
+    private const float FlingStopSpeed = 30f;   // px/s below which the scroll just stops
+
+    /// <summary>True while a momentum scroll is in flight (drives the host frame loop).</summary>
+    public bool FlingActive => _flingPath is not null;
+
+    /// <summary>Begin a momentum scroll of the scroller at <paramref name="path"/> (from
+    /// <see cref="ScrollTargetAt"/>), at signed pixels/second (positive scrolls down). The
+    /// integration happens in <see cref="Animate"/>; a fling deliberately does NOT chain to
+    /// ancestor scrollers — momentum dies at the edge, as native platforms do.</summary>
+    public bool StartFling(string path, float pixelsPerSecond)
+    {
+        if (MathF.Abs(pixelsPerSecond) < FlingStopSpeed) return false;
+        _flingPath = path;
+        _flingV = pixelsPerSecond;
+        _flingT = double.NaN;
+        return true;
+    }
+
+    /// <summary>Stop any in-flight momentum scroll (a finger landing mid-fling catches the list).</summary>
+    public void StopFling()
+    {
+        _flingPath = null;
+        _flingT = double.NaN;
+    }
+
+    private bool StepFling(double now)
+    {
+        if (_flingPath is null) return false;
+        var dt = double.IsNaN(_flingT) ? 0 : Math.Clamp(now - _flingT, 0, 0.1);
+        _flingT = now;
+        if (dt <= 0) return true;                       // first frame stamps the clock only
+
+        _flingV *= (float)Math.Exp(-dt * FlingDecay);
+        var n = NodeAtPath(_flingPath);
+        if (n is null || !n.IsScrollable) { StopFling(); return false; }
+
+        var before = n.ScrollY;
+        n.ScrollY = Math.Clamp(n.ScrollY + _flingV * (float)dt, 0, n.MaxScrollY);
+        var moved = Math.Abs(n.ScrollY - before) > 0.01f;
+        RewindowVirtual(n);                             // may rebuild; we hold a path, not the node
+        if (!moved || MathF.Abs(_flingV) < FlingStopSpeed) StopFling();
+        return moved;
     }
 
     // Walk from a node up the ancestor chain, applying the first built-in control behaviour or

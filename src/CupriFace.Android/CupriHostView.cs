@@ -45,15 +45,24 @@ public sealed class CupriHostView : SKGLSurfaceView
         if (e is null) return false;
 
         // Capture on the UI thread, dispatch on the GL thread — MotionEvent objects are recycled
-        // by the platform after this method returns, so the coordinates must be copied out now.
+        // by the platform after this method returns, so the values must be copied out now. The
+        // timestamp is the event's own uptime clock (the clock the gesture recognizer keys slop,
+        // double-tap and fling velocity from), not "now".
         var x = e.GetX();
         var y = e.GetY();
+        var t = e.EventTime / 1000.0;
         switch (e.ActionMasked)
         {
-            case MotionEventActions.Down: QueueEvent(() => _host.TouchDown(x, y)); return true;
-            case MotionEventActions.Move: QueueEvent(() => _host.TouchMove(x, y)); return true;
-            case MotionEventActions.Up:
-            case MotionEventActions.Cancel: QueueEvent(() => _host.TouchUp(x, y)); return true;
+            case MotionEventActions.Down:
+                QueueEvent(() => _host.TouchDown(x, y, t));
+                // Long-press: arm a UI-thread timer that queues Tick past the deadline. A tick
+                // that arrives after the press resolved is a no-op by design, so no bookkeeping.
+                Handler?.PostDelayed(() =>
+                    QueueEvent(() => _host.TouchTick(global::Android.OS.SystemClock.UptimeMillis() / 1000.0)), 520);
+                return true;
+            case MotionEventActions.Move: QueueEvent(() => _host.TouchMove(x, y, t)); return true;
+            case MotionEventActions.Up: QueueEvent(() => _host.TouchUp(x, y, t)); return true;
+            case MotionEventActions.Cancel: QueueEvent(() => _host.TouchCancel(t)); return true;
             default: return false;
         }
     }
