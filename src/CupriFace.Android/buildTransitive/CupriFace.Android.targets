@@ -1,0 +1,18 @@
+<Project>
+  <!--
+    Flows into apps that consume the CupriFace.Android NUPKG (repo-internal apps set this in
+    their own csproj — buildTransitive does not cross ProjectReference edges).
+
+    CoreCLR is the supported runtime, and this default is load-bearing, not advisory: the Mono
+    runtime pack shipped with .NET 10 (10.0.11) has a code-generation defect that crashes
+    CupriFace apps during startup — a native SIGSEGV inside Mono-compiled CoreLib where string
+    CONTENT is dereferenced as a string REFERENCE. It reproduces on arm64 hardware and x64
+    emulators alike, with AOT and JIT alike (they share Mono's code generator), trimmed or not.
+    Full forensics and the upstream-ready report: samples/AndroidProbe/MONO-CRASH.md in the
+    CupriFace repository. Re-evaluate when the Mono runtime pack moves past 10.0.11 — the
+    AndroidProbe workflow's variant matrix exists to answer exactly that.
+  -->
+  <PropertyGroup>
+    <UseMonoRuntime Condition="'$(UseMonoRuntime)' == ''">false</UseMonoRuntime>
+  </PropertyGroup>
+</Project>

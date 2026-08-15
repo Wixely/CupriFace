@@ -1,0 +1,114 @@
+name: Android gate
+
+# THE GATE for the Android host — blocking from birth, in its own workflow until it has earned
+# promotion into ci.yml (the same path every accessibility gate walked). It grows one leg per
+# phase of the Android plan; each assertion names the phase that introduced it.
+#
+# Assertion channel: logcat markers under the tag "cupri" emitted by AndroidHost — the same
+# philosophy as the FlaUI/pyatspi/pyobjc gates (drive the real app, read what it actually did),
+# adapted to adb. The emulator harness (KVM udev rule, ANDROID_AVD_HOME pin, resolve-activity
+# launch, bounded waits) is inherited from android-probe.yml, where each of those lessons was
+# paid for individually.
+#
+# Current legs:
+#   Phase 1 — the APK builds (x64 + arm64, sizes reported), installs, launches, and paints:
+#             FIRST FRAME marker asserted.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, 'feature/android-**' ]
+    paths:
+      - '.github/workflows/android-gate.yml'
+      - 'src/CupriFace.Android/**'
+      - 'samples/AndroidViewer/**'
+      - 'samples/DemoApp/**'
+      - 'src/CupriFace/Interaction/**'
+
+jobs:
+  gate:
+    name: The Android host, driven on a device
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install the Android workload
+        run: dotnet workload install android --skip-manifest-update
+
+      - name: Build the APKs
+        run: |
+          dotnet publish samples/AndroidViewer/AndroidViewer.csproj -c Release -r android-x64 -o out/x64
+          dotnet publish samples/AndroidViewer/AndroidViewer.csproj -c Release -r android-arm64 -o out/arm64
+          echo "### APK size" >> $GITHUB_STEP_SUMMARY
+          for f in $(find out -name "*-Signed.apk"); do
+            printf '%-8s %s bytes\n' "$(basename $(dirname $f))" "$(stat -c%s $f)" | tee -a $GITHUB_STEP_SUMMARY
+          done
+
+      - name: Boot an emulator
+        run: |
+          set -x
+          # sdkmanager lives under cmdline-tools, not on PATH on this image.
+          SDK=${ANDROID_SDK_ROOT:-$ANDROID_HOME}
+          export PATH="$SDK/cmdline-tools/latest/bin:$SDK/platform-tools:$SDK/emulator:$PATH"
+          echo "PATH=$PATH" >> $GITHUB_ENV
+
+          # /dev/kvm is root:kvm 0660 here; without this rule the emulator silently falls back
+          # to pure emulation and takes minutes per boot.
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules > /dev/null
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm || true
+          ls -l /dev/kvm
+
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager --install "system-images;android-34;google_apis;x86_64" "platform-tools" "emulator" > /dev/null
+          # avdmanager and the emulator disagree about where AVDs live unless told.
+          export ANDROID_AVD_HOME="$HOME/.android/avd"
+          echo "ANDROID_AVD_HOME=$ANDROID_AVD_HOME" >> $GITHUB_ENV
+          mkdir -p "$ANDROID_AVD_HOME"
+          echo no | avdmanager create avd -n gate -k "system-images;android-34;google_apis;x86_64" --force
+          emulator -list-avds | grep -qx gate
+
+          # SwiftShader GL: no GPU on the runner; still the real EGL/GRContext path — the same
+          # llvmpipe-class caveat every desktop gate carries.
+          $SDK/emulator/emulator -avd gate -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect \
+            -no-snapshot -camera-back none > emulator.log 2>&1 &
+
+          # Every wait bounded: an unbounded adb wait hangs the job instead of failing it.
+          timeout 420 adb wait-for-device
+          timeout 420 adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 2; done'
+          adb shell getprop sys.boot_completed | grep -q 1
+          adb devices
+
+      # Phase 1 leg: install, launch, and PROVE a frame was painted.
+      - name: It installs, launches, and paints
+        run: |
+          set -x
+          adb logcat -c || true
+          adb install -r out/x64/*-Signed.apk
+          # The activity's class name is crc-mangled; ask the package manager, never guess. And
+          # `am start` exits 0 while printing "Error:", so read the output, not the exit code.
+          ACTIVITY=$(adb shell cmd package resolve-activity --brief com.cupriface.viewer | tail -1 | tr -d '\r')
+          echo "launcher activity: $ACTIVITY"
+          adb shell am start -n "$ACTIVITY" 2>&1 | tee start.log
+          ! grep -q "Error:" start.log
+
+          # Bounded poll for the marker — the app logs FIRST FRAME when a frame really rendered.
+          for i in $(seq 1 30); do
+            adb logcat -d -s cupri:I | grep -q "FIRST FRAME" && break
+            sleep 2
+          done
+          echo "### What the app reported" >> $GITHUB_STEP_SUMMARY
+          adb logcat -d -s cupri:I | tee -a $GITHUB_STEP_SUMMARY
+          adb logcat -d -s cupri:I | grep -q "FIRST FRAME"
+          echo "--- crashes, if any (informational) ---"
+          adb logcat -d -s AndroidRuntime:E DEBUG:F | tail -30
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: androidviewer-apk
+          path: out/arm64/*-Signed.apk
+          if-no-files-found: error
