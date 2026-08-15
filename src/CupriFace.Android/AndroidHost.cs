@@ -336,7 +336,10 @@ public sealed class AndroidHost : IDisposable
     internal void TouchUp(float x, float y, double t)
     {
         if (_touch.Up(x / InputScale(), y / InputScale(), t)) MarkDirty();
-        if (_doc.FlingActive) Log("fling started");        // diagnostic pair of "fling settled"
+        // The diagnostic pair of "fling settled" — WITH the position, so settle minus start is
+        // the coast: the CI gate's momentum assert, independent of how many drag-only gestures
+        // a flaky injector delivered before one carried a fling.
+        if (_doc.FlingActive) Log($"fling started y={MaxScrollOffset(_doc.Root):F0}");
     }
     internal void TouchCancel(double t) { if (_touch.Cancel(t)) MarkDirty(); }
     internal void TouchTick(double t) { if (_touch.Tick(t)) MarkDirty(); }

@@ -458,9 +458,15 @@ jobs:
           sleep 4  # let the momentum integrator run to a stop
           adb logcat -d -s cupri:I | grep "fling settled" | tee fling.txt \
             || fail "no fling-settled marker after $TRIES swipe(s)"
+          # Momentum = COAST: where the fling started (logged at finger-up, after the drag)
+          # versus where it settled. Run 25 showed why finger-travel arithmetic can't work: a
+          # flaky injector can deliver drag-only gestures (moves too sparse for the velocity
+          # ring) before one carries a fling, and every dp those drags scrolled counts against
+          # a travel-based threshold.
+          START=$(adb logcat -d -s cupri:I | grep -oE 'fling started y=[0-9]+' | tail -1 | grep -oE '[0-9]+$')
           SETTLED=$(grep -oE 'y=[0-9]+' fling.txt | tail -1 | cut -d= -f2)
-          echo "finger travelled $(( 350 * TRIES ))dp over $TRIES swipe(s); settled at ${SETTLED}dp"
-          test "$SETTLED" -gt $(( 350 * TRIES )) || fail "settled ${SETTLED}dp <= finger travel - no momentum"
+          echo "fling: started ${START}dp, settled ${SETTLED}dp - coast $(( SETTLED - START ))dp over $TRIES swipe(s)"
+          test $(( SETTLED - START )) -gt 50 || fail "coast $(( SETTLED - START ))dp - the integrator barely ran"
 
           # --- the soft keyboard follows focus ---------------------------------------------------
           nav 2   # Form
