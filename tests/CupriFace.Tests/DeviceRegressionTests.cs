@@ -248,4 +248,45 @@ public class DeviceRegressionTests
         Assert.Equal(WindowCommand.ExitFullscreen, commands[^1]);
         Assert.False(((MobileModel)app.Model!).Fullscreen);
     }
+
+    [Fact]
+    public void The_dark_mode_row_toggles_when_the_sidebar_is_a_rail()
+    {
+        // Reported: "when the sidepanel is minimised, the Dark toggle is just an eye and tapping it
+        // does nothing". The switch is display:none in the rail, so the only thing left to tap was
+        // an icon with no behaviour behind it.
+        var app = new ShowcaseApp();
+        using var doc = app.CreateDocument();
+        var model = (ShowcaseModel)app.Model!;
+        model.Sidebar = "collapsed";
+        var p = app.Present(420, 800);
+        using (doc.RenderToImage((int)p.LogicalWidth, (int)p.LogicalHeight)) { }
+
+        var row = Find(doc.Root, n => n.Element?.ClassList.Contains("side-toggle") == true);
+        Assert.NotNull(row);
+        var (x, y) = HitTesting.ActivationPoint(row!);
+        Assert.False(model.DarkMode);
+        doc.DispatchClick(x, y);
+        Assert.True(model.DarkMode, "tapping the collapsed row did nothing");
+    }
+
+    [Fact]
+    public void The_app_states_which_build_it_is()
+    {
+        // Asked for after a session spent chasing bugs that were already fixed, on a phone that
+        // had silently kept the previous APK: "make sure to include some kind of version number or
+        // build date in the app so i can not fall into this trap again."
+        var describe = BuildInfo.Describe();
+        Assert.StartsWith("v", describe);
+        Assert.Contains("built", describe);          // the stamp is what moves between rebuilds
+
+        var app = new MobileApp();
+        using var doc = app.CreateDocument();
+        using (doc.RenderToImage(W, H)) { }
+        Nav(doc, "About");
+
+        var shown = Find(doc.Root, n => n.Element?.ClassList.Contains("build") == true);
+        Assert.NotNull(shown);
+        Assert.Equal(describe, shown!.Element!.TextContent.Trim());
+    }
 }

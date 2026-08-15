@@ -242,11 +242,11 @@ doc.RenderToImage(800, 600);
         <cupri-bar-chart class="chart" axis values="{{Sales}}" labels="Mon,Tue,Wed,Thu,Fri,Sat,Sun"></cupri-bar-chart>
         <div class="mlabel">Grouped &amp; stacked — multiple series per category</div>
         <div class="row" style="align-items:flex-start">
-          <cupri-bar-chart class="chart" axis style="flex:1;min-width:230px" labels="Q1,Q2,Q3,Q4">
+          <cupri-bar-chart class="chart pair" axis labels="Q1,Q2,Q3,Q4">
             <cupri-series label="2023" values="10,15,12,18" color="#4682B4"></cupri-series>
             <cupri-series label="2024" values="14,19,16,25" color="#B87333"></cupri-series>
           </cupri-bar-chart>
-          <cupri-bar-chart class="chart" axis stacked style="flex:1;min-width:230px" labels="Q1,Q2,Q3,Q4">
+          <cupri-bar-chart class="chart pair" axis stacked labels="Q1,Q2,Q3,Q4">
             <cupri-series label="Product" values="10,12,11,14" color="#4682B4"></cupri-series>
             <cupri-series label="Service" values="6,7,8,7" color="#10ac84"></cupri-series>
             <cupri-series label="Other" values="3,2,4,3" color="#f5b301"></cupri-series>

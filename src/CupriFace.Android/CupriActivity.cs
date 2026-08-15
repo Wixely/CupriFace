@@ -85,10 +85,16 @@ public abstract class CupriActivity : global::Android.App.Activity
                 ic.SetSystemBarsAppearance(light, light);
             }
 
+            // Let the window extend INTO a notch/punch-hole. Without this the cutout area is simply
+            // unavailable, so "true fullscreen" could never reach the top of the phone.
+            if (OperatingSystem.IsAndroidVersionAtLeast(28) && w.Attributes is { } attrs)
+                attrs.LayoutInDisplayCutoutMode = LayoutInDisplayCutoutMode.ShortEdges;
+
             var container = new global::Android.Widget.FrameLayout(this);
             container.SetBackgroundColor(new global::Android.Graphics.Color(bg.Red, bg.Green, bg.Blue, bg.Alpha));
             container.AddView(_view);
-            container.SetOnApplyWindowInsetsListener(new InsetsPadder());
+            _padder = new InsetsPadder();
+            container.SetOnApplyWindowInsetsListener(_padder);
             SetContentView(container);
         }
         else
@@ -123,15 +129,25 @@ public abstract class CupriActivity : global::Android.App.Activity
     /// <summary>Applies the live window insets (system bars, display cutout, the soft keyboard)
     /// as padding, so the app's content sits in the truly-usable rectangle while the container's
     /// background fills the strips behind the transparent bars.</summary>
+    private InsetsPadder? _padder;
+
     private sealed class InsetsPadder : global::Java.Lang.Object, View.IOnApplyWindowInsetsListener
     {
+        /// <summary>True fullscreen means the CUTOUT too. Hiding the system bars zeroes their
+        /// insets, but a notch's inset survives — which left a blank band across the top of the
+        /// phone exactly as tall as the status bar used to be, while the bottom went properly
+        /// edge-to-edge. Immersive keeps only the keyboard inset, because a keyboard covering the
+        /// field you are typing into is not fullscreen, it is a bug.</summary>
+        public bool Immersive;
+
         public WindowInsets OnApplyWindowInsets(View v, WindowInsets insets)
         {
             if (OperatingSystem.IsAndroidVersionAtLeast(30))
             {
-                var i = insets.GetInsets(WindowInsets.Type.SystemBars()
-                                         | WindowInsets.Type.Ime()
-                                         | WindowInsets.Type.DisplayCutout());
+                var kinds = Immersive
+                    ? WindowInsets.Type.Ime()
+                    : WindowInsets.Type.SystemBars() | WindowInsets.Type.Ime() | WindowInsets.Type.DisplayCutout();
+                var i = insets.GetInsets(kinds);
                 v.SetPadding(i.Left, i.Top, i.Right, i.Bottom);
             }
             return insets;
@@ -177,6 +193,11 @@ public abstract class CupriActivity : global::Android.App.Activity
     private void SetImmersive(bool on)
     {
         _immersive = on;
+        if (_padder is not null)
+        {
+            _padder.Immersive = on;
+            _view?.RequestApplyInsets();     // re-pad now; insets do not change on their own here
+        }
         if (Window is not { } w) return;
         if (OperatingSystem.IsAndroidVersionAtLeast(30))
         {

@@ -310,8 +310,13 @@ jobs:
 
       - name: Build the APKs (and prove no desktop native rode along)
         run: |
-          dotnet publish samples/AndroidViewer/AndroidViewer.csproj -c Release -r android-x64 -o out/x64
-          dotnet publish samples/AndroidViewer/AndroidViewer.csproj -c Release -r android-arm64 -o out/arm64
+          # On a v* tag the APK carries that version, so the app's About page names the build a
+          # tester is holding. Off a tag there is no meaningful number and the build stamp alone
+          # distinguishes one APK from the next.
+          VER=""
+          case "$GITHUB_REF_NAME" in v[0-9]*) VER="-p:Version=${GITHUB_REF_NAME#v}" ;; esac
+          dotnet publish samples/AndroidViewer/AndroidViewer.csproj -c Release -r android-x64 -o out/x64 $VER
+          dotnet publish samples/AndroidViewer/AndroidViewer.csproj -c Release -r android-arm64 -o out/arm64 $VER
           echo "### APK size" >> $GITHUB_STEP_SUMMARY
           for f in $(find out -name "*-Signed.apk"); do
             printf '%-8s %s bytes\n' "$(basename $(dirname $f))" "$(stat -c%s $f)" | tee -a $GITHUB_STEP_SUMMARY

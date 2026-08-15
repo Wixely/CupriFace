@@ -8,6 +8,14 @@
     <RootNamespace>CupriFace.Demo</RootNamespace>
   </PropertyGroup>
 
+  <!-- Stamped into the assembly at build time and shown in the app's About page. A person testing
+       a sideloaded APK has no other way to tell which build is on the phone, and mistaking an old
+       install for a new one costs a whole debugging session (it cost one). Version comes from the
+       tag on a release build (-p:Version=…) and is 1.0.0 otherwise; the UTC stamp always moves. -->
+  <ItemGroup>
+    <AssemblyMetadata Include="BuildStamp" Value="$([System.DateTime]::UtcNow.ToString(&quot;yyyy-MM-dd HH:mm&quot;))" />
+  </ItemGroup>
+
   <ItemGroup>
     <!-- Portable app: references only the engine (no windowing, no platform code). -->
     <ProjectReference Include="..\..\src\CupriFace\CupriFace.csproj" />

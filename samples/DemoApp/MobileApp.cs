@@ -69,6 +69,11 @@ public sealed class MobileApp : CupriApp
 [CupriBindable]
 public sealed partial class MobileModel
 {
+    /// <summary>Which build this actually is. A sideloaded APK looks identical to the one it
+    /// replaced, and an install that silently didn't happen sends you hunting bugs that were fixed
+    /// two releases ago — so the app states its own version where a tester can see it.</summary>
+    public string Build { get; } = BuildInfo.Describe();
+
     public string Page { get; set; } = "home";
 
     public string PgHome => Page == "home" ? "flex" : "none";

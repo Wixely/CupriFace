@@ -60,6 +60,11 @@ public sealed class ShowcaseApp : CupriApp
             var showingRail = _model.Sidebar == "collapsed" || (_model.Sidebar != "expanded" && _logicalWidth <= 760);
             _model.Sidebar = showingRail ? "expanded" : "collapsed";
         });
+        // The row itself toggles dark mode, which is the ONLY way to reach it while the sidebar is
+        // an icon rail: the switch is display:none there, leaving an icon that did nothing when
+        // tapped. Clicking the switch still goes to the switch (dispatch applies the innermost
+        // element's behaviour), so this never double-toggles.
+        doc.OnClick(".side-toggle", _ => _model.DarkMode = !_model.DarkMode);
         doc.OnClick(".act-submit", _ => _model.FormOk = doc.ValidateAll());
         doc.OnClick(".swatch", e => { if (e.Element.GetAttribute("data-accent") is { } a) _model.Accent = a; });
         doc.OnClick(".ctx-act", e => { if (e.Element.GetAttribute("data-action") is { } a) _model.CtxAction = a; });
