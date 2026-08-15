@@ -47,6 +47,10 @@ public sealed class AndroidHost : IDisposable
     /// <summary>The live document — for the bridge's GL-thread-queued actions only.</summary>
     internal CupriDocument Document => _doc;
 
+    /// <summary>The app's clear colour — the activity paints the edge-to-edge inset strips with
+    /// it so the band behind the transparent status bar belongs to the app.</summary>
+    internal SkiaSharp.SKColor AppBackground => _app.Transparent ? SkiaSharp.SKColors.Black : _app.Background;
+
     /// <summary>Diagnostics for the CI gate and for humans: CUPRIFACE_ANDROID_DEBUG has no
     /// environment on Android, so markers are always on — they are cheap, and they are the only
     /// window CI has into the app.</summary>
