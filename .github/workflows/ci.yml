@@ -555,10 +555,17 @@ jobs:
           # lesson: it reported 1 while a whole windowful of rows sat on that line).
           ROWS=$(grep -o 'text="Row ' ui4.xml | wc -l)
           test "$ROWS" -ge 5 || fail "only $ROWS rows exposed after the fling - the window did not follow"
-          # And the arrived window must be a LATER one: ~750dp of travel / 48dp rows puts the
-          # first exposed row in the mid-teens.
+          # The exposed window must AGREE with where the engine says the scroll settled — not
+          # with a magic row number (fling velocity varies run to run; a fixed threshold sat on
+          # a knife edge). Rows are 48dp: the first exposed row is the one straddling the
+          # settled offset. A stale published tree (the trailing-edge cache bug this leg once
+          # caught) sits ~5 rows low and still fails this.
+          S=$(adb logcat -d -s cupri:I | grep -oE 'fling settled y=[0-9]+' | tail -1 | grep -oE '[0-9]+$')
+          [ -n "$S" ] || fail "no settle marker for the phase-8 fling"
+          WANT=$(( S / 48 + 1 ))
           MIN=$(grep -o 'text="Row [0-9]*' ui4.xml | grep -oE '[0-9]+' | sort -n | head -1)
-          test "$MIN" -gt 10 || fail "first exposed row is $MIN - the window barely moved"
+          { test "$MIN" -ge $(( WANT - 1 )) && test "$MIN" -le $(( WANT + 3 )); } \
+            || fail "first exposed row $MIN disagrees with the settled scroll (${S}dp -> expected ~$WANT) - stale tree"
 
           echo "### TalkBack bridge assertions all green" >> $GITHUB_STEP_SUMMARY
           echo "switch round-trip via dump bounds; list window followed a fling ($ROWS rows exposed)" >> $GITHUB_STEP_SUMMARY
