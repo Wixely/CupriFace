@@ -69,6 +69,25 @@ internal sealed class TalkBackBridge : AccessibilityNodeProvider
 
     internal void SetViewOrigin(int x, int y) { lock (_gate) { _originX = x; _originY = y; } }
 
+    /// <summary>Diagnostics: the first on-screen listitem in the LAST PUBLISHED tree — the
+    /// settle ledger logs it so a stale-tree failure can say whether the staleness was built
+    /// here or introduced on the reader's side of the protocol.</summary>
+    internal string FirstVisibleListitem()
+    {
+        lock (_gate)
+        {
+            if (_root is null) return "(no tree)";
+            string? found = null;
+            void Walk(AccessibilityNode n)
+            {
+                if (found is null && n.Role == "listitem" && !n.Offscreen) found = n.Name;
+                foreach (var c in n.Children) { if (found is not null) return; Walk(c); }
+            }
+            Walk(_root);
+            return found ?? "(none)";
+        }
+    }
+
     // ---- publish (GL thread) ------------------------------------------------------------------
 
     /// <summary>Swap in a freshly built semantics tree. Called on the GL thread after a frame;
