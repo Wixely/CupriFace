@@ -66,7 +66,11 @@ name: Android probe
 #
 # REAL-DEVICE CONFIRMATION (Android 16 phone, arm64, 2026-08-15, sideloaded by hand): CoreCLR
 #   renders the full Showcase correctly — sidebar navigation, section switches, @keyframes
-#   animations all live on the phone's own GPU. Mono crashes there too. That answers the one
+#   animations all live on the phone's own GPU. CORRECTION (Phase 9 review): "animations live"
+#   over-claimed — this probe renders continuously and never calls Animate, so what the device
+#   showed was repainted static frames, not the animation clock. The real host
+#   (src/CupriFace.Android) drives Animate properly and supersedes this probe for anything but
+#   runtime forensics. Mono crashes there too. That answers the one
 #   question the emulator could not: the Mono defect is NOT x64-specific — it reproduces on
 #   arm64 hardware, so it is Mono-10.0.11-on-Android generally, which strengthens the upstream
 #   report. It also retires the SwiftShader caveat: the GL path now has a real-GPU data point.

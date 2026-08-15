@@ -33,6 +33,7 @@ variables, `@media`, `@keyframes`, transitions.
 |---|---|
 | `CupriFace` | The engine — parse, style, layout, shape text, paint, bind, components. Renders into any Skia canvas or RGBA buffer, so it works headless too. |
 | `CupriFace.Shell` | The desktop host — a window (GPU with a software fallback), input, and cursors. `DesktopHost.Run(new SettingsApp())`. |
+| `CupriFace.Android` | The Android host — subclass `CupriActivity`, return your `CupriApp`. GL surface, touch gestures (tap/fling/long-press), soft keyboard with real IME composition, and the TalkBack accessibility bridge. Needs the `android` workload. |
 
 The engine has no windowing dependency at all, which is what makes it embeddable: `RenderToPixels`
 fills any RGBA buffer — a game texture, an HTML canvas, a server-side image — and the same document
@@ -42,6 +43,10 @@ takes pointer and key events with no display attached. That also makes UI genuin
 
 - Requires **.NET 10**. Skia and HarfBuzz natives for Windows, Linux and macOS come in as
   dependencies, so one build runs on any desktop OS.
+- On Android the runtime is **CoreCLR** — `CupriFace.Android` pins `UseMonoRuntime=false` for
+  every consumer via its buildTransitive targets. This is a correctness requirement, not a
+  preference: Mono 10.0.11 miscompiles the engine on Android (forensics in the repo,
+  `samples/AndroidProbe/MONO-CRASH.md`).
 - CSS support is a real but **documented subset** — the cascade, flexbox, grid, transforms and
   animations are there; the modern long tail is not.
 - Pre-1.0: the API is expected to change.

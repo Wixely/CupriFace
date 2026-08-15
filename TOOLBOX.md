@@ -123,6 +123,25 @@ Run it on the **web**: compile the same class against the WASM host in
 [`samples/WebWasm`](samples/WebWasm/) — the thin JS glue blits the engine's pixels to a `<canvas>`
 and forwards input. "Exporting to a website" is just recompiling the app against the web host.
 
+Run it on **Android** (`dotnet workload install android` first): reference
+[`CupriFace.Android`](src/CupriFace.Android/) from a `net10.0-android` project and subclass
+[`CupriActivity`](src/CupriFace.Android/CupriActivity.cs):
+
+```csharp
+[Activity(MainLauncher = true)]
+public sealed class MainActivity : CupriActivity
+{
+    protected override CupriApp CreateApp() => new MyApp();
+}
+```
+
+That's the whole app — the host brings the GL surface, touch gestures (tap/fling/long-press),
+the soft keyboard with real IME composition, and the TalkBack bridge. Logical px are Android dp,
+so `@media (max-width: …)` phone layouts fire naturally. The runtime is CoreCLR by default (the
+package pins it — see [`samples/AndroidProbe/MONO-CRASH.md`](samples/AndroidProbe/MONO-CRASH.md)
+for why); [`samples/AndroidViewer`](samples/AndroidViewer/) is the worked example, running the
+phone-first `MobileApp` with the desktop Showcase reachable from its About page.
+
 ### 2c. Transparent overlays & floating HUDs
 
 Three opt‑in flags on `CupriApp` turn an ordinary window into an overlay that composites over whatever
@@ -809,12 +828,18 @@ the built‑ins use), rather than reinventing input handling:
   [ComponentRegistry](src/CupriFace/Components/ComponentRegistry.cs)
 - Binding: [src/CupriFace/Binding/](src/CupriFace/Binding/) (`[CupriBindable]`, `IBindableAccessor`)
 - Desktop host: [src/CupriFace.Shell/DesktopHost.cs](src/CupriFace.Shell/DesktopHost.cs)
+- Android host: [src/CupriFace.Android/](src/CupriFace.Android/) (`CupriActivity`,
+  `CupriHostView`, `AndroidHost`, the TalkBack bridge)
+- Touch & IME (portable, engine-side): [src/CupriFace/Interaction/](src/CupriFace/Interaction/)
+  (`TouchInput` gesture recognizer, `TextInputState`)
 - Accessibility: the portable semantics tree is
   [src/CupriFace/Accessibility/](src/CupriFace/Accessibility/); the per-OS bridges that serve it
   to screen readers live in [src/CupriFace.Shell/Accessibility/](src/CupriFace.Shell/Accessibility/)
-  (UIA on Windows, AT-SPI on Linux, NSAccessibility on macOS). You do not call these — set
-  `role`/`aria-*` and they follow.
+  (UIA on Windows, AT-SPI on Linux, NSAccessibility on macOS) and
+  [src/CupriFace.Android/TalkBackBridge.cs](src/CupriFace.Android/TalkBackBridge.cs) (TalkBack).
+  You do not call these — set `role`/`aria-*` and they follow.
 - Web host (raw WASM): [samples/WebWasm/](samples/WebWasm/)
-- Runnable samples: [samples/](samples/) — `Viewer` (desktop showcase), `Interactive`,
+- Runnable samples: [samples/](samples/) — `Viewer` (desktop showcase; `--app mobile` runs the
+  phone sample), `AndroidViewer` (the same `MobileApp` on a phone), `Interactive`,
   `ControlsGallery`, `Keyboard`, `Scaling`, and more.
 - Architecture rationale: [DESIGN.md](DESIGN.md)

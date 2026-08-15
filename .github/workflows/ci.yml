@@ -278,6 +278,297 @@ jobs:
           test -n "$f" || { echo "::error::no wasm module was produced"; exit 1; }
           ls -l "$f"
 
+  # THE ANDROID GATE — promoted from android-gate.yml after seventeen runs earned it (the same
+  # path every accessibility gate walked: own workflow until stable green, then blocking here).
+  #
+  # Assertion channel: logcat. The HOST logs under tag "cupri" (first frame, view geometry, fling
+  # markers); the SAMPLE's gate seams print "cupri-gate:" lines via Console, which the host
+  # bridges to logcat because CoreCLR-Android has no stdout destination of its own.
+  #
+  # Geometry: taps are computed in the APP VIEW's own coordinate space — the host publishes its
+  # view's screen origin + size on every layout, and the gate converts calibrated dp anchors
+  # (pinned headlessly by MobileAppTests at the same 393-wide dp space this emulator skin gives)
+  # through that line. Display-size arithmetic lands in the status bar; that lesson cost run 8.
+  #
+  # What is NOT claimed automatable, stated plainly: real IME COMPOSITION (adb's `input text`
+  # bypasses any IME) — pinned by headless engine tests + a documented manual Gboard pass; and
+  # SPOKEN TalkBack output — uiautomator proves the exposed tree, actions and geometry, what
+  # TalkBack says aloud is a documented human pass, the same standard the Narrator/Orca/VoiceOver
+  # gates hold.
+  android:
+    name: The Android host, driven on a device
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install the Android workload
+        run: dotnet workload install android --skip-manifest-update
+
+      - name: Build the APKs (and prove no desktop native rode along)
+        run: |
+          dotnet publish samples/AndroidViewer/AndroidViewer.csproj -c Release -r android-x64 -o out/x64
+          dotnet publish samples/AndroidViewer/AndroidViewer.csproj -c Release -r android-arm64 -o out/arm64
+          echo "### APK size" >> $GITHUB_STEP_SUMMARY
+          for f in $(find out -name "*-Signed.apk"); do
+            printf '%-8s %s bytes\n' "$(basename $(dirname $f))" "$(stat -c%s $f)" | tee -a $GITHUB_STEP_SUMMARY
+          done
+          # The engine's props leak desktop native PACKAGES into the restore; this asserts the leak
+          # stays restore-only — no linux/win/osx native may enter an Android APK.
+          for f in $(find out -name "*-Signed.apk"); do
+            if unzip -l "$f" | grep -E "linux-x64|linux-arm64|win-x64|win-arm64|osx-x64|osx-arm64|runtimes/"; then
+              echo "::error::desktop native assets leaked into $f"
+              exit 1
+            fi
+          done
+          echo "APKs are clean of desktop natives"
+
+      - name: Boot an emulator
+        run: |
+          set -x
+          # sdkmanager lives under cmdline-tools, not on PATH on this image.
+          SDK=${ANDROID_SDK_ROOT:-$ANDROID_HOME}
+          export PATH="$SDK/cmdline-tools/latest/bin:$SDK/platform-tools:$SDK/emulator:$PATH"
+          echo "PATH=$PATH" >> $GITHUB_ENV
+
+          # /dev/kvm is root:kvm 0660 here; without this rule the emulator silently falls back
+          # to pure emulation and takes minutes per boot.
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules > /dev/null
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm || true
+          ls -l /dev/kvm
+
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager --install "system-images;android-34;google_apis;x86_64" "platform-tools" "emulator" > /dev/null
+          # avdmanager and the emulator disagree about where AVDs live unless told.
+          export ANDROID_AVD_HOME="$HOME/.android/avd"
+          echo "ANDROID_AVD_HOME=$ANDROID_AVD_HOME" >> $GITHUB_ENV
+          mkdir -p "$ANDROID_AVD_HOME"
+          echo no | avdmanager create avd -n gate -k "system-images;android-34;google_apis;x86_64" --force
+          # PIN the geometry the tap arithmetic assumes: 1080x2340 @ 440 = the 393x851 dp space
+          # the layout was calibrated in headlessly.
+          printf 'hw.lcd.width=1080\nhw.lcd.height=2340\nhw.lcd.density=440\n' >> "$ANDROID_AVD_HOME/gate.avd/config.ini"
+          emulator -list-avds | grep -qx gate
+
+          $SDK/emulator/emulator -avd gate -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect \
+            -no-snapshot -camera-back none > emulator.log 2>&1 &
+
+          # Every wait bounded: an unbounded adb wait hangs the job instead of failing it.
+          timeout 420 adb wait-for-device
+          timeout 420 adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 2; done'
+          adb shell getprop sys.boot_completed | grep -q 1
+          adb shell wm size
+          adb shell wm density
+
+      - name: It installs, launches, and paints
+        run: |
+          set -x
+          adb logcat -c || true
+          adb install -r out/x64/*-Signed.apk
+          ACTIVITY=$(adb shell cmd package resolve-activity --brief com.cupriface.viewer | tail -1 | tr -d '\r')
+          adb shell am start -n "$ACTIVITY" 2>&1 | tee start.log
+          ! grep -q "Error:" start.log
+          for i in $(seq 1 30); do
+            adb logcat -d -s cupri:I | grep -q "FIRST FRAME" && break
+            sleep 2
+          done
+          adb logcat -d -s cupri:I | grep -q "FIRST FRAME"
+
+      - name: Touch, momentum, keyboard, rotation
+        run: |
+          set -x
+          set -o pipefail   # an empty grep must not hide behind tee's exit status
+          # A failed assert must explain itself: dump the app's whole story before dying.
+          fail() { echo "::error::$1"; adb logcat -d -s cupri:I | tail -80; adb logcat -d | tail -40; exit 1; }
+          # Taps are computed in the APP VIEW's coordinate space, not the display's: the status
+          # bar sits ABOVE the view, so display-size arithmetic lands in system chrome (run 8's
+          # finding). The host publishes its view's screen origin + size on every layout; the
+          # gate re-reads the LAST line whenever geometry may have changed (startup, rotation).
+          D=$(adb shell wm density | grep -oE '[0-9]+' | tail -1)
+          geom() {
+            LINE=$(adb logcat -d -s cupri:I | grep "view origin" | tail -1)
+            [ -n "$LINE" ] || fail "the host never published its view geometry"
+            OX=$(echo "$LINE" | grep -oE 'origin [0-9]+,[0-9]+' | grep -oE '[0-9]+' | head -1)
+            OY=$(echo "$LINE" | grep -oE 'origin [0-9]+,[0-9]+' | grep -oE '[0-9]+' | tail -1)
+            VW=$(echo "$LINE" | grep -oE 'size [0-9]+x[0-9]+' | grep -oE '[0-9]+' | head -1)
+            VH=$(echo "$LINE" | grep -oE 'size [0-9]+x[0-9]+' | grep -oE '[0-9]+' | tail -1)
+            DPW=$(( VW * 160 / D )); DPH=$(( VH * 160 / D ))
+            echo "view ${VW}x${VH} at ${OX},${OY} @ $D → ${DPW}x${DPH} dp"
+          }
+          # tap <dpX> <dpY>: view-dp → screen px.
+          tap() { adb shell input tap $(( OX + $1 * D / 160 )) $(( OY + $2 * D / 160 )); }
+          geom
+          # Calibrated dp anchors (MobileApp @ 393-wide): nav row centre y=dpH-28, five equal
+          # fifths; Notifications switch centre (dpW-56, 99); Form's first field (dpW/2, 109).
+          nav() { tap $(( DPW * (2 * $1 + 1) / 10 )) $(( DPH - 28 )); sleep 2; }
+
+          # --- tap = activation exactly once, on finger-up ---------------------------------------
+          # Warmup tap first, on Home's FIRST card (plain text — no action, and safely above the
+          # third card's external link): run 13 saw the emulator swallow the very first injected
+          # tap of the session — this pushes one full Down/Up through the dispatch path before
+          # anything is asserted, without touching the toggle count.
+          tap $(( DPW / 2 )) 100
+          sleep 1
+          nav 3   # Settings
+          tap $(( DPW - 56 )) 99
+          sleep 2
+          adb logcat -d -s cupri:I | grep -c 'cupri-gate: toggle=' || true   # breadcrumb after tap 1
+          tap $(( DPW - 56 )) 99
+          sleep 2
+          # Markers arrive on the HOST's logcat tag: the host bridges Console -> logcat,
+          # because CoreCLR-Android has no stdout destination of its own.
+          adb logcat -d -s cupri:I | grep "cupri-gate:" | tee gate-markers.txt || true
+          grep -q "toggle=True" gate-markers.txt || fail "no toggle=True marker after the first tap"
+          grep -q "toggle=False" gate-markers.txt || fail "no toggle=False after the second tap"
+          N=$(grep -c 'cupri-gate: toggle=' gate-markers.txt)
+          test "$N" = "2" || fail "expected exactly 2 toggles (one activation per tap), got $N"
+
+          # --- swipe flings with real momentum ---------------------------------------------------
+          nav 1   # List
+          # 250 ms, not 80: a too-short `input swipe` injects only DOWN+UP with no MOVE events,
+          # so the gesture recognizer (correctly) sees a slop-bounded tap and nothing scrolls —
+          # run 9's finding. 350dp over 250 ms is still ~1400 dp/s, far beyond the fling threshold.
+          # DELIVERY retries (run 16: the emulator dropped an entire swipe, as run 13 dropped a
+          # tap): retry the injection up to 3 times, break on the engine's own "fling started".
+          # The assert stays strict and SCALES — settled travel must beat every dp the finger
+          # actually put in across attempts.
+          TRIES=0
+          for i in 1 2 3; do
+            adb shell input swipe $(( OX + DPW * D / 320 )) $(( OY + 500 * D / 160 )) \
+                                  $(( OX + DPW * D / 320 )) $(( OY + 150 * D / 160 )) 250
+            TRIES=$i
+            sleep 1
+            adb logcat -d -s cupri:I | grep -q "fling started" && break
+          done
+          sleep 4  # let the momentum integrator run to a stop
+          adb logcat -d -s cupri:I | grep "fling settled" | tee fling.txt \
+            || fail "no fling-settled marker after $TRIES swipe(s)"
+          SETTLED=$(grep -oE 'y=[0-9]+' fling.txt | tail -1 | cut -d= -f2)
+          echo "finger travelled $(( 350 * TRIES ))dp over $TRIES swipe(s); settled at ${SETTLED}dp"
+          test "$SETTLED" -gt $(( 350 * TRIES )) || fail "settled ${SETTLED}dp <= finger travel - no momentum"
+
+          # --- the soft keyboard follows focus ---------------------------------------------------
+          nav 2   # Form
+          tap $(( DPW / 2 )) 109
+          sleep 3
+          adb shell dumpsys input_method | grep -qE "mInputShown=true|isInputViewShown=true" \
+            || fail "soft keyboard did not appear on field focus"
+          adb shell input keyevent 111   # Escape -> the engine blurs the field
+          sleep 3
+          if adb shell dumpsys input_method | grep -qE "mInputShown=true|isInputViewShown=true"; then
+            fail "soft keyboard did not hide on blur"
+          fi
+
+          # --- rotation: relayout + the SAME dp arithmetic still lands ---------------------------
+          adb shell settings put system accelerometer_rotation 0
+          adb shell settings put system user_rotation 1
+          sleep 4
+          geom     # the view re-laid-out: re-read its origin and size, same anchors apply
+          nav 3    # Settings (landscape)
+          tap $(( DPW - 56 )) 99
+          sleep 2
+          N=$(adb logcat -d -s cupri:I | grep -c 'cupri-gate: toggle=')
+          test "$N" = "3" || fail "post-rotation tap missed, toggles=$N (density/relayout mapping broke)"
+          adb shell settings put system user_rotation 0
+
+          echo "### Gate assertions all green" >> $GITHUB_STEP_SUMMARY
+          adb logcat -d -s cupri:I | tail -20 >> $GITHUB_STEP_SUMMARY
+
+      - name: The accessibility tree, read by a real client
+        run: |
+          set -x
+          set -o pipefail
+          fail() { echo "::error::$1"; adb logcat -d -s cupri:I | tail -60; exit 1; }
+          # uiautomator IS an accessibility client: its dump contains ONLY what the view's
+          # AccessibilityNodeProvider exposes — one opaque GL view, or a real virtual hierarchy.
+          # The first dump also CONNECTS the client, which is what makes the view hand out the
+          # provider; warm up, then give the post-frame publish a beat to land.
+          dump() { adb shell uiautomator dump /sdcard/ui.xml > /dev/null 2>&1; adb shell cat /sdcard/ui.xml; }
+          dump > /dev/null || true
+          sleep 2
+          adb logcat -d -s cupri:I | grep -q "talkback bridge attached" \
+            || fail "the provider was never asked for - no accessibility client saw the view"
+
+          # The previous step left the app on Settings (portrait, Notifications ON, 3 toggles).
+          dump > ui1.xml
+          for name in Home List Form Settings About; do
+            grep -q "\"$name\"" ui1.xml || fail "nav '$name' missing from the accessibility tree"
+          done
+          SW=$(grep -o 'text="Notifications"[^>]*' ui1.xml | head -1)
+          [ -n "$SW" ] || fail "the Notifications switch is missing from the accessibility tree"
+          echo "$SW" | grep -q 'checked="true"' || fail "switch not checked=true (model says Notify=True)"
+
+          # Geometry round-trip (the NSA-gate lesson): tap the centre of the DUMP'S OWN bounds.
+          # If the exposed rectangles are wrong, this misses and the marker count stays 3.
+          B=$(echo "$SW" | grep -oE 'bounds="\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]"' | grep -oE '[0-9]+' | tr '\n' ' ')
+          set -- $B
+          adb shell input tap $(( ($1 + $3) / 2 )) $(( ($2 + $4) / 2 ))
+          sleep 2
+          N=$(adb logcat -d -s cupri:I | grep -c 'cupri-gate: toggle=')
+          test "$N" = "4" || fail "tap at the dump's own rectangle missed (toggles=$N) - exposed geometry is wrong"
+          dump > ui2.xml
+          grep -o 'text="Notifications"[^>]*' ui2.xml | head -1 | grep -q 'checked="false"' \
+            || fail "re-dump still says checked=true after the toggle"
+
+          # The tree follows the viewport. View-space helpers, as in the touch step:
+          D=$(adb shell wm density | grep -oE '[0-9]+' | tail -1)
+          LINE=$(adb logcat -d -s cupri:I | grep "view origin" | tail -1)
+          OX=$(echo "$LINE" | grep -oE 'origin [0-9]+,[0-9]+' | grep -oE '[0-9]+' | head -1)
+          OY=$(echo "$LINE" | grep -oE 'origin [0-9]+,[0-9]+' | grep -oE '[0-9]+' | tail -1)
+          VW=$(echo "$LINE" | grep -oE 'size [0-9]+x[0-9]+' | grep -oE '[0-9]+' | head -1)
+          VH=$(echo "$LINE" | grep -oE 'size [0-9]+x[0-9]+' | grep -oE '[0-9]+' | tail -1)
+          DPW=$(( VW * 160 / D )); DPH=$(( VH * 160 / D ))
+          tap() { adb shell input tap $(( OX + $1 * D / 160 )) $(( OY + $2 * D / 160 )); }
+          tap $(( DPW * 3 / 10 )) $(( DPH - 28 ))   # nav 1: List
+          sleep 2
+          # Deterministic start, dump-first: the earlier fling may have left the list anywhere
+          # (and injections can drop — runs 13/16) — swipe toward the top only while row 3
+          # isn't showing.
+          for i in 1 2 3 4; do
+            dump > ui3.xml
+            grep -q 'text="Row 3 ' ui3.xml && break
+            adb shell input swipe $(( OX + DPW * D / 320 )) $(( OY + 150 * D / 160 )) \
+                                  $(( OX + DPW * D / 320 )) $(( OY + 500 * D / 160 )) 250
+            sleep 2
+          done
+          grep -q 'text="Row 3 ' ui3.xml || fail "row 3 not exposed at the top of the list"
+          if grep -q 'text="Row 400 ' ui3.xml; then fail "row 400 exposed while 19000px away"; fi
+          # Fling down (delivery-retried, breaking on the engine's own "fling started"), let it
+          # settle, re-dump: the early rows must have LEFT the tree (scrolled out = virtualised
+          # away or clipped-not-visible — both are correct for a reader) and a later window
+          # arrived.
+          BASE=$(adb logcat -d -s cupri:I | grep -c "fling started" || true)
+          for i in 1 2 3; do
+            adb shell input swipe $(( OX + DPW * D / 320 )) $(( OY + 500 * D / 160 )) \
+                                  $(( OX + DPW * D / 320 )) $(( OY + 150 * D / 160 )) 250
+            sleep 1
+            NOW=$(adb logcat -d -s cupri:I | grep -c "fling started" || true)
+            [ "$NOW" -gt "$BASE" ] && break
+          done
+          sleep 4
+          dump > ui4.xml
+          if grep -q 'text="Row 3 ' ui4.xml; then fail "row 3 still exposed after a 700dp fling"; fi
+          # The dump is ONE line of XML, so count OCCURRENCES (grep -c counts lines — run 14's
+          # lesson: it reported 1 while a whole windowful of rows sat on that line).
+          ROWS=$(grep -o 'text="Row ' ui4.xml | wc -l)
+          test "$ROWS" -ge 5 || fail "only $ROWS rows exposed after the fling - the window did not follow"
+          # And the arrived window must be a LATER one: ~750dp of travel / 48dp rows puts the
+          # first exposed row in the mid-teens.
+          MIN=$(grep -o 'text="Row [0-9]*' ui4.xml | grep -oE '[0-9]+' | sort -n | head -1)
+          test "$MIN" -gt 10 || fail "first exposed row is $MIN - the window barely moved"
+
+          echo "### TalkBack bridge assertions all green" >> $GITHUB_STEP_SUMMARY
+          echo "switch round-trip via dump bounds; list window followed a fling ($ROWS rows exposed)" >> $GITHUB_STEP_SUMMARY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: androidviewer-apk
+          path: out/arm64/*-Signed.apk
+          if-no-files-found: error
+
   # Attach the standalone executables to a GitHub Release when a v* tag is pushed. Workflow
   # artifacts expire and need a login to fetch; a Release is permanent and public. Gated on both
   # other jobs, so a release can never ship from a red build.
@@ -342,13 +633,15 @@ jobs:
           find native -type f -print0 | xargs -0 ls -l || true
 
       # The libraries themselves, so people can build against CupriFace rather than only run the
-      # demo. Tag is v0.1.0; NuGet wants 0.1.0.
+      # demo. Tag is v0.1.0; NuGet wants 0.1.0. The Android host needs its workload to pack.
       - name: Pack libraries
         run: |
           set -euo pipefail
+          dotnet workload install android --skip-manifest-update
           VERSION="${GITHUB_REF_NAME#v}"
           for proj in src/CupriFace/CupriFace.csproj src/CupriFace.Shell/CupriFace.Shell.csproj \
-                      src/CupriFace.Media/CupriFace.Media.csproj; do
+                      src/CupriFace.Media/CupriFace.Media.csproj \
+                      src/CupriFace.Android/CupriFace.Android.csproj; do
             dotnet pack "$proj" -c Release -p:Version="$VERSION" -o dist
           done
           # The media package must actually CARRY the decoders it promises — a nupkg without
@@ -387,6 +680,7 @@ jobs:
           |---|---|
           | `CupriFace` | The engine — HTML + CSS to a Skia canvas or any RGBA buffer, bound to plain C# objects. Runs headless. |
           | `CupriFace.Shell` | The desktop host — `DesktopHost.Run(new MyApp())`. |
+          | `CupriFace.Android` | The Android host — subclass `CupriActivity`, return your app. Touch, IME, TalkBack. Needs the `android` workload; runs CoreCLR (the package pins it). |
           | `CupriFace.Media` | Optional: WebM (VP9 + Opus) playback for `<cupri-video>`, decoders included for every desktop RID. |
 
           Not on nuget.org yet: download the `.nupkg` and add its folder as a local source.
