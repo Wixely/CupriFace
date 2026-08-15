@@ -200,6 +200,15 @@ public static class AccessibilityTree
     {
         var label = el.GetAttribute("aria-label");
         if (label is { Length: > 0 }) return label;
+
+        // CONTAINERS never take their name from descendant text: a virtualised list's "name"
+        // would be every materialised row concatenated — twenty rows read aloud on focus, and
+        // (found the hard way) a blob that satisfies text searches its CHILDREN should answer.
+        // Containers are named by aria-label or not at all; their children carry the content.
+        if (role is "list" or "listbox" or "menu" or "menubar" or "tablist" or "tree" or "grid"
+                 or "table" or "radiogroup" or "group" or "toolbar" or "tabpanel" or "dialog")
+            return null;
+
         var text = CollectText(render).Trim();
         if (text.Length > 0) return text;
 

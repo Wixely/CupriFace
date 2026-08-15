@@ -129,6 +129,18 @@ public class MobileAppTests
                   ?? throw new Xunit.Sdk.XunitException("row 3 not in the a11y tree");
         Assert.Equal("listitem", row.Role);
         Assert.Null(FindNamed(tree, "Row 400 — tap and fling"));   // 19000px away: virtualised out
+
+        // The list CONTAINER must not name itself from its content — that name would be every
+        // materialised row concatenated, read aloud in full whenever a reader lands on the list.
+        AccessibilityNode? list = null;
+        void FindList(AccessibilityNode n)
+        {
+            if (n.Role == "list") list = n;
+            foreach (var c in n.Children) FindList(c);
+        }
+        FindList(tree);
+        Assert.NotNull(list);
+        Assert.True(string.IsNullOrEmpty(list!.Name), $"list container is named its own content: '{list.Name}'");
     }
 
     [Fact]
