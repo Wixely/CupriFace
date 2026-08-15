@@ -269,4 +269,24 @@ public class DeviceRegressionTests
         doc.DispatchClick(x, y);
         Assert.True(model.DarkMode, "tapping the collapsed row did nothing");
     }
+
+    [Fact]
+    public void The_app_states_which_build_it_is()
+    {
+        // Asked for after a session spent chasing bugs that were already fixed, on a phone that
+        // had silently kept the previous APK: "make sure to include some kind of version number or
+        // build date in the app so i can not fall into this trap again."
+        var describe = BuildInfo.Describe();
+        Assert.StartsWith("v", describe);
+        Assert.Contains("built", describe);          // the stamp is what moves between rebuilds
+
+        var app = new MobileApp();
+        using var doc = app.CreateDocument();
+        using (doc.RenderToImage(W, H)) { }
+        Nav(doc, "About");
+
+        var shown = Find(doc.Root, n => n.Element?.ClassList.Contains("build") == true);
+        Assert.NotNull(shown);
+        Assert.Equal(describe, shown!.Element!.TextContent.Trim());
+    }
 }

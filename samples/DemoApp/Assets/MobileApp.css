@@ -21,6 +21,7 @@ h1 { font-size:22px; color:var(--cupri-text); margin:4px 0 8px 0; }
         border:1px var(--cupri-border); border-radius:12px; padding:14px; font-size:15px;
         color:var(--cupri-text); transition: background-color 0.3s ease; }
 .card a { color:var(--cupri-accent); }
+.build { font-size:12px; margin-top:4px; }
 
 /* List rows: 48dp, full-bleed separators. */
 .biglist { background:var(--cupri-surface); border:1px var(--cupri-border); border-radius:12px; }
