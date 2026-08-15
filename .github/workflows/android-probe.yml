@@ -64,6 +64,13 @@ name: Android probe
 #   REPRODUCED in run 9 with the runtimes pinned per leg: all three Mono variants crash
 #   identically, CoreCLR renders — document 356 ms, first frame 1152 ms, 60 frames by 3944 ms.
 #
+# REAL-DEVICE CONFIRMATION (Android 16 phone, arm64, 2026-08-15, sideloaded by hand): CoreCLR
+#   renders the full Showcase correctly — sidebar navigation, section switches, @keyframes
+#   animations all live on the phone's own GPU. Mono crashes there too. That answers the one
+#   question the emulator could not: the Mono defect is NOT x64-specific — it reproduces on
+#   arm64 hardware, so it is Mono-10.0.11-on-Android generally, which strengthens the upstream
+#   report. It also retires the SwiftShader caveat: the GL path now has a real-GPU data point.
+#
 # Harness bugs found and fixed on the way, recorded so the next person skips them: sdkmanager is
 # not on PATH (it lives under cmdline-tools/latest/bin); /dev/kvm is root:kvm 0660 and needs a udev
 # rule or the emulator silently falls back to slow emulation; avdmanager and the emulator disagree
