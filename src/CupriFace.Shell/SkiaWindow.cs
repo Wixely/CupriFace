@@ -368,6 +368,13 @@ public sealed class SkiaWindow : IDisposable
         return _clickCount;
     }
 
+    /// <summary>Frames drawn from inside a resize callback rather than the normal loop — the ones
+    /// that make a drag-resize stream instead of snapping on release. Zero of these after a drag
+    /// means the mechanism below is not working, whatever the window looked like.</summary>
+    public int ResizeFrames { get; private set; }
+
+    private bool _resizeFailureReported;
+
     private void OnFramebufferResize(Vector2D<int> size)
     {
         _fbSize = size;
@@ -375,9 +382,38 @@ public sealed class SkiaWindow : IDisposable
         _surface?.Dispose(); _surface = null;
         _renderTarget?.Dispose(); _renderTarget = null;
         _forceRender = true;
-        // Repaint immediately so a drag-resize streams rather than snapping on release.
-        try { _window?.DoRender(); } catch { /* reentrancy on some platforms — ignore */ }
+
+        // Repaint NOW. Windows and macOS run a MODAL loop while a window edge is dragged: Run()'s
+        // render loop does not get another turn until the mouse is released, so a frame left to
+        // "next tick" arrives when the drag ENDS. GLFW still delivers this callback throughout, so
+        // this is the only chance to draw mid-drag.
+        try
+        {
+            _window?.DoRender();
+            ResizeFrames++;
+        }
+        catch (Exception ex)
+        {
+            // Re-entrant rendering is refused on some platforms. That is survivable — the window
+            // catches up on release — but it must not be SILENT: "resize is janky" needs to be
+            // answerable from a log rather than by guesswork.
+            if (!_resizeFailureReported)
+            {
+                _resizeFailureReported = true;
+                Console.Error.WriteLine(
+                    $"[CupriFace] live-resize repaint unavailable ({ex.GetType().Name}: {ex.Message}); " +
+                    "the window will catch up when the drag ends.");
+            }
+        }
+
+        if (ResizeDebug)
+            Console.Error.WriteLine($"[resize] frame {ResizeFrames} at {size.X}x{size.Y}");
     }
+
+    /// <summary>CUPRIFACE_RESIZE_DEBUG=1 traces every mid-drag repaint. One drag of a window edge
+    /// then answers the question no CI machine can: does this actually stream?</summary>
+    internal static readonly bool ResizeDebug =
+        Environment.GetEnvironmentVariable("CUPRIFACE_RESIZE_DEBUG") is "1" or "true";
 
     private void EnsureSurface()
     {

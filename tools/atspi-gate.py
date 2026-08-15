@@ -185,6 +185,49 @@ def check_button(app):
               f"{len(walk(app))} accessibles")
 
 
+def check_offscreen(app):
+    """Content below the fold must be marked, or Orca reads the whole document instead of the page.
+
+    AT-SPI's idiom differs from the other two platforms: the node STAYS in the tree (an AT may
+    legitimately want all of it) and loses the SHOWING state, keeping VISIBLE. So the assertions are
+    that both kinds exist and that they agree with the geometry."""
+    nodes = walk(app)
+    showing, hidden = [], []
+    for _, n in nodes:
+        try:
+            states = n.get_state_set()
+            if not states.contains(Atspi.StateType.VISIBLE):
+                continue
+            (showing if states.contains(Atspi.StateType.SHOWING) else hidden).append(n)
+        except Exception:                                        # noqa: BLE001
+            continue
+
+    check("content below the fold is marked not-showing", len(hidden) >= 1,
+          f"{len(hidden)} of {len(showing) + len(hidden)} visible nodes are off screen")
+
+    # And the marking has to agree with where things actually are: everything still SHOWING must
+    # have real extents inside the window, which is what catches the flag being merely decorative.
+    frame = next((n for _, n in nodes if n.get_role_name() == "frame"), None)
+    if frame is None:
+        print("note: no frame node — extents cross-check skipped", flush=True)
+        return
+    fe = frame.get_extents(Atspi.CoordType.SCREEN)
+    stray = []
+    for n in showing:
+        try:
+            e = n.get_extents(Atspi.CoordType.SCREEN)
+            if e.width <= 0 or e.height <= 0:
+                continue
+            if e.x + e.width <= fe.x or e.x >= fe.x + fe.width or \
+               e.y + e.height <= fe.y or e.y >= fe.y + fe.height:
+                stray.append(f"{n.get_role_name()} {n.get_name()!r} at {e.x},{e.y}")
+        except Exception:                                        # noqa: BLE001
+            continue
+    check("everything still showing is really on screen", not stray,
+          f"{len(stray)} showing but outside the frame"
+          + (": " + "; ".join(stray[:3]) if stray else ""))
+
+
 def main():
     app, desktop_children = find_app()
     if not check("the app appears on the accessibility bus", app is not None,
@@ -205,6 +248,7 @@ def main():
             pass
     print("  roles:", ", ".join(f"{k}={v}" for k, v in sorted(roles.items())), flush=True)
 
+    section("offscreen", check_offscreen, app)
     section("slider", check_slider, app)
     section("checkbox", check_toggle, app)
     section("button", check_button, app)

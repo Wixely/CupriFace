@@ -93,8 +93,12 @@ internal static class NsAccessibility
     };
 
     /// <summary>True when VoiceOver should treat the node as a leaf it can land on. Containers that
-    /// exist only to group children answer false, or the user tabs through scaffolding.</summary>
+    /// exist only to group children answer false, or the user tabs through scaffolding — and so does
+    /// anything off screen, which macOS then splices out of its parent's children entirely. (UIA and
+    /// AT-SPI keep off-screen nodes in the tree and flag them; on macOS the idiomatic equivalent is
+    /// to stop being an element, which is what element hiding is for.)</summary>
     internal static bool IsElement(AccessibilityNode n) =>
+        !n.Offscreen &&
         n.Role is not ("group" or "document" or "navigation" or "tabpanel" or "radiogroup");
 
     /// <summary>The single action a node exposes, as an AX action name — the counterpart of UIA's
