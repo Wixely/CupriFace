@@ -281,7 +281,11 @@ public sealed class AndroidHost : IDisposable
     // come from MotionEvent's uptime clock; long-press fires via a UI-thread timer queueing Tick.
     internal void TouchDown(float x, float y, double t) { if (_touch.Down(x / InputScale(), y / InputScale(), t)) MarkDirty(); }
     internal void TouchMove(float x, float y, double t) { if (_touch.Move(x / InputScale(), y / InputScale(), t)) MarkDirty(); }
-    internal void TouchUp(float x, float y, double t) { if (_touch.Up(x / InputScale(), y / InputScale(), t)) MarkDirty(); }
+    internal void TouchUp(float x, float y, double t)
+    {
+        if (_touch.Up(x / InputScale(), y / InputScale(), t)) MarkDirty();
+        if (_doc.FlingActive) Log("fling started");        // diagnostic pair of "fling settled"
+    }
     internal void TouchCancel(double t) { if (_touch.Cancel(t)) MarkDirty(); }
     internal void TouchTick(double t) { if (_touch.Tick(t)) MarkDirty(); }
 
