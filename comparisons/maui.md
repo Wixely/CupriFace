@@ -59,7 +59,8 @@ What that buys is substantial and mostly invisible until you lose it:
   managers and CJK composition all work because you are using the real widget.
 - OS updates that restyle native controls carry your app along.
 
-CupriFace's model is the opposite, and it is the same bet Flutter makes: draw
+CupriFace's model is the opposite, and it is the same bet [Flutter](flutter.md)
+makes: draw
 everything yourself, so the UI is **identical everywhere**, because it is
 literally the same code producing the same pixels from the same HTML and CSS.
 
