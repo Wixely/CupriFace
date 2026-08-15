@@ -122,6 +122,7 @@ jobs:
       - name: Touch, momentum, keyboard, rotation (Phase 7)
         run: |
           set -x
+          set -o pipefail   # an empty grep must not hide behind tee's exit status
           # A failed assert must explain itself: dump the app's whole story before dying.
           fail() { echo "::error::$1"; adb logcat -d -s cupri:I | tail -80; adb logcat -d | tail -40; exit 1; }
           # Taps are computed in the APP VIEW's coordinate space, not the display's: the status
@@ -162,8 +163,11 @@ jobs:
 
           # --- swipe flings with real momentum ---------------------------------------------------
           nav 1   # List
+          # 250 ms, not 80: a too-short `input swipe` injects only DOWN+UP with no MOVE events,
+          # so the gesture recognizer (correctly) sees a slop-bounded tap and nothing scrolls —
+          # run 9's finding. 350dp over 250 ms is still ~1400 dp/s, far beyond the fling threshold.
           adb shell input swipe $(( OX + DPW * D / 320 )) $(( OY + 500 * D / 160 )) \
-                                $(( OX + DPW * D / 320 )) $(( OY + 150 * D / 160 )) 80
+                                $(( OX + DPW * D / 320 )) $(( OY + 150 * D / 160 )) 250
           sleep 4  # let the momentum integrator run to a stop
           adb logcat -d -s cupri:I | grep "fling settled" | tee fling.txt || fail "no fling-settled marker"
           SETTLED=$(grep -oE 'y=[0-9]+' fling.txt | tail -1 | cut -d= -f2)
