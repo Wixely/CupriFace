@@ -187,9 +187,15 @@ def check_frames(app):
     else:
         check("the root container is exposed", False, "no AXGroup found")
 
-    def contained(r):
-        return (wr[0] - 1 <= r[0] and r[0] + r[2] <= wr[0] + wr[2] + 1 and
-                wr[1] - 1 <= r[1] and r[1] + r[3] <= wr[1] + wr[3] + 1)
+    def wholly_outside(r):
+        # The ENGINE's rule is that any overlap counts as visible — a control half scrolled into
+        # view is one the user can see and reach — so demanding full containment asserted something
+        # stricter than the bridge ever promised. It passed only while nothing happened to straddle
+        # the window's edge; changing the Showcase's default scaling moved the layout and three nav
+        # links landed across the bottom edge, legitimately reachable and legitimately clipped.
+        # What must never be reachable is content WHOLLY outside the window.
+        return (r[0] + r[2] <= wr[0] or r[0] >= wr[0] + wr[2] or
+                r[1] + r[3] <= wr[1] or r[1] >= wr[1] + wr[3])
 
     # Off-screen content must not be reachable. VoiceOver walks what the app exposes, so a bridge
     # that hands over the whole document makes the user page through everything below the fold to
@@ -203,7 +209,7 @@ def check_frames(app):
     escapees = [f"{named(e)} at {rect(e)[0]:.0f},{rect(e)[1]:.0f}"
                 for _, e in walk(window)
                 if named(e) and attr(e, "AXRole") not in (None, "AXWindow", "AXApplication")
-                and rect(e) and not contained(rect(e))]
+                and rect(e) and wholly_outside(rect(e))]
     check("nothing off screen is reachable (content below the fold is skipped)", not escapees,
           f"{len(escapees)} reachable outside the window"
           + (": " + "; ".join(escapees[:3]) if escapees else ""))

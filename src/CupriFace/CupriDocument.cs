@@ -1521,8 +1521,9 @@ public sealed partial class CupriDocument : IDisposable
     {
         EnsureLaidOut();
         if (NodeAtPath(path) is not { } n) return false;
-        var (x, y, w, h) = HitTesting.ScreenBox(n);
-        return DispatchClick(x + w / 2, y + h / 2);
+        var (x, y) = HitTesting.ActivationPoint(n);   // inline-aware: a wrapped link's box centre
+        return DispatchClick(x, y);                   // can sit between its lines
+
     }
 
     /// <summary>Move keyboard focus to the control at (or containing) the node — UIA SetFocus.</summary>
