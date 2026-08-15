@@ -92,7 +92,12 @@ public abstract class CupriActivity : global::Android.App.Activity
             base.OnBackPressed();
             return;
         }
-        _host.EscapeThen(() => { _backFallthrough = true; OnBackPressed(); });
+        _host.EscapeThen(() =>
+        {
+            if (_host.TryPop()) return;                  // a pushed app: Back returns to the previous one
+            _backFallthrough = true;
+            OnBackPressed();
+        });
     }
 #pragma warning restore CS0672, CA1422
 

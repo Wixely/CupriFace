@@ -1,0 +1,80 @@
+<body class="{{ThemeClass}}">
+  <div class="app">
+    <div class="content">
+
+      <!-- Home -->
+      <div class="page" style="display:{{PgHome}}">
+        <h1>CupriFace</h1>
+        <div class="card">
+          <b>The same engine, on a phone.</b>
+          <span class="muted">This app also runs on desktop (Viewer --app mobile) and in the
+          browser — one HTML+CSS+model definition, no WebView.</span>
+        </div>
+        <div class="card">
+          <b>Try the touch work</b>
+          <span class="muted">Fling the List page. Type in the Form page — the soft keyboard and
+          IME composition are real. Long-press a text field for the context menu.</span>
+        </div>
+        <div class="card">
+          <b>Links open outside</b>
+          <span class="muted">External links hand off to the OS: <a href="https://github.com/Wixely/CupriFace">the repository</a>.</span>
+        </div>
+      </div>
+
+      <!-- List: the fling exerciser. 500 rows, virtualised to a screenful. -->
+      <div class="page" style="display:{{PgList}}">
+        <h1>List</h1>
+        <cupri-virtual height="620" item-height="48" class="biglist">
+          <div class="lrow" data-repeat="Rows">{{.}}</div>
+        </cupri-virtual>
+      </div>
+
+      <!-- Form: one field per keyboard kind (text / numeric / password / multiline). -->
+      <div class="page" style="display:{{PgForm}}">
+        <h1>Form</h1>
+        <div class="frow"><span class="lbl">Name</span>
+          <cupri-textfield value="{{Name}}" placeholder="Your name…"></cupri-textfield></div>
+        <div class="frow"><span class="lbl">Amount</span>
+          <cupri-number value="{{Amount}}" min="0" max="1000"></cupri-number></div>
+        <div class="frow"><span class="lbl">Secret</span>
+          <cupri-password value="{{Secret}}"></cupri-password></div>
+        <div class="frow"><span class="lbl">Notes</span>
+          <cupri-textarea value="{{Notes}}" rows="4" placeholder="Multiline…"></cupri-textarea></div>
+        <div class="card"><span class="muted">Name: {{Name}} · Amount: {{Amount}}</span></div>
+      </div>
+
+      <!-- Settings: the gate's tap target is the FIRST row (stable geometry for CI). -->
+      <div class="page" style="display:{{PgSettings}}">
+        <h1>Settings</h1>
+        <div class="srow"><span>Notifications</span>
+          <cupri-switch checked="{{Notify}}" data-gate-toggle="1"></cupri-switch></div>
+        <div class="srow"><span>Dark mode</span>
+          <cupri-switch checked="{{Dark}}"></cupri-switch></div>
+        <div class="srow"><span>Volume</span>
+          <cupri-slider min="0" max="100" value="{{Volume}}"></cupri-slider><span class="muted">{{Volume}}</span></div>
+      </div>
+
+      <!-- About: the app-switch seam. -->
+      <div class="page" style="display:{{PgAbout}}">
+        <h1>About</h1>
+        <div class="card">
+          <b>CupriFace Mobile sample</b>
+          <span class="muted">HTML + CSS + a C# model, rendered by SkiaSharp on a GL surface.
+          No MAUI, no WebView, CoreCLR runtime.</span>
+        </div>
+        <cupri-button data-launch="showcase">Open the desktop Showcase</cupri-button>
+        <span class="muted pad">The full desktop demo, running unchanged on this phone.
+        Back returns here.</span>
+      </div>
+    </div>
+
+    <!-- Bottom navigation: five 48dp targets, the phone idiom the Showcase's sidebar is not. -->
+    <div class="tabbar">
+      <div class="{{NavHome}}" role="button" aria-label="Home" data-set-path="Page" data-set-value="home">Home</div>
+      <div class="{{NavList}}" role="button" aria-label="List" data-set-path="Page" data-set-value="list">List</div>
+      <div class="{{NavForm}}" role="button" aria-label="Form" data-set-path="Page" data-set-value="form">Form</div>
+      <div class="{{NavSettings}}" role="button" aria-label="Settings" data-set-path="Page" data-set-value="settings">Settings</div>
+      <div class="{{NavAbout}}" role="button" aria-label="About" data-set-path="Page" data-set-value="about">About</div>
+    </div>
+  </div>
+</body>

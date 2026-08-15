@@ -1,0 +1,49 @@
+/* The phone-first sample. Logical px ARE dp here (no Present override), so these sizes are real
+   Android dp: 48dp touch targets, 16dp gutters. The variable set matches the Showcase so the
+   shared components (switch/slider/fields/buttons) theme identically. */
+body { --cupri-bg:#f4f5f7; --cupri-surface:#ffffff; --cupri-text:#1e2430; --cupri-muted:#48505c;
+       --cupri-border:#e6e9f0; --cupri-hover:#eef1f5; --cupri-sidebar:#1e2430; --cupri-sidebar-text:#c8d0dc;
+       --cupri-nav-active:#2f3b4d; --cupri-accent:#B87333;
+       background:var(--cupri-bg); color:var(--cupri-text); }
+body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; --cupri-muted:#8b93a7;
+            --cupri-border:#2a3346; --cupri-hover:#273249; --cupri-nav-active:#243049; }
+
+.app { display:flex; flex-direction:column; height:100%; font-family:sans-serif;
+       background:var(--cupri-bg); transition: background-color 0.3s ease; }
+.content { flex:1; overflow:auto; }
+
+.page { display:flex; flex-direction:column; gap:12px; padding:16px; }
+h1 { font-size:22px; color:var(--cupri-text); margin:4px 0 8px 0; }
+.muted { color:var(--cupri-muted); font-size:14px; }
+.pad { padding:0 4px; }
+
+.card { display:flex; flex-direction:column; gap:6px; background:var(--cupri-surface);
+        border:1px var(--cupri-border); border-radius:12px; padding:14px; font-size:15px;
+        color:var(--cupri-text); transition: background-color 0.3s ease; }
+.card a { color:var(--cupri-accent); }
+
+/* List rows: 48dp, full-bleed separators. */
+.biglist { background:var(--cupri-surface); border:1px var(--cupri-border); border-radius:12px; }
+.lrow { height:48px; display:flex; align-items:center; padding:0 16px; font-size:15px;
+        color:var(--cupri-text); border-bottom:1px var(--cupri-border); }
+
+/* Form rows: label above field reads better at phone widths than beside it. */
+.frow { display:flex; flex-direction:column; gap:6px; }
+.lbl { font-size:13px; color:var(--cupri-muted); }
+
+/* Settings rows: 56dp, control pinned right — the platform convention. */
+.srow { min-height:56px; display:flex; align-items:center; gap:12px; background:var(--cupri-surface);
+        border:1px var(--cupri-border); border-radius:12px; padding:4px 16px; font-size:15px;
+        color:var(--cupri-text); }
+.srow > span:first-child { flex:1; }
+
+/* Bottom navigation: 56dp bar, five equal 48dp-high targets. */
+.tabbar { height:56px; display:flex; background:var(--cupri-surface); border-top:1px var(--cupri-border); }
+.nav-item { flex:1; display:flex; align-items:center; justify-content:center; font-size:13px;
+            color:var(--cupri-muted); transition: color 0.15s ease, background-color 0.15s ease; }
+.nav-item.active { color:var(--cupri-accent); font-weight:bold; }
+.nav-item[data-active] { background:var(--cupri-hover); }
+
+/* Wide-window courtesy for the desktop dev loop: cap content width so the phone layout
+   doesn't stretch absurdly when the window is resized wide. */
+@media (min-width: 700px) { .page { max-width:560px; } }

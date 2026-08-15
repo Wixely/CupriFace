@@ -28,8 +28,11 @@ public sealed class AndroidHost : IDisposable
 
     internal const string Tag = "cupri";                 // the logcat channel the CI gate asserts on
 
-    private readonly CupriApp _app;
-    private readonly CupriDocument _doc;
+    private CupriApp _app;
+    private CupriDocument _doc;
+    private TouchInput _touch;
+    private readonly Action<CupriDocument>? _configure;
+    private readonly List<CupriApp> _stack = new();      // Back pops; About's launch pushes
     private readonly Context _context;
     private CupriHostView? _view;
 
@@ -50,14 +53,22 @@ public sealed class AndroidHost : IDisposable
     {
         _context = context;
         _app = app;
+        _configure = configure;
         var t0 = _clock.Elapsed.TotalMilliseconds;
         _doc = app.CreateDocument();                     // the SAME call desktop and web make
         configure?.Invoke(_doc);                         // host-composition hook (DesktopHost parity)
         Log($"document built in {_clock.Elapsed.TotalMilliseconds - t0:F0} ms");
+        _touch = new TouchInput(_doc);
+        WireDocument(_doc);
+    }
 
+    /// <summary>Everything the host listens to ON a document — a method because a pushed/popped
+    /// app gets a fresh document, and each one needs the identical wiring.</summary>
+    private void WireDocument(CupriDocument doc)
+    {
         // External links go to the OS; internal ones are the app's routing concern. Fires on the
         // GL thread (inside a dispatch), so hop to the UI thread for the Intent.
-        _doc.Navigated += e =>
+        doc.Navigated += e =>
         {
             if (!e.External) return;
             RunOnUi(() =>
@@ -74,7 +85,7 @@ public sealed class AndroidHost : IDisposable
 
         // The engine's context menu asks the HOST to do clipboard work (the engine never touches
         // an OS clipboard). Same seam as DesktopHost.ContextAction, Android-shaped.
-        _doc.ContextRequested += cmd =>
+        doc.ContextRequested += cmd =>
         {
             switch (cmd)
             {
@@ -93,13 +104,48 @@ public sealed class AndroidHost : IDisposable
         };
 
         // The engine's fullscreen request (the video ⛶ button) maps to immersive mode here.
-        _doc.WindowCommandRequested += cmd => RunOnUi(() => FullscreenRequested?.Invoke(cmd));
-
-        _touch = new TouchInput(_doc);
+        doc.WindowCommandRequested += cmd => RunOnUi(() => FullscreenRequested?.Invoke(cmd));
 
         // Focus edges are the soft keyboard's cue. Raised on the GL thread mid-dispatch; the VIEW
         // owns the InputMethodManager work, so hop to the UI thread and hand it the state.
-        _doc.TextInputStateChanged += state => RunOnUi(() => TextInputChanged?.Invoke(state));
+        doc.TextInputStateChanged += state => RunOnUi(() => TextInputChanged?.Invoke(state));
+    }
+
+    // ---- the app stack ------------------------------------------------------------------------
+
+    /// <summary>Replace the running app with <paramref name="next"/>, keeping the current one on a
+    /// stack that Back pops. App instances survive on the stack (their MODELS keep their state);
+    /// documents are rebuilt on return — the same relationship an Activity has to its saved state.</summary>
+    public void Push(CupriApp next) => OnGlThread(() => SwapApp(next, pushCurrent: true));
+
+    /// <summary>Pop back to the previous app, if any. Called on the UI thread by Back handling;
+    /// returns whether there was anything to pop (the swap itself runs on the document thread).</summary>
+    public bool TryPop()
+    {
+        if (_stack.Count == 0) return false;
+        OnGlThread(() =>
+        {
+            if (_stack.Count == 0) return;
+            var previous = _stack[^1];
+            _stack.RemoveAt(_stack.Count - 1);
+            SwapApp(previous, pushCurrent: false);
+        });
+        return true;
+    }
+
+    private void SwapApp(CupriApp next, bool pushCurrent)
+    {
+        if (pushCurrent) _stack.Add(_app);
+        var old = _doc;
+        _app = next;
+        _doc = next.CreateDocument();
+        _configure?.Invoke(_doc);
+        WireDocument(_doc);
+        _touch = new TouchInput(_doc);
+        old.Dispose();
+        _doc.InvalidateRetainedFrame();
+        Log($"app switched to '{next.Title}'");
+        MarkDirty();
     }
 
     /// <summary>Raised on the UI thread when text-input focus changes — the view shows/hides the
@@ -202,11 +248,9 @@ public sealed class AndroidHost : IDisposable
 
     // ---- input (called on the GL thread via the view's queue) ---------------------------------
 
-    // The engine's gesture recognizer: tap-vs-scroll slop, fling, long-press context menu,
-    // double-tap escalation — and, structurally, no hover. Timestamps come from MotionEvent's
-    // uptime clock; the long-press deadline is fired by a UI-thread timer queueing Tick.
-    private readonly TouchInput _touch;
-
+    // The engine's gesture recognizer (the _touch field above): tap-vs-scroll slop, fling,
+    // long-press context menu, double-tap escalation — and, structurally, no hover. Timestamps
+    // come from MotionEvent's uptime clock; long-press fires via a UI-thread timer queueing Tick.
     internal void TouchDown(float x, float y, double t) { if (_touch.Down(x / InputScale(), y / InputScale(), t)) MarkDirty(); }
     internal void TouchMove(float x, float y, double t) { if (_touch.Move(x / InputScale(), y / InputScale(), t)) MarkDirty(); }
     internal void TouchUp(float x, float y, double t) { if (_touch.Up(x / InputScale(), y / InputScale(), t)) MarkDirty(); }
