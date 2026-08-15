@@ -104,6 +104,14 @@ try {
         clipboardPaste: () => navigator.clipboard.readText().then(t => { if (t) I.KeyChar(t); }).catch(() => {}),
         // Off-screen ARIA mirror of the semantics tree (screen-reader accessibility).
         a11y: html => { if (a11y.innerHTML !== html) a11y.innerHTML = html; },
+        // Move the hidden textarea to the caret so the IME's candidate window appears AT the
+        // field; inputmode picks the right virtual keyboard on touch browsers.
+        textInput: (focused, numeric, multiline, x, y) => {
+            const r = canvas.getBoundingClientRect();
+            kbd.style.left = Math.round(r.left + window.scrollX + x) + 'px';
+            kbd.style.top = Math.round(r.top + window.scrollY + y) + 'px';
+            kbd.inputMode = focused ? (numeric ? 'numeric' : 'text') : 'none';
+        },
 
         // ---- Video underlay: the BROWSER decodes; the engine punches a transparent hole -----
         // where the element shows and paints its own controls on top. Native controls stay off
@@ -196,23 +204,29 @@ try {
     // Window-level so app chords (Ctrl+K…) beat the browser's own (address-bar search) even when the
     // hidden textarea lost focus (fresh load, returning to the tab). With kbd focused the same event
     // bubbles here — one listener either way, no double-fire.
-    const EK = { Backspace: 1, Delete: 2, ArrowLeft: 3, ArrowRight: 4, Home: 5, End: 6, Enter: 7, ArrowUp: 8, ArrowDown: 9, Escape: 13 };
+    // Fallback ordinals only until Init, when the ENGINE's own map replaces them (EditKeyMap
+    // export) — the hand-copied table was a silent-breakage contract.
+    let EK = { Backspace: 1, Delete: 2, ArrowLeft: 3, ArrowRight: 4, Home: 5, End: 6, Enter: 7, ArrowUp: 8, ArrowDown: 9, Escape: 13, Tab: 10, ShiftTab: 11, SelectAll: 14 };
     let live = false; // no export calls until the runtime is running (runMain below)
     window.addEventListener('keydown', e => {
         if (!live) return;
+        // An IME owns the keyboard while composing: Enter accepts a candidate, Escape closes the
+        // window, arrows navigate it. Stealing those keys mid-composition broke CJK entirely
+        // (keydown also fires as key "Process"/keyCode 229 during composition).
+        if (e.isComposing || e.keyCode === 229) return;
         const ctrl = e.ctrlKey || e.metaKey;                 // Cmd on macOS
         const mods = (e.shiftKey ? 1 : 0) | (ctrl ? 2 : 0);
         if (ctrl) {
             const k = e.key.toLowerCase();
             if (k === 'c' || k === 'x' || k === 'v') return; // let the native copy/cut/paste event fire
-            if (k === 'a') { I.EditKeyPress(14, 0); e.preventDefault(); return; }                     // select all
+            if (k === 'a') { I.EditKeyPress(EK.SelectAll, 0); e.preventDefault(); return; }         // select all
             if (k === 'z') { if (e.shiftKey) I.Redo(); else I.Undo(); e.preventDefault(); return; }   // Ctrl+Shift+Z = redo
             if (k === 'y') { I.Redo(); e.preventDefault(); return; }
             // Any other Ctrl/Cmd + letter → an app shortcut (e.g. Ctrl+K). preventDefault only if the engine
             // took it, so unbound chords (Ctrl+F/P/…) still reach the browser.
             if (k.length === 1 && I.KeyChord(k, mods)) { e.preventDefault(); return; }
         }
-        if (e.key === 'Tab') { I.EditKeyPress(e.shiftKey ? 11 : 10, 0); e.preventDefault(); return; }
+        if (e.key === 'Tab') { I.EditKeyPress(e.shiftKey ? EK.ShiftTab : EK.Tab, 0); e.preventDefault(); return; }
         if (e.key in EK) { I.EditKeyPress(EK[e.key], mods); e.preventDefault(); return; }
         if (e.key.length === 1 && !ctrl) { I.KeyChar(e.key); e.preventDefault(); }
     });
@@ -220,6 +234,13 @@ try {
     // Native clipboard events on the focused textarea — no navigator.clipboard, no prompt. We supply
     // the engine's selection on copy/cut and feed pasted text to the engine, and preventDefault so the
     // textarea's own placeholder isn't used.
+    // IME composition: the browser streams the preedit through composition events on the focused
+    // textarea; the engine renders it underlined at the caret and commits on end. keydown is gated
+    // on isComposing above, so the IME keeps Enter/Escape/arrows while its candidate window is up.
+    kbd.addEventListener('compositionstart', () => { if (live) I.SetComposition(''); });
+    kbd.addEventListener('compositionupdate', e => { if (live) I.SetComposition(e.data ?? ''); });
+    kbd.addEventListener('compositionend', e => { if (live) I.CommitComposition(e.data ?? ''); keepSelected(); });
+
     kbd.addEventListener('copy', e => { const t = I.CopySelection(); if (t) { e.clipboardData.setData('text/plain', t); e.preventDefault(); } keepSelected(); });
     kbd.addEventListener('cut',  e => { const t = I.CutSelection();  if (t) { e.clipboardData.setData('text/plain', t); e.preventDefault(); } keepSelected(); });
     kbd.addEventListener('paste', e => { const t = e.clipboardData.getData('text/plain'); e.preventDefault(); if (t) I.KeyChar(t); keepSelected(); });
@@ -230,6 +251,7 @@ try {
     await runMain();
     logBoot('runMain ok');
     live = true;
+    EK = JSON.parse(I.EditKeyMap());   // the engine's own wire codes replace the fallback table
     focusKbd(); // arm the clipboard path immediately — before the first click
     window.addEventListener('focus', focusKbd); // …and re-arm it when the tab regains focus
 

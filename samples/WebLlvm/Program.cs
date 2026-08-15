@@ -282,6 +282,26 @@ public static unsafe partial class Interop
     public static void PasteText(int len)
     { try { if (_doc.DispatchKey(new string(_inBuf, 0, len), EditKey.None)) _dirty = true; } catch (Exception ex) { Crash("PasteText", ex); } }
 
+    [UnmanagedCallersOnly(EntryPoint = "SetComposition")]
+    public static void SetComposition(int len)
+    { try { if (_doc.SetComposition(new string(_inBuf, 0, len))) _dirty = true; } catch (Exception ex) { Crash("SetComposition", ex); } }
+
+    [UnmanagedCallersOnly(EntryPoint = "CommitComposition")]
+    public static void CommitComposition(int len)
+    { try { if (_doc.CommitComposition(new string(_inBuf, 0, len))) _dirty = true; } catch (Exception ex) { Crash("CommitComposition", ex); } }
+
+    [UnmanagedCallersOnly(EntryPoint = "EditKeyMap")]
+    public static char* EditKeyMap()
+    {
+        // The engine's own wire codes — the JS fallback table is replaced with this at boot.
+        return OutString(
+            $"{{\"Backspace\":{(int)EditKey.Backspace},\"Delete\":{(int)EditKey.Delete}," +
+            $"\"ArrowLeft\":{(int)EditKey.Left},\"ArrowRight\":{(int)EditKey.Right}," +
+            $"\"Home\":{(int)EditKey.Home},\"End\":{(int)EditKey.End},\"Enter\":{(int)EditKey.Enter}," +
+            $"\"ArrowUp\":{(int)EditKey.Up},\"ArrowDown\":{(int)EditKey.Down},\"Escape\":{(int)EditKey.Escape}," +
+            $"\"Tab\":{(int)EditKey.Tab},\"ShiftTab\":{(int)EditKey.ShiftTab},\"SelectAll\":{(int)EditKey.SelectAll}}}");
+    }
+
     [UnmanagedCallersOnly(EntryPoint = "EditKeyPress")]
     public static void EditKeyPress(int code, int mods)
     { try { if (_doc.DispatchKey(null, (EditKey)code, (KeyMods)mods)) _dirty = true; } catch (Exception ex) { Crash("EditKeyPress", ex); } }
