@@ -1,6 +1,9 @@
 using Android.Content;
 using Android.Opengl;
+using Android.Text;
 using Android.Views;
+using Android.Views.InputMethods;
+using CupriFace.Interaction;
 using SkiaSharp.Views.Android;
 
 namespace CupriFace.Android;
@@ -23,6 +26,14 @@ public sealed class CupriHostView : SKGLSurfaceView
         _density = context.Resources?.DisplayMetrics?.Density ?? 1f;
         host.Attach(this);
 
+        // The IME only attaches to a focused, focusable view.
+        Focusable = true;
+        FocusableInTouchMode = true;
+
+        // Focus edges from the engine: show/hide the soft keyboard, and restart the connection
+        // when the field KIND changes (numeric -> text swaps the keyboard layout).
+        host.TextInputChanged += OnTextInputChanged;
+
         // WHEN_DIRTY parks the GL thread between frames; RequestRender wakes it. Everything the
         // engine's render-on-demand model needs — Dispatch* returns and HasActiveAnimations —
         // maps onto exactly this. (Must be set after the base ctor installs its renderer.)
@@ -38,6 +49,104 @@ public sealed class CupriHostView : SKGLSurfaceView
     {
         base.SurfaceCreated(holder!);
         _host.OnSurfaceRecreated();
+    }
+
+    // ---- IME ----------------------------------------------------------------------------------
+
+    private bool _keyboardShown;
+    private (bool Numeric, bool Multiline, bool Masked) _lastKind;
+
+    private void OnTextInputChanged(TextInputState state)
+    {
+        var imm = Context?.GetSystemService(Context.InputMethodService) as InputMethodManager;
+        if (imm is null) return;
+        if (state.Focused)
+        {
+            RequestFocus();
+            var kind = (state.Numeric, state.Multiline, state.Masked);
+            if (_keyboardShown && kind != _lastKind) imm.RestartInput(this);
+            _lastKind = kind;
+            imm.ShowSoftInput(this, ShowFlags.Implicit);
+            _keyboardShown = true;
+        }
+        else if (_keyboardShown)
+        {
+            imm.HideSoftInputFromWindow(WindowToken, HideSoftInputFlags.None);
+            _keyboardShown = false;
+        }
+    }
+
+    public override bool OnCheckIsTextEditor() => _host.Current?.TextInput.Focused == true;
+
+    public override IInputConnection? OnCreateInputConnection(EditorInfo? outAttrs)
+    {
+        var state = _host.Current?.TextInput ?? default;
+        if (!state.Focused) return null;
+
+        if (outAttrs is not null)
+        {
+            // The field-kind attributes the components already emit map straight onto EditorInfo.
+            outAttrs.InputType = state switch
+            {
+                { Numeric: true } => InputTypes.ClassNumber | InputTypes.NumberFlagDecimal | InputTypes.NumberFlagSigned,
+                { Masked: true } => InputTypes.ClassText | InputTypes.TextVariationPassword | InputTypes.TextFlagNoSuggestions,
+                { Multiline: true } => InputTypes.ClassText | InputTypes.TextFlagMultiLine,
+                _ => InputTypes.ClassText,
+            };
+            outAttrs.ImeOptions = state.Multiline ? ImeFlags.NoEnterAction : (ImeFlags)ImeAction.Done;
+            outAttrs.InitialSelStart = state.SelStart;
+            outAttrs.InitialSelEnd = state.SelEnd;
+        }
+        return new CupriInputConnection(this, _host);
+    }
+
+    // ---- hardware keyboard --------------------------------------------------------------------
+
+    public override bool OnKeyDown(Keycode keyCode, KeyEvent? e)
+    {
+        if (e is null) return base.OnKeyDown(keyCode, e);
+        var shift = e.IsShiftPressed;
+        var mods = (shift ? KeyMods.Shift : KeyMods.None) | (e.IsCtrlPressed ? KeyMods.Ctrl : KeyMods.None);
+
+        if (e.IsCtrlPressed)
+        {
+            var ch = (char)e.GetUnicodeChar(MetaKeyStates.None);   // the base character, ignoring ctrl
+            if (ch is >= 'a' and <= 'z' or >= 'A' and <= 'Z')
+            {
+                QueueEvent(() => _host.HwShortcut(ch, shift));
+                return true;
+            }
+        }
+
+        var key = keyCode switch
+        {
+            Keycode.Del => EditKey.Backspace,
+            Keycode.ForwardDel => EditKey.Delete,
+            Keycode.DpadLeft => EditKey.Left,
+            Keycode.DpadRight => EditKey.Right,
+            Keycode.DpadUp => EditKey.Up,
+            Keycode.DpadDown => EditKey.Down,
+            Keycode.MoveHome => EditKey.Home,
+            Keycode.MoveEnd => EditKey.End,
+            Keycode.Enter or Keycode.NumpadEnter => EditKey.Enter,
+            Keycode.Tab => shift ? EditKey.ShiftTab : EditKey.Tab,
+            Keycode.Escape => EditKey.Escape,
+            _ => EditKey.None,
+        };
+        if (key != EditKey.None)
+        {
+            QueueEvent(() => _host.Key(key, mods));
+            return true;
+        }
+
+        var unicode = e.UnicodeChar;
+        if (unicode > 0 && !char.IsControl((char)unicode))
+        {
+            var text = char.ConvertFromUtf32(unicode);
+            QueueEvent(() => _host.KeyText(text));
+            return true;
+        }
+        return base.OnKeyDown(keyCode, e);
     }
 
     public override bool OnTouchEvent(MotionEvent? e)

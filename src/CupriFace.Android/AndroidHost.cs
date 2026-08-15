@@ -21,8 +21,10 @@ namespace CupriFace.Android;
 /// </summary>
 public sealed class AndroidHost : IDisposable
 {
-    /// <summary>What the UI thread may read: an immutable view of the last painted frame.</summary>
-    public sealed record Snapshot(int ContentVersion, float LogicalWidth, float LogicalHeight, float InputScale);
+    /// <summary>What the UI thread may read: an immutable view of the last painted frame —
+    /// including the text-input state the IME's synchronous questions are answered from.</summary>
+    public sealed record Snapshot(int ContentVersion, float LogicalWidth, float LogicalHeight,
+        float InputScale, TextInputState TextInput);
 
     internal const string Tag = "cupri";                 // the logcat channel the CI gate asserts on
 
@@ -94,7 +96,15 @@ public sealed class AndroidHost : IDisposable
         _doc.WindowCommandRequested += cmd => RunOnUi(() => FullscreenRequested?.Invoke(cmd));
 
         _touch = new TouchInput(_doc);
+
+        // Focus edges are the soft keyboard's cue. Raised on the GL thread mid-dispatch; the VIEW
+        // owns the InputMethodManager work, so hop to the UI thread and hand it the state.
+        _doc.TextInputStateChanged += state => RunOnUi(() => TextInputChanged?.Invoke(state));
     }
+
+    /// <summary>Raised on the UI thread when text-input focus changes — the view shows/hides the
+    /// soft keyboard and restarts the input connection off this.</summary>
+    public event Action<TextInputState>? TextInputChanged;
 
     /// <summary>Raised on the UI thread when the document asks for fullscreen; the activity maps
     /// it to immersive mode (it owns the window).</summary>
@@ -151,7 +161,8 @@ public sealed class AndroidHost : IDisposable
         _doc.Render(canvas, p.LogicalWidth, p.LogicalHeight);
         canvas.Restore();
 
-        _snapshot = new Snapshot(_doc.ContentVersion, p.LogicalWidth, p.LogicalHeight, inputScale);
+        _snapshot = new Snapshot(_doc.ContentVersion, p.LogicalWidth, p.LogicalHeight, inputScale,
+            _doc.GetTextInputState());
 
         if (!_firstFrameLogged)
         {
@@ -204,6 +215,48 @@ public sealed class AndroidHost : IDisposable
 
     internal void Key(EditKey key, KeyMods mods = KeyMods.None)
     { if (_doc.DispatchKey(null, key, mods)) MarkDirty(); }
+
+    internal void KeyText(string text)
+    { if (_doc.DispatchKey(text, EditKey.None)) MarkDirty(); }
+
+    /// <summary>One IME mutation on the document thread: run it, mark dirty if it changed, and
+    /// log the commit marker the CI gate asserts on.</summary>
+    internal void Ime(Func<CupriDocument, bool> action)
+    {
+        if (action(_doc)) MarkDirty();
+    }
+
+    /// <summary>A committed text insert, with the gate's observable marker.</summary>
+    internal void ImeCommitted(string text)
+    {
+        if (_doc.CommitComposition(text)) { Log($"commit '{text}'"); MarkDirty(); }
+    }
+
+    /// <summary>Hardware-keyboard Ctrl chords — the same table as DesktopHost.Shortcut, with the
+    /// clipboard seam Android-shaped. Runs on the document thread.</summary>
+    internal void HwShortcut(char ch, bool shift)
+    {
+        switch (char.ToLowerInvariant(ch))
+        {
+            case 'a': if (_doc.DispatchKey(null, EditKey.SelectAll)) MarkDirty(); break;
+            case 'c': PutClipboard(_doc.CopySelection()); break;
+            case 'x': PutClipboard(_doc.CutSelection()); MarkDirty(); break;
+            case 'v':
+                RunOnUi(() =>
+                {
+                    var text = ReadClipboard();
+                    if (text is { Length: > 0 }) OnGlThread(() => KeyText(text));
+                });
+                break;
+            case 'z': if (shift ? _doc.Redo() : _doc.Undo()) MarkDirty(); break;
+            case 'y': if (_doc.Redo()) MarkDirty(); break;
+            default:
+                // Unclaimed chords reach the app's own OnShortcut bindings, exactly like desktop.
+                if (_doc.DispatchKey(ch.ToString(), EditKey.None, KeyMods.Ctrl | (shift ? KeyMods.Shift : KeyMods.None)))
+                    MarkDirty();
+                break;
+        }
+    }
 
     /// <summary>Escape with a report: the activity uses this for Back — an overlay that consumed
     /// it stays; otherwise the platform's back behaviour proceeds.</summary>

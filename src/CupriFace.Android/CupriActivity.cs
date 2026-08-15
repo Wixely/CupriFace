@@ -50,6 +50,10 @@ public abstract class CupriActivity : global::Android.App.Activity
         });
         _view = new CupriHostView(this, _host);
         SetContentView(_view);
+        // The soft keyboard RESIZES the surface rather than overlaying it: the next frame lays out
+        // at the smaller height and the engine's own ScrollCaretIntoView keeps the caret visible —
+        // no host-side pan logic to get wrong.
+        Window?.SetSoftInputMode(SoftInput.AdjustResize);
 
         // The eventless work (refresh cadence while idle, image decodes finishing) needs a slow
         // heartbeat; 250 ms is imperceptible for both and costs nothing measurable.
