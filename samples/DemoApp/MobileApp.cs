@@ -1,0 +1,90 @@
+using CupriFace;
+using CupriFace.Binding;
+using CupriFace.Resources;
+
+namespace CupriFace.Demo;
+
+/// <summary>
+/// The phone-first sample: bottom navigation, 48dp touch targets, and one page per thing the
+/// mobile work has to prove — a long virtual list (fling), a form (soft keyboard + IME), settings
+/// (switches and sliders under a finger). PORTABLE on purpose: the same class runs on Android
+/// (samples/AndroidViewer), on desktop (<c>Viewer --app mobile</c> — the fast dev loop), and in
+/// the browser, which is the whole point of the engine.
+///
+/// Unlike the Showcase there is no <c>Present</c> override: the responsive default means logical
+/// pixels ARE density-independent pixels, so <c>@media (max-width: …)</c> queries see the real
+/// device width and the layout reflows instead of shrinking.
+/// </summary>
+public sealed class MobileApp : CupriApp
+{
+    private readonly MobileModel _model = new();
+
+    protected override CupriSource MarkupSource => Assets.MobileApp.Html;
+    protected override CupriSource StyleSource => Assets.MobileApp.Css;
+    public override string Title => "CupriFace Mobile";
+    public override int Width => 400;      // the desktop dev-loop window; phones ignore this
+    public override int Height => 800;
+    public override object? Model => _model;
+
+    /// <summary>The About page's "Open Showcase" seam: the HOST decides what launching means
+    /// (Android pushes a second app onto its stack; desktop could open a window). Raised with the
+    /// element's <c>data-launch</c> value.</summary>
+    public Action<string>? LaunchRequested;
+
+    public override void Configure(CupriDocument doc)
+    {
+        // The CI gate's observable: taps on the marked switch toggle the model HERE and print a
+        // marker Console line — which lands in logcat on Android — carrying the post-toggle state.
+        // Two taps must print true then false; that alternation is the gate's proof that touch
+        // activation happens exactly once per tap, on finger-up.
+        doc.OnAction("data-gate-toggle", e =>
+        {
+            _model.Notify = !_model.Notify;
+            Console.WriteLine($"cupri-gate: toggle={_model.Notify}");
+            return true;
+        });
+
+        // The fling gate reads the list's scroll offset after momentum settles; the marker comes
+        // from the Android host (it owns the frame loop and sees the fling end).
+
+        doc.OnAction("data-launch", e =>
+        {
+            LaunchRequested?.Invoke(e.Value);
+            return true;
+        });
+    }
+}
+
+[CupriBindable]
+public sealed partial class MobileModel
+{
+    public string Page { get; set; } = "home";
+
+    public string PgHome => Page == "home" ? "flex" : "none";
+    public string PgList => Page == "list" ? "flex" : "none";
+    public string PgForm => Page == "form" ? "flex" : "none";
+    public string PgSettings => Page == "settings" ? "flex" : "none";
+    public string PgAbout => Page == "about" ? "flex" : "none";
+
+    public string NavHome => Page == "home" ? "nav-item active" : "nav-item";
+    public string NavList => Page == "list" ? "nav-item active" : "nav-item";
+    public string NavForm => Page == "form" ? "nav-item active" : "nav-item";
+    public string NavSettings => Page == "settings" ? "nav-item active" : "nav-item";
+    public string NavAbout => Page == "about" ? "nav-item active" : "nav-item";
+
+    // Settings — Notify is the gate's tap target (toggled in Configure so the marker prints).
+    public bool Notify { get; set; }
+    public bool Dark { get; set; }
+    public int Volume { get; set; } = 60;
+    public string ThemeClass => Dark ? "dark" : "";
+
+    // Form — one field per keyboard kind (text / numeric / password / multiline).
+    public string Name { get; set; } = "";
+    public int Amount { get; set; } = 42;
+    public string Secret { get; set; } = "";
+    public string Notes { get; set; } = "";
+
+    // List — enough rows that flinging matters, virtualised so only a screenful exists.
+    public List<string> Rows { get; set; } =
+        Enumerable.Range(1, 500).Select(i => $"Row {i} — tap and fling").ToList();
+}

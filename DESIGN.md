@@ -596,19 +596,33 @@ The stack is layered so OS-specific code is isolated and opt-in:
   dependency at all. (An earlier Win32 GDI backend was removed in favour of SDL to keep our
   code fully managed.)
 - **Accessibility** — the semantics tree is portable; the bridges are not, and they are the
-  only place OS-specific accessibility code is allowed to live. All three ship — **UIA**
-  (Windows), **AT-SPI** (Linux), **NSAccessibility** (macOS) — each with a blocking CI gate
-  driven by a real AT client. They cost strikingly different amounts of interop, and the
-  reason is worth naming: AT-SPI is D-Bus over a Unix socket — IPC, not an OS API — so its
-  bridge is *pure managed IL with no interop at all*, and a Windows build carries the D-Bus
-  library without ever loading it. UIA and NSAccessibility are real OS APIs, and account for
-  the project's only two quarantined P/Invoke files (`UiaInterop.cs`, `ObjC.cs`). The macOS
-  one needs no compiled Objective-C shim: it builds its Objective-C classes at runtime with
-  managed function pointers as their method implementations.
+  only place OS-specific accessibility code is allowed to live. All four ship — **UIA**
+  (Windows), **AT-SPI** (Linux), **NSAccessibility** (macOS), **TalkBack** (Android) — each
+  with a blocking CI gate driven by a real AT client. They cost strikingly different amounts
+  of interop, and the reason is worth naming: AT-SPI is D-Bus over a Unix socket — IPC, not
+  an OS API — so its bridge is *pure managed IL with no interop at all*, and a Windows build
+  carries the D-Bus library without ever loading it. UIA and NSAccessibility are real OS
+  APIs, and account for the project's only two quarantined P/Invoke files (`UiaInterop.cs`,
+  `ObjC.cs`). The macOS one needs no compiled Objective-C shim: it builds its Objective-C
+  classes at runtime with managed function pointers as their method implementations. The
+  Android one (`TalkBackBridge`) speaks through the .NET-Android bindings — managed JNI, no
+  hand-written P/Invoke, so the two-file quarantine count still holds.
+- **Android (`CupriFace.Android`)** — the mobile host: `CupriActivity` + an
+  `SKGLSurfaceView` (the same GPU model as the desktop GL window) + `AndroidHost`. Its one
+  structural rule: **the GL thread is the document thread** — UI events cross via the view's
+  event queue, UI-thread readers get an immutable post-frame snapshot. Logical px are
+  Android **dp** (density folds into the present scale), so the same markup lays out at
+  phone-native sizes. Runs **CoreCLR** (`UseMonoRuntime=false`, enforced by the package's
+  buildTransitive targets): Mono 10.0.11 has a codegen defect on Android — forensics in
+  `samples/AndroidProbe/MONO-CRASH.md`. Touch, fling and IME composition live in the
+  ENGINE (`Interaction/TouchInput`, the composition seam) — portable, headless-tested,
+  shared with the web host.
 - **Web** — the same engine to `<canvas>` via WASM.
 
-Net: to add a platform you implement (at most) a windowing backend + an a11y bridge; the
-engine, layout, paint, text, binding, and components are shared unchanged.
+Net: to add a platform you implement (at most) a windowing/input host + an a11y bridge; the
+engine, layout, paint, text, binding, and components are shared unchanged. Android is the
+worked example: the host package plus one gesture recognizer and one IME seam in the engine,
+both of which desktop and web share.
 
 ### Presentation scaling
 The host presents a document via `CupriApp.Present(windowW, windowH)` → a **logical

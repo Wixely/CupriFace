@@ -22,6 +22,9 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\CupriFace\CupriFace.csproj" />
     <ProjectReference Include="..\..\src\CupriFace.Media\CupriFace.Media.csproj" />
+    <!-- The shipped sample apps: their documents are built headlessly here, so a markup or
+         binding typo fails in seconds on any OS instead of on a device gate. -->
+    <ProjectReference Include="..\..\samples\DemoApp\DemoApp.csproj" />
   </ItemGroup>
 
   <ItemGroup>

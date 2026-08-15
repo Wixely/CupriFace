@@ -1,0 +1,230 @@
+name: Android probe
+
+# FEASIBILITY PROBE, not a gate. Before writing a mobile host package, answer the three questions
+# that decide whether one is worth writing — the same discipline that preceded the AT-SPI and
+# NSAccessibility bridges, where probing first is what made those gates possible at all.
+#
+#   Q1. Does the engine render on a REAL GPU surface on Android — GL ES through an SKGLSurfaceView,
+#       on a booted device — rather than merely rastering into a buffer?
+#   Q2. What does startup cost once Skia and HarfBuzz have to load on a phone?
+#   Q3. How big is the APK?
+#
+# WHAT THIS IS NOT: a MAUI app. samples/AndroidProbe is the bare .NET for Android project type —
+# an Activity and a view, no XAML, no second UI toolkit, no Java or Kotlin. That is deliberately
+# the shape a real CupriFace mobile host would take.
+#
+# The emulator is driven with the SDK's own tools rather than a third-party action, to keep the
+# supply chain the same size it is everywhere else in this repo.
+#
+# Every step reports and none asserts: a probe that can fail can hide a finding.
+#
+# FINDINGS (local, Windows, 2026-08-14) — recorded before the first CI run:
+#   - The engine compiles for net10.0-android untouched: it is plain net10.0 with no windowing
+#     dependency, so a `net10.0-android` project can reference it directly.
+#   - SkiaSharp.NativeAssets.Android 3.116.1 supplies Skia for all four ABIs; HarfBuzz's Android
+#     natives arrive transitively. GPU-capable Skia on Android needs no new package work.
+#   - The whole "host" is ~100 lines: Activity + SKGLSurfaceView + touch forwarding. Everything
+#     after `CupriApp.CreateDocument()` is the code the desktop and web hosts already run.
+#   - APK size, Release, real Showcase app: 23.3 MB for arm64-v8a + x86_64, and 11.5 MB for a
+#     store-shaped arm64-only build. libSkiaSharp is the single largest item at 8.6 MB (arm64).
+#   - WART FOUND: an Android build still restores SkiaSharp.NativeAssets.Linux, because
+#     src/SkiaNativeAssets.props is imported unconditionally by the engine. Desktop natives should
+#     not follow a mobile app around; that props file needs a TFM condition.
+#
+# FINDINGS (CI, ubuntu-24.04 + android-34 x86_64 emulator, run 5):
+#   - Q3 ANSWERED, and the two toolchains agree: arm64 12,011,747 bytes on Linux against
+#     12,011,736 locally on Windows. x86_64 is 12,445,728.
+#   - The emulator path works end to end: boot_completed=1, the APK installs, and the launcher
+#     activity resolves (crc64f2bbf9978b7e0819.MainActivity — a mangled name, so guessing it was
+#     never going to work; `cmd package resolve-activity` is the only reliable way to get it).
+#   - Q1/Q2 NOT YET ANSWERED, and for a real reason rather than a broken harness: the app STARTS
+#     and then dies in OnCreate with a NullReferenceException. So the engine renders happily
+#     headless on Android (the class-library check proved that) but the real app does not survive
+#     startup on a device. That is the single most valuable thing this probe has found, and it is
+#     exactly the class of problem that only shows up on the target.
+#   - Suspicion, not yet evidence: asset loading. The Showcase reads its markup and CSS through
+#     the resources source generator, and Android is the first platform where the app is neither
+#     a plain file on disk nor a wasm bundle. The next run logs the exception in full.
+#
+# VERDICT (run 8, the four-variant experiment) — the crash is MONO ITSELF, and CoreCLR is the fix:
+#   Mono+AOT+trimmed: crash.  Mono JIT+trimmed: crash.  Mono JIT untrimmed: crash (same stack,
+#   now with parameter names — trimming exonerated).  CoreCLR: runs the full Showcase.
+#   JIT and AOT share Mono's code generator, which is why disabling AOT changed nothing; a native
+#   fault in the vectorised String.Equals surfacing as a managed NRE fits every observation.
+#   The probe app now sets UseMonoRuntime=false, which is also where Android .NET is heading.
+#
+#   Q1 ANSWERED: YES — the engine renders the real Showcase on a GL surface on a booted device.
+#   Q2 ANSWERED (SwiftShader software GL, so a floor not a ceiling): app constructed 17 ms,
+#   document built 366 ms, FIRST FRAME 841 ms from process start, 60 frames by 2967 ms.
+#   Q3 REVISED: the working runtime costs size — CoreCLR x64 APK is 21,779,862 bytes against
+#   Mono's 12,445,728; the store-shaped arm64 build is 20,686,272 under CoreCLR against
+#   12,011,747 under Mono (run 9). ~19.7 MB is still an ordinary mobile app, and the gap is
+#   worth re-measuring as Android CoreCLR matures — its trimming is visibly younger than Mono's.
+#
+#   REPRODUCED in run 9 with the runtimes pinned per leg: all three Mono variants crash
+#   identically, CoreCLR renders — document 356 ms, first frame 1152 ms, 60 frames by 3944 ms.
+#
+# REAL-DEVICE CONFIRMATION (Android 16 phone, arm64, 2026-08-15, sideloaded by hand): CoreCLR
+#   renders the full Showcase correctly — sidebar navigation, section switches, @keyframes
+#   animations all live on the phone's own GPU. CORRECTION (Phase 9 review): "animations live"
+#   over-claimed — this probe renders continuously and never calls Animate, so what the device
+#   showed was repainted static frames, not the animation clock. The real host
+#   (src/CupriFace.Android) drives Animate properly and supersedes this probe for anything but
+#   runtime forensics. Mono crashes there too. That answers the one
+#   question the emulator could not: the Mono defect is NOT x64-specific — it reproduces on
+#   arm64 hardware, so it is Mono-10.0.11-on-Android generally, which strengthens the upstream
+#   report. It also retires the SwiftShader caveat: the GL path now has a real-GPU data point.
+#
+#   The device's tombstone then closed the case mechanically (full forensics + upstream-ready
+#   report: samples/AndroidProbe/MONO-CRASH.md): a one-frame native SIGSEGV inside
+#   libaot-System.Private.CoreLib.dll.so, fault address 0x0067006800000016 — which decodes as a
+#   string's [length=6|'h'|'g'] content word being DEREFERENCED AS A STRING REFERENCE, read at
+#   +0x10, exactly Mono's string-length offset. String content in a pointer register: a codegen
+#   defect caught red-handed. On arm64 it is a raw signal no managed catch can see, which is why
+#   the device shows "app constructed" and then nothing.
+#
+# Harness bugs found and fixed on the way, recorded so the next person skips them: sdkmanager is
+# not on PATH (it lives under cmdline-tools/latest/bin); /dev/kvm is root:kvm 0660 and needs a udev
+# rule or the emulator silently falls back to slow emulation; avdmanager and the emulator disagree
+# about the AVD directory unless ANDROID_AVD_HOME is pinned; and `am start` prints "Error:" while
+# exiting 0, so its output has to be read rather than its exit code trusted.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/android-probe.yml'
+      - 'samples/AndroidProbe/**'
+
+jobs:
+  probe:
+    name: Does it render on a phone?
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install the Android workload
+        run: dotnet workload install android --skip-manifest-update
+
+      # Q3 — size, both shapes: what a store build ships (arm64), and what the emulator needs (x64).
+      #
+      # The x64 build comes in FOUR variants, because the crash on-device has the signature of a
+      # runtime defect, not an app defect: NullReferenceException whose top frame is the static
+      # String.Equals(String, String) — an overload that null-checks and cannot NRE — under
+      # three-line component code that runs on every other platform. On Mono, a native fault in
+      # AOT-compiled code surfaces exactly like this. One variant per suspect, one variable each:
+      #   mono         Mono + profiled AOT + trimmed  (the old Release default; the crashing control)
+      #   mono-noaot   Mono JIT, still trimmed        (isolates the AOT compiler)
+      #   mono-notrim  Mono JIT, untrimmed            (AOT requires trimming — XA1030 — so untrimmed
+      #                                               must also be JIT; crash here + in mono-noaot
+      #                                               exonerates the trimmer)
+      #   coreclr      CoreCLR, default trim          (the csproj default since the verdict; green)
+      # Every Mono leg pins UseMonoRuntime=true explicitly — the csproj now defaults to CoreCLR,
+      # and a control that silently stops being Mono stops being a control.
+      - name: Build the APK
+        run: |
+          dotnet publish samples/AndroidProbe/AndroidProbe.csproj -c Release -r android-arm64 \
+            -o out/arm64
+          # Each variant tolerates its own failure: one unbuildable permutation must not kill the
+          # experiment (run 7 died whole because `notrim` alone is contradictory — XA1030 says AOT
+          # requires trimming, so the untrimmed variant must be JIT as well; the matrix stays
+          # conclusive, per the table above).
+          v() { dotnet publish samples/AndroidProbe/AndroidProbe.csproj -c Release -r android-x64 \
+                  -o "out/$1" "${@:2}" || echo "::warning::variant $1 did not build"; }
+          v mono        -p:UseMonoRuntime=true
+          v mono-noaot  -p:UseMonoRuntime=true -p:RunAOTCompilation=false
+          v mono-notrim -p:UseMonoRuntime=true -p:RunAOTCompilation=false -p:PublishTrimmed=false
+          v coreclr
+          echo "### APK size" >> $GITHUB_STEP_SUMMARY
+          for f in $(find out -name "*-Signed.apk"); do
+            printf '%-14s %s bytes\n' "$(basename $(dirname $f))" "$(stat -c%s $f)" | tee -a $GITHUB_STEP_SUMMARY
+          done
+
+      # Q1/Q2 — a booted emulator is the only honest answer to "does it render".
+      - name: Boot an emulator
+        run: |
+          set -x
+          # The SDK's tools are not on PATH on this image; sdkmanager lives under cmdline-tools.
+          SDK=${ANDROID_SDK_ROOT:-$ANDROID_HOME}
+          export PATH="$SDK/cmdline-tools/latest/bin:$SDK/platform-tools:$SDK/emulator:$PATH"
+          echo "PATH=$PATH" >> $GITHUB_ENV
+
+          # /dev/kvm exists on this runner but is root:kvm 0660, so the emulator cannot open it.
+          # Without this the run falls back to pure emulation and takes minutes per boot.
+          ls -l /dev/kvm || echo "::warning::no /dev/kvm — the emulator will be very slow"
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"'             | sudo tee /etc/udev/rules.d/99-kvm4all.rules > /dev/null
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm || true
+          ls -l /dev/kvm
+
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager --install "system-images;android-34;google_apis;x86_64" "platform-tools" "emulator" > /dev/null
+          # avdmanager and the emulator disagree about where AVDs live unless told: the emulator
+          # searches $ANDROID_AVD_HOME, then $ANDROID_SDK_HOME/avd, then $HOME/.android/avd, and
+          # the previous run created one none of those resolved to ("Unknown AVD name [probe]").
+          export ANDROID_AVD_HOME="$HOME/.android/avd"
+          echo "ANDROID_AVD_HOME=$ANDROID_AVD_HOME" >> $GITHUB_ENV
+          mkdir -p "$ANDROID_AVD_HOME"
+          echo no | avdmanager create avd -n probe -k "system-images;android-34;google_apis;x86_64" --force
+          # Prove it exists before booting, rather than discovering it from the emulator's stderr.
+          emulator -list-avds
+          if ! emulator -list-avds | grep -qx probe; then
+            echo "::warning::the AVD was not created; Q1/Q2 unanswered this run"
+            ls -la "$ANDROID_AVD_HOME" || true
+            exit 0
+          fi
+          # swiftshader_indirect: the runner has no GPU, so GL ES is software-rasterised. That still
+          # exercises the real EGL/GRContext path — the same caveat the desktop gates carry, where
+          # llvmpipe stands in for a GPU.
+          $SDK/emulator/emulator -avd probe -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect             -no-snapshot -camera-back none > emulator.log 2>&1 &
+
+          # EVERY wait is bounded. An unbounded `adb wait-for-device` does not fail when the
+          # emulator never appears — it hangs the job until the runner is killed, which is a
+          # non-answer dressed up as a timeout.
+          if ! timeout 420 adb wait-for-device; then
+            echo "::warning::the emulator never registered with adb"
+            tail -60 emulator.log || true
+            exit 0
+          fi
+          # Booted != ready: wait for the property the system sets last, not a guessed sleep.
+          timeout 420 adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 2; done' || true
+          echo "boot_completed=$(adb shell getprop sys.boot_completed 2>&1)"
+          adb devices
+          tail -20 emulator.log || true
+
+      - name: Install each variant and watch it draw
+        run: |
+          set -x
+          if [ -z "$(adb devices | grep -w device)" ]; then
+            echo "::warning::no device — the on-device questions stay unanswered this run"
+            exit 0
+          fi
+          for v in mono mono-noaot mono-notrim coreclr; do
+            [ -d "out/$v" ] || continue
+            echo "### variant: $v" >> $GITHUB_STEP_SUMMARY
+            adb uninstall com.cupriface.androidprobe > /dev/null 2>&1 || true
+            adb logcat -c || true
+            adb install -r out/$v/*-Signed.apk
+            # Ask the package manager for the launcher activity rather than guessing: the name is
+            # crc-mangled, adb does not expand globs, and am start prints "Error:" while exiting 0.
+            ACTIVITY=$(adb shell cmd package resolve-activity --brief com.cupriface.androidprobe | tail -1 | tr -d '\r')
+            adb shell am start -n "$ACTIVITY" 2>&1 | tee start.log
+            if grep -q "Error:" start.log; then
+              echo "::warning::$v: am start refused"
+              continue
+            fi
+            sleep 35
+            adb logcat -d -s cupri:I | tee -a $GITHUB_STEP_SUMMARY
+            adb logcat -d -s AndroidRuntime:E DEBUG:F | tail -25
+            adb shell am force-stop com.cupriface.androidprobe || true
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-probe-apk
+          path: out/arm64/*-Signed.apk
+          if-no-files-found: warn

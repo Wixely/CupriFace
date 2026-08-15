@@ -184,6 +184,20 @@ public partial class Interop
         // changes on interaction, and re-parsing HTML 30×/s during a spinner would be wasteful.
         if (!animating) A11y(_doc.BuildAriaHtml(p.LogicalWidth, p.LogicalHeight));
 
+        // IME positioning: push the focus/kind/caret only when it moved (input-driven frames only,
+        // like the mirror above). The caret's BOTTOM is where a candidate window belongs.
+        if (!animating)
+        {
+            var ti = _doc.GetTextInputState();
+            var r = ti.CaretRect ?? default;
+            var cur = (ti.Focused, ti.Numeric, ti.Multiline, r.X, r.Y);
+            if (cur != _lastTextInput)
+            {
+                _lastTextInput = cur;
+                TextInputJs(ti.Focused, ti.Numeric, ti.Multiline, r.X * _scale, (r.Y + r.H) * _scale);
+            }
+        }
+
         // Keep each underlaid <video> glued to its element: same painted frame, same JS task as
         // the blit above, so the hole and the element can't shear apart.
         BrowserVideoBackend.SyncRects(_doc, _scale);
@@ -202,6 +216,7 @@ public partial class Interop
     // Push the cursor for the current pointer position to the canvas (only when it changes — setting
     // canvas.style.cursor every mouse-move is needless DOM churn).
     private static string _cursor = "";
+    private static (bool, bool, bool, float, float) _lastTextInput;
     private static void UpdateCursor(double x, double y)
     {
         if (_doc is null) return;
@@ -221,6 +236,21 @@ public partial class Interop
 
     // Clipboard bridge — the engine has no clipboard access (host concern); JS does the actual
     // navigator.clipboard I/O. Copy/Cut return the selected text; Paste inserts via KeyChar.
+    // ---- IME composition (the engine seam Phase 3 built; the browser's composition events feed
+    // ---- these — the web's CJK/dead-key path, previously impossible from keydown alone).
+    [JSExport] internal static void SetComposition(string text) { if (_doc?.SetComposition(text) == true) _dirty = true; }
+    [JSExport] internal static void CommitComposition(string text) { if (_doc?.CommitComposition(text) == true) _dirty = true; }
+    [JSExport] internal static void CancelComposition() { if (_doc?.ClearComposition() == true) _dirty = true; }
+
+    // The EditKey wire codes, exported ONCE — main.js used to hand-copy these ordinals, which is
+    // the kind of duplicated contract that breaks silently when an enum member moves.
+    [JSExport] internal static string EditKeyMap() =>
+        $"{{\"Backspace\":{(int)EditKey.Backspace},\"Delete\":{(int)EditKey.Delete}," +
+        $"\"ArrowLeft\":{(int)EditKey.Left},\"ArrowRight\":{(int)EditKey.Right}," +
+        $"\"Home\":{(int)EditKey.Home},\"End\":{(int)EditKey.End},\"Enter\":{(int)EditKey.Enter}," +
+        $"\"ArrowUp\":{(int)EditKey.Up},\"ArrowDown\":{(int)EditKey.Down},\"Escape\":{(int)EditKey.Escape}," +
+        $"\"Tab\":{(int)EditKey.Tab},\"ShiftTab\":{(int)EditKey.ShiftTab},\"SelectAll\":{(int)EditKey.SelectAll}}}";
+
     [JSExport] internal static string? CopySelection() => _doc?.CopySelection();
     [JSExport] internal static string? CutSelection() { var t = _doc?.CutSelection(); _dirty = true; return t; }
     [JSExport] internal static void Undo() { if (_doc?.Undo() == true) _dirty = true; }
@@ -248,4 +278,9 @@ public partial class Interop
 
     // Push the ARIA mirror HTML into the off-screen accessibility DOM (JS sets innerHTML).
     [JSImport("a11y", "cupri")] internal static partial void A11y(string html);
+
+    // Text-input state for the IME: JS moves the hidden textarea to the caret (so the candidate
+    // window appears AT the field, not at the page's top-left) and sets inputmode.
+    [JSImport("textInput", "cupri")] internal static partial void TextInputJs(
+        bool focused, bool numeric, bool multiline, double x, double y);
 }

@@ -39,6 +39,7 @@ public sealed partial class CupriDocument : IDisposable
     private List<CssRule>? _cachedRules;    // parsed once (CSS is immutable) and reused every rebuild
     private Dictionary<string, List<Keyframe>>? _cachedKeyframes;
     private float _viewportWidth = 1024f;
+    private float _viewportHeight = 768f;
     // The last size laid out, and whether the CURRENT tree has been laid out at it. A rebuild/restyle
     // produces a fresh tree with no geometry; hosts lay out once per frame and then dispatch input, so
     // input arriving before that frame would hit-test a tree whose boxes are all zero — see EnsureLaidOut.
@@ -55,6 +56,11 @@ public sealed partial class CupriDocument : IDisposable
     private bool _focusMultiline; // focused field is a textarea (Enter inserts a newline)
     private bool _focusMask;    // focused field masks its text (data-mask, e.g. <cupri-password>)
     private int _maskRevealPos = -1;          // index of a masked char being briefly "peeked" after typing; -1 = none
+    // IME composition (preedit): a marked range INSIDE _editBuffer — rendered underlined, never
+    // committed to the model until the IME says so. -1 start = no composition.
+    private int _compStart = -1;
+    private int _compLen;
+    private (string Value, int Caret, int Anchor)? _compUndo;   // pre-composition snapshot: ONE undo step per composition
     private double _maskRevealStart = double.NaN; // Animate() clock time the peek began (NaN = not yet stamped)
     private double? _focusMin, _focusMax; // numeric field bounds (for validation/clamping)
     private bool _focusRequired;          // focused field's validation rules (for the mid-edit red border)
@@ -538,7 +544,9 @@ public sealed partial class CupriDocument : IDisposable
         Mark("validate");
 
         _hoverChain.Clear();
-        _root = new StyleResolver(_rules, _viewportWidth).BuildTree(dom);
+        _activeChain.Clear();   // same reason as hover: the fresh DOM carries no data-active, and a
+                                // stale chain would hand ClearActive() dead elements on pointer-up
+        _root = new StyleResolver(_rules, _viewportWidth, _viewportHeight).BuildTree(dom);
         _layoutDirty = true; // fresh tree: no geometry until the next layout
         RestoreScroll(scroll);
         _transitions.Detect(_root, _laidOutWidth, _laidOutHeight); // (re)start transitions whose target value changed this rebuild
@@ -637,6 +645,7 @@ public sealed partial class CupriDocument : IDisposable
             any = true;
         }
         if (EaseReorder(timeSeconds)) any = true; // slide reorder rows into their gap
+        if (StepFling(timeSeconds)) any = true;   // momentum scrolling (touch fling)
         // Animation wrote style/offset values this frame → the retained fast-path list is stale.
         // A quiet call (rules exist, nothing active — every page of an app with a spinner
         // somewhere) must NOT bump, or the surface fast path would never fire anywhere.
@@ -653,7 +662,7 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>True while a CSS transition is mid-flight (a continuous host should keep calling
     /// <see cref="Animate"/> and repainting until it settles). Also true while a masked field is
     /// peeking its last-typed char, so the host keeps ticking until <see cref="Animate"/> re-masks it.</summary>
-    public bool HasActiveTransitions => _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending;
+    public bool HasActiveTransitions => _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || FlingActive;
 
     /// <summary>True only if a *visible* node is currently animating (display:none subtrees are
     /// absent from the render tree). Lets a host render continuously only when it must, instead
@@ -661,7 +670,7 @@ public sealed partial class CupriDocument : IDisposable
     /// set only changes when the tree does), so a host may poll it every frame for free. Also true
     /// while a masked field peeks its last-typed char (see <see cref="HasActiveTransitions"/>),
     /// and while any live surface (a playing video) is producing frames.</summary>
-    public bool HasActiveAnimations => _hasActiveAnim || _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || Surfaces.AnyTicking;
+    public bool HasActiveAnimations => _hasActiveAnim || _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || Surfaces.AnyTicking || FlingActive;
     private bool _hasActiveAnim;
 
     private static bool AnyAnimated(RenderNode n)
@@ -699,6 +708,10 @@ public sealed partial class CupriDocument : IDisposable
     private SKRectI _cullCacheRect;
     private object? _cullCacheList;
     private DrawSurface[] _lastListSurfaces = []; // pre-extracted, so fast frames skip the full walk
+
+    /// <summary>One user-perceived character: a single UTF-16 unit, or one surrogate pair.</summary>
+    private static bool IsSingleCodePoint(string s) =>
+        s.Length == 1 || (s.Length == 2 && char.IsHighSurrogate(s[0]) && char.IsLowSurrogate(s[1]));
 
     private bool Bump(bool changed)
     {
@@ -863,10 +876,12 @@ public sealed partial class CupriDocument : IDisposable
     public DisplayList BuildFrame(float width, float height)
     {
         var t0 = Stopwatch.GetTimestamp();
-        // @media depends on viewport width — re-resolve styles when it changes.
-        if (_hasMedia && Math.Abs(width - _viewportWidth) > 0.5f)
+        // @media depends on the viewport size — re-resolve styles when either axis changes
+        // (height-qualified queries are how phone landscape and a desktop window are told apart).
+        if (_hasMedia && (Math.Abs(width - _viewportWidth) > 0.5f || Math.Abs(height - _viewportHeight) > 0.5f))
         {
             _viewportWidth = width;
+            _viewportHeight = height;
             Rebuild();
         }
         _layout.Layout(_root, width, height);
@@ -882,6 +897,7 @@ public sealed partial class CupriDocument : IDisposable
         var clip = CaretClipRect();
         if (clip is { } c) list.Add(new PushClip(c.X, c.Y, c.W, c.H, c.Radius));
         AppendSelection(list);
+        AppendCompositionUnderline(list);
         AppendCaret(list);
         if (clip is not null) list.Add(new PopClip());
         AppendFocusRing(list);
@@ -977,9 +993,19 @@ public sealed partial class CupriDocument : IDisposable
     // Draw the text caret for the focused field, after the field's own text.
     private void AppendCaret(DisplayList list)
     {
-        if (_focusKey is null) return;
+        if (ComputeCaretRect() is not { } r) return;
+        var field = FindFocused(_root)!;
+        var anchor = FindCaretAnchor(field) ?? field;
+        list.Add(new FillRect(r.X, r.Y, r.W, r.H, 0f, anchor.Style.Color));
+    }
+
+    /// <summary>The caret's painted rectangle in logical px — shared by the caret paint and the
+    /// IME state (candidate windows position against this). Null when nothing is focused.</summary>
+    internal (float X, float Y, float W, float H)? ComputeCaretRect()
+    {
+        if (_focusKey is null) return null;
         var field = FindFocused(_root);
-        if (field is null) return;
+        if (field is null) return null;
 
         // Anchor the caret to the node that actually paints the value text (a component may
         // nest it in a padded span — e.g. cupri-number puts its padding on the text span, not
@@ -996,7 +1022,33 @@ public sealed partial class CupriDocument : IDisposable
         var col = Math.Clamp(caret - target.Start, 0, target.Text.Length);
         var cx = target.X + _fonts.MeasureText(anchor.Style, target.Text[..col]);
         var cy = target.Y + (target.Height - ch) / 2f;
-        list.Add(new FillRect(cx, cy, 2f, ch, 0f, anchor.Style.Color));
+        return (cx, cy, 2f, ch);
+    }
+
+    /// <summary>Underline the IME preedit (the marked range) — the visual difference between
+    /// text that is committed and text the IME is still deciding about.</summary>
+    private void AppendCompositionUnderline(DisplayList list)
+    {
+        if (_compStart < 0 || _focusKey is null) return;
+        var field = FindFocused(_root);
+        if (field is null) return;
+        var anchor = FindCaretAnchor(field) ?? field;
+        var value = FocusedDisplayText();
+        var start = Math.Clamp(_compStart, 0, value.Length);
+        var end = Math.Clamp(_compStart + _compLen, 0, value.Length);
+        if (end <= start) return;
+
+        var rows = BuildTextRows(anchor, value);
+        foreach (var row in rows)
+        {
+            var s0 = Math.Max(start, row.Start);
+            var s1 = Math.Min(end, row.Start + row.Text.Length);
+            if (s1 <= s0) continue;
+            var x0 = row.X + _fonts.MeasureText(anchor.Style, row.Text[..(s0 - row.Start)]);
+            var x1 = row.X + _fonts.MeasureText(anchor.Style, row.Text[..(s1 - row.Start)]);
+            var uy = row.Y + (row.Height + anchor.Style.FontSize * 1.1f) / 2f + 1f;
+            list.Add(new FillRect(x0, uy, Math.Max(1f, x1 - x0), 1.5f, 0f, anchor.Style.Color));
+        }
     }
 
     // Draw the text selection highlight (behind the text) for the focused field.
@@ -1542,36 +1594,9 @@ public sealed partial class CupriDocument : IDisposable
             return blurred || strayClosed;
         }
 
-        // Grabbing a resize grip (bottom-right corner) starts a resize-drag — corner takes priority.
-        for (var n = hit; n is not null; n = n.Parent)
-            if (InResizeGrip(n, x, y))
-            {
-                _resizeDrag = n; _resizeX0 = x; _resizeY0 = y;
-                _resizeW0 = n.ResizeW ?? n.Width; _resizeH0 = n.ResizeH ?? n.Height;
-                return true;
-            }
-
-        // Grabbing a resizable table's column boundary (a header cell's right edge) starts a column drag.
-        for (var n = hit; n is not null; n = n.Parent)
-            if (StartColumnResize(n, x)) return true;
-
-        // Grabbing a scrollbar thumb starts a scroll-drag (takes priority; doesn't focus/blur).
-        for (var n = hit; n is not null; n = n.Parent)
-            if (ThumbRect(n) is { } tr && x >= tr.X - 6 && x <= tr.X + tr.W + 8 && y >= tr.Y && y <= tr.Y + tr.H)
-            {
-                _scrollDrag = n; _scrollDragScroll0 = Math.Clamp(n.ScrollY, 0, n.MaxScrollY); _scrollDragY0 = y;
-                return true;
-            }
-
-        // Grabbing a drag-reorder handle starts a reorder drag (paint-time; doesn't focus/blur).
-        for (var n = hit; n is not null; n = n.Parent)
-            if (n.Element?.ClassList.Contains("cupri-reorder-handle") == true && StartReorder(n, x, y))
-                return true;
-
-        // Grabbing a split-pane divider starts a split-resize drag.
-        for (var n = hit; n is not null; n = n.Parent)
-            if (n.Element?.ClassList.Contains("cupri-split-divider") == true && StartSplit(n, x, y))
-                return true;
+        // Drag surfaces (grips, boundaries, thumbs, handles) grab the pointer before anything
+        // else — shared with the touch layer, which must know these drag from the FIRST touch.
+        if (TryGrabDragSurface(hit, x, y)) return true;
 
         // :active press feedback — mark the pressed element chain (restyled below; cleared on pointer-up).
         SetActive(hit.Element);
@@ -1615,6 +1640,157 @@ public sealed partial class CupriDocument : IDisposable
         else if (_activeChain.Count > 0) ReStyle(); // show the :active press even if nothing else changed
         ReconcileScope(); // a click may have opened/closed an overlay → update the focus scope
         return handled || focusChanged || strayClosed || _activeChain.Count > 0;
+    }
+
+    /// <summary>Try to grab a drag surface under the pointer — resize grip, table column boundary,
+    /// scrollbar thumb, reorder handle, split divider — starting the drag when one is hit. The
+    /// priority order is load-bearing (corner grip beats thumb beats content). Shared by the mouse
+    /// path (this IS the old top of DispatchClickCore, verbatim) and the touch layer.</summary>
+    private bool TryGrabDragSurface(RenderNode hit, float x, float y)
+    {
+        // Grabbing a resize grip (bottom-right corner) starts a resize-drag — corner takes priority.
+        for (var n = hit; n is not null; n = n.Parent)
+            if (InResizeGrip(n, x, y))
+            {
+                _resizeDrag = n; _resizeX0 = x; _resizeY0 = y;
+                _resizeW0 = n.ResizeW ?? n.Width; _resizeH0 = n.ResizeH ?? n.Height;
+                return true;
+            }
+
+        // Grabbing a resizable table's column boundary (a header cell's right edge) starts a column drag.
+        for (var n = hit; n is not null; n = n.Parent)
+            if (StartColumnResize(n, x)) return true;
+
+        // Grabbing a scrollbar thumb starts a scroll-drag (takes priority; doesn't focus/blur).
+        for (var n = hit; n is not null; n = n.Parent)
+            if (ThumbRect(n) is { } tr && x >= tr.X - 6 && x <= tr.X + tr.W + 8 && y >= tr.Y && y <= tr.Y + tr.H)
+            {
+                _scrollDrag = n; _scrollDragScroll0 = Math.Clamp(n.ScrollY, 0, n.MaxScrollY); _scrollDragY0 = y;
+                return true;
+            }
+
+        // Grabbing a drag-reorder handle starts a reorder drag (paint-time; doesn't focus/blur).
+        for (var n = hit; n is not null; n = n.Parent)
+            if (n.Element?.ClassList.Contains("cupri-reorder-handle") == true && StartReorder(n, x, y))
+                return true;
+
+        // Grabbing a split-pane divider starts a split-resize drag.
+        for (var n = hit; n is not null; n = n.Parent)
+            if (n.Element?.ClassList.Contains("cupri-split-divider") == true && StartSplit(n, x, y))
+                return true;
+
+        return false;
+    }
+
+    // ---- the touch layer's view of a press (TouchInput; internal, same assembly) --------------
+
+    /// <summary>What a finger landed on, decided WITHOUT side effects — the touch layer defers
+    /// activation for everything except dedicated drag surfaces, which drag from the first touch.</summary>
+    internal enum PressKind { Empty, DragSurface, TextField, Other }
+
+    internal PressKind ClassifyPress(float x, float y)
+    {
+        EnsureLaidOut();
+        var hit = HitTesting.HitTest(_root, x, y);
+        if (hit is null) return PressKind.Empty;
+
+        // Pure mirrors of TryGrabDragSurface's conditions (no drag is started), plus the slider:
+        // ActivateFrom starts a slider drag on click, so to a finger it too is a drag surface.
+        for (var n = hit; n is not null; n = n.Parent)
+        {
+            if (InResizeGrip(n, x, y)) return PressKind.DragSurface;
+            if (ColumnBoundaryAt(n, x) is not null) return PressKind.DragSurface;
+            if (ThumbRect(n) is { } tr && x >= tr.X - 6 && x <= tr.X + tr.W + 8 && y >= tr.Y && y <= tr.Y + tr.H)
+                return PressKind.DragSurface;
+            if (n.Element?.ClassList.Contains("cupri-reorder-handle") == true) return PressKind.DragSurface;
+            if (n.Element?.ClassList.Contains("cupri-split-divider") == true) return PressKind.DragSurface;
+            if (n.Element?.GetAttribute("role") == "slider") return PressKind.DragSurface;
+        }
+
+        for (var n = hit; n is not null; n = n.Parent)
+            if (n.Element?.GetAttribute("role") is "textbox" or "spinbutton") return PressKind.TextField;
+
+        return PressKind.Other;
+    }
+
+    /// <summary>Press feedback for a deferred tap: :active on the chain under the finger — and
+    /// nothing else. No focus, no activation; those happen at finger-up if the press turns out to
+    /// be a tap.</summary>
+    internal bool SetPressed(float x, float y)
+    {
+        EnsureLaidOut();
+        var hit = HitTesting.HitTest(_root, x, y);
+        if (hit?.Element is null) return false;
+        SetActive(hit.Element);
+        ReStyle();
+        return true;
+    }
+
+    /// <summary>The press became a scroll (or was cancelled): drop the :active feedback.</summary>
+    internal bool ClearPressed() => ClearActive();
+
+    /// <summary>The structural path of the scroller a drag at (x, y) would move — captured once at
+    /// gesture start so a fling can outlive the per-keystroke rebuild (paths survive; node
+    /// references do not).</summary>
+    internal string? ScrollTargetAt(float x, float y)
+    {
+        EnsureLaidOut();
+        for (var n = HitTesting.HitTest(_root, x, y); n is not null; n = n.Parent)
+            if (n.IsScrollable) return PathOf(n);
+        return null;
+    }
+
+    // ---- fling (momentum scrolling) ------------------------------------------------------------
+    // Lives in the DOCUMENT, not the gesture recognizer, so every host's existing wake gate
+    // (HasActiveAnimations) and drive gate (HasActiveTransitions) see it with zero host changes.
+    // State is a structural path + a velocity — nothing that can dangle across a rebuild.
+
+    private string? _flingPath;
+    private float _flingV;
+    private double _flingT = double.NaN;
+    private const float FlingDecay = 3f;        // exp decay per second — calm, native-adjacent feel
+    private const float FlingStopSpeed = 30f;   // px/s below which the scroll just stops
+
+    /// <summary>True while a momentum scroll is in flight (drives the host frame loop).</summary>
+    public bool FlingActive => _flingPath is not null;
+
+    /// <summary>Begin a momentum scroll of the scroller at <paramref name="path"/> (from
+    /// <see cref="ScrollTargetAt"/>), at signed pixels/second (positive scrolls down). The
+    /// integration happens in <see cref="Animate"/>; a fling deliberately does NOT chain to
+    /// ancestor scrollers — momentum dies at the edge, as native platforms do.</summary>
+    public bool StartFling(string path, float pixelsPerSecond)
+    {
+        if (MathF.Abs(pixelsPerSecond) < FlingStopSpeed) return false;
+        _flingPath = path;
+        _flingV = pixelsPerSecond;
+        _flingT = double.NaN;
+        return true;
+    }
+
+    /// <summary>Stop any in-flight momentum scroll (a finger landing mid-fling catches the list).</summary>
+    public void StopFling()
+    {
+        _flingPath = null;
+        _flingT = double.NaN;
+    }
+
+    private bool StepFling(double now)
+    {
+        if (_flingPath is null) return false;
+        var dt = double.IsNaN(_flingT) ? 0 : Math.Clamp(now - _flingT, 0, 0.1);
+        _flingT = now;
+        if (dt <= 0) return true;                       // first frame stamps the clock only
+
+        _flingV *= (float)Math.Exp(-dt * FlingDecay);
+        var n = NodeAtPath(_flingPath);
+        if (n is null || !n.IsScrollable) { StopFling(); return false; }
+
+        var before = n.ScrollY;
+        n.ScrollY = Math.Clamp(n.ScrollY + _flingV * (float)dt, 0, n.MaxScrollY);
+        var moved = Math.Abs(n.ScrollY - before) > 0.01f;
+        RewindowVirtual(n);                             // may rebuild; we hold a path, not the node
+        if (!moved || MathF.Abs(_flingV) < FlingStopSpeed) StopFling();
+        return moved;
     }
 
     // Walk from a node up the ancestor chain, applying the first built-in control behaviour or
@@ -1978,6 +2154,7 @@ public sealed partial class CupriDocument : IDisposable
     {
         var key = field?.GetAttribute("data-bind-value") ?? field?.GetAttribute("id");
         if (key == _focusKey) return false;
+        if (HasComposition) CommitCompositionCore(null); // focus is leaving: the preedit commits
         CommitBuffer(); // blur the previous field: validate + commit (or revert) its edit buffer
         _focusKey = key;
         _focusNumeric = field?.HasAttribute("data-numeric") == true;
@@ -1995,7 +2172,128 @@ public sealed partial class CupriDocument : IDisposable
         _caretMoved = true;
         _listHi = -1; // listbox highlight is per-field
         _undo.Clear(); _redo.Clear(); _typingGroup = false; // undo history is per-field
+        // The host's cue to show/hide the soft keyboard. Built without layout (mid-dispatch the
+        // tree may be dirty): the kind flags are what show/hide needs; rects come from polling.
+        TextInputStateChanged?.Invoke(GetTextInputState());
         return true;
+    }
+
+    // ---- IME composition (preedit) -------------------------------------------------------------
+    // The engine-side half of soft-keyboard IMEs (Android InputConnection, the browser's
+    // composition events, SDL_TEXTEDITING). The preedit lives INSIDE the edit buffer as a marked
+    // range: rendering, wrapping and caret math need no second text source, and the permissive-
+    // buffer contract holds by construction — the model only ever sees committed text.
+
+    /// <summary>True while an IME composition (preedit) is in progress in the focused field.</summary>
+    public bool HasComposition => _compStart >= 0;
+
+    /// <summary>Begin or update the composition: the marked text becomes <paramref name="text"/>,
+    /// with the caret placed <paramref name="caretInComposition"/> UTF-16 units into it (or at its
+    /// end when negative). Starting a composition replaces any selection, exactly as typing would.</summary>
+    public bool SetComposition(string text, int caretInComposition = -1) => Bump(SetCompositionCore(text, caretInComposition));
+
+    private bool SetCompositionCore(string text, int caretInComposition)
+    {
+        if (_focusKey is null) return false;
+        var value = _editBuffer ?? BindingEngine.Resolve(_model, _focusKey)?.ToString() ?? "";
+        if (!_focusMultiline) text = text.Replace('\n', ' ');
+
+        if (_compStart < 0)
+        {
+            // New composition: snapshot for the single undo step, then replace the selection.
+            var selS = Math.Min(_selAnchor, _caret);
+            var selE = Math.Max(_selAnchor, _caret);
+            selS = Math.Clamp(selS, 0, value.Length);
+            selE = Math.Clamp(selE, 0, value.Length);
+            _compUndo = (value, _caret, _selAnchor);
+            if (selE > selS) value = value.Remove(selS, selE - selS);
+            _compStart = selS;
+        }
+        else
+        {
+            value = value.Remove(_compStart, Math.Min(_compLen, value.Length - _compStart));
+        }
+
+        value = value.Insert(_compStart, text);
+        _compLen = text.Length;
+        _editBuffer = value;
+        _caret = _compStart + (caretInComposition < 0 ? text.Length : Math.Clamp(caretInComposition, 0, text.Length));
+        _selAnchor = _caret;
+        _caretMoved = true;
+        _maskRevealPos = -1;                       // a composition is not a single fresh keystroke
+        Refresh();                                 // preedit renders like text — because it IS text
+        return true;
+    }
+
+    /// <summary>Commit the composition — optionally replacing the preedit with the IME's
+    /// <paramref name="finalText"/> — writing through the normal permissive-buffer validation and
+    /// recording exactly one undo step for the whole composition. With no composition in progress
+    /// a non-null <paramref name="finalText"/> inserts as ordinary typed text.</summary>
+    public bool CommitComposition(string? finalText = null) => Bump(CommitCompositionCore(finalText));
+
+    private bool CommitCompositionCore(string? finalText)
+    {
+        if (_compStart < 0) return finalText is { Length: > 0 } && DispatchKeyCore(finalText, EditKey.None, KeyMods.None);
+        if (finalText is not null && finalText != CompositionText()) SetCompositionCore(finalText, -1);
+
+        var undo = _compUndo;
+        _compStart = -1; _compLen = 0; _compUndo = null;
+        if (undo is { } u && _editBuffer != u.Value)
+        {
+            _undo.Add(new EditState(u.Value, u.Caret, u.Anchor));
+            if (_undo.Count > 300) _undo.RemoveAt(0);
+            _redo.Clear();
+            _typingGroup = false;
+        }
+        if (_editBuffer is { } v && _focusKey is { } fk && BufferValid(v)) BindingEngine.TrySet(_model, fk, v);
+        Refresh();
+        return true;
+    }
+
+    /// <summary>Abandon the composition: the preedit text vanishes and the buffer returns to its
+    /// pre-composition state. (What Escape does mid-composition.)</summary>
+    public bool ClearComposition() => Bump(ClearCompositionCore());
+
+    private bool ClearCompositionCore()
+    {
+        if (_compStart < 0) return false;
+        if (_compUndo is { } u) { _editBuffer = u.Value; _caret = u.Caret; _selAnchor = u.Anchor; }
+        else if (_editBuffer is { } v) { _editBuffer = v.Remove(_compStart, Math.Min(_compLen, v.Length - _compStart)); _caret = _selAnchor = _compStart; }
+        _compStart = -1; _compLen = 0; _compUndo = null;
+        _caretMoved = true;
+        Refresh();
+        return true;
+    }
+
+    private string CompositionText() =>
+        _compStart >= 0 && _editBuffer is { } v ? v.Substring(_compStart, Math.Min(_compLen, v.Length - _compStart)) : "";
+
+    // ---- text-input state (what a host's IME layer reads) --------------------------------------
+
+    /// <summary>Raised when text-input focus changes (a field gained or lost focus) — the host's
+    /// cue to show or hide the soft keyboard and restart its input connection. Caret movement
+    /// within a field is NOT evented; poll <see cref="GetTextInputState"/> after dirty frames.</summary>
+    public event Action<Interaction.TextInputState>? TextInputStateChanged;
+
+    /// <summary>The focused field's identity, kind, content, selection and caret rectangle
+    /// (logical px), for IME integration. Snapshot semantics: value-typed, safe to hand across
+    /// threads.</summary>
+    public Interaction.TextInputState GetTextInputState()
+    {
+        if (_focusKey is null) return default;
+        var field = _layoutDirty ? null : FindFocused(_root);
+        var value = _editBuffer ?? "";
+        return new Interaction.TextInputState(
+            Focused: true,
+            Role: field?.Element?.GetAttribute("role"),
+            Numeric: _focusNumeric,
+            Multiline: _focusMultiline,
+            Masked: _focusMask,
+            Value: value,
+            SelStart: Math.Min(_selAnchor, _caret),
+            SelEnd: Math.Max(_selAnchor, _caret),
+            Composing: HasComposition,
+            CaretRect: _layoutDirty ? null : ComputeCaretRect());
     }
 
     /// <summary>
@@ -2005,6 +2303,15 @@ public sealed partial class CupriDocument : IDisposable
     public bool DispatchKey(string? text, EditKey key, KeyMods mods = KeyMods.None) => Bump(DispatchKeyCore(text, key, mods));
     private bool DispatchKeyCore(string? text, EditKey key, KeyMods mods)
     {
+        // An in-flight IME composition owns the next keystroke: Escape abandons the preedit and is
+        // swallowed (the IME's own cancel), anything else commits it first and then acts normally
+        // (typing mid-composition commits-then-inserts; Enter commits, then commits the field).
+        if (HasComposition)
+        {
+            if (key == EditKey.Escape) return ClearCompositionCore();
+            CommitCompositionCore(null);
+        }
+
         ReconcileScope(); // reflect any overlay that opened/closed since the last event
 
         // Any keystroke dismisses an open context menu; Escape only closes it (swallowed).
@@ -2122,12 +2429,12 @@ public sealed partial class CupriDocument : IDisposable
 
             case EditKey.Left:
                 if (!shift && hasSel) caret = selS;                                        // collapse to left edge
-                else caret = ctrl ? WordLeft(value, caret) : Math.Max(0, caret - 1);
+                else caret = ctrl ? WordLeft(value, caret) : caret - StepBack(value, caret);
                 if (!shift) anchor = caret;
                 break;
             case EditKey.Right:
                 if (!shift && hasSel) caret = selE;
-                else caret = ctrl ? WordRight(value, caret) : Math.Min(value.Length, caret + 1);
+                else caret = ctrl ? WordRight(value, caret) : caret + StepForward(value, caret);
                 if (!shift) anchor = caret;
                 break;
             case EditKey.Home: caret = 0; if (!shift) anchor = caret; break;
@@ -2136,13 +2443,13 @@ public sealed partial class CupriDocument : IDisposable
             case EditKey.Backspace:
                 if (hasSel) { value = value.Remove(selS, selE - selS); caret = selS; edited = true; }
                 else if (ctrl && caret > 0) { var w = WordLeft(value, caret); value = value.Remove(w, caret - w); caret = w; edited = true; }
-                else if (caret > 0) { value = value.Remove(caret - 1, 1); caret--; edited = true; }
+                else if (caret > 0) { var n = StepBack(value, caret); value = value.Remove(caret - n, n); caret -= n; edited = true; }
                 anchor = caret;
                 break;
             case EditKey.Delete:
                 if (hasSel) { value = value.Remove(selS, selE - selS); caret = selS; edited = true; }
                 else if (ctrl && caret < value.Length) { var w = WordRight(value, caret); value = value.Remove(caret, w - caret); edited = true; }
-                else if (caret < value.Length) { value = value.Remove(caret, 1); edited = true; }
+                else if (caret < value.Length) { value = value.Remove(caret, StepForward(value, caret)); edited = true; }
                 anchor = caret;
                 break;
 
@@ -2166,12 +2473,19 @@ public sealed partial class CupriDocument : IDisposable
                 break;
         }
 
+        // Caret/delete arithmetic is CODE-POINT aware: an emoji is two UTF-16 units, and stepping
+        // one unit would split the surrogate pair into mojibake the model then commits.
+        static int StepBack(string v, int at) =>
+            at >= 2 && char.IsLowSurrogate(v[at - 1]) && char.IsHighSurrogate(v[at - 2]) ? 2 : at > 0 ? 1 : 0;
+        static int StepForward(string v, int at) =>
+            at + 1 < v.Length && char.IsHighSurrogate(v[at]) && char.IsLowSurrogate(v[at + 1]) ? 2 : at < v.Length ? 1 : 0;
+
         // Mobile-style peek: a masked field briefly shows the character you just typed, then re-masks
         // it (Animate expires the peek). Any other edit — delete, navigation, multi-char paste —
         // hides it immediately so only a single fresh keystroke is ever visible.
         if (_focusMask)
         {
-            if (edited && key == EditKey.None && text is { Length: 1 }) { _maskRevealPos = caret - 1; _maskRevealStart = double.NaN; }
+            if (edited && key == EditKey.None && text is not null && IsSingleCodePoint(text)) { _maskRevealPos = caret - text.Length; _maskRevealStart = double.NaN; }
             else _maskRevealPos = -1;
         }
 
@@ -2179,7 +2493,7 @@ public sealed partial class CupriDocument : IDisposable
         {
             // Record undo history. Coalesce a run of printable non-space chars into one step;
             // space/newline/delete/paste/any selection-replace start a new step.
-            var typingChar = key == EditKey.None && text is { Length: 1 } && text[0] is not ('\n' or ' ') && !hasSel;
+            var typingChar = key == EditKey.None && text is not null && IsSingleCodePoint(text) && text[0] is not ('\n' or ' ') && !hasSel;
             if (!(typingChar && _typingGroup))
             {
                 _undo.Add(new EditState(oValue, oCaret, oAnchor));
@@ -3236,7 +3550,7 @@ public sealed partial class CupriDocument : IDisposable
         // Restyle (hover/active) rebuilds the tree too, so preserve scroll offsets — otherwise any
         // mouse move over the page snaps a scrolled field back to the top.
         var scroll = CaptureScroll();
-        _root = new StyleResolver(_rules, _viewportWidth).BuildTree(_dom);
+        _root = new StyleResolver(_rules, _viewportWidth, _viewportHeight).BuildTree(_dom);
         _layoutDirty = true; // fresh tree: no geometry until the next layout
         RestoreScroll(scroll);
         _transitions.Detect(_root, _laidOutWidth, _laidOutHeight); // hover/focus/class change → (re)start any transitions that flipped

@@ -2,13 +2,17 @@ using System.Text.RegularExpressions;
 
 namespace CupriFace.Style;
 
-/// <summary>A media condition (min/max width). Null width bounds are unconstrained.</summary>
+/// <summary>A media condition (min/max width and height). Null bounds are unconstrained.
+/// Height matters on phones: landscape is WIDE but SHORT, so a width-only breakpoint written for
+/// desktop windows would also fire there — `(min-width:…) and (min-height:…)` tells them apart.</summary>
 public readonly struct MediaCondition
 {
-    public readonly float? MinWidth, MaxWidth;
-    public MediaCondition(float? min, float? max) { MinWidth = min; MaxWidth = max; }
-    public bool Matches(float width) =>
-        (MinWidth is not { } mn || width >= mn) && (MaxWidth is not { } mx || width <= mx);
+    public readonly float? MinWidth, MaxWidth, MinHeight, MaxHeight;
+    public MediaCondition(float? min, float? max, float? minH = null, float? maxH = null)
+    { MinWidth = min; MaxWidth = max; MinHeight = minH; MaxHeight = maxH; }
+    public bool Matches(float width, float height) =>
+        (MinWidth is not { } mn || width >= mn) && (MaxWidth is not { } mx || width <= mx)
+        && (MinHeight is not { } mnh || height >= mnh) && (MaxHeight is not { } mxh || height <= mxh);
 }
 
 /// <summary>One parsed CSS rule: a single selector plus its declarations.</summary>
@@ -106,12 +110,13 @@ public static partial class CssParser
 
     private static MediaCondition ParseMedia(string header)
     {
-        float? min = null, max = null;
-        var mn = Regex.Match(header, @"min-width\s*:\s*([\d.]+)px", RegexOptions.IgnoreCase);
-        var mx = Regex.Match(header, @"max-width\s*:\s*([\d.]+)px", RegexOptions.IgnoreCase);
-        if (mn.Success) min = float.Parse(mn.Groups[1].Value);
-        if (mx.Success) max = float.Parse(mx.Groups[1].Value);
-        return new MediaCondition(min, max);
+        float? Feature(string name)
+        {
+            var m = Regex.Match(header, name + @"\s*:\s*([\d.]+)px", RegexOptions.IgnoreCase);
+            return m.Success ? float.Parse(m.Groups[1].Value) : null;
+        }
+        return new MediaCondition(Feature("min-width"), Feature("max-width"),
+                                  Feature("min-height"), Feature("max-height"));
     }
 
     private static readonly AngleSharp.Css.Parser.CssSelectorParser SelectorParser = new();

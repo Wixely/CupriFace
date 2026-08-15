@@ -101,33 +101,43 @@ try {
     canvas.addEventListener("pointerup", e => { const [x, y] = at(e); M._PointerUp(x, y); });
     canvas.addEventListener("wheel", e => { const [x, y] = at(e); M._Wheel(x, y, e.deltaY); e.preventDefault(); }, { passive: false });
 
-    const EK = { Backspace: 1, Delete: 2, ArrowLeft: 3, ArrowRight: 4, Home: 5, End: 6, Enter: 7, ArrowUp: 8, ArrowDown: 9, Escape: 13 };
+    let EK = { Backspace: 1, Delete: 2, ArrowLeft: 3, ArrowRight: 4, Home: 5, End: 6, Enter: 7, ArrowUp: 8, ArrowDown: 9, Escape: 13, Tab: 10, ShiftTab: 11, SelectAll: 14 };
     // WINDOW-level, not kbd: app chords (Ctrl+K…) must beat the browser's own (address-bar search)
     // even when the hidden textarea lost focus (fresh load, returning to the tab via its title bar).
     // When kbd IS focused the same event just bubbles here — one listener either way, no double-fire.
     let live = false; // no export calls until the engine is initialised
     window.addEventListener("keydown", e => {
         if (!live) return;
+        // Composing IMEs own Enter/Escape/arrows (candidate navigation); keydown fires with
+        // key "Process"/keyCode 229 during composition and must be ignored wholesale.
+        if (e.isComposing || e.keyCode === 229) return;
         const ctrl = e.ctrlKey || e.metaKey;
         const mods = (e.shiftKey ? 1 : 0) | (ctrl ? 2 : 0);
         if (ctrl) {
             const k = e.key.toLowerCase();
             if (k === "c" || k === "x" || k === "v") return; // native clipboard events below
-            if (k === "a") { M._EditKeyPress(14, 0); e.preventDefault(); return; }
+            if (k === "a") { M._EditKeyPress(EK.SelectAll, 0); e.preventDefault(); return; }
             if (k === "z") { if (e.shiftKey) M._Redo(); else M._Undo(); e.preventDefault(); return; }
             if (k === "y") { M._Redo(); e.preventDefault(); return; }
             if (k.length === 1 && M._KeyChord(k.charCodeAt(0), mods)) { e.preventDefault(); return; }
         }
-        if (e.key === "Tab") { M._EditKeyPress(e.shiftKey ? 11 : 10, 0); e.preventDefault(); return; }
+        if (e.key === "Tab") { M._EditKeyPress(e.shiftKey ? EK.ShiftTab : EK.Tab, 0); e.preventDefault(); return; }
         if (e.key in EK) { M._EditKeyPress(EK[e.key], mods); e.preventDefault(); return; }
         if (e.key.length === 1 && !ctrl) { globalThis.__cupri.sendText(e.key, "KeyChar"); e.preventDefault(); }
     });
+
+    // IME composition, streamed through the engine's composition seam (see WebWasm's main.js for
+    // the full story — the semantics here are identical, only the call mechanism differs).
+    kbd.addEventListener("compositionstart", () => { if (live) globalThis.__cupri.sendText("", "SetComposition"); });
+    kbd.addEventListener("compositionupdate", e => { if (live) globalThis.__cupri.sendText(e.data ?? "", "SetComposition"); });
+    kbd.addEventListener("compositionend", e => { if (live) { globalThis.__cupri.sendText(e.data ?? "", "CommitComposition"); keepSelected(); } });
 
     kbd.addEventListener("copy", e => { const p = M._CopySelection(); if (p) { e.clipboardData.setData("text/plain", M.UTF16ToString(p)); e.preventDefault(); } keepSelected(); });
     kbd.addEventListener("cut", e => { const p = M._CutSelection(); if (p) { e.clipboardData.setData("text/plain", M.UTF16ToString(p)); e.preventDefault(); } keepSelected(); });
     kbd.addEventListener("paste", e => { const t = e.clipboardData.getData("text/plain"); e.preventDefault(); if (t) globalThis.__cupri.sendText(t, "KeyChar"); keepSelected(); });
 
     M._Init();
+    { const p = M._EditKeyMap(); if (p) EK = JSON.parse(M.UTF16ToString(p)); }
     logBoot("Init ok");
     live = true;
     focusKbd();

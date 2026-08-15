@@ -44,9 +44,13 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 - **Component model** — custom elements expand into themed, accessible primitives;
   ships `<cupri-slider>`, `<cupri-switch>`, `<cupri-progress>`, `<cupri-button>`,
   `<cupri-badge>` with `role`/`aria-*` baked in.
-- **Screen readers** — those semantics reach assistive tech: a **Windows UIA** bridge
-  (names, Toggle/Invoke/RangeValue, focus tracking — CI runs an automated UIA client
-  against every build) and a real-DOM ARIA mirror on the web host.
+- **Screen readers** — those semantics reach assistive tech on **four platforms**: UIA
+  (Windows), AT-SPI (Linux), NSAccessibility (macOS) and TalkBack (Android), each proven
+  in CI by a real assistive-technology client, plus a real-DOM ARIA mirror on the web host.
+- **Android** — the same `CupriApp` on a phone: `CupriFace.Android` brings a GL surface,
+  touch gestures (tap-on-release, momentum fling, long-press), the soft keyboard with real
+  IME composition, and TalkBack. CoreCLR runtime, ~20 MB APK, driven end-to-end on an
+  emulator by CI.
 - **Video** — `<cupri-video>` with engine-drawn controls and fullscreen. The browser decodes
   on the web host (no codecs in the wasm binary); on desktop the optional `CupriFace.Media`
   package plays WebM (VP9 + Opus) with decoders for every desktop RID in **one** package —
@@ -58,6 +62,7 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 |---|---|
 | `src/CupriFace` | The engine (DOM, CSS, layout, text, paint, binding, components) |
 | `src/CupriFace.Shell` | Silk.NET window + OpenGL + Skia surface + profiler HUD |
+| `src/CupriFace.Android` | Android host: `CupriActivity` + GL surface + touch/IME + TalkBack bridge (needs `dotnet workload install android`) |
 | `src/CupriFace.Media` | Optional: WebM (VP9 + Opus) video for `<cupri-video>` on desktop |
 | `src/CupriFace.Binding.Gen` | Roslyn source generator for AOT-clean binding accessors |
 | `samples/HelloBox` | M0 shell smoke (window / CPU-raster) |
@@ -72,7 +77,8 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 | `samples/ThreadedRender` | Render-thread split (commit on UI thread, raster on another) |
 | `samples/MediaProbe` | Headless WebM decode (also CI's build-on-Windows/run-on-Linux gate) |
 | `samples/DemoApp` | **Portable apps** (`ShowcaseApp` — the screenshots above — plus `SettingsApp`/`ControlsApp`), one definition each, no platform code |
-| `samples/Viewer` | Desktop host running `ShowcaseApp` (GPU → SDL fallback, live animation) |
+| `samples/Viewer` | Desktop host running `ShowcaseApp` (GPU → SDL fallback, live animation); `--app mobile` runs the phone sample |
+| `samples/AndroidViewer` | The phone-first `MobileApp` on Android (the Showcase reachable from its About page) |
 | `samples/WebWasm` | Web host (**default**): raw .NET-WASM + thin JS glue → `<canvas>`, no Blazor |
 | `samples/Web` | Web host (alt): the same app via Blazor `<SKCanvasView>` |
 
