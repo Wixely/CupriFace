@@ -253,6 +253,11 @@ public sealed class AndroidHost : IDisposable
         {
             var y = MaxScrollOffset(_doc.Root);
             Log($"fling settled y={y:F0}");
+            // The a11y freshness ledger: if the published version equals the document's here,
+            // the settle-frame TREE went out and any staleness a reader sees is on the client
+            // side of the accessibility protocol; if they differ, the publish gate skipped the
+            // frame that mattered. One line, and the gate's stale-tree diagnosis stops guessing.
+            if (_talkBack is not null) Log($"a11y at settle v={_a11yVersion} docv={_doc.ContentVersion}");
         }
         _wasFlinging = _doc.FlingActive;
 
