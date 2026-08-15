@@ -570,10 +570,10 @@ jobs:
           if-no-files-found: error
 
   # Attach the standalone executables to a GitHub Release when a v* tag is pushed. Workflow
-  # artifacts expire and need a login to fetch; a Release is permanent and public. Gated on both
-  # other jobs, so a release can never ship from a red build.
+  # artifacts expire and need a login to fetch; a Release is permanent and public. Gated on the
+  # test, viewer and android jobs, so a release can never ship from a red build.
   release:
-    needs: [ test, viewer ]
+    needs: [ test, viewer, android ]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -611,6 +611,11 @@ jobs:
           WIN=$(find artifacts/viewer-win-x64 -type f -name Viewer.exe | head -1)
           test -n "$WIN" || { echo "::error::win-x64 build missing from artifacts"; find artifacts; exit 1; }
           cp "$WIN" "dist/CupriFace-Viewer-$GITHUB_REF_NAME-win-x64.exe"
+          # The android job's gate-proven arm64 APK rides along — phones get a permanent,
+          # login-free download instead of an expiring artifact.
+          APK=$(find artifacts/androidviewer-apk -type f -name '*-Signed.apk' | head -1)
+          test -n "$APK" || { echo "::error::android APK missing from artifacts"; find artifacts; exit 1; }
+          cp "$APK" "dist/CupriFace-Viewer-$GITHUB_REF_NAME-android-arm64.apk"
           ls -l dist
 
       # Codec natives for the media package, from the latest GREEN Codecs run (they're built by
@@ -666,9 +671,15 @@ jobs:
           | Windows x64 | `…-win-x64.exe` | double-click, or run it from a terminal |
           | Linux x64 | `…-linux-x64.tar.gz` | `tar xzf <file> && ./Viewer` |
           | macOS (Apple Silicon) | `…-osx-arm64.tar.gz` | `tar xzf <file> && xattr -d com.apple.quarantine Viewer && ./Viewer` |
+          | Android (arm64) | `…-android-arm64.apk` | sideload: allow "install unknown apps", open the APK |
 
           The macOS build is unsigned, so Gatekeeper quarantines the download — the `xattr`
           removes that flag; without it macOS refuses to start the binary.
+
+          The Android build (the phone-first sample, with the desktop Showcase reachable from
+          its About page) is signed with a CI debug key that changes per build — **uninstall any
+          previous CupriFace Viewer before installing a new one**, or Android refuses the update
+          as a signature mismatch. A stable release signing key is a recorded follow-up.
 
           The first launch unpacks the bundle and takes a few seconds; later launches are ~1.5 s.
 
