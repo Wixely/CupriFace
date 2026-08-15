@@ -55,6 +55,11 @@ public sealed partial class CupriDocument : IDisposable
     private bool _focusMultiline; // focused field is a textarea (Enter inserts a newline)
     private bool _focusMask;    // focused field masks its text (data-mask, e.g. <cupri-password>)
     private int _maskRevealPos = -1;          // index of a masked char being briefly "peeked" after typing; -1 = none
+    // IME composition (preedit): a marked range INSIDE _editBuffer — rendered underlined, never
+    // committed to the model until the IME says so. -1 start = no composition.
+    private int _compStart = -1;
+    private int _compLen;
+    private (string Value, int Caret, int Anchor)? _compUndo;   // pre-composition snapshot: ONE undo step per composition
     private double _maskRevealStart = double.NaN; // Animate() clock time the peek began (NaN = not yet stamped)
     private double? _focusMin, _focusMax; // numeric field bounds (for validation/clamping)
     private bool _focusRequired;          // focused field's validation rules (for the mid-edit red border)
@@ -703,6 +708,10 @@ public sealed partial class CupriDocument : IDisposable
     private object? _cullCacheList;
     private DrawSurface[] _lastListSurfaces = []; // pre-extracted, so fast frames skip the full walk
 
+    /// <summary>One user-perceived character: a single UTF-16 unit, or one surrogate pair.</summary>
+    private static bool IsSingleCodePoint(string s) =>
+        s.Length == 1 || (s.Length == 2 && char.IsHighSurrogate(s[0]) && char.IsLowSurrogate(s[1]));
+
     private bool Bump(bool changed)
     {
         if (changed) _inputsVersion++;
@@ -885,6 +894,7 @@ public sealed partial class CupriDocument : IDisposable
         var clip = CaretClipRect();
         if (clip is { } c) list.Add(new PushClip(c.X, c.Y, c.W, c.H, c.Radius));
         AppendSelection(list);
+        AppendCompositionUnderline(list);
         AppendCaret(list);
         if (clip is not null) list.Add(new PopClip());
         AppendFocusRing(list);
@@ -980,9 +990,19 @@ public sealed partial class CupriDocument : IDisposable
     // Draw the text caret for the focused field, after the field's own text.
     private void AppendCaret(DisplayList list)
     {
-        if (_focusKey is null) return;
+        if (ComputeCaretRect() is not { } r) return;
+        var field = FindFocused(_root)!;
+        var anchor = FindCaretAnchor(field) ?? field;
+        list.Add(new FillRect(r.X, r.Y, r.W, r.H, 0f, anchor.Style.Color));
+    }
+
+    /// <summary>The caret's painted rectangle in logical px — shared by the caret paint and the
+    /// IME state (candidate windows position against this). Null when nothing is focused.</summary>
+    internal (float X, float Y, float W, float H)? ComputeCaretRect()
+    {
+        if (_focusKey is null) return null;
         var field = FindFocused(_root);
-        if (field is null) return;
+        if (field is null) return null;
 
         // Anchor the caret to the node that actually paints the value text (a component may
         // nest it in a padded span — e.g. cupri-number puts its padding on the text span, not
@@ -999,7 +1019,33 @@ public sealed partial class CupriDocument : IDisposable
         var col = Math.Clamp(caret - target.Start, 0, target.Text.Length);
         var cx = target.X + _fonts.MeasureText(anchor.Style, target.Text[..col]);
         var cy = target.Y + (target.Height - ch) / 2f;
-        list.Add(new FillRect(cx, cy, 2f, ch, 0f, anchor.Style.Color));
+        return (cx, cy, 2f, ch);
+    }
+
+    /// <summary>Underline the IME preedit (the marked range) — the visual difference between
+    /// text that is committed and text the IME is still deciding about.</summary>
+    private void AppendCompositionUnderline(DisplayList list)
+    {
+        if (_compStart < 0 || _focusKey is null) return;
+        var field = FindFocused(_root);
+        if (field is null) return;
+        var anchor = FindCaretAnchor(field) ?? field;
+        var value = FocusedDisplayText();
+        var start = Math.Clamp(_compStart, 0, value.Length);
+        var end = Math.Clamp(_compStart + _compLen, 0, value.Length);
+        if (end <= start) return;
+
+        var rows = BuildTextRows(anchor, value);
+        foreach (var row in rows)
+        {
+            var s0 = Math.Max(start, row.Start);
+            var s1 = Math.Min(end, row.Start + row.Text.Length);
+            if (s1 <= s0) continue;
+            var x0 = row.X + _fonts.MeasureText(anchor.Style, row.Text[..(s0 - row.Start)]);
+            var x1 = row.X + _fonts.MeasureText(anchor.Style, row.Text[..(s1 - row.Start)]);
+            var uy = row.Y + (row.Height + anchor.Style.FontSize * 1.1f) / 2f + 1f;
+            list.Add(new FillRect(x0, uy, Math.Max(1f, x1 - x0), 1.5f, 0f, anchor.Style.Color));
+        }
     }
 
     // Draw the text selection highlight (behind the text) for the focused field.
@@ -2105,6 +2151,7 @@ public sealed partial class CupriDocument : IDisposable
     {
         var key = field?.GetAttribute("data-bind-value") ?? field?.GetAttribute("id");
         if (key == _focusKey) return false;
+        if (HasComposition) CommitCompositionCore(null); // focus is leaving: the preedit commits
         CommitBuffer(); // blur the previous field: validate + commit (or revert) its edit buffer
         _focusKey = key;
         _focusNumeric = field?.HasAttribute("data-numeric") == true;
@@ -2122,7 +2169,128 @@ public sealed partial class CupriDocument : IDisposable
         _caretMoved = true;
         _listHi = -1; // listbox highlight is per-field
         _undo.Clear(); _redo.Clear(); _typingGroup = false; // undo history is per-field
+        // The host's cue to show/hide the soft keyboard. Built without layout (mid-dispatch the
+        // tree may be dirty): the kind flags are what show/hide needs; rects come from polling.
+        TextInputStateChanged?.Invoke(GetTextInputState());
         return true;
+    }
+
+    // ---- IME composition (preedit) -------------------------------------------------------------
+    // The engine-side half of soft-keyboard IMEs (Android InputConnection, the browser's
+    // composition events, SDL_TEXTEDITING). The preedit lives INSIDE the edit buffer as a marked
+    // range: rendering, wrapping and caret math need no second text source, and the permissive-
+    // buffer contract holds by construction — the model only ever sees committed text.
+
+    /// <summary>True while an IME composition (preedit) is in progress in the focused field.</summary>
+    public bool HasComposition => _compStart >= 0;
+
+    /// <summary>Begin or update the composition: the marked text becomes <paramref name="text"/>,
+    /// with the caret placed <paramref name="caretInComposition"/> UTF-16 units into it (or at its
+    /// end when negative). Starting a composition replaces any selection, exactly as typing would.</summary>
+    public bool SetComposition(string text, int caretInComposition = -1) => Bump(SetCompositionCore(text, caretInComposition));
+
+    private bool SetCompositionCore(string text, int caretInComposition)
+    {
+        if (_focusKey is null) return false;
+        var value = _editBuffer ?? BindingEngine.Resolve(_model, _focusKey)?.ToString() ?? "";
+        if (!_focusMultiline) text = text.Replace('\n', ' ');
+
+        if (_compStart < 0)
+        {
+            // New composition: snapshot for the single undo step, then replace the selection.
+            var selS = Math.Min(_selAnchor, _caret);
+            var selE = Math.Max(_selAnchor, _caret);
+            selS = Math.Clamp(selS, 0, value.Length);
+            selE = Math.Clamp(selE, 0, value.Length);
+            _compUndo = (value, _caret, _selAnchor);
+            if (selE > selS) value = value.Remove(selS, selE - selS);
+            _compStart = selS;
+        }
+        else
+        {
+            value = value.Remove(_compStart, Math.Min(_compLen, value.Length - _compStart));
+        }
+
+        value = value.Insert(_compStart, text);
+        _compLen = text.Length;
+        _editBuffer = value;
+        _caret = _compStart + (caretInComposition < 0 ? text.Length : Math.Clamp(caretInComposition, 0, text.Length));
+        _selAnchor = _caret;
+        _caretMoved = true;
+        _maskRevealPos = -1;                       // a composition is not a single fresh keystroke
+        Refresh();                                 // preedit renders like text — because it IS text
+        return true;
+    }
+
+    /// <summary>Commit the composition — optionally replacing the preedit with the IME's
+    /// <paramref name="finalText"/> — writing through the normal permissive-buffer validation and
+    /// recording exactly one undo step for the whole composition. With no composition in progress
+    /// a non-null <paramref name="finalText"/> inserts as ordinary typed text.</summary>
+    public bool CommitComposition(string? finalText = null) => Bump(CommitCompositionCore(finalText));
+
+    private bool CommitCompositionCore(string? finalText)
+    {
+        if (_compStart < 0) return finalText is { Length: > 0 } && DispatchKeyCore(finalText, EditKey.None, KeyMods.None);
+        if (finalText is not null && finalText != CompositionText()) SetCompositionCore(finalText, -1);
+
+        var undo = _compUndo;
+        _compStart = -1; _compLen = 0; _compUndo = null;
+        if (undo is { } u && _editBuffer != u.Value)
+        {
+            _undo.Add(new EditState(u.Value, u.Caret, u.Anchor));
+            if (_undo.Count > 300) _undo.RemoveAt(0);
+            _redo.Clear();
+            _typingGroup = false;
+        }
+        if (_editBuffer is { } v && _focusKey is { } fk && BufferValid(v)) BindingEngine.TrySet(_model, fk, v);
+        Refresh();
+        return true;
+    }
+
+    /// <summary>Abandon the composition: the preedit text vanishes and the buffer returns to its
+    /// pre-composition state. (What Escape does mid-composition.)</summary>
+    public bool ClearComposition() => Bump(ClearCompositionCore());
+
+    private bool ClearCompositionCore()
+    {
+        if (_compStart < 0) return false;
+        if (_compUndo is { } u) { _editBuffer = u.Value; _caret = u.Caret; _selAnchor = u.Anchor; }
+        else if (_editBuffer is { } v) { _editBuffer = v.Remove(_compStart, Math.Min(_compLen, v.Length - _compStart)); _caret = _selAnchor = _compStart; }
+        _compStart = -1; _compLen = 0; _compUndo = null;
+        _caretMoved = true;
+        Refresh();
+        return true;
+    }
+
+    private string CompositionText() =>
+        _compStart >= 0 && _editBuffer is { } v ? v.Substring(_compStart, Math.Min(_compLen, v.Length - _compStart)) : "";
+
+    // ---- text-input state (what a host's IME layer reads) --------------------------------------
+
+    /// <summary>Raised when text-input focus changes (a field gained or lost focus) — the host's
+    /// cue to show or hide the soft keyboard and restart its input connection. Caret movement
+    /// within a field is NOT evented; poll <see cref="GetTextInputState"/> after dirty frames.</summary>
+    public event Action<Interaction.TextInputState>? TextInputStateChanged;
+
+    /// <summary>The focused field's identity, kind, content, selection and caret rectangle
+    /// (logical px), for IME integration. Snapshot semantics: value-typed, safe to hand across
+    /// threads.</summary>
+    public Interaction.TextInputState GetTextInputState()
+    {
+        if (_focusKey is null) return default;
+        var field = _layoutDirty ? null : FindFocused(_root);
+        var value = _editBuffer ?? "";
+        return new Interaction.TextInputState(
+            Focused: true,
+            Role: field?.Element?.GetAttribute("role"),
+            Numeric: _focusNumeric,
+            Multiline: _focusMultiline,
+            Masked: _focusMask,
+            Value: value,
+            SelStart: Math.Min(_selAnchor, _caret),
+            SelEnd: Math.Max(_selAnchor, _caret),
+            Composing: HasComposition,
+            CaretRect: _layoutDirty ? null : ComputeCaretRect());
     }
 
     /// <summary>
@@ -2132,6 +2300,15 @@ public sealed partial class CupriDocument : IDisposable
     public bool DispatchKey(string? text, EditKey key, KeyMods mods = KeyMods.None) => Bump(DispatchKeyCore(text, key, mods));
     private bool DispatchKeyCore(string? text, EditKey key, KeyMods mods)
     {
+        // An in-flight IME composition owns the next keystroke: Escape abandons the preedit and is
+        // swallowed (the IME's own cancel), anything else commits it first and then acts normally
+        // (typing mid-composition commits-then-inserts; Enter commits, then commits the field).
+        if (HasComposition)
+        {
+            if (key == EditKey.Escape) return ClearCompositionCore();
+            CommitCompositionCore(null);
+        }
+
         ReconcileScope(); // reflect any overlay that opened/closed since the last event
 
         // Any keystroke dismisses an open context menu; Escape only closes it (swallowed).
@@ -2249,12 +2426,12 @@ public sealed partial class CupriDocument : IDisposable
 
             case EditKey.Left:
                 if (!shift && hasSel) caret = selS;                                        // collapse to left edge
-                else caret = ctrl ? WordLeft(value, caret) : Math.Max(0, caret - 1);
+                else caret = ctrl ? WordLeft(value, caret) : caret - StepBack(value, caret);
                 if (!shift) anchor = caret;
                 break;
             case EditKey.Right:
                 if (!shift && hasSel) caret = selE;
-                else caret = ctrl ? WordRight(value, caret) : Math.Min(value.Length, caret + 1);
+                else caret = ctrl ? WordRight(value, caret) : caret + StepForward(value, caret);
                 if (!shift) anchor = caret;
                 break;
             case EditKey.Home: caret = 0; if (!shift) anchor = caret; break;
@@ -2263,13 +2440,13 @@ public sealed partial class CupriDocument : IDisposable
             case EditKey.Backspace:
                 if (hasSel) { value = value.Remove(selS, selE - selS); caret = selS; edited = true; }
                 else if (ctrl && caret > 0) { var w = WordLeft(value, caret); value = value.Remove(w, caret - w); caret = w; edited = true; }
-                else if (caret > 0) { value = value.Remove(caret - 1, 1); caret--; edited = true; }
+                else if (caret > 0) { var n = StepBack(value, caret); value = value.Remove(caret - n, n); caret -= n; edited = true; }
                 anchor = caret;
                 break;
             case EditKey.Delete:
                 if (hasSel) { value = value.Remove(selS, selE - selS); caret = selS; edited = true; }
                 else if (ctrl && caret < value.Length) { var w = WordRight(value, caret); value = value.Remove(caret, w - caret); edited = true; }
-                else if (caret < value.Length) { value = value.Remove(caret, 1); edited = true; }
+                else if (caret < value.Length) { value = value.Remove(caret, StepForward(value, caret)); edited = true; }
                 anchor = caret;
                 break;
 
@@ -2293,12 +2470,19 @@ public sealed partial class CupriDocument : IDisposable
                 break;
         }
 
+        // Caret/delete arithmetic is CODE-POINT aware: an emoji is two UTF-16 units, and stepping
+        // one unit would split the surrogate pair into mojibake the model then commits.
+        static int StepBack(string v, int at) =>
+            at >= 2 && char.IsLowSurrogate(v[at - 1]) && char.IsHighSurrogate(v[at - 2]) ? 2 : at > 0 ? 1 : 0;
+        static int StepForward(string v, int at) =>
+            at + 1 < v.Length && char.IsHighSurrogate(v[at]) && char.IsLowSurrogate(v[at + 1]) ? 2 : at < v.Length ? 1 : 0;
+
         // Mobile-style peek: a masked field briefly shows the character you just typed, then re-masks
         // it (Animate expires the peek). Any other edit — delete, navigation, multi-char paste —
         // hides it immediately so only a single fresh keystroke is ever visible.
         if (_focusMask)
         {
-            if (edited && key == EditKey.None && text is { Length: 1 }) { _maskRevealPos = caret - 1; _maskRevealStart = double.NaN; }
+            if (edited && key == EditKey.None && text is not null && IsSingleCodePoint(text)) { _maskRevealPos = caret - text.Length; _maskRevealStart = double.NaN; }
             else _maskRevealPos = -1;
         }
 
@@ -2306,7 +2490,7 @@ public sealed partial class CupriDocument : IDisposable
         {
             // Record undo history. Coalesce a run of printable non-space chars into one step;
             // space/newline/delete/paste/any selection-replace start a new step.
-            var typingChar = key == EditKey.None && text is { Length: 1 } && text[0] is not ('\n' or ' ') && !hasSel;
+            var typingChar = key == EditKey.None && text is not null && IsSingleCodePoint(text) && text[0] is not ('\n' or ' ') && !hasSel;
             if (!(typingChar && _typingGroup))
             {
                 _undo.Add(new EditState(oValue, oCaret, oAnchor));
