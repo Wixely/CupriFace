@@ -548,6 +548,11 @@ jobs:
           # isn't showing.
           for i in 1 2 3 4; do
             dump > ui3.xml
+            # What did the reader ACTUALLY see? The ledger keeps proving the published tree
+            # right while dumps disagree — print each dump's device mtime and first texts so
+            # the failure names the tree the reader was served, not a guess about it.
+            adb shell ls -l /sdcard/ui.xml
+            echo "dump $i texts: $(grep -o 'text="[^"]*"' ui3.xml | head -8 | tr '\n' ' ')"
             grep -q 'text="Row 3 ' ui3.xml && break
             adb shell input swipe $(( OX + DPW * D / 320 )) $(( OY + 150 * D / 160 )) \
                                   $(( OX + DPW * D / 320 )) $(( OY + 500 * D / 160 )) 250
@@ -589,6 +594,7 @@ jobs:
             MIN=$(grep -o 'text="Row [0-9]*' ui4.xml | grep -oE '[0-9]+' | sort -n | head -1)
             if test "$MIN" -ge $(( WANT - 1 )) && test "$MIN" -le $(( WANT + 3 )); then AGREE=1; break; fi
             echo "attempt $attempt: first row $MIN vs expected ~$WANT - re-dumping"
+            echo "attempt $attempt texts: $(grep -o 'text="[^"]*"' ui4.xml | head -8 | tr '\n' ' ')"
             sleep 2
           done
           test "$AGREE" = "1" \
