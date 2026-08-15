@@ -14,7 +14,11 @@ public sealed class SliderComponent : ComponentBase
     // fill/thumb geometry reads it from CSS, so every part stays fully overridable via a stylesheet
     // while the value itself stays data-driven. Thumb is 18px wide → offset by half to centre it.
     public override string DefaultCss => """
-        .cupri-slider { display:block; padding:9px 9px; }
+        /* min-width is load-bearing: as a flex item beside a `flex:1` label the slider's base size
+           is its content, and its content is absolutely positioned — so it collapsed to the width
+           of the thumb, the track vanished, and the control looked stuck at the far right. A
+           slider narrower than this cannot be dragged meaningfully anyway. */
+        .cupri-slider { display:block; padding:9px 9px; min-width:120px; }
         .cupri-slider-track { position:relative; height:6px; background:#d7dbe3; border-radius:3px; }
         .cupri-slider-fill { position:absolute; top:0; left:0; height:6px; background:var(--cupri-accent,#B87333);
                              border-radius:3px; width:var(--cupri-fill, 0%); }

@@ -47,6 +47,22 @@ public sealed class AndroidHost : IDisposable
     /// <summary>The live document — for the bridge's GL-thread-queued actions only.</summary>
     internal CupriDocument Document => _doc;
 
+    /// <summary>What the IME must be answered from: the text-input state as of the last focus
+    /// change or frame, whichever is newer — never the painted snapshot alone, which lags a focus
+    /// change by one frame and would describe the field the user just left.</summary>
+    // Written on the document thread, read on the UI thread when the IME asks. A struct cannot be
+    // volatile, and a torn read here would describe a field that never existed — so it is guarded.
+    internal TextInputState ImeState { get { lock (_imeLock) return _imeStateField; } }
+    private void SetImeState(TextInputState state) { lock (_imeLock) _imeStateField = state; }
+    private readonly object _imeLock = new();
+    private TextInputState _imeStateField;
+    private TextInputState _lastImeKind;      // what the view was last told about (GL thread only)
+
+    /// <summary>The part of the state the keyboard itself depends on — what must trigger a
+    /// show/hide/restart. Caret and value churn on every keystroke and must NOT.</summary>
+    private static (bool, string?, bool, bool, bool) ImeKind(TextInputState s) =>
+        (s.Focused, s.Role, s.Numeric, s.Multiline, s.Masked);
+
     /// <summary>The app's clear colour — the activity paints the edge-to-edge inset strips with
     /// it so the band behind the transparent status bar belongs to the app.</summary>
     internal SkiaSharp.SKColor AppBackground => _app.Transparent ? SkiaSharp.SKColors.Black : _app.Background;
@@ -125,7 +141,17 @@ public sealed class AndroidHost : IDisposable
 
         // Focus edges are the soft keyboard's cue. Raised on the GL thread mid-dispatch; the VIEW
         // owns the InputMethodManager work, so hop to the UI thread and hand it the state.
-        doc.TextInputStateChanged += state => RunOnUi(() => TextInputChanged?.Invoke(state));
+        //
+        // The state is ALSO stored synchronously here, because the IME asks its questions before
+        // the next frame exists. Answering from the last painted snapshot meant answering about
+        // the PREVIOUSLY focused field: tapping the name box produced a number pad (the amount
+        // field's keyboard), and tapping the amount box produced a text keyboard. One frame of
+        // staleness, and every field wore its predecessor's keyboard.
+        doc.TextInputStateChanged += state =>
+        {
+            SetImeState(state);
+            RunOnUi(() => TextInputChanged?.Invoke(state));
+        };
     }
 
     // ---- the app stack ------------------------------------------------------------------------
@@ -224,8 +250,21 @@ public sealed class AndroidHost : IDisposable
         _doc.Render(canvas, p.LogicalWidth, p.LogicalHeight);
         canvas.Restore();
 
-        _snapshot = new Snapshot(_doc.ContentVersion, p.LogicalWidth, p.LogicalHeight, inputScale,
-            _doc.GetTextInputState());
+        var textInput = _doc.GetTextInputState();
+        SetImeState(textInput);              // caret/selection move without a focus edge
+        _snapshot = new Snapshot(_doc.ContentVersion, p.LogicalWidth, p.LogicalHeight, inputScale, textInput);
+
+        // Not every focus change arrives as a focus EVENT: an overlay that opens with a focused
+        // field (the command palette autofocuses its query box) lands the caret without one, and
+        // the keyboard never appeared — you could see the caret and had nothing to type with.
+        // Diffing the post-frame state catches focus however it moved. The view's handler is
+        // idempotent, so the ordinary evented path costing an extra call is harmless.
+        if (ImeKind(textInput) != ImeKind(_lastImeKind))
+        {
+            _lastImeKind = textInput;
+            var state = textInput;
+            RunOnUi(() => TextInputChanged?.Invoke(state));
+        }
 
         // TalkBack: republish the semantics tree when content moved (Animate bumps the version
         // when a fling steps, so scrolled bounds follow the viewport). The bridge only exists

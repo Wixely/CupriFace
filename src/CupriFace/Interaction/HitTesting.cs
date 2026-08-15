@@ -43,6 +43,27 @@ public static class HitTesting
         var inside = x >= ax && x < ax + node.Width && y >= ay && y < ay + node.Height;
 
         RenderNode? best = inside && !node.IsText ? node : null;
+
+        // Inline content owns no box: LayoutInline zeroes an inline element's X/Y/W/H and positions
+        // its text through fragments instead. Without this, a link inside a paragraph is invisible
+        // to the pointer — it paints, it looks clickable, and every tap falls through to the
+        // paragraph behind it. Fragment coordinates are relative to the block that established the
+        // inline formatting context, and the zeroed boxes in between mean (ax, ay) is already that
+        // block's origin, so they compose without special-casing the nesting depth.
+        if (best is null)
+        {
+            if (node.InlineFragments is { } frags)
+                foreach (var f in frags)
+                    if (x >= ax + f.X && x < ax + f.X + f.W && y >= ay + f.Y && y < ay + f.Y + f.H)
+                    { best = node; break; }
+
+            // A text run answers for the element that owns it — the contract here is that a hit is
+            // always an element, never a text node.
+            if (best is null && node.IsText && node.Lines is { } lines && node.Parent is { } owner)
+                foreach (var ln in lines)
+                    if (x >= ax + ln.X && x < ax + ln.X + ln.Width && y >= ay + ln.Y && y < ay + ln.Y + ln.Height)
+                    { best = owner; break; }
+        }
         // Children of a scrolled element are shifted up by the scroll offset.
         var childOy = ay - (node.IsScrollable ? Math.Clamp(node.ScrollY, 0, node.MaxScrollY) : 0f);
         foreach (var child in node.Children)
@@ -81,7 +102,27 @@ public static class HitTesting
             if (n.IsTopLayer) break;
             if (n.Parent is { IsScrollable: true } p) y -= Math.Clamp(p.ScrollY, 0, p.MaxScrollY);
         }
-        return (x, y, node.Width, node.Height);
+        if (node.Width > 0.01f && node.Height > 0.01f) return (x, y, node.Width, node.Height);
+
+        // Inline content is positioned through fragments, not a box (LayoutInline zeroes it), so
+        // the honest answer for a link inside a paragraph is the union of the text it occupies.
+        // Everything that aims at a node's centre — synthesised clicks, screen-reader activation,
+        // the a11y bridges' bounds — would otherwise aim at an empty point beside the words.
+        float l = float.MaxValue, t = float.MaxValue, r = float.MinValue, b = float.MinValue;
+        void Union(float ux, float uy, float uw, float uh)
+        {
+            if (uw <= 0 || uh <= 0) return;
+            l = MathF.Min(l, ux); t = MathF.Min(t, uy);
+            r = MathF.Max(r, ux + uw); b = MathF.Max(b, uy + uh);
+        }
+        void Walk(RenderNode n)
+        {
+            if (n.InlineFragments is { } frags) foreach (var f in frags) Union(x + f.X, y + f.Y, f.W, f.H);
+            if (n.Lines is { } lines) foreach (var ln in lines) Union(x + ln.X, y + ln.Y, ln.Width, ln.Height);
+            foreach (var c in n.Children) Walk(c);
+        }
+        Walk(node);
+        return r > l && b > t ? (l, t, r - l, b - t) : (x, y, node.Width, node.Height);
     }
 
     /// <summary>The accumulated CSS-transform matrix mapping this node's untransformed

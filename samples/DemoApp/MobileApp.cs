@@ -47,6 +47,17 @@ public sealed class MobileApp : CupriApp
         // The fling gate reads the list's scroll offset after momentum settles; the marker comes
         // from the Android host (it owns the frame loop and sees the fling end).
 
+        // True fullscreen: no status bar, no navigation bar — a game/kiosk presentation. The host
+        // performs it (the engine owns pixels, not the window); returning FALSE lets the switch
+        // still flip its own bound value through the ordinary path, so the row reads correctly.
+        doc.OnAction("data-fullscreen", e =>
+        {
+            doc.RequestWindowCommand(_model.Fullscreen
+                ? CupriFace.Interaction.WindowCommand.ExitFullscreen      // about to become false
+                : CupriFace.Interaction.WindowCommand.EnterFullscreen);
+            return false;
+        });
+
         doc.OnAction("data-launch", e =>
         {
             LaunchRequested?.Invoke(e.Value);
@@ -75,6 +86,7 @@ public sealed partial class MobileModel
     // Settings — Notify is the gate's tap target (toggled in Configure so the marker prints).
     public bool Notify { get; set; }
     public bool Dark { get; set; }
+    public bool Fullscreen { get; set; }
     public int Volume { get; set; } = 60;
     public string ThemeClass => Dark ? "dark" : "";
 

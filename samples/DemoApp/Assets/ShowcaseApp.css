@@ -45,12 +45,19 @@ body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; -
 .sidebar.collapsed .side-toggle cupri-switch { display:none; }
 /* Responsive: auto-collapse to the icon rail below a narrow width — the same look as .collapsed,
    driven by @media instead of the toggle, and the width transition animates the change. */
+/* `:not(.expanded)` is what makes the toggle still work down here. Without it the media rule set
+   the rail width unconditionally and beat the toggle's class, so at any logical width under 760px
+   — which zooming reaches on an ordinary window, since zoom divides the logical size — the sidebar
+   was stuck as an icon rail and the button did nothing. Auto-collapse remains the default; an
+   explicit expand now overrides it. */
 @media (max-width: 760px) {
-  .sidebar { width:60px; padding-left:10px; padding-right:10px; }
-  .sidebar .nav-label, .sidebar .brand-label, .sidebar .tip { display:none; }
-  .sidebar .nav, .sidebar .brand-row, .sidebar .search-btn,
-  .sidebar .side-toggle { justify-content:center; gap:0; padding-left:0; padding-right:0; }
-  .sidebar .side-toggle cupri-switch { display:none; }
+  .sidebar:not(.expanded) { width:60px; padding-left:10px; padding-right:10px; }
+  .sidebar:not(.expanded) .nav-label, .sidebar:not(.expanded) .brand-label,
+  .sidebar:not(.expanded) .tip { display:none; }
+  .sidebar:not(.expanded) .nav, .sidebar:not(.expanded) .brand-row,
+  .sidebar:not(.expanded) .search-btn,
+  .sidebar:not(.expanded) .side-toggle { justify-content:center; gap:0; padding-left:0; padding-right:0; }
+  .sidebar:not(.expanded) .side-toggle cupri-switch { display:none; }
 }
 /* Pinned to the bottom of the sidebar so the dark-mode toggle is visible from any section. */
 .side-bottom { margin-top:auto; display:flex; flex-direction:column; gap:12px; padding-top:12px; }

@@ -128,11 +128,13 @@ public sealed class CupriHostView : SKGLSurfaceView
         }
     }
 
-    public override bool OnCheckIsTextEditor() => _host.Current?.TextInput.Focused == true;
+    public override bool OnCheckIsTextEditor() => _host.ImeState.Focused;
 
     public override IInputConnection? OnCreateInputConnection(EditorInfo? outAttrs)
     {
-        var state = _host.Current?.TextInput ?? default;
+        // ImeState, not the painted snapshot: this is asked the instant focus moves, before the
+        // frame showing that focus exists. The snapshot would describe the previous field.
+        var state = _host.ImeState;
         if (!state.Focused) return null;
 
         if (outAttrs is not null)
