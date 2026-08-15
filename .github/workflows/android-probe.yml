@@ -71,6 +71,14 @@ name: Android probe
 #   arm64 hardware, so it is Mono-10.0.11-on-Android generally, which strengthens the upstream
 #   report. It also retires the SwiftShader caveat: the GL path now has a real-GPU data point.
 #
+#   The device's tombstone then closed the case mechanically (full forensics + upstream-ready
+#   report: samples/AndroidProbe/MONO-CRASH.md): a one-frame native SIGSEGV inside
+#   libaot-System.Private.CoreLib.dll.so, fault address 0x0067006800000016 — which decodes as a
+#   string's [length=6|'h'|'g'] content word being DEREFERENCED AS A STRING REFERENCE, read at
+#   +0x10, exactly Mono's string-length offset. String content in a pointer register: a codegen
+#   defect caught red-handed. On arm64 it is a raw signal no managed catch can see, which is why
+#   the device shows "app constructed" and then nothing.
+#
 # Harness bugs found and fixed on the way, recorded so the next person skips them: sdkmanager is
 # not on PATH (it lives under cmdline-tools/latest/bin); /dev/kvm is root:kvm 0660 and needs a udev
 # rule or the emulator silently falls back to slow emulation; avdmanager and the emulator disagree
