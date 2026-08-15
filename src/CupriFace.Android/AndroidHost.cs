@@ -230,13 +230,20 @@ public sealed class AndroidHost : IDisposable
         // TalkBack: republish the semantics tree when content moved (Animate bumps the version
         // when a fling steps, so scrolled bounds follow the viewport). The bridge only exists
         // once an accessibility client asked the view for it — until then this line costs nothing.
-        if (_talkBack is { } tb && (_doc.ContentVersion != _a11yVersion
+        // A trailing-edge force also lands here: after a publish burst (a fling) ends, the tree
+        // is rebuilt from the CURRENT document and only then announced — the accessibility
+        // pipeline snapshots around announcements, and announcing a superseded tree left every
+        // reader half a second behind the settle.
+        if (_talkBack is { } tb && (_a11yForce || _doc.ContentVersion != _a11yVersion
                                     || p.LogicalWidth != _a11yWidth || p.LogicalHeight != _a11yHeight))
         {
+            var forced = _a11yForce;
+            _a11yForce = false;
             _a11yVersion = _doc.ContentVersion;
             _a11yWidth = p.LogicalWidth;
             _a11yHeight = p.LogicalHeight;
             tb.Publish(_doc.BuildAccessibilityTree(p.LogicalWidth, p.LogicalHeight), inputScale);
+            if (forced) tb.AnnounceContentChanged();
         }
 
         if (!_firstFrameLogged)
@@ -278,9 +285,16 @@ public sealed class AndroidHost : IDisposable
     internal void AttachTalkBack(TalkBackBridge bridge)
     {
         _talkBack = bridge;
+        bridge.TrailingRepublish = () => OnGlThread(() =>
+        {
+            _a11yForce = true;      // next frame republishes even at an unchanged version
+            MarkDirty();
+        });
         Log("talkback bridge attached");
         MarkDirty();
     }
+
+    private bool _a11yForce;
 
     private static float MaxScrollOffset(CupriFace.Dom.RenderNode n)
     {

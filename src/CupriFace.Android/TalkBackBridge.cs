@@ -44,6 +44,19 @@ internal sealed class TalkBackBridge : AccessibilityNodeProvider
     private long _lastContentEvent;                                // throttle WINDOW_CONTENT_CHANGED
     private bool _trailingArmed;                                   // a deferred flush is pending
 
+    /// <summary>Wired by the host: rebuild + republish the current tree on the document thread,
+    /// then announce it (<see cref="AnnounceContentChanged"/>). The trailing edge of a publish
+    /// burst calls this instead of announcing a tree that may already be superseded.</summary>
+    internal Action? TrailingRepublish;
+
+    /// <summary>The WINDOW_CONTENT_CHANGED announcement, callable by the host after a forced
+    /// republish so the event always postdates the tree it announces.</summary>
+    internal void AnnounceContentChanged()
+    {
+        lock (_gate) { _lastContentEvent = SystemClock.UptimeMillis(); }
+        SendEvent(EventTypes.WindowContentChanged, -1);
+    }
+
     private TalkBackBridge(CupriHostView view, AndroidHost host)
     {
         _view = view;
@@ -129,7 +142,13 @@ internal sealed class TalkBackBridge : AccessibilityNodeProvider
                 _view.Handler?.PostDelayed(() =>
                 {
                     lock (_gate) { _trailingArmed = false; _lastContentEvent = SystemClock.UptimeMillis(); }
-                    SendEvent(EventTypes.WindowContentChanged, -1);
+                    // Not just an event: REBUILD first. The pipeline between this provider and a
+                    // reader snapshots around event time — the instrumented runs proved the host
+                    // published the correct settle tree (ledger: first='Row 16') while every
+                    // reader stably saw a mid-fling one. The host re-publishes the CURRENT
+                    // document and only then announces the change, so whatever state the
+                    // announcement freezes IS the final one.
+                    TrailingRepublish?.Invoke();
                 }, 120);
             }
         }
