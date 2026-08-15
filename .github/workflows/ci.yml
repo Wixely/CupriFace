@@ -406,25 +406,37 @@ jobs:
           nav() { tap $(( DPW * (2 * $1 + 1) / 10 )) $(( DPH - 28 )); sleep 2; }
 
           # --- tap = activation exactly once, on finger-up ---------------------------------------
+          # The emulator drops injected gestures at random (runs 13, 16 and 22 each ate a
+          # different one), so every switch tap retries DELIVERY — while the assert stays exact:
+          # the marker count must advance by PRECISELY one per delivered tap. A dropped tap is
+          # the harness's problem; a double activation is the engine's, and still fails.
+          tap_toggle() {
+            local before after
+            before=$(adb logcat -d -s cupri:I | grep -c 'cupri-gate: toggle=' || true)
+            after=$before
+            for i in 1 2 3; do
+              tap "$1" "$2"
+              sleep 2
+              after=$(adb logcat -d -s cupri:I | grep -c 'cupri-gate: toggle=' || true)
+              [ "$after" -gt "$before" ] && break
+              echo "switch tap not delivered (attempt $i)"
+            done
+            test "$after" = "$(( before + 1 ))" || fail "one tap produced $(( after - before )) toggles"
+          }
           # Warmup tap first, on Home's FIRST card (plain text — no action, and safely above the
-          # third card's external link): run 13 saw the emulator swallow the very first injected
-          # tap of the session — this pushes one full Down/Up through the dispatch path before
+          # third card's external link): pushes one full Down/Up through the dispatch path before
           # anything is asserted, without touching the toggle count.
           tap $(( DPW / 2 )) 100
           sleep 1
           nav 3   # Settings
-          tap $(( DPW - 56 )) 99
-          sleep 2
-          adb logcat -d -s cupri:I | grep -c 'cupri-gate: toggle=' || true   # breadcrumb after tap 1
-          tap $(( DPW - 56 )) 99
-          sleep 2
+          tap_toggle $(( DPW - 56 )) 99
+          tap_toggle $(( DPW - 56 )) 99
           # Markers arrive on the HOST's logcat tag: the host bridges Console -> logcat,
-          # because CoreCLR-Android has no stdout destination of its own.
+          # because CoreCLR-Android has no stdout destination of its own. The helper proved the
+          # counts; these prove the ALTERNATION (off -> on -> off).
           adb logcat -d -s cupri:I | grep "cupri-gate:" | tee gate-markers.txt || true
           grep -q "toggle=True" gate-markers.txt || fail "no toggle=True marker after the first tap"
           grep -q "toggle=False" gate-markers.txt || fail "no toggle=False after the second tap"
-          N=$(grep -c 'cupri-gate: toggle=' gate-markers.txt)
-          test "$N" = "2" || fail "expected exactly 2 toggles (one activation per tap), got $N"
 
           # --- swipe flings with real momentum ---------------------------------------------------
           nav 1   # List
@@ -468,10 +480,9 @@ jobs:
           sleep 4
           geom     # the view re-laid-out: re-read its origin and size, same anchors apply
           nav 3    # Settings (landscape)
-          tap $(( DPW - 56 )) 99
-          sleep 2
+          tap_toggle $(( DPW - 56 )) 99   # delivery-retried; still exactly one activation
           N=$(adb logcat -d -s cupri:I | grep -c 'cupri-gate: toggle=')
-          test "$N" = "3" || fail "post-rotation tap missed, toggles=$N (density/relayout mapping broke)"
+          test "$N" = "3" || fail "post-rotation toggles=$N (density/relayout mapping broke)"
           adb shell settings put system user_rotation 0
 
           echo "### Gate assertions all green" >> $GITHUB_STEP_SUMMARY
@@ -502,13 +513,21 @@ jobs:
           echo "$SW" | grep -q 'checked="true"' || fail "switch not checked=true (model says Notify=True)"
 
           # Geometry round-trip (the NSA-gate lesson): tap the centre of the DUMP'S OWN bounds.
-          # If the exposed rectangles are wrong, this misses and the marker count stays 3.
+          # Delivery-retried (the emulator drops injected taps at random) but exact: the count
+          # must advance by precisely one, or the exposed geometry / activation model is wrong.
           B=$(echo "$SW" | grep -oE 'bounds="\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]"' | grep -oE '[0-9]+' | tr '\n' ' ')
           set -- $B
-          adb shell input tap $(( ($1 + $3) / 2 )) $(( ($2 + $4) / 2 ))
-          sleep 2
-          N=$(adb logcat -d -s cupri:I | grep -c 'cupri-gate: toggle=')
-          test "$N" = "4" || fail "tap at the dump's own rectangle missed (toggles=$N) - exposed geometry is wrong"
+          BEFORE=$(adb logcat -d -s cupri:I | grep -c 'cupri-gate: toggle=' || true)
+          N=$BEFORE
+          for i in 1 2 3; do
+            adb shell input tap $(( ($1 + $3) / 2 )) $(( ($2 + $4) / 2 ))
+            sleep 2
+            N=$(adb logcat -d -s cupri:I | grep -c 'cupri-gate: toggle=' || true)
+            [ "$N" -gt "$BEFORE" ] && break
+            echo "dump-bounds tap not delivered (attempt $i)"
+          done
+          test "$N" = "$(( BEFORE + 1 ))" \
+            || fail "tap at the dump's own rectangle: toggles $BEFORE -> $N - exposed geometry or activation is wrong"
           dump > ui2.xml
           grep -o 'text="Notifications"[^>]*' ui2.xml | head -1 | grep -q 'checked="false"' \
             || fail "re-dump still says checked=true after the toggle"
