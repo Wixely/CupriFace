@@ -42,6 +42,7 @@ internal sealed class TalkBackBridge : AccessibilityNodeProvider
     private int _a11yFocusId = -1;                                 // TalkBack's green rectangle
     private int _hoverId = -1;                                     // explore-by-touch position
     private long _lastContentEvent;                                // throttle WINDOW_CONTENT_CHANGED
+    private bool _trailingArmed;                                   // a deferred flush is pending
 
     private TalkBackBridge(CupriHostView view, AndroidHost host)
     {
@@ -91,12 +92,29 @@ internal sealed class TalkBackBridge : AccessibilityNodeProvider
 
         // Announce that the subtree changed (throttled — a fling steps every frame) and where
         // input focus went, if anywhere. Events must leave from the UI thread.
+        //
+        // The throttle MUST have a trailing edge: Android's accessibility CLIENT caches node
+        // infos and only re-fetches when a change event arrives, so if a fling's final
+        // publishes fall inside the throttle window and no event follows, every reader keeps
+        // the tree from ~250dp before the settle (run 15: the dump exposed rows 10..24 while
+        // the list sat at 746dp = rows 16..29). A deferred flush covers whatever state the
+        // burst ended on.
         var now = SystemClock.UptimeMillis();
-        if (now - _lastContentEvent >= 100)
+        var sendNow = false;
+        lock (_gate)
         {
-            _lastContentEvent = now;
-            SendEvent(EventTypes.WindowContentChanged, -1);
+            if (now - _lastContentEvent >= 100) { _lastContentEvent = now; sendNow = true; }
+            else if (!_trailingArmed)
+            {
+                _trailingArmed = true;
+                _view.Handler?.PostDelayed(() =>
+                {
+                    lock (_gate) { _trailingArmed = false; _lastContentEvent = SystemClock.UptimeMillis(); }
+                    SendEvent(EventTypes.WindowContentChanged, -1);
+                }, 120);
+            }
         }
+        if (sendNow) SendEvent(EventTypes.WindowContentChanged, -1);
         if (focusedId >= 0 && focusedId != _lastFocusEventId)
         {
             _lastFocusEventId = focusedId;
