@@ -92,7 +92,7 @@ public static class HitTesting
     /// exactly the shift <see cref="HitTest"/> applies — so a click synthesized at this box's centre
     /// lands on the node even inside a scrolled container. (AbsoluteBox is the box where the node
     /// WOULD be unscrolled; this is where it IS.)</summary>
-    public static (float X, float Y, float W, float H) ScreenBox(RenderNode node)
+    private static (float X, float Y) Origin(RenderNode node)
     {
         float x = 0, y = 0;
         for (var n = node; n is not null; n = n.Parent)
@@ -102,6 +102,36 @@ public static class HitTesting
             if (n.IsTopLayer) break;
             if (n.Parent is { IsScrollable: true } p) y -= Math.Clamp(p.ScrollY, 0, p.MaxScrollY);
         }
+        return (x, y);
+    }
+
+    /// <summary>Where to aim a synthesised click at this node. The centre of the box, except for
+    /// inline content: a link that WRAPS has a bounding box whose centre can land between its two
+    /// lines — on the paragraph, not the link — so aim at its first fragment instead. (Found on
+    /// Linux, where different font metrics wrapped a link that fitted on one line elsewhere.)</summary>
+    public static (float X, float Y) ActivationPoint(RenderNode node)
+    {
+        var (x, y) = Origin(node);
+        if (node.Width > 0.01f && node.Height > 0.01f)
+            return (x + node.Width / 2, y + node.Height / 2);
+
+        var first = FirstFragment(node);
+        return first is { } f ? (x + f.X + f.W / 2, y + f.Y + f.H / 2)
+                              : (x + node.Width / 2, y + node.Height / 2);
+    }
+
+    private static InlineRect? FirstFragment(RenderNode node)
+    {
+        if (node.InlineFragments is { Count: > 0 } frags) return frags[0];
+        if (node.Lines is { Count: > 0 } lines)
+            return new InlineRect(lines[0].X, lines[0].Y, lines[0].Width, lines[0].Height);
+        foreach (var c in node.Children) if (FirstFragment(c) is { } f) return f;
+        return null;
+    }
+
+    public static (float X, float Y, float W, float H) ScreenBox(RenderNode node)
+    {
+        var (x, y) = Origin(node);
         if (node.Width > 0.01f && node.Height > 0.01f) return (x, y, node.Width, node.Height);
 
         // Inline content is positioned through fragments, not a box (LayoutInline zeroes it), so

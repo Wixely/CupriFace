@@ -52,9 +52,14 @@ public class DeviceRegressionTests
         Assert.True(link.Bounds.W > 20 && link.Bounds.H > 8,
             $"a screen reader cannot locate a {link.Bounds.W}x{link.Bounds.H} link");
 
+        // Tap where a finger would land. Not the bounding box's centre: font metrics differ per
+        // platform, and on Linux this link wraps — a wrapped link's box centre falls between its
+        // two lines, on the paragraph rather than the link.
+        var anchor = Find(doc.Root, n => n.Element?.LocalName == "a")!;
+        var (tx, ty) = HitTesting.ActivationPoint(anchor);
         string? href = null;
         doc.Navigated += e => href = e.Href;
-        doc.DispatchClick(link.Bounds.X + link.Bounds.W / 2, link.Bounds.Y + link.Bounds.H / 2);
+        doc.DispatchClick(tx, ty);
         Assert.Equal("https://github.com/Wixely/CupriFace", href);
 
         href = null;
