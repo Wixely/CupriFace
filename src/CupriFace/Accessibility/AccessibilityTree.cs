@@ -95,7 +95,7 @@ public static class AccessibilityTree
                 Name = AccessibleName(render, el, role),
                 Path = path,
                 Parent = parent,
-                Bounds = (ax, ay, render.Width, render.Height),
+                Bounds = InlineAwareBounds(render, ax, ay),
                 Focusable = isFocusable?.Invoke(el)
                             ?? role is "slider" or "button" or "switch" or "checkbox" or "radio"
                                     or "link" or "textbox" or "spinbutton",
@@ -146,6 +146,33 @@ public static class AccessibilityTree
         el.ClassList.Contains("disabled")
         || el.HasAttribute("disabled")
         || el.GetAttribute("aria-disabled") is "true";
+
+    /// <summary>An inline element (a link inside a paragraph) has no box of its own — layout zeroes
+    /// it and positions its text through fragments — so reporting <c>render.Width/Height</c> would
+    /// hand assistive technology an empty rectangle: nothing to announce a position for, nothing to
+    /// tap. Fall back to the union of the text it actually occupies.</summary>
+    private static (float X, float Y, float W, float H) InlineAwareBounds(RenderNode render, float ax, float ay)
+    {
+        if (render.Width > 0.01f && render.Height > 0.01f) return (ax, ay, render.Width, render.Height);
+
+        float l = float.MaxValue, t = float.MaxValue, r = float.MinValue, b = float.MinValue;
+        void Union(float x, float y, float w, float h)
+        {
+            if (w <= 0 || h <= 0) return;
+            l = MathF.Min(l, x); t = MathF.Min(t, y);
+            r = MathF.Max(r, x + w); b = MathF.Max(b, y + h);
+        }
+        // Fragment coordinates are relative to the block that established the inline formatting
+        // context; the zeroed boxes in between make (ax, ay) that block's origin already.
+        void Walk(RenderNode n)
+        {
+            if (n.InlineFragments is { } frags) foreach (var f in frags) Union(ax + f.X, ay + f.Y, f.W, f.H);
+            if (n.Lines is { } lines) foreach (var ln in lines) Union(ax + ln.X, ay + ln.Y, ln.Width, ln.Height);
+            foreach (var c in n.Children) Walk(c);
+        }
+        Walk(render);
+        return r > l && b > t ? (l, t, r - l, b - t) : (ax, ay, render.Width, render.Height);
+    }
 
     private static string? FirstAttr(IElement el, params string[] names)
     {

@@ -54,6 +54,11 @@
           <cupri-switch checked="{{Dark}}"></cupri-switch></div>
         <div class="srow"><span>Volume</span>
           <cupri-slider min="0" max="100" value="{{Volume}}"></cupri-slider><span class="muted">{{Volume}}</span></div>
+        <!-- aria-label, because the positional label would otherwise be the whole row including the
+             hint — a screen reader announcing "Hide the status and navigation bars" as the control's
+             NAME is worse than useless. -->
+        <div class="srow"><span>Fullscreen<br><span class="muted">Hide the status and navigation bars</span></span>
+          <cupri-switch checked="{{Fullscreen}}" data-fullscreen="1" aria-label="Fullscreen"></cupri-switch></div>
       </div>
 
       <!-- About: the app-switch seam. -->

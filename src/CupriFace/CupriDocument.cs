@@ -86,6 +86,9 @@ public sealed partial class CupriDocument : IDisposable
     // Each <cupri-virtual> list's scroll offset by its data-repeat path, so the next rebuild windows it to
     // the rows in view. Updated when a virtual list scrolls (which then rebuilds to re-window).
     private readonly Dictionary<string, double> _virtualScroll = new();
+    // Scroll/resize state keyed by structural path, kept BEYOND the lifetime of any one tree: a
+    // `display:none` page builds no children, so what it had cannot be captured when it is hidden.
+    private readonly Dictionary<string, NodeState> _scrollMemory = new();
     private RenderNode? _resizeDrag;    // node whose resize grip is being dragged
     private float _resizeX0, _resizeY0, _resizeW0, _resizeH0;
 
@@ -161,6 +164,13 @@ public sealed partial class CupriDocument : IDisposable
     /// also host-side: when <see cref="DispatchKey"/> returns unhandled for Escape and the window
     /// is fullscreen, the host exits it (so overlays keep winning Escape first).</summary>
     public event Action<Interaction.WindowCommand>? WindowCommandRequested;
+
+    /// <summary>Ask the host for a window command from code — the same seam
+    /// <c>data-window-command</c> uses, for apps whose own logic decides (a settings switch, a
+    /// presentation mode, a kiosk that starts fullscreen). No-op when no host is listening, exactly
+    /// like the attribute path: an embedded or headless consumer simply has no window to command.</summary>
+    public void RequestWindowCommand(Interaction.WindowCommand command) =>
+        WindowCommandRequested?.Invoke(command);
 
     // Engine-owned toast stack (doc.Toast). Each toast slides in, waits, then slides out and is removed —
     // driven by Animate. Entering/Leaving render off-screen; the flip to/from Shown is what the transition
@@ -575,7 +585,11 @@ public sealed partial class CupriDocument : IDisposable
         void Walk(RenderNode n)
         {
             var tail = n.Element?.HasAttribute("data-follow-tail") == true;
-            var scroll = n.Style.Overflow == OverflowMode.Scroll && (n.ScrollY > 0.01f || tail);
+            // EVERY scroller is recorded, including one sitting at 0. The memory below outlives the
+            // tree, so an unrecorded scroller would keep whatever offset it had when it vanished —
+            // "scrolled back to the top" has to be remembered just as firmly as "scrolled down".
+            var isScroller = n.Style.Overflow == OverflowMode.Scroll;
+            var scroll = isScroller && (n.ScrollY > 0.01f || tail);
             // A node not laid out this cycle (a rebuild landed before the next layout) has a stale 0
             // height — carry its last real displayed height (PrevHeight) forward instead, so a height
             // transition doesn't think an open panel collapsed to nothing.
@@ -584,8 +598,12 @@ public sealed partial class CupriDocument : IDisposable
             // element — the video card between its size presets — has no flow content, so natural
             // height stays 0; without the carry its transition would animate up from zero.
             var hTrans = (n.ContentNaturalHeight > 0 || displayH > 0) && HasHeightTransition(n.Style);
-            if (scroll || n.ResizeW is not null || n.ResizeH is not null || n.ScrollX > 0.01f || hTrans || n.SplitGrow is not null)
-                (map ??= new())[PathOf(n)] = new NodeState(n.ScrollY, n.ScrollY >= n.MaxScrollY - 1f, tail, n.ResizeW, n.ResizeH, n.ScrollX, n.ContentNaturalHeight, displayH, n.SplitGrow);
+            if (scroll || isScroller || n.ResizeW is not null || n.ResizeH is not null || n.ScrollX > 0.01f || hTrans || n.SplitGrow is not null)
+            {
+                var state = new NodeState(n.ScrollY, n.ScrollY >= n.MaxScrollY - 1f, tail, n.ResizeW, n.ResizeH, n.ScrollX, n.ContentNaturalHeight, displayH, n.SplitGrow);
+                (map ??= new())[PathOf(n)] = state;
+                _scrollMemory[PathOf(n)] = state;
+            }
             foreach (var c in n.Children) Walk(c);
         }
         Walk(_root);
@@ -594,10 +612,17 @@ public sealed partial class CupriDocument : IDisposable
 
     private void RestoreScroll(Dictionary<string, NodeState>? map)
     {
-        if (map is null) return;
         void Walk(RenderNode n)
         {
-            if (map.TryGetValue(PathOf(n), out var s))
+            // The capture map only sees what was in the LAST tree, and `display:none` builds no
+            // children (StyleResolver) — so a page that was hidden when the rebuild happened
+            // contributed nothing, and its scroller would come back at zero. That is what left the
+            // virtualised list blank on return: the window (kept per virtual key, which does
+            // survive) still described row 15 while the offset had been reset to 0, so the rows
+            // were laid out past the bottom of an unscrolled viewport. The memory outlives the
+            // tree, so a page restores where the user left it.
+            var path = PathOf(n);
+            if ((map is not null && map.TryGetValue(path, out var s)) || _scrollMemory.TryGetValue(path, out s))
             {
                 if (n.Style.Overflow == OverflowMode.Scroll)
                     n.ScrollY = s.FollowTail && s.AtBottom ? float.MaxValue : s.ScrollY; // MaxValue → new bottom (tail-follow)

@@ -19,7 +19,7 @@ namespace CupriFace.Android;
 internal sealed class CupriInputConnection(CupriHostView view, AndroidHost host)
     : BaseInputConnection(view, fullEditor: true)
 {
-    private TextInputState State => host.Current?.TextInput ?? default;
+    private TextInputState State => host.ImeState;
 
     // ---- mutations (queued to the document thread) --------------------------------------------
 

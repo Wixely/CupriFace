@@ -51,7 +51,15 @@ public sealed class ShowcaseApp : CupriApp
         doc.Navigated += e => { if (!e.External && KnownSections.Contains(e.Href)) _model.Section = e.Href; };
         // Burger button and the "CupriFace" wordmark both toggle the sidebar (a selector list —
         // dispatch fires on the innermost matching element, so a burger click can't double-toggle).
-        doc.OnClick(".collapse-btn, .brand-label", _ => _model.SidebarCollapsed = !_model.SidebarCollapsed);
+        // The toggle means "do the opposite of what I can currently SEE", which below the narrow
+        // breakpoint is not the same as "the opposite of the model flag": the sidebar may be an
+        // icon rail because of the @media rule while the flag still says expanded. Present() records
+        // the logical width each frame, so the handler can tell which of the two states is on screen.
+        doc.OnClick(".collapse-btn, .brand-label", _ =>
+        {
+            var showingRail = _model.Sidebar == "collapsed" || (_model.Sidebar != "expanded" && _logicalWidth <= 760);
+            _model.Sidebar = showingRail ? "expanded" : "collapsed";
+        });
         doc.OnClick(".act-submit", _ => _model.FormOk = doc.ValidateAll());
         doc.OnClick(".swatch", e => { if (e.Element.GetAttribute("data-accent") is { } a) _model.Accent = a; });
         doc.OnClick(".ctx-act", e => { if (e.Element.GetAttribute("data-action") is { } a) _model.CtxAction = a; });
@@ -84,7 +92,16 @@ public sealed class ShowcaseApp : CupriApp
         doc.OnClick(".zoom-inc", _ => _model.ZoomPct = Math.Clamp(_model.ZoomPct + 10, 80, 200));
     }
 
-    public override PresentInfo Present(float w, float h) => _model.Scaling switch
+    private float _logicalWidth = 1024;   // what the sidebar toggle reads to know what's on screen
+
+    public override PresentInfo Present(float w, float h)
+    {
+        var info = PresentFor(w, h);
+        _logicalWidth = info.LogicalWidth;
+        return info;
+    }
+
+    private PresentInfo PresentFor(float w, float h) => _model.Scaling switch
     {
         "none" => new PresentInfo(Width, Height, 1f),                                  // fixed design size
         "zoom" => Zoomed(w, h, _model.ZoomPct / 100f),                                 // hard DPI-like scale
@@ -125,12 +142,18 @@ public sealed partial class ShowcaseModel
     public string NavSettings => Section == "settings" ? "active" : "";
     public string NavDiag => Section == "diag" ? "active" : "";
 
-    public string Scaling { get; set; } = "hybrid";
+    // 1:1 by default — the window's own pixels, reflowing as it resizes. "hybrid" used to be the
+    // default, which scales the whole UI up on a large monitor; that is a demo of the scaling modes,
+    // not a sensible starting state for the app. The Settings page still switches between all four.
+    public string Scaling { get; set; } = "responsive";
     public int ZoomPct { get; set; } = 100;
     public string ThemeClass => DarkMode ? "dark" : "";
 
-    public bool SidebarCollapsed { get; set; }
-    public string SidebarClass => SidebarCollapsed ? "collapsed" : ""; // width transitions to an icon rail
+    /// <summary>"" (auto — the @media rule decides), "collapsed" or "expanded". Three states, not
+    /// two, because an explicit choice has to be able to override the responsive default in BOTH
+    /// directions.</summary>
+    public string Sidebar { get; set; } = "";
+    public string SidebarClass => Sidebar;                             // width transitions to an icon rail
 
     // Accent theme (recolors the whole app via the --cupri-accent CSS variable).
     public string Accent { get; set; } = "copper";
