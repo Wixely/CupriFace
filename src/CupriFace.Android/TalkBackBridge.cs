@@ -47,7 +47,7 @@ internal sealed class TalkBackBridge : AccessibilityNodeProvider
     /// <summary>Wired by the host: rebuild + republish the current tree on the document thread,
     /// then announce it (<see cref="AnnounceContentChanged"/>). The trailing edge of a publish
     /// burst calls this instead of announcing a tree that may already be superseded.</summary>
-    internal Action? TrailingRepublish;
+    internal System.Action? TrailingRepublish;
 
     /// <summary>The WINDOW_CONTENT_CHANGED announcement, callable by the host after a forced
     /// republish so the event always postdates the tree it announces.</summary>
