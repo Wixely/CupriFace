@@ -23,10 +23,11 @@ CupriFace is that model with the browser removed.
 |---|---|---|
 | **Avalonia** | XAML application framework vs HTML/CSS rendering engine — the closest .NET neighbour, and the most instructive contrast | [avalonia.md](avalonia.md) |
 | **.NET MAUI** | Native controls per platform vs one renderer everywhere; first-party mobile with iOS, against Linux + browser and headless-testable UI | [maui.md](maui.md) |
+| **Flutter** | The one project that made the *same* bet — own the renderer, identical pixels everywhere — executed at ten times the scale, in Dart instead of C# | [flutter.md](flutter.md) |
 | **MewUI** | The opposite answer to the same complaint about XAML: fluent C# markup and the smallest possible NativeAOT binary, vs HTML/CSS and run-anywhere | [mewui.md](mewui.md) |
 | **Electron** | The comparison the project was founded on — keep HTML and CSS, delete the browser. What that costs, and when it's worth it | [electron.md](electron.md) |
 
-Planned next (no documents yet): Tauri, Blazor Hybrid, Flutter.
+Planned next (no documents yet): Tauri, Blazor Hybrid.
 
 *Last reviewed against the repository in August 2026, after the Android host
 landed (four accessibility bridges, engine-level touch and IME composition).*
