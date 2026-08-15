@@ -88,7 +88,7 @@ name: Android probe
 on:
   workflow_dispatch:
   push:
-    branches: [ feature/android-probe ]
+    branches: [ main ]
     paths:
       - '.github/workflows/android-probe.yml'
       - 'samples/AndroidProbe/**'
