@@ -1,18 +1,29 @@
 name: Android gate
 
-# THE GATE for the Android host — blocking from birth, in its own workflow until it has earned
-# promotion into ci.yml (the same path every accessibility gate walked). It grows one leg per
-# phase of the Android plan; each assertion names the phase that introduced it.
+# THE GATE for the Android host — blocking, in its own workflow until it has earned promotion into
+# ci.yml (the same path every accessibility gate walked). One leg per phase of the Android plan.
 #
-# Assertion channel: logcat markers under the tag "cupri" emitted by AndroidHost — the same
-# philosophy as the FlaUI/pyatspi/pyobjc gates (drive the real app, read what it actually did),
-# adapted to adb. The emulator harness (KVM udev rule, ANDROID_AVD_HOME pin, resolve-activity
-# launch, bounded waits) is inherited from android-probe.yml, where each of those lessons was
-# paid for individually.
+# Assertion channel: logcat. The HOST logs under tag "cupri" (first frame, app switches, fling
+# settling); the SAMPLE's gate seams print "cupri-gate:" marker lines via Console (which lands in
+# logcat on Android). The same philosophy as the FlaUI/pyatspi/pyobjc gates — drive the real app,
+# read what it actually did — adapted to adb.
+#
+# Geometry: tap points are computed in dp from the app's own layout (calibrated headlessly against
+# the same markup the device renders — see tests/CupriFace.Tests/MobileAppTests) and converted to
+# pixels with the device's reported density. The skin and density are PINNED so the arithmetic is
+# stable: 1080x2340 @ 440 → 393x851 dp, the calibration space.
 #
 # Current legs:
-#   Phase 1 — the APK builds (x64 + arm64, sizes reported), installs, launches, and paints:
-#             FIRST FRAME marker asserted.
+#   Phase 1 — builds (both ABIs, sizes), installs, launches, paints: FIRST FRAME asserted.
+#   Phase 7 — no desktop native in the APK (closes the SkiaNativeAssets story with evidence);
+#             tap = activation exactly once, on finger-up (toggle marker alternates True/False);
+#             swipe flings with real momentum (settled travel beyond the finger's);
+#             the soft keyboard appears on field focus and leaves on blur (dumpsys mInputShown);
+#             rotation relayouts and the SAME dp arithmetic still lands taps (marker fires again).
+#
+# What is NOT claimed automatable, stated plainly: real IME COMPOSITION (adb's `input text` sends
+# hardware key events, bypassing any IME) — that behaviour is pinned by fifteen headless engine
+# tests and a documented manual Gboard pass.
 
 on:
   workflow_dispatch:
@@ -29,7 +40,7 @@ jobs:
   gate:
     name: The Android host, driven on a device
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -39,7 +50,7 @@ jobs:
       - name: Install the Android workload
         run: dotnet workload install android --skip-manifest-update
 
-      - name: Build the APKs
+      - name: Build the APKs (and prove no desktop native rode along)
         run: |
           dotnet publish samples/AndroidViewer/AndroidViewer.csproj -c Release -r android-x64 -o out/x64
           dotnet publish samples/AndroidViewer/AndroidViewer.csproj -c Release -r android-arm64 -o out/arm64
@@ -47,6 +58,15 @@ jobs:
           for f in $(find out -name "*-Signed.apk"); do
             printf '%-8s %s bytes\n' "$(basename $(dirname $f))" "$(stat -c%s $f)" | tee -a $GITHUB_STEP_SUMMARY
           done
+          # The engine's props leak desktop native PACKAGES into the restore; this asserts the leak
+          # stays restore-only — no linux/win/osx native may enter an Android APK.
+          for f in $(find out -name "*-Signed.apk"); do
+            if unzip -l "$f" | grep -E "linux-x64|linux-arm64|win-x64|win-arm64|osx-x64|osx-arm64|runtimes/"; then
+              echo "::error::desktop native assets leaked into $f"
+              exit 1
+            fi
+          done
+          echo "APKs are clean of desktop natives"
 
       - name: Boot an emulator
         run: |
@@ -70,10 +90,11 @@ jobs:
           echo "ANDROID_AVD_HOME=$ANDROID_AVD_HOME" >> $GITHUB_ENV
           mkdir -p "$ANDROID_AVD_HOME"
           echo no | avdmanager create avd -n gate -k "system-images;android-34;google_apis;x86_64" --force
+          # PIN the geometry the tap arithmetic assumes: 1080x2340 @ 440 = the 393x851 dp space
+          # the layout was calibrated in headlessly.
+          printf 'hw.lcd.width=1080\nhw.lcd.height=2340\nhw.lcd.density=440\n' >> "$ANDROID_AVD_HOME/gate.avd/config.ini"
           emulator -list-avds | grep -qx gate
 
-          # SwiftShader GL: no GPU on the runner; still the real EGL/GRContext path — the same
-          # llvmpipe-class caveat every desktop gate carries.
           $SDK/emulator/emulator -avd gate -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect \
             -no-snapshot -camera-back none > emulator.log 2>&1 &
 
@@ -81,31 +102,82 @@ jobs:
           timeout 420 adb wait-for-device
           timeout 420 adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 2; done'
           adb shell getprop sys.boot_completed | grep -q 1
-          adb devices
+          adb shell wm size
+          adb shell wm density
 
-      # Phase 1 leg: install, launch, and PROVE a frame was painted.
-      - name: It installs, launches, and paints
+      - name: It installs, launches, and paints (Phase 1)
         run: |
           set -x
           adb logcat -c || true
           adb install -r out/x64/*-Signed.apk
-          # The activity's class name is crc-mangled; ask the package manager, never guess. And
-          # `am start` exits 0 while printing "Error:", so read the output, not the exit code.
           ACTIVITY=$(adb shell cmd package resolve-activity --brief com.cupriface.viewer | tail -1 | tr -d '\r')
-          echo "launcher activity: $ACTIVITY"
           adb shell am start -n "$ACTIVITY" 2>&1 | tee start.log
           ! grep -q "Error:" start.log
-
-          # Bounded poll for the marker — the app logs FIRST FRAME when a frame really rendered.
           for i in $(seq 1 30); do
             adb logcat -d -s cupri:I | grep -q "FIRST FRAME" && break
             sleep 2
           done
-          echo "### What the app reported" >> $GITHUB_STEP_SUMMARY
-          adb logcat -d -s cupri:I | tee -a $GITHUB_STEP_SUMMARY
           adb logcat -d -s cupri:I | grep -q "FIRST FRAME"
-          echo "--- crashes, if any (informational) ---"
-          adb logcat -d -s AndroidRuntime:E DEBUG:F | tail -30
+
+      - name: Touch, momentum, keyboard, rotation (Phase 7)
+        run: |
+          set -x
+          # dp → px against the DEVICE's reported density (pinned to 440 above, but read, not
+          # assumed — if the pin ever stops taking, the arithmetic still lands).
+          D=$(adb shell wm density | grep -oE '[0-9]+' | tail -1)
+          W=$(adb shell wm size | grep -oE '[0-9]+x[0-9]+' | cut -dx -f1)
+          H=$(adb shell wm size | grep -oE '[0-9]+x[0-9]+' | cut -dx -f2)
+          px() { echo $(( $1 * D / 160 )); }
+          DPW=$(( W * 160 / D )); DPH=$(( H * 160 / D ))
+          echo "device ${W}x${H} @ $D → ${DPW}x${DPH} dp"
+          # Calibrated dp anchors (MobileApp @ 393x851): nav row centres y=dp(H)-28, five equal
+          # fifths; Notifications switch centre (dpW-56, 99); Form's first field (dpW/2, 109).
+          nav() { adb shell input tap $(( W * (2 * $1 + 1) / 10 )) $(px $(( DPH - 28 ))); sleep 2; }
+
+          # --- tap = activation exactly once, on finger-up ---------------------------------------
+          nav 3   # Settings
+          adb shell input tap $(px $(( DPW - 56 ))) $(px 99)
+          sleep 2
+          adb shell input tap $(px $(( DPW - 56 ))) $(px 99)
+          sleep 2
+          adb logcat -d | grep "cupri-gate:" | tee gate-markers.txt
+          grep -q "toggle=True" gate-markers.txt
+          grep -q "toggle=False" gate-markers.txt
+          test "$(grep -c 'cupri-gate: toggle=' gate-markers.txt)" = "2"   # one activation PER TAP
+
+          # --- swipe flings with real momentum ---------------------------------------------------
+          nav 1   # List
+          adb shell input swipe $(( W / 2 )) $(px 500) $(( W / 2 )) $(px 150) 80
+          sleep 4  # let the momentum integrator run to a stop
+          adb logcat -d -s cupri:I | grep "fling settled" | tee fling.txt
+          SETTLED=$(grep -oE 'y=[0-9]+' fling.txt | tail -1 | cut -d= -f2)
+          echo "finger travelled 350dp; settled at ${SETTLED}dp"
+          test "$SETTLED" -gt 350   # travel beyond the finger's = the integrator really ran
+
+          # --- the soft keyboard follows focus ---------------------------------------------------
+          nav 2   # Form
+          adb shell input tap $(( W / 2 )) $(px 109)
+          sleep 3
+          adb shell dumpsys input_method | grep -E "mInputShown=true|isInputViewShown=true" | head -1
+          adb shell dumpsys input_method | grep -qE "mInputShown=true|isInputViewShown=true"
+          adb shell input keyevent 111 || adb shell input keyevent 4   # Escape (fallback Back) → blur
+          sleep 3
+          ! adb shell dumpsys input_method | grep -qE "mInputShown=true|isInputViewShown=true"
+
+          # --- rotation: relayout + the SAME dp arithmetic still lands ---------------------------
+          adb shell settings put system accelerometer_rotation 0
+          adb shell settings put system user_rotation 1
+          sleep 4
+          DPW2=$DPH; DPH2=$DPW   # landscape swaps the dp axes; px stays density-scaled
+          adb shell input tap $(( H * 7 / 10 )) $(px $(( DPH2 - 28 )))   # Settings nav (landscape)
+          sleep 2
+          adb shell input tap $(px $(( DPW2 - 56 ))) $(px 99)            # the switch, same dp anchor
+          sleep 2
+          adb logcat -d | grep -c "cupri-gate: toggle=" | grep -qx 3     # a third, post-rotation toggle
+          adb shell settings put system user_rotation 0
+
+          echo "### Gate assertions all green" >> $GITHUB_STEP_SUMMARY
+          adb logcat -d -s cupri:I | tail -20 >> $GITHUB_STEP_SUMMARY
 
       - uses: actions/upload-artifact@v4
         with:

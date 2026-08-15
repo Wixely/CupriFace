@@ -218,9 +218,27 @@ public sealed class AndroidHost : IDisposable
                 $"density {density}, scale {scale:F3})");
         }
 
+        // The CI gate's momentum observable: the frame after a fling dies, log where the scroller
+        // came to rest — settled travel beyond the finger's is the proof the integrator ran.
+        if (_wasFlinging && !_doc.FlingActive)
+        {
+            var y = MaxScrollOffset(_doc.Root);
+            Log($"fling settled y={y:F0}");
+        }
+        _wasFlinging = _doc.FlingActive;
+
         // Render-on-demand's other half: WHEN_DIRTY parks the GL thread after this frame, so an
         // active animation must chain the next one itself. Image arrivals ride the same check.
         if (_doc.HasActiveAnimations || _doc.ConsumeImageArrived()) MarkDirty();
+    }
+
+    private bool _wasFlinging;
+
+    private static float MaxScrollOffset(CupriFace.Dom.RenderNode n)
+    {
+        var best = n.IsScrollable ? n.ScrollY : 0f;
+        foreach (var c in n.Children) best = Math.Max(best, MaxScrollOffset(c));
+        return best;
     }
 
     /// <summary>The EGL surface was created (first show, or LOSS on background/foreground — routine
