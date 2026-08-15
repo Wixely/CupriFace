@@ -122,6 +122,8 @@ jobs:
       - name: Touch, momentum, keyboard, rotation (Phase 7)
         run: |
           set -x
+          # A failed assert must explain itself: dump the app's whole story before dying.
+          fail() { echo "::error::$1"; adb logcat -d -s cupri:I | tail -80; adb logcat -d | tail -40; exit 1; }
           # dp → px against the DEVICE's reported density (pinned to 440 above, but read, not
           # assumed — if the pin ever stops taking, the arithmetic still lands).
           D=$(adb shell wm density | grep -oE '[0-9]+' | tail -1)
@@ -140,29 +142,34 @@ jobs:
           sleep 2
           adb shell input tap $(px $(( DPW - 56 ))) $(px 99)
           sleep 2
-          adb logcat -d | grep "cupri-gate:" | tee gate-markers.txt
-          grep -q "toggle=True" gate-markers.txt
-          grep -q "toggle=False" gate-markers.txt
-          test "$(grep -c 'cupri-gate: toggle=' gate-markers.txt)" = "2"   # one activation PER TAP
+          # Markers arrive on the HOST's logcat tag: the host bridges Console -> logcat,
+          # because CoreCLR-Android has no stdout destination of its own.
+          adb logcat -d -s cupri:I | grep "cupri-gate:" | tee gate-markers.txt || true
+          grep -q "toggle=True" gate-markers.txt || fail "no toggle=True marker after the first tap"
+          grep -q "toggle=False" gate-markers.txt || fail "no toggle=False after the second tap"
+          N=$(grep -c 'cupri-gate: toggle=' gate-markers.txt)
+          test "$N" = "2" || fail "expected exactly 2 toggles (one activation per tap), got $N"
 
           # --- swipe flings with real momentum ---------------------------------------------------
           nav 1   # List
           adb shell input swipe $(( W / 2 )) $(px 500) $(( W / 2 )) $(px 150) 80
           sleep 4  # let the momentum integrator run to a stop
-          adb logcat -d -s cupri:I | grep "fling settled" | tee fling.txt
+          adb logcat -d -s cupri:I | grep "fling settled" | tee fling.txt || fail "no fling-settled marker"
           SETTLED=$(grep -oE 'y=[0-9]+' fling.txt | tail -1 | cut -d= -f2)
           echo "finger travelled 350dp; settled at ${SETTLED}dp"
-          test "$SETTLED" -gt 350   # travel beyond the finger's = the integrator really ran
+          test "$SETTLED" -gt 350 || fail "settled ${SETTLED}dp <= finger travel - no momentum"
 
           # --- the soft keyboard follows focus ---------------------------------------------------
           nav 2   # Form
           adb shell input tap $(( W / 2 )) $(px 109)
           sleep 3
-          adb shell dumpsys input_method | grep -E "mInputShown=true|isInputViewShown=true" | head -1
-          adb shell dumpsys input_method | grep -qE "mInputShown=true|isInputViewShown=true"
-          adb shell input keyevent 111 || adb shell input keyevent 4   # Escape (fallback Back) → blur
+          adb shell dumpsys input_method | grep -qE "mInputShown=true|isInputViewShown=true" \
+            || fail "soft keyboard did not appear on field focus"
+          adb shell input keyevent 111   # Escape -> the engine blurs the field
           sleep 3
-          ! adb shell dumpsys input_method | grep -qE "mInputShown=true|isInputViewShown=true"
+          if adb shell dumpsys input_method | grep -qE "mInputShown=true|isInputViewShown=true"; then
+            fail "soft keyboard did not hide on blur"
+          fi
 
           # --- rotation: relayout + the SAME dp arithmetic still lands ---------------------------
           adb shell settings put system accelerometer_rotation 0
@@ -173,7 +180,8 @@ jobs:
           sleep 2
           adb shell input tap $(px $(( DPW2 - 56 ))) $(px 99)            # the switch, same dp anchor
           sleep 2
-          adb logcat -d | grep -c "cupri-gate: toggle=" | grep -qx 3     # a third, post-rotation toggle
+          N=$(adb logcat -d -s cupri:I | grep -c 'cupri-gate: toggle=')
+          test "$N" = "3" || fail "post-rotation tap missed, toggles=$N (density/relayout mapping broke)"
           adb shell settings put system user_rotation 0
 
           echo "### Gate assertions all green" >> $GITHUB_STEP_SUMMARY
