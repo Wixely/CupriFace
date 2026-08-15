@@ -508,7 +508,10 @@ jobs:
           # cat kept serving the previous success.
           dump() {
             adb shell rm -f /sdcard/ui.xml
-            adb shell uiautomator dump /sdcard/ui.xml 1>&2
+            # `|| true` is load-bearing: the runner's default shell is bash -e, and an
+            # occasional "could not get idle state" (nonzero) must fall through to the CALLING
+            # loop's retry, not kill the whole step mid-function (run 26 died exactly there).
+            adb shell uiautomator dump /sdcard/ui.xml 1>&2 || true
             adb shell cat /sdcard/ui.xml 2>/dev/null || true
           }
           dump > /dev/null || true
@@ -563,8 +566,10 @@ jobs:
             dump > ui3.xml
             # What did the reader ACTUALLY see? The ledger keeps proving the published tree
             # right while dumps disagree — print each dump's device mtime and first texts so
-            # the failure names the tree the reader was served, not a guess about it.
-            adb shell ls -l /sdcard/ui.xml
+            # the failure names the tree the reader was served, not a guess about it. (ls is
+            # guarded: after a failed dump the file legitimately does not exist, and the
+            # runner's bash -e would turn the diagnostic itself into the killer.)
+            adb shell ls -l /sdcard/ui.xml || true
             echo "dump $i texts: $(grep -o 'text="[^"]*"' ui3.xml | head -8 | tr '\n' ' ')"
             grep -q 'text="Row 3 ' ui3.xml && break
             adb shell input swipe $(( OX + DPW * D / 320 )) $(( OY + 150 * D / 160 )) \
