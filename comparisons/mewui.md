@@ -14,7 +14,9 @@ churning APIs. Neither gets to play the maturity card against the other.
 
 *Version note: MewUI statements below were checked against the public repository
 and README in August 2026 (~635 stars, ~1.3k commits, "public API surface is
-still being stabilized").*
+still being stabilized"). CupriFace statements were re-checked against this
+repository in August 2026, after the Android host landed — which is where the
+two projects stopped being peers on reach, if not on binary size.*
 
 *Measurement note: CupriFace's NativeAOT numbers were produced while writing this
 document, not estimated —
@@ -34,13 +36,14 @@ README's published figures and were not independently reproduced.*
 | Rendering | SkiaSharp only, one path everywhere | **Pluggable**: Direct2D, GDI (Windows), MewVG (managed NanoVG port — GL on Win/Linux, Metal on macOS); SkiaSharp as an *extension* |
 | Desktop | Windows / macOS / Linux via Silk.NET | Windows 10+ / Linux X11 / macOS 12+, per-backend hosts |
 | Browser / WASM | **First-class**: same app class → `<canvas>`; 14.2 MB wasm (5.5 MB gzipped), measured | **None** — desktop only (WebView2 is an *embedded browser control*, the reverse direction) |
+| Mobile | **Android** — own host package, engine-level touch/fling/IME, TalkBack bridge, emulator-gated in CI | **None** — desktop only |
 | Deployment | NativeAOT works (`-p:Aot=true`): **23.3 MB** self-contained, no runtime install — but 5 files, not one | **The whole point**: single self-contained exe, Hello World **2.6–4.4 MB**, Gallery **5.6–7.4 MB** |
 | Native footprint | Skia (9.2 MB) + HarfBuzz (1.7 MB) + SDL/GLFW (1.8 MB) on win-x64, before any app code | Direct2D/GDI backends ride OS libraries — near-zero native payload |
 | AOT posture | Design goal, now **verified end-to-end** — the AOT Showcase renders and interacts correctly | **Non-negotiable design constraint**, validated continuously; `LibraryImport` source-generated P/Invoke |
 | Embedding | Core capability: `RenderToPixels` into any RGBA buffer (game texture, canvas, server) | Not a stated goal — the framework hosts the window |
-| Testing | **Headless-first**: engine needs no window; 270 tests click/type/pixel-assert | Conventional; no headless-first claim |
-| Accessibility | `role`/`aria-*` in every component; **Windows UIA bridge (CI-gated)**; real DOM a11y tree on the web host | Focus/tab navigation documented; no OS a11y bridge story |
-| Extras | Charts, kanban, command palette, pickers built in (~59 elements) | Thin core + **optional packages**: MewDock (VS-style docking), SVG, Skia, MewCharts, WebView2 |
+| Testing | **Headless-first**: engine needs no window; 369 tests click/type/fling/pixel-assert | Conventional; no headless-first claim |
+| Accessibility | `role`/`aria-*` in every component; **four bridges — UIA, AT-SPI, NSAccessibility, TalkBack — each CI-gated by a real AT client**; real DOM a11y tree on the web host | Focus/tab navigation documented; no OS a11y bridge story |
+| Extras | Charts, kanban, command palette, pickers built in (69 elements) | Thin core + **optional packages**: MewDock (VS-style docking), SVG, Skia, MewCharts, WebView2 |
 | Tooling | Plain text files, any editor; no designer | **Hot reload** and **Preview** documented — a real advantage |
 | Non-goals | JavaScript in the authoring model, ever | XAML compatibility, designer-first workflows, reflection binding, exhaustive control catalogue |
 | Maturity | Young, pre-1.0, API churning | Young, pre-1.0, API churning ("breaking changes can happen between minor releases") |
@@ -140,28 +143,35 @@ An honest list, and it is not short:
   WebView2 package points the other way (hosting a browser *inside* your app,
   Windows-only). If "desktop **and** web from one codebase" is on your list,
   this comparison ends here.
+- **Phones.** The same app class also runs on Android, with engine-level touch
+  (tap-on-release, momentum fling, long-press), a soft keyboard with real IME
+  composition, and a TalkBack bridge — proven every CI run by driving a real APK
+  on an emulator. MewUI is desktop-only by design. Both projects value small
+  binaries; only one of them is on a phone.
 - **CSS as the styling model.** A cascade with selectors, inheritance, variables,
   media queries and keyframe animations is a far more expressive theming system
   than typed setters plus state triggers — and it's a system your team, and the
   entire design world, already knows. Dark mode is a variable swap; responsive
   layout is a media query; restyling ships without a recompile.
 - **Headless-first testing.** The CupriFace engine doesn't know whether a window
-  exists, so UI behaviour is unit-testable: the repo's 270 tests build documents,
-  click and type into them, and assert on state and pixels — in CI, in
-  milliseconds, with no display. MewUI's window-owning design makes the same
-  coverage an end-to-end automation problem.
+  exists, so UI behaviour is unit-testable: the repo's 369 tests build documents,
+  click, type, fling and compose IME text into them, and assert on state and
+  pixels — in CI, in milliseconds, with no display. MewUI's window-owning design
+  makes the same coverage an end-to-end automation problem.
 - **Render-into-anything.** `RenderToPixels` fills any RGBA buffer — a game HUD,
   a texture in someone else's renderer, a server-side image. CupriFace is a
   library you call; MewUI is a framework that runs your app.
 - **Batteries for app UI.** Charts, tables with sort/select/resize, a command
-  palette, kanban with drag-and-drop, date/time/colour pickers — ~59 elements in
+  palette, kanban with drag-and-drop, date/time/colour pickers — 69 elements in
   the box, versus MewUI's deliberately thin core plus optional packages. (MewUI
   calls an exhaustive catalogue an explicit non-goal, so this is a difference in
   philosophy, not an oversight.)
-- **Accessibility semantics by construction.** Every `cupri-*` component carries
-  `role`/`aria-*`, and the web host mirrors them into a real DOM tree that screen
-  readers consume. Neither project has desktop OS a11y bridges, but CupriFace has
-  somewhere real for the semantics to go today.
+- **Accessibility that reaches an actual screen reader.** Every `cupri-*`
+  component carries `role`/`aria-*`, and that portable semantics tree is
+  bridged to UIA on Windows, AT-SPI on Linux, NSAccessibility on macOS and
+  TalkBack on Android — each with a blocking CI gate driven by a real AT client.
+  MewUI documents focus and tab navigation but has no OS bridge story, so on
+  this axis the two projects are no longer near-peers.
 - **Text depth.** HarfBuzz shaping — kerning, ligatures, Greek/Cyrillic/Arabic —
   comes standard, where a NanoVG-derived renderer typically stops at simpler
   text.
@@ -184,7 +194,8 @@ An honest list, and it is not short:
 
 **Choose CupriFace when:**
 
-- The same UI must run **on the desktop and in a browser** from one codebase.
+- The same UI must run **on the desktop, on an Android phone and in a browser**
+  from one codebase.
 - Your UI is designed in web terms and you want CSS itself — cascade, variables,
   media queries, keyframes — as the theming system, editable without a rebuild
   by people who don't write C#.

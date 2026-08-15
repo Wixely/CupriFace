@@ -9,7 +9,10 @@ gets drawn — they are about **how a UI is authored, what kind of software each
 project is, and where each one is willing to run**.
 
 *Version note: Avalonia statements below were checked against Avalonia 11.x
-(the current stable line as of early 2026).*
+(the current stable line as of early 2026). CupriFace statements were
+re-checked against this repository in August 2026, after the Android host
+landed. For the mobile-first version of this argument, see
+[maui.md](maui.md).*
 
 ## At a glance
 
@@ -21,15 +24,15 @@ project is, and where each one is willing to run**.
 | Behaviour | C# only — **no JavaScript, ever** (architectural principle) | C# only |
 | Rendering | SkiaSharp display list; damage-tracked incremental present; render-on-demand (0% CPU idle) | SkiaSharp through a retained visual tree + compositor |
 | Layout | Managed flexbox + CSS grid + block flow (pure C#, no native Yoga) | XAML panels (`Grid`, `StackPanel`, `DockPanel`, …) |
-| Text | HarfBuzz shaping (kerning, ligatures, Greek/Cyrillic/Arabic); mixed-direction text partial | Mature text stack; IME and `FlowDirection` support |
+| Text | HarfBuzz shaping (kerning, ligatures, Greek/Cyrillic/Arabic); **IME composition** on Android + both web hosts + desktop; mixed-direction text partial | Mature text stack; IME and `FlowDirection` support |
 | Desktop | Windows / macOS / Linux via Silk.NET (OpenGL window or SDL software fallback) | Windows / macOS / Linux, mature windowing (multi-window, dialogs, tray, native menus) |
 | Browser | First-class target: thin JS glue → `<canvas>`; whole app is one wasm file — **14.2 MB (5.5 MB gzipped), measured** on the experimental NativeAOT-LLVM host | Supported, but heavyweight: Mono runtime + framework in the browser, large payloads, slower startup |
-| Mobile | No | iOS + Android |
+| Mobile | **Android** — own host package, engine-level touch/fling/IME, TalkBack bridge, driven on an emulator by a blocking CI gate. **No iOS** | iOS **and** Android, both mature |
 | Embedding | Core capability: `RenderToPixels` / `Render(canvas)` into any RGBA surface — game texture, HTML canvas, server-side PNG | Possible but not the primary shape; the framework expects to own the window |
-| Control set | ~59 `<cupri-*>` elements (inputs, pickers, tables, charts, overlays, kanban, command palette, …) with `role`/`aria-*` baked in | Deep, mature control library + third-party vendors (DataGrid, virtualization for huge lists, docking, …) |
+| Control set | 69 `<cupri-*>` elements (inputs, pickers, tables, charts, overlays, kanban, command palette, …) with `role`/`aria-*` baked in | Deep, mature control library + third-party vendors (DataGrid, virtualization for huge lists, docking, …) |
 | Tooling | Files are plain HTML/CSS — any editor; no designer | IDE previewer, XAML hot reload, commercial dev tools |
-| Accessibility | Roles/ARIA in every component; **Windows UIA bridge** (Toggle/Invoke/RangeValue/focus, gated in CI by an automated UIA client); real DOM tree on web; no Linux/macOS bridge yet | OS bridges on all three desktops (UIA / AT-SPI / NSAccessibility), longer-proven |
-| Testing | **Headless-first**: the engine renders and takes input with no window; the repo's 270 tests click, type and pixel-assert real documents | Headless test platform exists; most testing is app-level/UI automation |
+| Accessibility | Roles/ARIA in every component; **four bridges — UIA, AT-SPI, NSAccessibility, TalkBack** — each gated in CI by a real AT client; real DOM tree on web | OS bridges on all three desktops (UIA / AT-SPI / NSAccessibility), longer-proven; mobile a11y inherited from native controls |
+| Testing | **Headless-first**: the engine renders and takes input with no window; the repo's 369 tests click, type, fling and pixel-assert real documents | Headless test platform exists; most testing is app-level/UI automation |
 | Dependencies | SkiaSharp, HarfBuzzSharp, Silk.NET, AngleSharp — all MIT, checked as a hard project rule | MIT framework; larger dependency and binary surface |
 | Maturity | Young, moving fast; a documented CSS *subset* | Years of production use, commercial backing (incl. paid WPF-compat line) |
 
@@ -103,11 +106,14 @@ That buys three things Avalonia is not shaped for:
    screenshot/PDF-ish pipeline, an existing SDL/GL loop you already own. The
    UI is a function you call, not a process you surrender control to.
 2. **Headless is not a special mode.** The engine doesn't know whether a
-   window exists. The repo's test suite (270 tests) constructs documents,
-   clicks and types into them, and asserts on state and pixels — in
-   milliseconds, in CI, with no display server. UI behaviour becomes as
-   testable as business logic, which changes how much UI you are willing to
-   cover with tests at all.
+   window exists. The repo's test suite (369 tests) constructs documents,
+   clicks, types, flings and composes IME text into them, and asserts on state
+   and pixels — in milliseconds, in CI, with no display server. UI behaviour
+   becomes as testable as business logic, which changes how much UI you are
+   willing to cover with tests at all. The Android work is the demonstration:
+   the phone sample's touch targets are calibrated headlessly at the emulator's
+   exact dp geometry, so a layout regression fails in seconds locally rather
+   than twenty minutes later on a device.
 3. **The web is a first-class citizen, cheaply.** The browser host is a
    `<canvas>`, ~200 lines of non-authored JS glue, and the same app class as
    the desktop. On the experimental NativeAOT-LLVM host the entire application
@@ -131,19 +137,26 @@ An honest list, because it's a long one and it decides real projects:
 - **Maturity and surface area.** Avalonia has years of production hardening,
   a deep control library, virtualization for very large lists, a `DataGrid`,
   docking layouts, third-party control vendors, and answers on Stack Overflow.
-  CupriFace's ~59 elements cover a lot of app UI, but the long tail is long.
-- **Mobile.** iOS and Android are real Avalonia targets. CupriFace has none.
+  CupriFace's 69 elements cover a lot of app UI, but the long tail is long.
+- **iOS.** Both projects now run on Android; only Avalonia runs on iPhones.
+  CupriFace's Android host is the template for an eventual iOS one, but nothing
+  is built.
+- **Mobile maturity.** Avalonia's mobile targets have years behind them, plus
+  the platform-integration surface a real app needs. CupriFace's Android host
+  is weeks old, renders the UI and handles touch/IME/TalkBack — and offers no
+  platform APIs at all (no sensors, permissions, pickers or notifications).
 - **Desktop-OS integration.** Multi-window, native menus, tray icons, system
   dialogs, drag-and-drop with the OS, per-monitor DPI — Avalonia has the
   mature story. CupriFace today is one window per app with a young shell.
-- **Accessibility bridges.** Avalonia surfaces UI Automation / AT-SPI /
-  NSAccessibility on all three desktops, with years of soak. CupriFace ships a
-  Windows UIA bridge (semantics tree, names, Toggle/Invoke/RangeValue/focus —
-  verified in CI by an automated UIA client on the same channel Narrator uses)
-  plus the real-DOM tree on the web host, but it is young (no Text pattern yet,
-  no human screen-reader pass), and Linux/macOS bridges are not built.
-- **Input depth.** IME composition, full bidirectional text — mature in
-  Avalonia; partial (bidi) or pending (web IME) in CupriFace.
+- **Accessibility maturity.** Both now cover the three desktops; CupriFace adds
+  TalkBack on Android, and each of its four bridges is gated in CI by a real AT
+  client (FlaUI, pyatspi, pyobjc, uiautomator). Avalonia's have years of soak
+  and real users behind them, where CupriFace's are young — no Text pattern for
+  editable fields yet, and no human screen-reader pass on record.
+- **Input depth.** Full bidirectional text is mature in Avalonia and only
+  partial here. (IME composition is no longer on this list: CupriFace grew a
+  real preedit model in the engine, wired to Android's InputConnection and both
+  web hosts.)
 - **Tooling and support.** IDE previewers, XAML hot reload, commercial
   support contracts, and a funded company behind it. CupriFace's "tooling" is
   that its inputs are plain text files.
@@ -154,8 +167,9 @@ An honest list, because it's a long one and it decides real projects:
 
 - Your team's UI fluency is HTML/CSS, and you want that skill — and your web
   design language — to transfer directly, with all behaviour in C#.
-- The same UI must run on desktop **and** in the browser without a browser
-  engine on desktop or a heavyweight payload on the web.
+- The same UI must run on desktop, on an Android phone **and** in the browser
+  without a browser engine on desktop or a heavyweight payload on the web —
+  and you want it to look identical on all of them.
 - You need to render UI *into* something: a game, an existing render loop, an
   offscreen buffer, a server.
 - You want UI logic under real automated test (headless, fast, in CI) rather
@@ -170,9 +184,10 @@ An honest list, because it's a long one and it decides real projects:
 - You are building a conventional, possibly large, desktop application and
   want the batteries: control depth, data grids, docking, multi-window,
   native OS integration.
-- You need iOS/Android from the same codebase.
-- Screen-reader support on **Linux or macOS** is a hard requirement today
-  (CupriFace covers Windows via UIA; the other two desktops have no bridge).
+- You need **iOS** from the same codebase, or a mobile app that needs the
+  platform's own APIs (sensors, permissions, pickers) rather than just a UI.
+- Screen-reader support has to be **proven by real users today**, not by
+  automated clients on four platforms — the bridges here are gated but young.
 - Your team is WPF-fluent, or you are porting a WPF codebase (Avalonia's
   commercial XPF line exists for exactly that).
 - You want commercial support and a mature ecosystem more than you want a

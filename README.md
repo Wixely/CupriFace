@@ -8,7 +8,7 @@ See **[DESIGN.md](DESIGN.md)** for the full architecture and goals, **[TOOLBOX.m
 the developer guide to the `cupri-*` elements (bind them to a C# model, style them, add your own),
 **[ROADMAP.md](ROADMAP.md)** for what's considered but not yet built, and
 **[comparisons/](comparisons/README.md)** for how CupriFace relates to other UI stacks
-(Avalonia, Electron, MewUI).
+(Avalonia, .NET MAUI, Electron, MewUI).
 
 ## Screenshots
 

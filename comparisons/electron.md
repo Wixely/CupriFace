@@ -19,7 +19,9 @@ is that trade worth making?**
 
 *Version note: Electron statements were checked in August 2026 against Electron
 41 (Chromium 146, Node 24 LTS), an 8-week major-release cadence, and a support
-policy covering the latest three stable majors.*
+policy covering the latest three stable majors. CupriFace statements were
+re-checked against this repository in August 2026, after the Android host
+landed.*
 
 ## At a glance
 
@@ -40,13 +42,14 @@ policy covering the latest three stable majors.*
 | Security cadence | Patch when you choose | **Track Electron's 8-week majors**; only latest 3 supported |
 | DevTools | None | **The best UI debugging tooling that exists** |
 | Ecosystem | .NET/NuGet; no UI component market | npm, React/Vue/Svelte/Tailwind — colossal |
-| Accessibility | ARIA roles built in; **Windows UIA bridge (CI-gated)**; real a11y tree on the web host; no Linux/macOS bridge | **Chromium's** — best-in-class on every platform |
-| Text / i18n | HarfBuzz shaping; bidi partial; **no IME yet** | Every script, every input method, flawless |
+| Accessibility | ARIA roles built in; **four bridges (UIA, AT-SPI, NSAccessibility, TalkBack), each CI-gated by a real AT client**; real a11y tree on the web host | **Chromium's** — best-in-class on every platform |
+| Text / i18n | HarfBuzz shaping; bidi partial; **IME composition** (engine preedit model → Android + both web hosts) | Every script, every input method, flawless |
 | Media | Images; charts drawn by the engine; **WebM video** (browser-decoded on web, VP9+Opus package on desktop) | Video incl. H.264/HEVC, WebRTC, WebGL, WebGPU, PDF, audio |
 | Rendering arbitrary web content | **Cannot** — by design | That's the entire point |
-| Testing | **Headless-first**: 270 tests click/type/pixel-assert, no display | Playwright/Spectron — real browser automation |
+| Testing | **Headless-first**: 369 tests click/type/fling/pixel-assert, no display | Playwright/Spectron — real browser automation |
 | Embedding | `RenderToPixels` into any RGBA buffer | Electron owns the process |
 | Web deployment | Same app → `<canvas>`, 14.2 MB wasm (5.5 MB gzipped) | It *is* web tech, but Electron itself is desktop-only |
+| Mobile | **Android** — same app class, ~20.9 MB APK (measured, arm64) | **None** — Electron is desktop-only; phones mean a different stack entirely |
 | Track record | Young, pre-1.0 | A decade; some of the most-used desktop software on earth |
 
 ## The one idea
@@ -150,22 +153,24 @@ This is the section that decides most projects, and it is long on purpose.
   in CupriFace that simply don't exist in Electron.
 - **The npm ecosystem.** React, Vue, Svelte, Tailwind, a component library for
   every problem, and an answer on Stack Overflow for everything. CupriFace has
-  ~59 built-in elements and NuGet. This gap is enormous and will not close.
+  69 built-in elements and NuGet. This gap is enormous and will not close.
 - **DevTools.** Element inspection, live style editing, the network panel, the
   profiler, breakpoints in your UI code. It is the single best UI development
   experience in software, and CupriFace has no equivalent — its answer is
   "render headlessly in a test and assert," which is genuinely good for
   regression safety and no help at all when you're eyeballing a layout.
-- **Accessibility on the desktop.** Chromium's a11y implementation is
-  world-class on every platform. CupriFace now has a Windows UIA bridge
-  (semantics tree, control patterns, focus — CI-gated by an automated UIA
-  client), but it is young — no Text pattern, no human screen-reader pass —
-  and macOS/Linux have no desktop bridge at all. If shipping to users who rely
-  on assistive technology on macOS or Linux is a requirement today, this alone
-  decides it.
-- **Text input at world scale.** IME composition for Chinese, Japanese and
-  Korean; full bidirectional text. Chromium handles all of it. CupriFace's bidi
-  is partial and web-host IME is not built.
+- **Accessibility maturity.** Chromium's a11y implementation is world-class on
+  every platform, with real users behind it. CupriFace now covers four —
+  UIA, AT-SPI, NSAccessibility and TalkBack — each gated in CI by a real AT
+  client, but they are young: no Text pattern for editable fields, and no
+  human screen-reader pass on record. The coverage gap has closed; the
+  soak-time gap has not.
+- **Text input at world scale.** Full bidirectional text, and IME behaviour
+  hardened against every input method in the world. CupriFace's bidi is
+  partial, and while it now has a real composition model (marked preedit,
+  code-point-aware editing, wired to Android's IME and both web hosts), its
+  CJK story rests on headless tests plus a documented manual Gboard pass —
+  not on a decade of users.
 - **Media.** Video playback, WebRTC, WebGL/WebGPU, PDF rendering, audio. If your
   app plays or captures media, Electron is not merely easier, it is the answer.
 - **Rendering web content.** If your product must display arbitrary websites or
@@ -208,6 +213,8 @@ For balance, because the "Electron is bloat" trope is lazier than the truth:
   automation.
 - You need the UI to **render into something you own** — a game, a render loop,
   an offscreen buffer.
+- The same UI has to reach **an Android phone** as well as the desktop and the
+  browser. Electron does not go there at all; a phone means a second stack.
 - Your UI is conventional application UI (forms, tables, charts, panels) that a
   CSS subset covers comfortably.
 
@@ -217,11 +224,12 @@ For balance, because the "Electron is bloat" trope is lazier than the truth:
   ecosystem is the dominant factor. This is the most common correct answer.
 - You need **web-platform capabilities**: video, WebRTC, WebGL/WebGPU, PDF, or
   rendering third-party web content.
-- **macOS or Linux desktop accessibility is a hard requirement today** (Windows
-  UIA exists, but it is young).
+- **Accessibility must be proven by real users today.** CupriFace's four
+  bridges are automated-client-gated but young; Chromium's are battle-tested.
 - You need full modern CSS with no subset caveats, or you depend on a specific
   npm UI ecosystem.
-- **CJK input, complex scripts and full bidi** are first-class requirements.
+- **CJK input, complex scripts and full bidi** are first-class requirements
+  (CupriFace has real IME composition now, but not Chromium's depth).
 - You want DevTools, a decade of production precedent, and a large hiring pool
   more than you want a small binary.
 
