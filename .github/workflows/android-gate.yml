@@ -179,13 +179,24 @@ jobs:
           # 250 ms, not 80: a too-short `input swipe` injects only DOWN+UP with no MOVE events,
           # so the gesture recognizer (correctly) sees a slop-bounded tap and nothing scrolls —
           # run 9's finding. 350dp over 250 ms is still ~1400 dp/s, far beyond the fling threshold.
-          adb shell input swipe $(( OX + DPW * D / 320 )) $(( OY + 500 * D / 160 )) \
-                                $(( OX + DPW * D / 320 )) $(( OY + 150 * D / 160 )) 250
+          # DELIVERY retries (run 16: the emulator dropped an entire swipe, as run 13 dropped a
+          # tap): retry the injection up to 3 times, break on the engine's own "fling started".
+          # The assert stays strict and SCALES — settled travel must beat every dp the finger
+          # actually put in across attempts.
+          TRIES=0
+          for i in 1 2 3; do
+            adb shell input swipe $(( OX + DPW * D / 320 )) $(( OY + 500 * D / 160 )) \
+                                  $(( OX + DPW * D / 320 )) $(( OY + 150 * D / 160 )) 250
+            TRIES=$i
+            sleep 1
+            adb logcat -d -s cupri:I | grep -q "fling started" && break
+          done
           sleep 4  # let the momentum integrator run to a stop
-          adb logcat -d -s cupri:I | grep "fling settled" | tee fling.txt || fail "no fling-settled marker"
+          adb logcat -d -s cupri:I | grep "fling settled" | tee fling.txt \
+            || fail "no fling-settled marker after $TRIES swipe(s)"
           SETTLED=$(grep -oE 'y=[0-9]+' fling.txt | tail -1 | cut -d= -f2)
-          echo "finger travelled 350dp; settled at ${SETTLED}dp"
-          test "$SETTLED" -gt 350 || fail "settled ${SETTLED}dp <= finger travel - no momentum"
+          echo "finger travelled $(( 350 * TRIES ))dp over $TRIES swipe(s); settled at ${SETTLED}dp"
+          test "$SETTLED" -gt $(( 350 * TRIES )) || fail "settled ${SETTLED}dp <= finger travel - no momentum"
 
           # --- the soft keyboard follows focus ---------------------------------------------------
           nav 2   # Form
@@ -261,21 +272,30 @@ jobs:
           tap() { adb shell input tap $(( OX + $1 * D / 160 )) $(( OY + $2 * D / 160 )); }
           tap $(( DPW * 3 / 10 )) $(( DPH - 28 ))   # nav 1: List
           sleep 2
-          # Deterministic start: two downward swipes clamp the list back to the top (wherever the
-          # Phase 7 fling left it), then dump — early rows must be exposed, distant ones not.
-          for i in 1 2; do
+          # Deterministic start, dump-first: the Phase 7 fling may have left the list anywhere
+          # (and injections can drop — runs 13/16) — swipe toward the top only while row 3
+          # isn't showing.
+          for i in 1 2 3 4; do
+            dump > ui3.xml
+            grep -q 'text="Row 3 ' ui3.xml && break
             adb shell input swipe $(( OX + DPW * D / 320 )) $(( OY + 150 * D / 160 )) \
                                   $(( OX + DPW * D / 320 )) $(( OY + 500 * D / 160 )) 250
             sleep 2
           done
-          dump > ui3.xml
           grep -q 'text="Row 3 ' ui3.xml || fail "row 3 not exposed at the top of the list"
           if grep -q 'text="Row 400 ' ui3.xml; then fail "row 400 exposed while 19000px away"; fi
-          # Fling down, let it settle, re-dump: the early rows must have LEFT the tree (scrolled
-          # out = virtualised away or clipped-not-visible — both are correct for a reader) and a
-          # later window arrived.
-          adb shell input swipe $(( OX + DPW * D / 320 )) $(( OY + 500 * D / 160 )) \
-                                $(( OX + DPW * D / 320 )) $(( OY + 150 * D / 160 )) 250
+          # Fling down (delivery-retried, breaking on the engine's own "fling started"), let it
+          # settle, re-dump: the early rows must have LEFT the tree (scrolled out = virtualised
+          # away or clipped-not-visible — both are correct for a reader) and a later window
+          # arrived.
+          BASE=$(adb logcat -d -s cupri:I | grep -c "fling started" || true)
+          for i in 1 2 3; do
+            adb shell input swipe $(( OX + DPW * D / 320 )) $(( OY + 500 * D / 160 )) \
+                                  $(( OX + DPW * D / 320 )) $(( OY + 150 * D / 160 )) 250
+            sleep 1
+            NOW=$(adb logcat -d -s cupri:I | grep -c "fling started" || true)
+            [ "$NOW" -gt "$BASE" ] && break
+          done
           sleep 4
           dump > ui4.xml
           if grep -q 'text="Row 3 ' ui4.xml; then fail "row 3 still exposed after a 700dp fling"; fi
