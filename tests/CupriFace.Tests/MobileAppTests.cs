@@ -114,6 +114,30 @@ public class MobileAppTests
     }
 
     [Fact]
+    public void The_gate_anchors_hold_in_phone_landscape_too()
+    {
+        // The CI gate's rotation leg taps (dpW-56, 99) — valid only while the phone layout stays
+        // full-width in landscape. The desktop courtesy cap is height-qualified precisely so it
+        // does NOT fire at 850x312 (run 11: the un-qualified cap pulled the switch to x≈528 while
+        // the gate tapped x=794). This pins the anchor headlessly at the emulator's landscape dp.
+        var app = new MobileApp();
+        var doc = app.CreateDocument();
+        using (doc)
+        {
+            using (doc.RenderToImage(850, 312)) { }
+            var tree = doc.BuildAccessibilityTree(850, 312);
+            Assert.True(doc.AccessibilityActivate(FindNamed(tree, "Settings")!.Path));
+            using (doc.RenderToImage(850, 312)) { }
+
+            tree = doc.BuildAccessibilityTree(850, 312);
+            var sw = FindNamed(tree, "Notifications") ?? throw new Xunit.Sdk.XunitException("no switch");
+            var (cx, cy) = (sw.Bounds.X + sw.Bounds.W / 2, sw.Bounds.Y + sw.Bounds.H / 2);
+            Assert.InRange(cx, 850 - 56 - 20, 850 - 56 + 20);
+            Assert.InRange(cy, 99 - 20, 99 + 20);
+        }
+    }
+
+    [Fact]
     public void The_showcase_still_builds_too()
     {
         // The other app the Android sample can push — a broken Showcase would fail the same gate.

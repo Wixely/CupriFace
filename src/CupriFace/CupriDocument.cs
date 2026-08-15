@@ -39,6 +39,7 @@ public sealed partial class CupriDocument : IDisposable
     private List<CssRule>? _cachedRules;    // parsed once (CSS is immutable) and reused every rebuild
     private Dictionary<string, List<Keyframe>>? _cachedKeyframes;
     private float _viewportWidth = 1024f;
+    private float _viewportHeight = 768f;
     // The last size laid out, and whether the CURRENT tree has been laid out at it. A rebuild/restyle
     // produces a fresh tree with no geometry; hosts lay out once per frame and then dispatch input, so
     // input arriving before that frame would hit-test a tree whose boxes are all zero — see EnsureLaidOut.
@@ -545,7 +546,7 @@ public sealed partial class CupriDocument : IDisposable
         _hoverChain.Clear();
         _activeChain.Clear();   // same reason as hover: the fresh DOM carries no data-active, and a
                                 // stale chain would hand ClearActive() dead elements on pointer-up
-        _root = new StyleResolver(_rules, _viewportWidth).BuildTree(dom);
+        _root = new StyleResolver(_rules, _viewportWidth, _viewportHeight).BuildTree(dom);
         _layoutDirty = true; // fresh tree: no geometry until the next layout
         RestoreScroll(scroll);
         _transitions.Detect(_root, _laidOutWidth, _laidOutHeight); // (re)start transitions whose target value changed this rebuild
@@ -875,10 +876,12 @@ public sealed partial class CupriDocument : IDisposable
     public DisplayList BuildFrame(float width, float height)
     {
         var t0 = Stopwatch.GetTimestamp();
-        // @media depends on viewport width — re-resolve styles when it changes.
-        if (_hasMedia && Math.Abs(width - _viewportWidth) > 0.5f)
+        // @media depends on the viewport size — re-resolve styles when either axis changes
+        // (height-qualified queries are how phone landscape and a desktop window are told apart).
+        if (_hasMedia && (Math.Abs(width - _viewportWidth) > 0.5f || Math.Abs(height - _viewportHeight) > 0.5f))
         {
             _viewportWidth = width;
+            _viewportHeight = height;
             Rebuild();
         }
         _layout.Layout(_root, width, height);
@@ -3547,7 +3550,7 @@ public sealed partial class CupriDocument : IDisposable
         // Restyle (hover/active) rebuilds the tree too, so preserve scroll offsets — otherwise any
         // mouse move over the page snaps a scrolled field back to the top.
         var scroll = CaptureScroll();
-        _root = new StyleResolver(_rules, _viewportWidth).BuildTree(_dom);
+        _root = new StyleResolver(_rules, _viewportWidth, _viewportHeight).BuildTree(_dom);
         _layoutDirty = true; // fresh tree: no geometry until the next layout
         RestoreScroll(scroll);
         _transitions.Detect(_root, _laidOutWidth, _laidOutHeight); // hover/focus/class change → (re)start any transitions that flipped

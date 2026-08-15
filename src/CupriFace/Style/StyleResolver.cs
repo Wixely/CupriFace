@@ -28,6 +28,7 @@ public sealed class StyleResolver
 
     private readonly SelectorIndex _index;
     private readonly float _viewportWidth;
+    private readonly float _viewportHeight;
 
     /// <summary>
     /// Rules bucketed by their rightmost-compound key. An element is only TESTED against the rules
@@ -76,10 +77,11 @@ public sealed class StyleResolver
     private static readonly Comparison<CssRule> Cascade =
         static (a, b) => a.Specificity != b.Specificity ? a.Specificity - b.Specificity : a.Order - b.Order;
 
-    public StyleResolver(List<CssRule> rules, float viewportWidth = 1024f)
+    public StyleResolver(List<CssRule> rules, float viewportWidth = 1024f, float viewportHeight = 768f)
     {
         _index = For(rules);
         _viewportWidth = viewportWidth;
+        _viewportHeight = viewportHeight;
     }
 
     public RenderNode BuildTree(IDocument document)
@@ -108,7 +110,7 @@ public sealed class StyleResolver
     {
         foreach (var rule in bucket)
         {
-            if (rule.Media is { } m && !m.Matches(_viewportWidth)) continue; // @media gate
+            if (rule.Media is { } m && !m.Matches(_viewportWidth, _viewportHeight)) continue; // @media gate
             if (rule.Compiled!.Match(el, null)) (matched ??= new List<CssRule>()).Add(rule);
         }
     }

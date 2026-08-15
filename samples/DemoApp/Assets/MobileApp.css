@@ -44,6 +44,8 @@ h1 { font-size:22px; color:var(--cupri-text); margin:4px 0 8px 0; }
 .nav-item.active { color:var(--cupri-accent); font-weight:bold; }
 .nav-item[data-active] { background:var(--cupri-hover); }
 
-/* Wide-window courtesy for the desktop dev loop: cap content width so the phone layout
-   doesn't stretch absurdly when the window is resized wide. */
-@media (min-width: 700px) { .page { max-width:560px; } }
+/* Wide-window courtesy for the desktop dev loop: cap content width so the phone layout doesn't
+   stretch absurdly when the window is resized wide. Height-qualified because a phone in LANDSCAPE
+   is wide but SHORT — it must keep the full-width rows (the CI gate's tap anchors assume them);
+   only a real desktop window is both wide and tall. */
+@media (min-width: 700px) and (min-height: 600px) { .page { max-width:560px; } }

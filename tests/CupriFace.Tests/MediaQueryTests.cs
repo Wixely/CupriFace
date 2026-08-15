@@ -29,4 +29,22 @@ public class MediaQueryTests
         doc.BuildFrame(900, 400);                             // …and back when it widens again
         Assert.Equal(190f, Find(doc.Root, "bar").Width, 1);
     }
+
+    [Fact]
+    public void A_height_qualified_query_tells_phone_landscape_from_a_desktop_window()
+    {
+        // Same wide viewport, different heights: only the tall (desktop-shaped) one may match.
+        const string css = "body{margin:0} .page{width:800px;height:50px}"
+                         + " @media (min-width:700px) and (min-height:600px){ .page{width:560px} }";
+        using var doc = CupriDocument.Load("<body><div class='page'>x</div></body>", css);
+
+        doc.BuildFrame(850, 312);                             // phone landscape: wide but short
+        Assert.Equal(800f, Find(doc.Root, "page").Width, 1);  // → the cap must NOT fire
+
+        doc.BuildFrame(850, 700);                             // desktop window: wide AND tall
+        Assert.Equal(560f, Find(doc.Root, "page").Width, 1);  // → the cap fires
+
+        doc.BuildFrame(850, 312);                             // rotate back → re-resolves on height alone
+        Assert.Equal(800f, Find(doc.Root, "page").Width, 1);
+    }
 }
