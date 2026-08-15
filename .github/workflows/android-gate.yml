@@ -124,23 +124,33 @@ jobs:
           set -x
           # A failed assert must explain itself: dump the app's whole story before dying.
           fail() { echo "::error::$1"; adb logcat -d -s cupri:I | tail -80; adb logcat -d | tail -40; exit 1; }
-          # dp → px against the DEVICE's reported density (pinned to 440 above, but read, not
-          # assumed — if the pin ever stops taking, the arithmetic still lands).
+          # Taps are computed in the APP VIEW's coordinate space, not the display's: the status
+          # bar sits ABOVE the view, so display-size arithmetic lands in system chrome (run 8's
+          # finding). The host publishes its view's screen origin + size on every layout; the
+          # gate re-reads the LAST line whenever geometry may have changed (startup, rotation).
           D=$(adb shell wm density | grep -oE '[0-9]+' | tail -1)
-          W=$(adb shell wm size | grep -oE '[0-9]+x[0-9]+' | cut -dx -f1)
-          H=$(adb shell wm size | grep -oE '[0-9]+x[0-9]+' | cut -dx -f2)
-          px() { echo $(( $1 * D / 160 )); }
-          DPW=$(( W * 160 / D )); DPH=$(( H * 160 / D ))
-          echo "device ${W}x${H} @ $D → ${DPW}x${DPH} dp"
-          # Calibrated dp anchors (MobileApp @ 393x851): nav row centres y=dp(H)-28, five equal
+          geom() {
+            LINE=$(adb logcat -d -s cupri:I | grep "view origin" | tail -1)
+            [ -n "$LINE" ] || fail "the host never published its view geometry"
+            OX=$(echo "$LINE" | grep -oE 'origin [0-9]+,[0-9]+' | grep -oE '[0-9]+' | head -1)
+            OY=$(echo "$LINE" | grep -oE 'origin [0-9]+,[0-9]+' | grep -oE '[0-9]+' | tail -1)
+            VW=$(echo "$LINE" | grep -oE 'size [0-9]+x[0-9]+' | grep -oE '[0-9]+' | head -1)
+            VH=$(echo "$LINE" | grep -oE 'size [0-9]+x[0-9]+' | grep -oE '[0-9]+' | tail -1)
+            DPW=$(( VW * 160 / D )); DPH=$(( VH * 160 / D ))
+            echo "view ${VW}x${VH} at ${OX},${OY} @ $D → ${DPW}x${DPH} dp"
+          }
+          # tap <dpX> <dpY>: view-dp → screen px.
+          tap() { adb shell input tap $(( OX + $1 * D / 160 )) $(( OY + $2 * D / 160 )); }
+          geom
+          # Calibrated dp anchors (MobileApp @ 393-wide): nav row centre y=dpH-28, five equal
           # fifths; Notifications switch centre (dpW-56, 99); Form's first field (dpW/2, 109).
-          nav() { adb shell input tap $(( W * (2 * $1 + 1) / 10 )) $(px $(( DPH - 28 ))); sleep 2; }
+          nav() { tap $(( DPW * (2 * $1 + 1) / 10 )) $(( DPH - 28 )); sleep 2; }
 
           # --- tap = activation exactly once, on finger-up ---------------------------------------
           nav 3   # Settings
-          adb shell input tap $(px $(( DPW - 56 ))) $(px 99)
+          tap $(( DPW - 56 )) 99
           sleep 2
-          adb shell input tap $(px $(( DPW - 56 ))) $(px 99)
+          tap $(( DPW - 56 )) 99
           sleep 2
           # Markers arrive on the HOST's logcat tag: the host bridges Console -> logcat,
           # because CoreCLR-Android has no stdout destination of its own.
@@ -152,7 +162,8 @@ jobs:
 
           # --- swipe flings with real momentum ---------------------------------------------------
           nav 1   # List
-          adb shell input swipe $(( W / 2 )) $(px 500) $(( W / 2 )) $(px 150) 80
+          adb shell input swipe $(( OX + DPW * D / 320 )) $(( OY + 500 * D / 160 )) \
+                                $(( OX + DPW * D / 320 )) $(( OY + 150 * D / 160 )) 80
           sleep 4  # let the momentum integrator run to a stop
           adb logcat -d -s cupri:I | grep "fling settled" | tee fling.txt || fail "no fling-settled marker"
           SETTLED=$(grep -oE 'y=[0-9]+' fling.txt | tail -1 | cut -d= -f2)
@@ -161,7 +172,7 @@ jobs:
 
           # --- the soft keyboard follows focus ---------------------------------------------------
           nav 2   # Form
-          adb shell input tap $(( W / 2 )) $(px 109)
+          tap $(( DPW / 2 )) 109
           sleep 3
           adb shell dumpsys input_method | grep -qE "mInputShown=true|isInputViewShown=true" \
             || fail "soft keyboard did not appear on field focus"
@@ -175,10 +186,9 @@ jobs:
           adb shell settings put system accelerometer_rotation 0
           adb shell settings put system user_rotation 1
           sleep 4
-          DPW2=$DPH; DPH2=$DPW   # landscape swaps the dp axes; px stays density-scaled
-          adb shell input tap $(( H * 7 / 10 )) $(px $(( DPH2 - 28 )))   # Settings nav (landscape)
-          sleep 2
-          adb shell input tap $(px $(( DPW2 - 56 ))) $(px 99)            # the switch, same dp anchor
+          geom     # the view re-laid-out: re-read its origin and size, same anchors apply
+          nav 3    # Settings (landscape)
+          tap $(( DPW - 56 )) 99
           sleep 2
           N=$(adb logcat -d -s cupri:I | grep -c 'cupri-gate: toggle=')
           test "$N" = "3" || fail "post-rotation tap missed, toggles=$N (density/relayout mapping broke)"

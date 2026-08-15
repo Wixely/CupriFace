@@ -43,6 +43,18 @@ public sealed class CupriHostView : SKGLSurfaceView
             _host.PaintFrame(e.Surface.Canvas, e.BackendRenderTarget.Width, e.BackendRenderTarget.Height, _density);
     }
 
+    /// <summary>Publish the view's SCREEN-SPACE geometry whenever layout places it — the status
+    /// bar sits above this view, so screen taps computed from the display size miss the app.
+    /// The CI gate parses this line and computes its taps in VIEW space instead.</summary>
+    protected override void OnLayout(bool changed, int left, int top, int right, int bottom)
+    {
+        base.OnLayout(changed, left, top, right, bottom);
+        var loc = new int[2];
+        GetLocationOnScreen(loc);
+        global::Android.Util.Log.Info(AndroidHost.Tag,
+            $"view origin {loc[0]},{loc[1]} size {Width}x{Height} density {_density}");
+    }
+
     /// <summary>Surface (re)created — first show, or EGL loss on background/foreground, which is
     /// ROUTINE on Android. The host must drop any retained-frame assumption.</summary>
     public override void SurfaceCreated(ISurfaceHolder? holder)
