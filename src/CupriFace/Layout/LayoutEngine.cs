@@ -209,6 +209,23 @@ public sealed class LayoutEngine
         // Scroll: remember the full children extent (ScrollY is preserved across layouts).
         node.ScrollContentHeight = !node.IsText && s.Overflow == OverflowMode.Scroll ? usedH : 0f;
 
+        // …and the same on the other axis, so a box whose content is WIDER than it is can scroll
+        // sideways. Measured from the children's own boxes rather than a flow total, because
+        // horizontal overflow is what a too-wide table or a row of cards produces, not a flow.
+        node.ScrollContentWidth = 0f;
+        if (!node.IsText && s.Overflow == OverflowMode.Scroll)
+        {
+            var right = 0f;
+            foreach (var child in node.Children)
+            {
+                if (child.Style.Display == DisplayType.None) continue;
+                if (child.Style.Position is PositionType.Fixed) continue;
+                right = MathF.Max(right, child.X + child.Width + child.MarginRight);
+            }
+            // Child X is relative to this node's border box; the content box starts after the inset.
+            node.ScrollContentWidth = MathF.Max(0, right - node.ContentLeftInset);
+        }
+
         // Absolutely-positioned children are placed against this node's content box.
         if (!node.IsText)
             LayoutAbsoluteChildren(node, contentW, contentH);

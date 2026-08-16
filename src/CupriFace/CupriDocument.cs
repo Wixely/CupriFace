@@ -1758,11 +1758,11 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>The structural path of the scroller a drag at (x, y) would move — captured once at
     /// gesture start so a fling can outlive the per-keystroke rebuild (paths survive; node
     /// references do not).</summary>
-    internal string? ScrollTargetAt(float x, float y)
+    internal string? ScrollTargetAt(float x, float y, bool horizontal = false)
     {
         EnsureLaidOut();
         for (var n = HitTesting.HitTest(_root, x, y); n is not null; n = n.Parent)
-            if (n.IsScrollable) return PathOf(n);
+            if (horizontal ? n.IsScrollableX : n.IsScrollable) return PathOf(n);
         return null;
     }
 
@@ -1784,11 +1784,12 @@ public sealed partial class CupriDocument : IDisposable
     /// <see cref="ScrollTargetAt"/>), at signed pixels/second (positive scrolls down). The
     /// integration happens in <see cref="Animate"/>; a fling deliberately does NOT chain to
     /// ancestor scrollers — momentum dies at the edge, as native platforms do.</summary>
-    public bool StartFling(string path, float pixelsPerSecond)
+    public bool StartFling(string path, float pixelsPerSecond, bool horizontal = false)
     {
         if (MathF.Abs(pixelsPerSecond) < FlingStopSpeed) return false;
         _flingPath = path;
         _flingV = pixelsPerSecond;
+        _flingHorizontal = horizontal;
         _flingT = double.NaN;
         return true;
     }
@@ -1800,6 +1801,8 @@ public sealed partial class CupriDocument : IDisposable
         _flingT = double.NaN;
     }
 
+    private bool _flingHorizontal;
+
     private bool StepFling(double now)
     {
         if (_flingPath is null) return false;
@@ -1809,12 +1812,22 @@ public sealed partial class CupriDocument : IDisposable
 
         _flingV *= (float)Math.Exp(-dt * FlingDecay);
         var n = NodeAtPath(_flingPath);
-        if (n is null || !n.IsScrollable) { StopFling(); return false; }
+        if (n is null || !(_flingHorizontal ? n.IsScrollableX : n.IsScrollable)) { StopFling(); return false; }
 
-        var before = n.ScrollY;
-        n.ScrollY = Math.Clamp(n.ScrollY + _flingV * (float)dt, 0, n.MaxScrollY);
-        var moved = Math.Abs(n.ScrollY - before) > 0.01f;
-        RewindowVirtual(n);                             // may rebuild; we hold a path, not the node
+        bool moved;
+        if (_flingHorizontal)
+        {
+            var beforeX = n.ScrollX;
+            n.ScrollX = Math.Clamp(n.ScrollX + _flingV * (float)dt, 0, n.MaxScrollX);
+            moved = Math.Abs(n.ScrollX - beforeX) > 0.01f;
+        }
+        else
+        {
+            var before = n.ScrollY;
+            n.ScrollY = Math.Clamp(n.ScrollY + _flingV * (float)dt, 0, n.MaxScrollY);
+            moved = Math.Abs(n.ScrollY - before) > 0.01f;
+            RewindowVirtual(n);                         // may rebuild; we hold a path, not the node
+        }
         if (!moved || MathF.Abs(_flingV) < FlingStopSpeed) StopFling();
         return moved;
     }
@@ -3484,24 +3497,47 @@ public sealed partial class CupriDocument : IDisposable
     }
 
     /// <summary>Scroll wheel: scroll the nearest scrollable element under the pointer by pixels.</summary>
-    public bool DispatchWheel(float x, float y, float pixelDelta) => Bump(DispatchWheelCore(x, y, pixelDelta));
-    private bool DispatchWheelCore(float x, float y, float pixelDelta)
+    public bool DispatchWheel(float x, float y, float pixelDelta) => Bump(DispatchWheelCore(x, y, pixelDelta, 0f));
+
+    /// <summary>Scroll under the pointer, on either axis. <paramref name="horizontalDelta"/> is
+    /// positive-right, matching the vertical convention (positive-down); a touch drag supplies both
+    /// so a box that overflows diagonally follows the finger.</summary>
+    public bool DispatchWheel(float x, float y, float pixelDelta, float horizontalDelta) =>
+        Bump(DispatchWheelCore(x, y, pixelDelta, horizontalDelta));
+
+    private bool DispatchWheelCore(float x, float y, float pixelDelta, float horizontalDelta)
     {
         EnsureLaidOut();
         if (_ctxOpen || _ctxCustomIndex >= 0) { _ctxOpen = false; _ctxCustomIndex = -1; Refresh(); } // scrolling dismisses the context menu
         var hit = HitTesting.HitTest(_root, x, y);
-        for (var n = hit; n is not null; n = n.Parent)
-        {
-            if (!n.IsScrollable) continue;
-            var before = n.ScrollY;
-            n.ScrollY = Math.Clamp(n.ScrollY + pixelDelta, 0, n.MaxScrollY);
-            if (RewindowVirtual(n)) return true;                 // a virtual list re-windowed (rebuilt)
-            if (Math.Abs(n.ScrollY - before) > 0.01f) return true;
-            // This scroller is already at its edge in that direction — chain to the next scrollable
-            // ancestor, as browsers do. Without this, a wheel over an inner scroller (a table with
-            // overflow:scroll) went dead once it hit bottom instead of scrolling the page.
-        }
-        return false;
+        var moved = false;
+
+        // The axes chain INDEPENDENTLY: the nearest ancestor that can move on each one takes that
+        // axis. A row of cards inside a vertically scrolling page is the ordinary case — the row
+        // takes the sideways part of a diagonal drag while the page takes the up-down part.
+        if (Math.Abs(horizontalDelta) > 0.01f)
+            for (var n = hit; n is not null; n = n.Parent)
+            {
+                if (!n.IsScrollableX) continue;
+                var before = n.ScrollX;
+                n.ScrollX = Math.Clamp(n.ScrollX + horizontalDelta, 0, n.MaxScrollX);
+                if (Math.Abs(n.ScrollX - before) > 0.01f) { moved = true; break; }
+                // At its edge: chain outward, as browsers do.
+            }
+
+        if (Math.Abs(pixelDelta) > 0.01f)
+            for (var n = hit; n is not null; n = n.Parent)
+            {
+                if (!n.IsScrollable) continue;
+                var before = n.ScrollY;
+                n.ScrollY = Math.Clamp(n.ScrollY + pixelDelta, 0, n.MaxScrollY);
+                if (RewindowVirtual(n)) return true;                 // a virtual list re-windowed (rebuilt)
+                if (Math.Abs(n.ScrollY - before) > 0.01f) { moved = true; break; }
+                // This scroller is already at its edge in that direction — chain to the next scrollable
+                // ancestor, as browsers do. Without this, a wheel over an inner scroller (a table with
+                // overflow:scroll) went dead once it hit bottom instead of scrolling the page.
+            }
+        return moved;
     }
 
     // A scrolled <cupri-virtual> list: once it has moved ~2 rows since its last window, record the offset and
