@@ -112,4 +112,41 @@ public class TextSelectionApiTests
         Assert.False(doc.SetComposingRegion(4, 4));
         Assert.False(doc.HasComposition);
     }
+
+    [Fact]
+    public void A_field_reports_the_web_platform_hints_it_was_authored_with()
+    {
+        // One authored vocabulary — inputmode / enterkeyhint / placeholder — consumed by Android's
+        // EditorInfo and by the web host alike. Inventing a second would only mean authors learning
+        // both.
+        using var t = new TestDoc(
+            "<body><cupri-textfield value=\"{{V}}\" inputmode=\"email\" enterkeyhint=\"send\" " +
+            "placeholder=\"you@example.com\"></cupri-textfield></body>",
+            "", new Holder(), components: true);
+        var f = t.FindRole("textbox");
+        t.Doc.DispatchClick(f.X + 10, f.Y + f.Height / 2);
+        t.Layout();
+
+        var s = t.Doc.GetTextInputState();
+        Assert.True(s.Focused);
+        Assert.Equal("email", s.InputMode);
+        Assert.Equal("send", s.EnterKeyHint);
+        Assert.Equal("you@example.com", s.Placeholder);
+    }
+
+    [Fact]
+    public void An_ime_edit_menu_reaches_the_same_clipboard_seam_as_everything_else()
+    {
+        // A paste from the keyboard's own menu, from our context menu, and from Ctrl+V must all
+        // take one path through the host — otherwise "paste" means three things on one platform.
+        using var t = new TestDoc("<body><cupri-textfield value=\"{{V}}\"></cupri-textfield></body>",
+                                  "", new Holder(), components: true);
+        var seen = new List<ContextCommand>();
+        t.Doc.ContextRequested += seen.Add;
+
+        t.Doc.RequestContextCommand(ContextCommand.Paste);
+        t.Doc.RequestContextCommand(ContextCommand.Copy);
+
+        Assert.Equal(new[] { ContextCommand.Paste, ContextCommand.Copy }, seen);
+    }
 }

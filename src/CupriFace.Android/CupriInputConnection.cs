@@ -167,6 +167,50 @@ internal sealed class CupriInputConnection(CupriHostView view, AndroidHost host)
 
     private int _batchDepth;
 
+    /// <summary>The IME's own edit menu — its select-all, cut, copy and paste. These route to the
+    /// SAME clipboard seam as the engine's context menu and the Ctrl chords, so all three agree
+    /// about what "paste" means on this platform.</summary>
+    public override bool PerformContextMenuAction(int id)
+    {
+        // The ids are android.R.id.*; the framework passes them straight through.
+        const int SelectAll = 0x0102001f, Cut = 0x01020020, Copy = 0x01020021, Paste = 0x01020022;
+        switch (id)
+        {
+            case SelectAll: host.OnGlThread(() => host.Ime(d => d.DispatchKey(null, EditKey.SelectAll))); return true;
+            case Cut: host.OnGlThread(() => host.ContextCommandFromIme(ContextCommand.Cut)); return true;
+            case Copy: host.OnGlThread(() => host.ContextCommandFromIme(ContextCommand.Copy)); return true;
+            case Paste: host.OnGlThread(() => host.ContextCommandFromIme(ContextCommand.Paste)); return true;
+            default: return false;
+        }
+    }
+
+    /// <summary>The editor mirrored for an IME that renders its own copy — landscape "extract
+    /// mode", and the several keyboards that track the full text this way rather than by asking
+    /// around the cursor. Answered from the same post-frame snapshot as every other read.</summary>
+    public override ExtractedText? GetExtractedText(ExtractedTextRequest? request, GetTextFlags flags)
+    {
+        var state = State;
+        if (!state.Focused) return null;
+
+        // Monitoring: the IME asks once and expects to be TOLD about later changes. The bit is
+        // GET_EXTRACTED_TEXT_MONITOR (1) — which the managed enum only spells as WithStyles, since
+        // the platform reuses the value 1 for a different meaning on the get-text calls. Tested
+        // numerically rather than pretending the enum name fits.
+        if (((int)flags & 1) != 0) view.StartExtractMonitoring(request?.Token ?? 0);
+
+        var text = state.Value ?? "";
+        return new ExtractedText
+        {
+            Text = new Java.Lang.String(text),
+            StartOffset = 0,
+            SelectionStart = System.Math.Clamp(state.SelStart, 0, text.Length),
+            SelectionEnd = System.Math.Clamp(state.SelEnd, 0, text.Length),
+            PartialStartOffset = -1,
+            PartialEndOffset = -1,
+            Flags = state.Multiline ? 0 : ExtractedTextFlags.SingleLine,
+        };
+    }
+
     // ---- synchronous questions (answered from the post-frame snapshot) ------------------------
 
     public override ICharSequence? GetTextBeforeCursorFormatted(int length, GetTextFlags flags)

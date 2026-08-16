@@ -32,4 +32,18 @@ public readonly record struct TextInputState(
     int SelStart,
     int SelEnd,
     bool Composing,
-    (float X, float Y, float W, float H)? CaretRect);
+    (float X, float Y, float W, float H)? CaretRect,
+
+    /// <summary>The web platform's <c>inputmode</c>, authored on the field: text, decimal, numeric,
+    /// tel, search, email, url. One attribute, consumed by Android's EditorInfo and by the web
+    /// host's own inputmode — the vocabulary already exists, so inventing another would only mean
+    /// authors learning two.</summary>
+    string InputMode = "",
+
+    /// <summary>The web platform's <c>enterkeyhint</c>: enter, done, go, next, previous, search,
+    /// send. What the keyboard's action key should say and mean.</summary>
+    string EnterKeyHint = "",
+
+    /// <summary>The field's placeholder. A keyboard shows it while editing in extract mode, where
+    /// the app's own rendering is not on screen at all.</summary>
+    string Placeholder = "");
