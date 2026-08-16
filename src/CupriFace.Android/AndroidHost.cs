@@ -89,6 +89,7 @@ public sealed class AndroidHost : IDisposable
         }
         var t0 = _clock.Elapsed.TotalMilliseconds;
         _doc = app.CreateDocument();                     // the SAME call desktop and web make
+        _doc.InputProfile = InputProfile.Touch;          // a finger: coarse, and nothing hovers
         configure?.Invoke(_doc);                         // host-composition hook (DesktopHost parity)
         Log($"document built in {_clock.Elapsed.TotalMilliseconds - t0:F0} ms");
         _touch = new TouchInput(_doc);
@@ -182,6 +183,7 @@ public sealed class AndroidHost : IDisposable
         var old = _doc;
         _app = next;
         _doc = next.CreateDocument();
+        _doc.InputProfile = InputProfile.Touch;
         _configure?.Invoke(_doc);
         WireDocument(_doc);
         _touch = new TouchInput(_doc);
@@ -370,6 +372,37 @@ public sealed class AndroidHost : IDisposable
     // The engine's gesture recognizer (the _touch field above): tap-vs-scroll slop, fling,
     // long-press context menu, double-tap escalation — and, structurally, no hover. Timestamps
     // come from MotionEvent's uptime clock; long-press fires via a UI-thread timer queueing Tick.
+    // Pointer routing. An element that opted into raw pointers (doc.OnPointer) CAPTURES the finger
+    // that landed on it; the single-pointer recognizer below never sees that finger, which is what
+    // keeps a two-finger pinch from also scrolling the page under it. Everything not captured
+    // behaves exactly as before, and the recognizer only ever tracks the primary pointer.
+    private int _primaryPointer = -1;
+
+    internal void PointerDown(int id, float x, float y, double t)
+    {
+        var (lx, ly) = (x / InputScale(), y / InputScale());
+        if (_doc.DispatchPointer(id, PointerPhase.Down, lx, ly)) { MarkDirty(); return; }
+        if (_primaryPointer >= 0) return;                       // a second finger the app didn't want
+        _primaryPointer = id;
+        if (_touch.Down(lx, ly, t)) MarkDirty();
+    }
+
+    internal void PointerMove(int id, float x, float y, double t)
+    {
+        var (lx, ly) = (x / InputScale(), y / InputScale());
+        if (_doc.IsPointerCaptured(id)) { if (_doc.DispatchPointer(id, PointerPhase.Move, lx, ly)) MarkDirty(); return; }
+        if (id == _primaryPointer && _touch.Move(lx, ly, t)) MarkDirty();
+    }
+
+    internal void PointerUp(int id, float x, float y, double t)
+    {
+        var (lx, ly) = (x / InputScale(), y / InputScale());
+        if (_doc.IsPointerCaptured(id)) { if (_doc.DispatchPointer(id, PointerPhase.Up, lx, ly)) MarkDirty(); return; }
+        if (id != _primaryPointer) return;
+        _primaryPointer = -1;
+        TouchUp(x, y, t);
+    }
+
     internal void TouchDown(float x, float y, double t) { if (_touch.Down(x / InputScale(), y / InputScale(), t)) MarkDirty(); }
     internal void TouchMove(float x, float y, double t) { if (_touch.Move(x / InputScale(), y / InputScale(), t)) MarkDirty(); }
     internal void TouchUp(float x, float y, double t)
@@ -380,7 +413,12 @@ public sealed class AndroidHost : IDisposable
         // a flaky injector delivered before one carried a fling.
         if (_doc.FlingActive) Log($"fling started y={MaxScrollOffset(_doc.Root):F0}");
     }
-    internal void TouchCancel(double t) { if (_touch.Cancel(t)) MarkDirty(); }
+    internal void TouchCancel(double t)
+    {
+        _primaryPointer = -1;
+        _doc.CancelPointers();                                  // half-finished gestures unwind
+        if (_touch.Cancel(t)) MarkDirty();
+    }
     internal void TouchTick(double t) { if (_touch.Tick(t)) MarkDirty(); }
 
     internal void Key(EditKey key, KeyMods mods = KeyMods.None)

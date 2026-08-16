@@ -820,6 +820,84 @@ the built‑ins use), rather than reinventing input handling:
 
 ---
 
+## 8.1 Touch, multi-touch, and what kind of device you're on
+
+### Two ways an app can differ per device
+
+CupriFace does **not** have a "mobile mode". Platform is the wrong axis: a Windows tablet is a
+desktop OS with a coarse pointer and no hover, a laptop with a touchscreen is both at once, and a
+docked phone with a mouse is a fine pointer on a mobile OS. What actually varies is **capability**,
+so that is what the engine reports.
+
+The host sets `doc.InputProfile` (`InputProfile.Desktop` or `InputProfile.Touch`; apps may override
+it), and the engine puts it on the body as classes. That's all it does with it:
+
+| Class | When |
+|---|---|
+| `cupri-fine` / `cupri-coarse` | a mouse or trackpad / a finger |
+| `cupri-nohover` | there is no hover state to read |
+
+So adapting is ordinary CSS, with no new syntax to learn and nothing to switch on in C#:
+
+```css
+.stepper-arrows            { display: flex; }
+.cupri-coarse .stepper-arrows { display: none; }   /* too small to hit with a thumb */
+.cupri-nohover .tooltip-hint  { display: none; }   /* nothing will ever hover it */
+```
+
+This works identically in an app's stylesheet and inside a component's own `DefaultCss`. There is
+deliberately no `@media (pointer: coarse)`: it would mean teaching the CSS parser a new shape to
+reach exactly what the cascade already does with a class.
+
+### Multi-touch: `doc.OnPointer`
+
+The engine's own gestures — tap, scroll, fling, long-press, and the drag surfaces on sliders,
+scrollbars, split panes and reorder lists — are **single-pointer by design**, and the built-in
+`cupri-*` elements stay that way so they keep their keyboard and screen-reader behaviour.
+
+Everything else is yours. `OnPointer` hands you raw pointers, and what a second finger means is
+your decision:
+
+```csharp
+doc.OnPointer("data-gesture", e =>
+{
+    if (e.Pointers.Count < 2) return true;          // true = I want this pointer
+    var span = Distance(e.Pointers[0], e.Pointers[1]);
+    if (e.Phase == PointerPhase.Down) _start = span;
+    else _model.Scale = span / _start;
+    return true;
+});
+```
+
+```html
+<div class="photo" data-gesture="pinch">…</div>
+```
+
+- **The attribute is the opt-in** — nothing becomes multi-touch by accident.
+- **A pointer is captured on down and stays with that element** until it lifts. While it is captured
+  the ordinary recognizer never sees it, which is what stops a pinch from also scrolling the page
+  underneath. (This is why there is no `touch-action` equivalent: capture already solves it.)
+- **Returning `false` on `Down` declines** the pointer, and it falls through to the normal gesture
+  path as though you weren't there — useful when only a *second* finger is interesting.
+- `e.Pointers` is every pointer that element currently holds, so pinch/rotate arithmetic is a
+  two-line job. The engine computes no gesture for you: guessing what fingers mean would be worse
+  than not guessing.
+- `Cancel` arrives when the app is backgrounded or the surface goes away — unwind there.
+
+### Accessibility: where the line is
+
+CupriFace is an engine, not a nanny. **Anything you build with `OnPointer` is yours to make
+accessible, or not.** A pinch has no keyboard equivalent and no screen-reader affordance unless you
+write one, and the engine will not stop you shipping a gesture-only control.
+
+What the project *does* guarantee is that the **built-in `cupri-*` elements stay accessible** —
+roles, states, keyboard operation and the semantics tree behind the four platform bridges. That is
+a large part of what they're for. If you replace one with a custom gesture-driven control, you have
+taken that on.
+
+If you want both, the usual approach is to keep the built-in control as the reachable path and
+treat the gesture as an accelerator on top of it, rather than as the only way in.
+
 ## 9. Where to look in the repo
 
 - Core engine & document API: [src/CupriFace/CupriDocument.cs](src/CupriFace/CupriDocument.cs)
@@ -830,8 +908,9 @@ the built‑ins use), rather than reinventing input handling:
 - Desktop host: [src/CupriFace.Shell/DesktopHost.cs](src/CupriFace.Shell/DesktopHost.cs)
 - Android host: [src/CupriFace.Android/](src/CupriFace.Android/) (`CupriActivity`,
   `CupriHostView`, `AndroidHost`, the TalkBack bridge)
-- Touch & IME (portable, engine-side): [src/CupriFace/Interaction/](src/CupriFace/Interaction/)
-  (`TouchInput` gesture recognizer, `TextInputState`)
+- Touch, multi-touch & IME (portable, engine-side):
+  [src/CupriFace/Interaction/](src/CupriFace/Interaction/) — `TouchInput` (the single-pointer
+  gesture recognizer), `MultiPointerEvent` (the `OnPointer` seam), `InputProfile`, `TextInputState`
 - Accessibility: the portable semantics tree is
   [src/CupriFace/Accessibility/](src/CupriFace/Accessibility/); the per-OS bridges that serve it
   to screen readers live in [src/CupriFace.Shell/Accessibility/](src/CupriFace.Shell/Accessibility/)

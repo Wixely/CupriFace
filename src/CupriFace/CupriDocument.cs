@@ -548,6 +548,7 @@ public sealed partial class CupriDocument : IDisposable
         }
         _rules = _cachedRules;
         _keyframes = _cachedKeyframes!;
+        ApplyInputProfile(dom);
         Mark("parse-css");
 
         ApplyValidation(dom); // inject inline error messages before the tree is built
@@ -608,6 +609,35 @@ public sealed partial class CupriDocument : IDisposable
         }
         Walk(_root);
         return map;
+    }
+
+    /// <summary>What kind of input this app is being driven by. Hosts set it (a phone is coarse and
+    /// hoverless, a desktop window is fine and hovers); apps may override it. The engine's only job
+    /// is to put it on the body as classes, so ordinary CSS can respond:
+    /// <c>cupri-coarse</c>/<c>cupri-fine</c> and <c>cupri-nohover</c>.
+    ///
+    /// Deliberately NOT a media feature. `@media (pointer: coarse)` would mean teaching the CSS
+    /// parser a discrete-keyword shape it does not have (it matches numeric px lengths), to reach
+    /// exactly what the cascade already does with a class — and a class works identically for app
+    /// stylesheets and for a component's own DefaultCss.</summary>
+    public InputProfile InputProfile
+    {
+        get => _inputProfile;
+        set
+        {
+            if (_inputProfile == value) return;
+            _inputProfile = value;
+            if (_dom is not null) { ApplyInputProfile(_dom); Refresh(); }
+        }
+    }
+    private InputProfile _inputProfile = InputProfile.Desktop;
+
+    private void ApplyInputProfile(AngleSharp.Dom.IDocument dom)
+    {
+        if (dom.Body is not { } body) return;
+        body.ClassList.Remove("cupri-coarse", "cupri-fine", "cupri-nohover");
+        body.ClassList.Add(_inputProfile.CoarsePointer ? "cupri-coarse" : "cupri-fine");
+        if (!_inputProfile.Hover) body.ClassList.Add("cupri-nohover");
     }
 
     private void RestoreScroll(Dictionary<string, NodeState>? map)
