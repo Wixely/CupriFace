@@ -592,8 +592,19 @@ public sealed class LayoutEngine
                     else            LayoutNode(item, contentW, contentH, cross, main);
                 }
 
+            // The size an item ENDED UP with, which is not always the size it was given: min-width /
+            // max-width (and an intrinsic floor) clamp it in LayoutNode. Advancing the pen by the
+            // distributed size instead let a clamped item overlap the next one — six 150px cards in
+            // a 300px row were laid out 50px apart, drawn on top of each other, and the row reported
+            // a content extent of 400px instead of 900px.
+            float MainOf(RenderNode it, int idx)
+            {
+                var actual = horizontal ? it.Width : it.Height;
+                return actual > 0 ? actual : finalMain[idx - start];
+            }
+
             var totalMain = gap * MathF.Max(0, count - 1);
-            for (var i = start; i < end; i++) totalMain += finalMain[i - start] + mainMargin[i];
+            for (var i = start; i < end; i++) totalMain += MainOf(items[i], i) + mainMargin[i];
             var (lineStartPos, between) = Justify(s.JustifyContent, lineMainSize - totalMain, gap, count);
 
             var cursor = lineStartPos;
@@ -619,7 +630,7 @@ public sealed class LayoutEngine
                     item.X = insetL + crossCursor + crossPos + item.MarginLeft;
                 }
                 if (item.Style.Position == PositionType.Relative) ApplyRelativeOffset(item, contentW, contentH);
-                cursor += finalMain[i - start] + mainMargin[i] + between;
+                cursor += MainOf(item, i) + mainMargin[i] + between;
             }
 
             maxMainExtent = MathF.Max(maxMainExtent, totalMain);
