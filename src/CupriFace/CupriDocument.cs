@@ -1579,6 +1579,23 @@ public sealed partial class CupriDocument : IDisposable
         return true;
     }
 
+    /// <summary>Write text into the field at <paramref name="path"/> — what an autofill service
+    /// does when it fills a username and password. Goes through the SAME binding a keystroke would,
+    /// so validation, formatting and change notification all behave as though a person typed it.
+    /// Returns false when the path is not a bound field.</summary>
+    public bool AccessibilitySetText(string path, string text) => Bump(AccessibilitySetTextCore(path, text));
+
+    private bool AccessibilitySetTextCore(string path, string text)
+    {
+        EnsureLaidOut();
+        if (NodeAtPath(path)?.Element is not { } el) return false;
+        if (el.GetAttribute("data-bind-value") is not { Length: > 0 } bind) return false;
+        if (_model is null) return false;
+        if (!BindingEngine.TrySet(_model, bind, text)) return false;
+        Refresh();
+        return true;
+    }
+
     /// <summary>Set a slider's value directly — UIA RangeValue.SetValue. Clamps to min/max and writes
     /// through the same binding a drag would, rounded the way a drag rounds.</summary>
     public bool AccessibilitySetValue(string path, double value) => Bump(AccessibilitySetValueCore(path, value));

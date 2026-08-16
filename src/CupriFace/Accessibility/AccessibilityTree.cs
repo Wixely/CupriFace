@@ -44,6 +44,13 @@ public sealed class AccessibilityNode
     /// <summary>Stable author-provided handle for AT clients: the element <c>id</c>, falling back to
     /// the binding path (<c>data-bind-value</c>/<c>data-bind-checked</c>). Null when anonymous.</summary>
     public string? AutomationId;
+
+    /// <summary>The web platform's <c>autocomplete</c> token — <c>username</c>,
+    /// <c>current-password</c>, <c>email</c>, <c>tel</c>, <c>name</c>, <c>postal-code</c>… What a
+    /// password manager needs in order to know WHAT to fill. Null when the author didn't say, in
+    /// which case nothing is offered: guessing a field is a password would be a security bug, not
+    /// a convenience.</summary>
+    public string? AutofillHint;
 }
 
 /// <summary>Builds the semantics tree from a laid-out render tree.</summary>
@@ -102,6 +109,7 @@ public static class AccessibilityTree
                 Focused = focused is not null && ReferenceEquals(render, focused),
                 Disabled = IsDisabled(el),
                 AutomationId = FirstAttr(el, "id", "data-bind-value", "data-bind-checked"),
+                AutofillHint = AutofillHintFor(el),
                 Offscreen = !Intersects(clip, ax, ay, render.Width, render.Height),
             };
             ApplyValues(sem, render, el, role);
@@ -172,6 +180,21 @@ public static class AccessibilityTree
         }
         Walk(render);
         return r > l && b > t ? (l, t, r - l, b - t) : (ax, ay, render.Width, render.Height);
+    }
+
+    /// <summary>The author's <c>autocomplete</c>, found on the element or on the custom element it
+    /// came from. A component expands into inner markup — the <c>role="textbox"</c> ends up on a
+    /// child of <c>&lt;cupri-password&gt;</c>, while the attribute the author wrote stays on the
+    /// custom element — so looking only at the node itself finds the hint on a plain field and
+    /// misses it on every component, which is precisely the wrong half.</summary>
+    private static string? AutofillHintFor(IElement el)
+    {
+        for (var e = el; e is not null; e = e.ParentElement)
+        {
+            if (e.GetAttribute("autocomplete") is { Length: > 0 } hint) return hint;
+            if (e.LocalName is "body" or "form") break;      // don't inherit across the whole page
+        }
+        return null;
     }
 
     private static string? FirstAttr(IElement el, params string[] names)

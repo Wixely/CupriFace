@@ -454,6 +454,15 @@ public sealed class AndroidHost : IDisposable
         if (action(_doc)) MarkDirty();
     }
 
+    /// <summary>A semantics tree for the autofill structure, built on demand. Autofill asks on the
+    /// UI thread and cannot wait for a frame, so this reads the document directly — safe because it
+    /// only READS, and a torn read costs at worst one stale rectangle in a fill dialog.</summary>
+    internal Accessibility.AccessibilityNode BuildSemanticsForAutofill()
+    {
+        var s = _snapshot;
+        return _doc.BuildAccessibilityTree(s?.LogicalWidth ?? 400, s?.LogicalHeight ?? 800);
+    }
+
     /// <summary>Route an IME's own edit-menu action through the SAME clipboard seam the engine's
     /// context menu and the Ctrl chords use, so the three cannot disagree about this platform.</summary>
     internal void ContextCommandFromIme(ContextCommand command) => _doc.RequestContextCommand(command);

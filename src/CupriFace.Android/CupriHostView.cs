@@ -2,6 +2,7 @@ using Android.Content;
 using Android.Opengl;
 using Android.Text;
 using Android.Views;
+using Android.Views.Autofill;
 using Android.Views.InputMethods;
 using CupriFace.Interaction;
 using SkiaSharp.Views.Android;
@@ -34,6 +35,7 @@ public sealed class CupriHostView : SKGLSurfaceView
         // when the field KIND changes (numeric -> text swaps the keyboard layout).
         host.TextInputChanged += OnTextInputChanged;
         host.SelectionChanged += OnSelectionChanged;
+        host.TextInputChanged += NotifyAutofillFocus;
 
         // WHEN_DIRTY parks the GL thread between frames; RequestRender wakes it. Everything the
         // engine's render-on-demand model needs — Dispatch* returns and HasActiveAnimations —
@@ -61,6 +63,36 @@ public sealed class CupriHostView : SKGLSurfaceView
         _talkBack?.SetViewOrigin(loc[0], loc[1]);        // a11y bounds are SCREEN rects
         global::Android.Util.Log.Info(AndroidHost.Tag,
             $"view origin {loc[0]},{loc[1]} size {Width}x{Height} density {_density}");
+    }
+
+    // ---- autofill -------------------------------------------------------------------------------
+
+    private AutofillBridge? _autofill;
+
+    /// <summary>Describe our fields to an autofill service. Android sees one opaque GL surface, so
+    /// without a virtual structure a password manager has nothing to fill — the same reason
+    /// TalkBack needs a node provider.</summary>
+    public override void OnProvideAutofillVirtualStructure(ViewStructure? structure, AutofillFlags flags)
+    {
+        base.OnProvideAutofillVirtualStructure(structure, flags);
+        if (structure is null) return;
+        (_autofill ??= new AutofillBridge(this, _host)).ProvideStructure(structure);
+    }
+
+    /// <summary>A service filled something. Values land through the ordinary binding.</summary>
+    public override void Autofill(global::Android.Util.SparseArray values)
+    {
+        (_autofill ??= new AutofillBridge(this, _host)).Fill(values);
+    }
+
+    /// <summary>Autofill needs to know a field was entered before it offers anything.</summary>
+    private void NotifyAutofillFocus(TextInputState state)
+    {
+        if (!OperatingSystem.IsAndroidVersionAtLeast(26)) return;
+        if (Context?.GetSystemService(global::Java.Lang.Class.FromType(typeof(AutofillManager)))
+                is not AutofillManager manager) return;
+        if (state.Focused) manager.NotifyViewEntered(this);
+        else manager.NotifyViewExited(this);
     }
 
     // ---- TalkBack -----------------------------------------------------------------------------
