@@ -454,6 +454,10 @@ public sealed class AndroidHost : IDisposable
         if (action(_doc)) MarkDirty();
     }
 
+    /// <summary>Route an IME's own edit-menu action through the SAME clipboard seam the engine's
+    /// context menu and the Ctrl chords use, so the three cannot disagree about this platform.</summary>
+    internal void ContextCommandFromIme(ContextCommand command) => _doc.RequestContextCommand(command);
+
     /// <summary>A committed text insert, with the gate's observable marker.</summary>
     internal void ImeCommitted(string text)
     {

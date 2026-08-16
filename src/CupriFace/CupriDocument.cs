@@ -52,6 +52,7 @@ public sealed partial class CupriDocument : IDisposable
     private readonly List<IElement> _hoverChain = new();
     private readonly List<IElement> _activeChain = new(); // :active — the pressed element + ancestors
     private string? _focusKey;  // the focused field's bound path (survives rebuilds)
+    private string _focusInputMode = "", _focusEnterHint = "", _focusPlaceholder = "";
     private bool _focusNumeric; // focused field is validated as a number
     private bool _focusMultiline; // focused field is a textarea (Enter inserts a newline)
     private bool _focusMask;    // focused field masks its text (data-mask, e.g. <cupri-password>)
@@ -164,6 +165,12 @@ public sealed partial class CupriDocument : IDisposable
     /// also host-side: when <see cref="DispatchKey"/> returns unhandled for Escape and the window
     /// is fullscreen, the host exits it (so overlays keep winning Escape first).</summary>
     public event Action<Interaction.WindowCommand>? WindowCommandRequested;
+
+    /// <summary>Raise a clipboard/edit command as though the engine's own context menu had asked
+    /// for it — the seam an Android IME's edit menu routes into, so a paste from the keyboard, from
+    /// our menu and from Ctrl+V all take the same path through the host.</summary>
+    public void RequestContextCommand(Interaction.ContextCommand command) =>
+        ContextRequested?.Invoke(command);
 
     /// <summary>Ask the host for a window command from code — the same seam
     /// <c>data-window-command</c> uses, for apps whose own logic decides (a settings switch, a
@@ -2216,6 +2223,11 @@ public sealed partial class CupriDocument : IDisposable
         _focusNumeric = field?.HasAttribute("data-numeric") == true;
         _focusMultiline = field?.HasAttribute("data-multiline") == true;
         _focusMask = field?.HasAttribute("data-mask") == true;
+        // The same vocabulary the web platform uses, so one authored attribute drives Android's
+        // EditorInfo and the web host's inputmode/enterkeyhint alike.
+        _focusInputMode = field?.GetAttribute("inputmode") ?? "";
+        _focusEnterHint = field?.GetAttribute("enterkeyhint") ?? "";
+        _focusPlaceholder = field?.GetAttribute("placeholder") ?? "";
         _maskRevealPos = -1; _maskRevealStart = double.NaN; // the last-typed peek is per-field
         _focusMin = double.TryParse(field?.GetAttribute("data-min"), out var mn) ? mn : null;
         _focusMax = double.TryParse(field?.GetAttribute("data-max"), out var mx) ? mx : null;
@@ -2399,7 +2411,10 @@ public sealed partial class CupriDocument : IDisposable
             SelStart: Math.Min(_selAnchor, _caret),
             SelEnd: Math.Max(_selAnchor, _caret),
             Composing: HasComposition,
-            CaretRect: _layoutDirty ? null : ComputeCaretRect());
+            CaretRect: _layoutDirty ? null : ComputeCaretRect(),
+            InputMode: _focusInputMode,
+            EnterKeyHint: _focusEnterHint,
+            Placeholder: _focusPlaceholder);
     }
 
     /// <summary>

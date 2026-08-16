@@ -137,7 +137,30 @@ public sealed class CupriHostView : SKGLSurfaceView
         if (Context?.GetSystemService(Context.InputMethodService) is not InputMethodManager imm) return;
         var (compStart, compEnd) = state.Composing ? (state.SelStart, state.SelEnd) : (-1, -1);
         imm.UpdateSelection(this, state.SelStart, state.SelEnd, compStart, compEnd);
+
+        // An IME rendering its own copy of the editor (extract mode) asked to be TOLD about
+        // changes rather than to poll for them. Without this its copy freezes at the text that
+        // existed when it opened.
+        if (_extractToken is { } token)
+        {
+            var text = state.Value ?? "";
+            imm.UpdateExtractedText(this, token, new ExtractedText
+            {
+                Text = new Java.Lang.String(text),
+                StartOffset = 0,
+                SelectionStart = Math.Clamp(state.SelStart, 0, text.Length),
+                SelectionEnd = Math.Clamp(state.SelEnd, 0, text.Length),
+                PartialStartOffset = -1,
+                PartialEndOffset = -1,
+                Flags = state.Multiline ? 0 : ExtractedTextFlags.SingleLine,
+            });
+        }
     }
+
+    private int? _extractToken;
+
+    /// <summary>An IME asked to monitor the extracted text; remember who to tell.</summary>
+    internal void StartExtractMonitoring(int token) => _extractToken = token;
 
     public override bool OnCheckIsTextEditor() => _host.ImeState.Focused;
 
@@ -151,18 +174,40 @@ public sealed class CupriHostView : SKGLSurfaceView
         if (outAttrs is not null)
         {
             // The field-kind attributes the components already emit map straight onto EditorInfo.
+            // inputmode (the web platform's attribute) refines the keyboard the user gets: an
+            // email field earns an @ key, a tel field a dial pad. The data-* kinds still win,
+            // because they change what the field ACCEPTS, not merely what is convenient to type.
             outAttrs.InputType = state switch
             {
                 { Numeric: true } => InputTypes.ClassNumber | InputTypes.NumberFlagDecimal | InputTypes.NumberFlagSigned,
                 { Masked: true } => InputTypes.ClassText | InputTypes.TextVariationPassword | InputTypes.TextFlagNoSuggestions,
-                { Multiline: true } => InputTypes.ClassText | InputTypes.TextFlagMultiLine,
-                _ => InputTypes.ClassText,
+                { InputMode: "email" } => InputTypes.ClassText | InputTypes.TextVariationEmailAddress,
+                { InputMode: "url" } => InputTypes.ClassText | InputTypes.TextVariationUri,
+                { InputMode: "tel" } => InputTypes.ClassPhone,
+                { InputMode: "numeric" } => InputTypes.ClassNumber,
+                { InputMode: "decimal" } => InputTypes.ClassNumber | InputTypes.NumberFlagDecimal,
+                { InputMode: "search", Multiline: false } => InputTypes.ClassText,
+                { Multiline: true } => InputTypes.ClassText | InputTypes.TextFlagMultiLine | InputTypes.TextFlagCapSentences,
+                _ => InputTypes.ClassText | InputTypes.TextFlagCapSentences,
             };
-            // NoFullscreen is load-bearing: in landscape an IME otherwise takes over the screen in
-            // "extract mode" and renders its OWN copy of the editor from GetExtractedText — which
-            // this connection does not implement, so the user would be typing into a blank box.
-            outAttrs.ImeOptions = (state.Multiline ? ImeFlags.NoEnterAction : (ImeFlags)ImeAction.Done)
-                                  | ImeFlags.NoFullscreen | ImeFlags.NoExtractUi;
+            // Extract mode is supported now (GetExtractedText + UpdateExtractedText), so the
+            // suppression flags are gone and a landscape keyboard may render its own editor.
+            var action = state.EnterKeyHint switch
+            {
+                "go" => ImeAction.Go,
+                "next" => ImeAction.Next,
+                "previous" => ImeAction.Previous,
+                "search" => ImeAction.Search,
+                "send" => ImeAction.Send,
+                "done" => ImeAction.Done,
+                "enter" => ImeAction.None,
+                _ => state.Multiline ? ImeAction.None : ImeAction.Done,
+            };
+            outAttrs.ImeOptions = state.Multiline && action == ImeAction.None
+                ? ImeFlags.NoEnterAction
+                : (ImeFlags)action;
+            if (state.Placeholder is { Length: > 0 } hint)
+                outAttrs.HintText = new Java.Lang.String(hint);   // shown when the app is not
             outAttrs.InitialSelStart = state.SelStart;
             outAttrs.InitialSelEnd = state.SelEnd;
         }
