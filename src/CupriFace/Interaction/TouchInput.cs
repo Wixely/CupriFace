@@ -50,12 +50,12 @@ public sealed class TouchInput(CupriDocument document)
     private Mode _mode = Mode.Idle;
     private float _downX, _downY;
     private double _downT;
-    private float _prevY;
+    private float _prevY, _prevX;
     private string? _scrollPath;
 
     // Velocity ring: the last ~100 ms of (time, finger-y) — enough to measure release speed
     // without letting the start of a long drag pollute it.
-    private readonly List<(double T, float Y)> _ring = new();
+    private readonly List<(double T, float X, float Y)> _ring = new();
 
     // Double-tap escalation state (the previous TAP's release).
     private double _lastTapT = double.NegativeInfinity;
@@ -110,10 +110,10 @@ public sealed class TouchInput(CupriDocument document)
                     return false;                       // still a candidate tap — hold
                 var cleared = document.ClearPressed();  // it's a scroll: drop :active, never click
                 EnterScroll(_downX, _downY, _downT);
-                return Scroll(y, t) || cleared;         // first delta includes the pre-slop travel
+                return Scroll(x, y, t) || cleared;      // first delta includes the pre-slop travel
 
             case Mode.Scrolling:
-                return Scroll(y, t);
+                return Scroll(x, y, t);
 
             default:
                 return false;
@@ -144,18 +144,31 @@ public sealed class TouchInput(CupriDocument document)
             case Mode.Scrolling:
             {
                 Prune(t);
-                if (_scrollPath is not null && _ring.Count >= 2)
+                // Not gated on the VERTICAL target existing: a row that only scrolls sideways
+                // has none, and its fling is the one most worth having.
+                if (_ring.Count >= 2)
                 {
                     // Release velocity over the last ≤100 ms of travel, in ScrollY terms: the
                     // finger moving UP the screen (y shrinking) scrolls content DOWN (positive),
                     // matching DispatchWheel's (prev − cur) convention.
-                    var (t0, y0) = _ring[0];
-                    var (t1, y1) = _ring[^1];
+                    var (t0, x0, y0) = _ring[0];
+                    var (t1, x1, y1) = _ring[^1];
                     var dt = t1 - t0;
                     if (dt > 0.001)
                     {
                         var v = (y0 - y1) / (float)dt;   // px/s
-                        if (MathF.Abs(v) >= Options.MinFlingPxPerSec)
+                        var vx = (x0 - x1) / (float)dt;
+                        // One axis flings: the dominant one. A fling that drifted diagonally should
+                        // coast the way the user was actually going, not curve.
+                        if (MathF.Abs(vx) > MathF.Abs(v))
+                        {
+                            // Resolved for THIS axis: the nearest sideways-scrolling ancestor is
+                            // rarely the same node as the nearest vertical one.
+                            if (MathF.Abs(vx) >= Options.MinFlingPxPerSec
+                                && document.ScrollTargetAt(_downX, _downY, horizontal: true) is { } xPath)
+                                return document.StartFling(xPath, vx, horizontal: true);
+                        }
+                        else if (MathF.Abs(v) >= Options.MinFlingPxPerSec && _scrollPath is not null)
                             return document.StartFling(_scrollPath, v);
                     }
                 }
@@ -197,20 +210,24 @@ public sealed class TouchInput(CupriDocument document)
     {
         _mode = Mode.Scrolling;
         _scrollPath = document.ScrollTargetAt(x, y);
-        _prevY = _downY = y; _downX = x; _downT = t;
+        _prevY = _downY = y; _prevX = _downX = x; _downT = t;
         _ring.Clear();
-        _ring.Add((t, y));
+        _ring.Add((t, x, y));
     }
 
-    private bool Scroll(float y, double t)
+    private bool Scroll(float x, float y, double t)
     {
         var delta = _prevY - y;                          // finger up (y shrinks) → scroll down (+)
-        _prevY = y;
-        _ring.Add((t, y));
+        var deltaX = _prevX - x;                         // finger left (x shrinks) → scroll right (+)
+        _prevY = y; _prevX = x;
+        _ring.Add((t, x, y));
         Prune(t);
         // Wheel at the DOWN point: the target chain stays stable however far the finger travels,
-        // and the engine's own edge-chaining and virtual re-windowing do the rest.
-        return delta != 0 && document.DispatchWheel(_downX, _downY, delta);
+        // and the engine's own edge-chaining and virtual re-windowing do the rest. Both axes go in
+        // the same call so a diagonal drag moves a horizontally scrolling row and the page under it
+        // together, each taking the part it can use.
+        return (delta != 0 || deltaX != 0)
+               && document.DispatchWheel(_downX, _downY, delta, deltaX);
     }
 
     private void Prune(double t)
