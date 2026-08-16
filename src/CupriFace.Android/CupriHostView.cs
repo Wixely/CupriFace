@@ -211,20 +211,45 @@ public sealed class CupriHostView : SKGLSurfaceView
         // by the platform after this method returns, so the values must be copied out now. The
         // timestamp is the event's own uptime clock (the clock the gesture recognizer keys slop,
         // double-tap and fling velocity from), not "now".
-        var x = e.GetX();
-        var y = e.GetY();
         var t = e.EventTime / 1000.0;
-        switch (e.ActionMasked)
+        var action = e.ActionMasked;
+
+        // EVERY pointer, not just the first. `GetX()`/`GetY()` read pointer 0, which is why a second
+        // finger used to be invisible to the whole stack. ActionPointerDown/Up carry the index of
+        // the pointer that changed; a Move carries new positions for all of them at once.
+        switch (action)
         {
             case MotionEventActions.Down:
-                QueueEvent(() => _host.TouchDown(x, y, t));
-                // Long-press: arm a UI-thread timer that queues Tick past the deadline. A tick
-                // that arrives after the press resolved is a no-op by design, so no bookkeeping.
-                Handler?.PostDelayed(() =>
-                    QueueEvent(() => _host.TouchTick(global::Android.OS.SystemClock.UptimeMillis() / 1000.0)), 520);
+            case MotionEventActions.PointerDown:
+            {
+                var index = e.ActionIndex;
+                var id = e.GetPointerId(index);
+                var (px, py) = (e.GetX(index), e.GetY(index));
+                QueueEvent(() => _host.PointerDown(id, px, py, t));
+                if (action == MotionEventActions.Down)
+                    // Long-press: arm a UI-thread timer that queues Tick past the deadline. A tick
+                    // that arrives after the press resolved is a no-op by design, so no bookkeeping.
+                    Handler?.PostDelayed(() =>
+                        QueueEvent(() => _host.TouchTick(global::Android.OS.SystemClock.UptimeMillis() / 1000.0)), 520);
                 return true;
-            case MotionEventActions.Move: QueueEvent(() => _host.TouchMove(x, y, t)); return true;
-            case MotionEventActions.Up: QueueEvent(() => _host.TouchUp(x, y, t)); return true;
+            }
+            case MotionEventActions.Move:
+            {
+                var moves = new (int Id, float X, float Y)[e.PointerCount];
+                for (var i = 0; i < e.PointerCount; i++)
+                    moves[i] = (e.GetPointerId(i), e.GetX(i), e.GetY(i));
+                QueueEvent(() => { foreach (var (id, mx, my) in moves) _host.PointerMove(id, mx, my, t); });
+                return true;
+            }
+            case MotionEventActions.Up:
+            case MotionEventActions.PointerUp:
+            {
+                var index = e.ActionIndex;
+                var id = e.GetPointerId(index);
+                var (px, py) = (e.GetX(index), e.GetY(index));
+                QueueEvent(() => _host.PointerUp(id, px, py, t));
+                return true;
+            }
             case MotionEventActions.Cancel: QueueEvent(() => _host.TouchCancel(t)); return true;
             default: return false;
         }
