@@ -1,3 +1,4 @@
+using Android.Text;
 using Android.Views;
 using Android.Views.InputMethods;
 using CupriFace.Interaction;
@@ -72,21 +73,99 @@ internal sealed class CupriInputConnection(CupriHostView view, AndroidHost host)
         // Some IMEs deliver deletes and Enter as raw key events rather than the calls above.
         if (e is { Action: KeyEventActions.Down })
         {
+            // Navigation as well as editing. Some keyboards move the caret by synthesising arrow
+            // keys rather than calling SetSelection — dropping these is why a soft keyboard could
+            // not move the cursor at all, while a hardware one could (that path is in the VIEW).
             var key = e.KeyCode switch
             {
                 Keycode.Del => EditKey.Backspace,
                 Keycode.ForwardDel => EditKey.Delete,
                 Keycode.Enter or Keycode.NumpadEnter => EditKey.Enter,
+                Keycode.DpadLeft => EditKey.Left,
+                Keycode.DpadRight => EditKey.Right,
+                Keycode.DpadUp => EditKey.Up,
+                Keycode.DpadDown => EditKey.Down,
+                Keycode.MoveHome => EditKey.Home,
+                Keycode.MoveEnd => EditKey.End,
+                Keycode.Tab => e.IsShiftPressed ? EditKey.ShiftTab : EditKey.Tab,
                 _ => EditKey.None,
             };
             if (key != EditKey.None)
             {
-                host.OnGlThread(() => host.Ime(d => d.DispatchKey(null, key)));
+                var mods = (e.IsShiftPressed ? KeyMods.Shift : KeyMods.None)
+                         | (e.IsCtrlPressed ? KeyMods.Ctrl : KeyMods.None);
+                host.OnGlThread(() => host.Ime(d => d.DispatchKey(null, key, mods)));
                 return true;
             }
         }
         return base.SendKeyEvent(e);
     }
+
+    /// <summary>Move the caret or select a range. THE call a soft keyboard makes to move the
+    /// cursor — swiping the spacebar on FUTO, tapping to reposition, selecting a word to correct.
+    /// Unimplemented, it lands on BaseInputConnection's private Editable, "succeeds", and changes
+    /// nothing the user can see.</summary>
+    public override bool SetSelection(int start, int end)
+    {
+        host.OnGlThread(() => host.Ime(d => d.SetTextSelection(start, end)));
+        return true;
+    }
+
+    /// <summary>Mark an already-committed range as preedit — what a keyboard asks for when you tap
+    /// a finished word to correct it.</summary>
+    public override bool SetComposingRegion(int start, int end)
+    {
+        host.OnGlThread(() => host.Ime(d => d.SetComposingRegion(start, end)));
+        return true;
+    }
+
+    /// <summary>The code-point-correct sibling of <see cref="DeleteSurroundingText"/>. The engine's
+    /// Backspace/Delete already step by code point, so this is the same call — and the fact that
+    /// both map here is the point: an emoji deletes as one glyph either way.</summary>
+    public override bool DeleteSurroundingTextInCodePoints(int beforeLength, int afterLength) =>
+        DeleteSurroundingText(beforeLength, afterLength);
+
+    /// <summary>Whether the next character should auto-capitalise. Without this a keyboard cannot
+    /// shift itself at the start of a sentence, which is most of what "it feels wrong to type in"
+    /// amounts to on a phone.</summary>
+    public override CapitalizationMode GetCursorCapsMode(CapitalizationMode reqModes)
+    {
+        var state = State;
+        if (!state.Focused) return 0;
+
+        var text = state.Value ?? "";
+        var caret = System.Math.Clamp(state.SelStart, 0, text.Length);
+        var before = text[..caret];
+
+        var mode = (CapitalizationMode)0;
+        var trimmed = before.TrimEnd();
+        // Sentence start: nothing before the caret, or the last non-space character ends a sentence.
+        if ((reqModes & CapitalizationMode.Sentences) != 0
+            && (trimmed.Length == 0 || trimmed[^1] is '.' or '!' or '?')
+            && (before.Length == 0 || before.Length > trimmed.Length || trimmed.Length == 0))
+            mode |= CapitalizationMode.Sentences;
+        if ((reqModes & CapitalizationMode.Characters) != 0) { /* the field never forces caps */ }
+        return mode;
+    }
+
+    /// <summary>An IME wraps a compound edit (replace a word, move the caret, update the
+    /// composition) in a batch. Coalescing it means one repaint for the whole thing instead of one
+    /// per step — and the caret lands once, rather than visibly hopping through intermediate
+    /// positions.</summary>
+    public override bool BeginBatchEdit()
+    {
+        _batchDepth++;
+        return true;
+    }
+
+    public override bool EndBatchEdit()
+    {
+        if (_batchDepth > 0) _batchDepth--;
+        if (_batchDepth == 0) host.OnGlThread(host.MarkDirty);
+        return _batchDepth > 0;
+    }
+
+    private int _batchDepth;
 
     // ---- synchronous questions (answered from the post-frame snapshot) ------------------------
 

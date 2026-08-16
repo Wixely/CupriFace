@@ -2243,6 +2243,56 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>True while an IME composition (preedit) is in progress in the focused field.</summary>
     public bool HasComposition => _compStart >= 0;
 
+    /// <summary>Move the caret / selection to an absolute range in the focused field's text, in
+    /// UTF-16 units — the same units Android and the DOM count in, so an IME's offsets need no
+    /// translation. This is how a soft keyboard moves the cursor: swiping the spacebar, tapping to
+    /// reposition, selecting a word to correct. Out-of-range values clamp rather than fail, because
+    /// an IME's model of the text can legitimately lag ours by a frame.</summary>
+    public bool SetTextSelection(int start, int end) => Bump(SetTextSelectionCore(start, end));
+
+    private bool SetTextSelectionCore(int start, int end)
+    {
+        if (_focusKey is null) return false;
+        var value = _editBuffer ?? BindingEngine.Resolve(_model, _focusKey)?.ToString() ?? "";
+        var s = Math.Clamp(start, 0, value.Length);
+        var e = Math.Clamp(end, 0, value.Length);
+        if (s == _selAnchor && e == _caret) return false;
+
+        _selAnchor = s;
+        _caret = e;
+        _caretMoved = true;
+        _maskRevealPos = -1;              // moving the caret is not a fresh keystroke
+        Refresh();
+        return true;
+    }
+
+    /// <summary>Mark an already-committed range as the composition — what a keyboard asks for when
+    /// you tap a finished word to correct it. The text is unchanged; it simply becomes preedit, so
+    /// the next <see cref="SetComposition"/> replaces exactly that range. Returns false when the
+    /// range is empty or there is nothing focused.</summary>
+    public bool SetComposingRegion(int start, int end) => Bump(SetComposingRegionCore(start, end));
+
+    private bool SetComposingRegionCore(int start, int end)
+    {
+        if (_focusKey is null) return false;
+        var value = _editBuffer ?? BindingEngine.Resolve(_model, _focusKey)?.ToString() ?? "";
+        var s = Math.Clamp(Math.Min(start, end), 0, value.Length);
+        var e = Math.Clamp(Math.Max(start, end), 0, value.Length);
+        if (e <= s) return false;
+
+        // The buffer becomes authoritative (the region is now preedit), and the undo snapshot is
+        // taken here so correcting a word is still ONE undo step, as any other composition is.
+        _compUndo = (value, _caret, _selAnchor);
+        _editBuffer = value;
+        _compStart = s;
+        _compLen = e - s;
+        _caret = e;
+        _selAnchor = e;
+        _caretMoved = true;
+        Refresh();
+        return true;
+    }
+
     /// <summary>Begin or update the composition: the marked text becomes <paramref name="text"/>,
     /// with the caret placed <paramref name="caretInComposition"/> UTF-16 units into it (or at its
     /// end when negative). Starting a composition replaces any selection, exactly as typing would.</summary>

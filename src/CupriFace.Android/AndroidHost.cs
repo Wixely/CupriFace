@@ -57,6 +57,13 @@ public sealed class AndroidHost : IDisposable
     private readonly object _imeLock = new();
     private TextInputState _imeStateField;
     private TextInputState _lastImeKind;      // what the view was last told about (GL thread only)
+    private (int Start, int End, bool Composing) _lastSel = (-1, -1, false);
+
+    /// <summary>Raised on the UI thread when the caret or selection moves, so the view can report
+    /// it to the InputMethodManager. Distinct from <see cref="TextInputChanged"/>, which is about
+    /// the KIND of field (and so about showing/hiding/restarting the keyboard): the caret moves
+    /// constantly within one field and must not restart anything.</summary>
+    public event Action<TextInputState>? SelectionChanged;
 
     /// <summary>The part of the state the keyboard itself depends on — what must trigger a
     /// show/hide/restart. Caret and value churn on every keystroke and must NOT.</summary>
@@ -266,6 +273,19 @@ public sealed class AndroidHost : IDisposable
             _lastImeKind = textInput;
             var state = textInput;
             RunOnUi(() => TextInputChanged?.Invoke(state));
+        }
+
+        // Tell the IME where the caret IS. An editor is expected to report every selection change,
+        // and we never did — so a keyboard's model of this field was permanently empty. That is
+        // what a spacebar-swipe needs in order to compute where to move TO, and what a
+        // tap-a-word-to-correct needs in order to name the range. Reported whenever the selection
+        // or the composition moves, which is exactly when the contract asks for it.
+        if (textInput.SelStart != _lastSel.Start || textInput.SelEnd != _lastSel.End
+            || textInput.Composing != _lastSel.Composing)
+        {
+            _lastSel = (textInput.SelStart, textInput.SelEnd, textInput.Composing);
+            var s = textInput;
+            RunOnUi(() => SelectionChanged?.Invoke(s));
         }
 
         // TalkBack: republish the semantics tree when content moved (Animate bumps the version

@@ -33,6 +33,7 @@ public sealed class CupriHostView : SKGLSurfaceView
         // Focus edges from the engine: show/hide the soft keyboard, and restart the connection
         // when the field KIND changes (numeric -> text swaps the keyboard layout).
         host.TextInputChanged += OnTextInputChanged;
+        host.SelectionChanged += OnSelectionChanged;
 
         // WHEN_DIRTY parks the GL thread between frames; RequestRender wakes it. Everything the
         // engine's render-on-demand model needs — Dispatch* returns and HasActiveAnimations —
@@ -128,6 +129,16 @@ public sealed class CupriHostView : SKGLSurfaceView
         }
     }
 
+    /// <summary>The half of the IME contract an editor owes the keyboard: where the caret is. A
+    /// keyboard that has never been told cannot move the cursor, offer a correction range, or place
+    /// its candidate window — it is guessing about an editor it cannot see.</summary>
+    private void OnSelectionChanged(TextInputState state)
+    {
+        if (Context?.GetSystemService(Context.InputMethodService) is not InputMethodManager imm) return;
+        var (compStart, compEnd) = state.Composing ? (state.SelStart, state.SelEnd) : (-1, -1);
+        imm.UpdateSelection(this, state.SelStart, state.SelEnd, compStart, compEnd);
+    }
+
     public override bool OnCheckIsTextEditor() => _host.ImeState.Focused;
 
     public override IInputConnection? OnCreateInputConnection(EditorInfo? outAttrs)
@@ -147,7 +158,11 @@ public sealed class CupriHostView : SKGLSurfaceView
                 { Multiline: true } => InputTypes.ClassText | InputTypes.TextFlagMultiLine,
                 _ => InputTypes.ClassText,
             };
-            outAttrs.ImeOptions = state.Multiline ? ImeFlags.NoEnterAction : (ImeFlags)ImeAction.Done;
+            // NoFullscreen is load-bearing: in landscape an IME otherwise takes over the screen in
+            // "extract mode" and renders its OWN copy of the editor from GetExtractedText — which
+            // this connection does not implement, so the user would be typing into a blank box.
+            outAttrs.ImeOptions = (state.Multiline ? ImeFlags.NoEnterAction : (ImeFlags)ImeAction.Done)
+                                  | ImeFlags.NoFullscreen | ImeFlags.NoExtractUi;
             outAttrs.InitialSelStart = state.SelStart;
             outAttrs.InitialSelEnd = state.SelEnd;
         }
