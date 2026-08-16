@@ -102,6 +102,22 @@ public sealed class RenderNode
     public float MaxScrollY => MathF.Max(0, ScrollContentHeight - ContentBoxHeight);
     public bool IsScrollable => MaxScrollY > 0.5f;
 
+    /// <summary>The widest child extent inside a scroll container, mirroring
+    /// <see cref="ScrollContentHeight"/>. Zero for anything that is not an overflow:scroll box —
+    /// including single-line text fields, whose <see cref="ScrollX"/> is a caret-follow shift they
+    /// manage themselves and which must keep working exactly as it did.</summary>
+    public float ScrollContentWidth;
+    public float MaxScrollX => MathF.Max(0, ScrollContentWidth - ContentBoxWidth);
+
+    /// <summary>Deliberately SEPARATE from <see cref="IsScrollable"/>, which means "overflows
+    /// vertically" and is load-bearing for paint culling, wheel routing and scroll capture. A box
+    /// can overflow on one axis, the other, or both.</summary>
+    public bool IsScrollableX => MaxScrollX > 0.5f;
+
+    /// <summary>The horizontal offset actually applied, clamped to the content — the analogue of
+    /// the clamping the vertical path does at paint time.</summary>
+    public float ClampedScrollX => IsScrollableX ? Math.Clamp(ScrollX, 0, MaxScrollX) : ScrollX;
+
     public bool IsText => Text is not null;
 
     public float ContentLeftInset => BorderLeftW + PadLeft;

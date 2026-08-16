@@ -70,7 +70,7 @@ public static class AccessibilityTree
         // definition, and everything inside narrows from here.
         var viewport = (root.X, root.Y, root.Width, root.Height);
         for (var i = 0; i < root.Children.Count; i++)
-            Collect(root.Children[i], root.X, ChildOriginY(root, root.Y), "/" + i, node, isFocusable, focused, viewport, viewport);
+            Collect(root.Children[i], ChildOriginX(root, root.X), ChildOriginY(root, root.Y), "/" + i, node, isFocusable, focused, viewport, viewport);
         return node;
     }
 
@@ -79,6 +79,12 @@ public static class AccessibilityTree
     // on that node even inside a scrolled container.
     private static float ChildOriginY(RenderNode n, float ay) =>
         ay - (n.IsScrollable ? Math.Clamp(n.ScrollY, 0, n.MaxScrollY) : 0f);
+
+    /// <summary>The same correction on the horizontal axis, so a control dragged into view from a
+    /// sideways-scrolling row reports where it now IS — a screen reader tapping the rectangle it
+    /// was given has to land on the control.</summary>
+    private static float ChildOriginX(RenderNode n, float ax) =>
+        ax - (n.IsScrollableX ? n.ClampedScrollX : 0f);
 
     private static void Collect(RenderNode render, float originX, float originY, string path,
         AccessibilityNode parent, Func<IElement, bool>? isFocusable, RenderNode? focused,
@@ -128,7 +134,7 @@ public static class AccessibilityTree
 
         var childOy = ChildOriginY(render, ay);
         for (var i = 0; i < render.Children.Count; i++)
-            Collect(render.Children[i], ax, childOy, path + "/" + i, target, isFocusable, focused, childClip, viewport);
+            Collect(render.Children[i], ChildOriginX(render, ax), childOy, path + "/" + i, target, isFocusable, focused, childClip, viewport);
     }
 
     private static (float X, float Y, float W, float H) Intersect(

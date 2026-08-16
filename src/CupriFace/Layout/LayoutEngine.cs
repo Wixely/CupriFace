@@ -209,6 +209,23 @@ public sealed class LayoutEngine
         // Scroll: remember the full children extent (ScrollY is preserved across layouts).
         node.ScrollContentHeight = !node.IsText && s.Overflow == OverflowMode.Scroll ? usedH : 0f;
 
+        // …and the same on the other axis, so a box whose content is WIDER than it is can scroll
+        // sideways. Measured from the children's own boxes rather than a flow total, because
+        // horizontal overflow is what a too-wide table or a row of cards produces, not a flow.
+        node.ScrollContentWidth = 0f;
+        if (!node.IsText && s.Overflow == OverflowMode.Scroll)
+        {
+            var right = 0f;
+            foreach (var child in node.Children)
+            {
+                if (child.Style.Display == DisplayType.None) continue;
+                if (child.Style.Position is PositionType.Fixed) continue;
+                right = MathF.Max(right, child.X + child.Width + child.MarginRight);
+            }
+            // Child X is relative to this node's border box; the content box starts after the inset.
+            node.ScrollContentWidth = MathF.Max(0, right - node.ContentLeftInset);
+        }
+
         // Absolutely-positioned children are placed against this node's content box.
         if (!node.IsText)
             LayoutAbsoluteChildren(node, contentW, contentH);
@@ -575,8 +592,19 @@ public sealed class LayoutEngine
                     else            LayoutNode(item, contentW, contentH, cross, main);
                 }
 
+            // The size an item ENDED UP with, which is not always the size it was given: min-width /
+            // max-width (and an intrinsic floor) clamp it in LayoutNode. Advancing the pen by the
+            // distributed size instead let a clamped item overlap the next one — six 150px cards in
+            // a 300px row were laid out 50px apart, drawn on top of each other, and the row reported
+            // a content extent of 400px instead of 900px.
+            float MainOf(RenderNode it, int idx)
+            {
+                var actual = horizontal ? it.Width : it.Height;
+                return actual > 0 ? actual : finalMain[idx - start];
+            }
+
             var totalMain = gap * MathF.Max(0, count - 1);
-            for (var i = start; i < end; i++) totalMain += finalMain[i - start] + mainMargin[i];
+            for (var i = start; i < end; i++) totalMain += MainOf(items[i], i) + mainMargin[i];
             var (lineStartPos, between) = Justify(s.JustifyContent, lineMainSize - totalMain, gap, count);
 
             var cursor = lineStartPos;
@@ -602,7 +630,7 @@ public sealed class LayoutEngine
                     item.X = insetL + crossCursor + crossPos + item.MarginLeft;
                 }
                 if (item.Style.Position == PositionType.Relative) ApplyRelativeOffset(item, contentW, contentH);
-                cursor += finalMain[i - start] + mainMargin[i] + between;
+                cursor += MainOf(item, i) + mainMargin[i] + between;
             }
 
             maxMainExtent = MathF.Max(maxMainExtent, totalMain);
