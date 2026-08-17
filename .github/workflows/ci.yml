@@ -486,56 +486,75 @@ jobs:
           fi
 
           # --- two fingers: the one platform claim that never had a gate --------------------------
-          # `adb shell input` is single-pointer, which is exactly why this was never covered: every
-          # other seam here is driven by a real client, and multi-touch was proven only headlessly.
-          # A device reported the tile "follows one of my fingers - no scaling, no rotation", and
-          # nothing in CI could have caught that. So drive the kernel's multi-touch protocol
-          # directly, on the touchscreen the emulator actually exposes.
+          # `adb shell input` is single-pointer, which is why this seam had no gate while every
+          # other one here is driven by a real client. A device reported the tile "follows one of my
+          # fingers - no scaling, no rotation"; nothing in CI could have caught that.
           nav 0    # Home, where the gesture tile lives
           sleep 1
           MT=$(adb shell getevent -pl 2>/dev/null | awk '/^add device/{d=$NF} /ABS_MT_POSITION_X/{print d; exit}' | sed 's/[[:space:]]*$//')
           [ -n "$MT" ] || fail "no multi-touch input device on this emulator - cannot drive two fingers"
+          CAPS=$(adb shell getevent -pl "$MT" 2>/dev/null | sed 's/[[:space:]]*$//')
           echo "touchscreen: $MT"
+          echo "$CAPS" | grep -E 'ABS_MT_' || true
+
+          # The touchscreen reports in its OWN axis range, which is not always screen pixels — the
+          # first version of this gate sent pixel coordinates into a device whose axes run to a
+          # different maximum, so every event landed somewhere the tile was not and the app saw no
+          # gesture at all. Read the ranges and map into them.
+          axmax() { echo "$CAPS" | grep -m1 "$1" | grep -oE 'max [0-9]+' | head -1 | awk '{print $2}'; }
+          MAXX=$(axmax ABS_MT_POSITION_X); MAXY=$(axmax ABS_MT_POSITION_Y)
+          SW=$(adb shell wm size | grep -oE '[0-9]+x[0-9]+' | tail -1 | cut -dx -f1)
+          SH=$(adb shell wm size | grep -oE '[0-9]+x[0-9]+' | tail -1 | cut -dx -f2)
+          : "${MAXX:=$SW}" ; : "${MAXY:=$SH}"
+          echo "axes: x<=$MAXX y<=$MAXY on a ${SW}x${SH} screen"
+          dx() { echo $(( $1 * MAXX / SW )); }
+          dy() { echo $(( $1 * MAXY / SH )); }
 
           # Tile centre, measured headlessly at 393dp wide: a 90dp square at (196,540). Fingers sit
           # 20dp either side, so both stay inside it even at full spread.
           TX=$(( OX + 196 * D / 160 )); TY=$(( OY + 540 * D / 160 ))
-          SP=$(( 20 * D / 160 ))       # half the starting separation, in px
+          SP=$(( 20 * D / 160 ))
 
-          # Protocol B: a SLOT per finger, a tracking id to open/close each one, SYN to commit.
-          # BTN_TOUCH brackets the whole gesture, which some stacks require before they believe it.
-          two_fingers() {
-            CMD="sendevent $MT 3 47 0; sendevent $MT 3 57 100;"
-            CMD="$CMD sendevent $MT 3 53 $(( TX - SP )); sendevent $MT 3 54 $TY;"
-            CMD="$CMD sendevent $MT 3 47 1; sendevent $MT 3 57 101;"
-            CMD="$CMD sendevent $MT 3 53 $(( TX + SP )); sendevent $MT 3 54 $TY;"
-            CMD="$CMD sendevent $MT 1 330 1; sendevent $MT 0 0 0;"
-            # Spread apart over several steps - a single jump reads as one enormous move and tells
-            # us nothing about whether the gesture TRACKED.
-            for k in 1 2 3 4 5 6; do
-              G=$(( SP + k * SP / 2 ))
-              CMD="$CMD sendevent $MT 3 47 0; sendevent $MT 3 53 $(( TX - G ));"
-              CMD="$CMD sendevent $MT 3 47 1; sendevent $MT 3 53 $(( TX + G ));"
-              CMD="$CMD sendevent $MT 0 0 0;"
-            done
-            # Lift both: tracking id -1 closes a slot.
-            CMD="$CMD sendevent $MT 3 47 0; sendevent $MT 3 57 -1;"
-            CMD="$CMD sendevent $MT 3 47 1; sendevent $MT 3 57 -1;"
-            CMD="$CMD sendevent $MT 1 330 0; sendevent $MT 0 0 0"
-            adb shell "$CMD" >/dev/null 2>&1 || true
+          # Protocol B: a SLOT per finger, a tracking id to open and close each one, SYN to commit.
+          # TOUCH_MAJOR and PRESSURE are sent because a contact with neither is discarded as noise
+          # by some input stacks before it ever becomes a MotionEvent.
+          put() {   # put <slot> <trackingId|-1> <screenX> <screenY>
+            if [ "$2" = "-1" ]; then
+              printf 'sendevent %s 3 47 %s;sendevent %s 3 57 -1;' "$MT" "$1" "$MT"
+            else
+              printf 'sendevent %s 3 47 %s;sendevent %s 3 57 %s;sendevent %s 3 48 6;sendevent %s 3 58 50;sendevent %s 3 53 %s;sendevent %s 3 54 %s;' \
+                     "$MT" "$1" "$MT" "$2" "$MT" "$MT" "$MT" "$(dx $3)" "$MT" "$(dy $4)"
+            fi
           }
-          two_fingers
+          syn() { printf 'sendevent %s 0 0 0;' "$MT"; }
+          send() { adb shell "$1" >/dev/null 2>&1 || true; }
+
+          # Separate adb calls with real pauses between them: one long burst is delivered faster
+          # than the app samples, and the whole spread can arrive coalesced into a single frame.
+          send "$(put 0 100 $(( TX - SP )) $TY)$(put 1 101 $(( TX + SP )) $TY)$(printf 'sendevent %s 1 330 1;' "$MT")$(syn)"
+          sleep 1
+          for k in 1 2 3 4 5 6; do
+            G=$(( SP + k * SP / 2 ))
+            send "$(put 0 100 $(( TX - G )) $TY)$(put 1 101 $(( TX + G )) $TY)$(syn)"
+            sleep 1
+          done
+          send "$(put 0 -1)$(put 1 -1)$(printf 'sendevent %s 1 330 0;' "$MT")$(syn)"
           sleep 2
 
           GEST=$(adb logcat -d -s cupri:I | grep 'cupri-gate: gesture' | tail -20)
-          [ -n "$GEST" ] || fail "two fingers produced no gesture at all - the tile never saw them"
+          if [ -z "$GEST" ]; then
+            echo "--- the touchscreen's full capabilities, for the next attempt ---"
+            echo "$CAPS" | head -40
+            fail "two fingers produced no gesture at all - the tile never saw them"
+          fi
           echo "$GEST"
           # The value actually in doubt. One finger panning still moves the tile convincingly, so
           # scale alone would not have caught the reported bug; fingers=2 is the claim.
-          echo "$GEST" | grep -q 'fingers=2'             || fail "the recogniser never saw TWO fingers - the second was dropped before it arrived"
-          # ...and having seen them, it must actually scale. Spreading 20dp to 80dp is ~2x.
+          echo "$GEST" | grep -q 'fingers=2' \
+            || fail "the recogniser never saw TWO fingers - the second was dropped before it arrived"
           BIG=$(echo "$GEST" | grep -oE 'scale=[0-9]+\.[0-9]+' | cut -d= -f2 | sort -g | tail -1)
-          awk -v s="$BIG" 'BEGIN{ exit !(s > 1.3) }'             || fail "two fingers spread wide and scale only reached ${BIG}x - the pinch is not tracking"
+          awk -v s="$BIG" 'BEGIN{ exit !(s > 1.3) }' \
+            || fail "two fingers spread wide and scale only reached ${BIG}x - the pinch is not tracking"
           echo "two fingers: reached ${BIG}x"
 
           # --- rotation: relayout + the SAME dp arithmetic still lands ---------------------------
