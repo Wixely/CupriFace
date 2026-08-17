@@ -490,15 +490,18 @@ jobs:
           # other one is driven by a real client. A device reported the tile "follows one of my
           # fingers - no scaling, no rotation"; nothing in CI could have caught that.
           #
-          # Run 3's capability dump named the trap: the emulator exposes ELEVEN virtio multi-touch
-          # devices (multi-display plumbing), and the first one advertising ABS_MT_POSITION_X was
-          # virtio_input_multi_touch_11 - not the one wired to the visible display. Injecting into
-          # a wrong one is perfectly silent: fully capable device, no error, no gesture. So the
-          # chain is proven one link at a time, and each failure names its own cause.
+          # Four rounds of evidence shaped this leg. Run 2: the touchscreen speaks 0..32767, not
+          # pixels. Run 3: the emulator exposes ELEVEN virtio multi-touch devices and only one is
+          # wired to the display. Run 4: `sendevent` gets "Permission denied" on every one of them
+          # as the shell user - kernel-side injection is closed on this image. So injection is a
+          # TRANSPORT to be elected empirically: the emulator console first (QEMU-side, upstream of
+          # the kernel, the same path a real host click takes - no permissions involved), then
+          # `adb root` + evdev per-device. A one-finger canary tap on the tile, confirmed twice,
+          # decides; each failure names its own cause.
           nav 0    # Home, where the gesture tile lives
           sleep 1
           nmark() { adb logcat -d -s cupri:I | grep -c 'cupri-gate: gesture' || true; }
-          # Phase extraction anchors on DEVICE TIME, not on marker counts: logcat's ring buffer can
+          # Phase extraction anchors on DEVICE TIME, not marker counts: logcat's ring buffer can
           # evict old lines mid-step, which silently shifts a positional tail -n +N slice onto the
           # wrong markers while pointing the blame at the app.
           now_ts() { adb shell 'date "+%m-%d %H:%M:%S.000"' | sed 's/[[:space:]]*$//' || true; }
@@ -507,7 +510,7 @@ jobs:
           # Link 1 - the coordinates, via the single-touch path this gate already trusts. A plain
           # tap on the tile must produce a fingers=1 marker; if not, the tile is not where the
           # headless measurement put it (90dp square centred at 196,540 when 393dp wide) and
-          # nothing after this could mean anything.
+          # nothing after this could mean anything. Run 4 PASSED this link.
           N0=$(nmark)
           tap 196 540
           sleep 2
@@ -515,91 +518,117 @@ jobs:
             || fail "a plain tap on the tile produced no gesture marker - wrong tile position, or markers not reaching logcat"
           echo "link 1: tile position and marker plumbing confirmed by single-touch tap"
 
-          # One read, guarded, failing loudly: these were the leg's last unguarded substitutions,
-          # and an adb hiccup here would have killed the step with no message at all.
+          # One read, guarded, failing loudly: unguarded, an adb hiccup here kills the step with
+          # no message at all (the set -e assignment trap that ate runs 2 and 3).
           SIZE=$(adb shell wm size | grep -oE '[0-9]+x[0-9]+' | tail -1 || true)
           [ -n "$SIZE" ] || fail "wm size reported no WxH - adb transport hiccup before the pinch"
           SW=${SIZE%x*}; SH=${SIZE#*x}
           TX=$(( OX + 196 * D / 160 )); TY=$(( OY + 540 * D / 160 ))
           # Fingers land 30dp either side of centre - inside the 90dp tile with margin. The spread
           # runs to a 240dp span: our recogniser is engine-owned (no ScaleGestureDetector, so no
-          # 27mm min-scaling-span), but wide geometry keeps the claim unambiguous if a host-side
-          # detector ever appears in the path.
+          # 27mm min-scaling-span), but wide geometry keeps the claim unambiguous.
           SP=$(( 30 * D / 160 ))
 
-          # Protocol B, parameterised by MT/MAXX/MAXY (set per device): a SLOT per finger, a
-          # tracking id opening and closing each one, SYN committing the frame. TOUCH_MAJOR and
-          # PRESSURE ride along because a contact with neither can be discarded as noise. The
-          # touchscreen speaks its OWN axis range (0..32767 here), not pixels - run 2's lesson.
+          # Frames are TRIPLET LISTS (type:code:value), transport-agnostic. Protocol B: a SLOT per
+          # finger, a tracking id opening and closing each one, SYN committing the frame (the
+          # transport appends it). TOUCH_MAJOR and PRESSURE ride along because a contact with
+          # neither can be discarded as noise. Codes: 47 SLOT, 57 TRACKING_ID, 48 TOUCH_MAJOR,
+          # 58 PRESSURE, 53 POSITION_X, 54 POSITION_Y, 330 BTN_TOUCH.
           dx() { echo $(( $1 * MAXX / SW )); }
           dy() { echo $(( $1 * MAXY / SH )); }
-          put() {   # put <slot> <trackingId|-1> <screenX> <screenY>
+          ftrip() {   # ftrip <slot> <trackingId|-1> [<screenX> <screenY>] -> triplets
             if [ "$2" = "-1" ]; then
-              printf 'sendevent %s 3 47 %s;sendevent %s 3 57 -1;' "$MT" "$1" "$MT"
+              printf '3:47:%s 3:57:-1 ' "$1"
             else
-              printf 'sendevent %s 3 47 %s;sendevent %s 3 57 %s;sendevent %s 3 48 6;sendevent %s 3 58 60;sendevent %s 3 53 %s;sendevent %s 3 54 %s;' \
-                     "$MT" "$1" "$MT" "$2" "$MT" "$MT" "$MT" "$(dx $3)" "$MT" "$(dy $4)"
+              printf '3:47:%s 3:57:%s 3:48:6 3:58:60 3:53:%s 3:54:%s ' "$1" "$2" "$(dx $3)" "$(dy $4)"
             fi
           }
-          btn() { printf 'sendevent %s 1 330 %s;' "$MT" "$1"; }
-          syn() { printf 'sendevent %s 0 0 0;' "$MT"; }
-          # stderr surfaces on purpose: "Permission denied" writing to /dev/input looks exactly
-          # like a gesture that did not register once the error is thrown away.
-          send() { adb shell "$1" 2>&1 | sed 's/[[:space:]]*$//' | grep -v '^$' | head -3 || true; }
-          sendtap() {  # one sendevent finger, down then up, on the tile centre
-            send "$(put 0 $1 $TX $TY)$(btn 1)$(syn)"
+          emit() {   # emit "<triplets>" - one committed frame, via the elected transport
+            if [ "$TRANSPORT" = emu ]; then
+              # QEMU-side: lands on the virtio panel exactly like a real host click. Surfaces the
+              # console's KO/error lines; OK lines are noise.
+              adb emu event send $1 0:0:0 2>&1 | grep -iv '^OK' | grep -v '^$' | head -2 || true
+            else
+              CMD=""
+              for tcv in $1 0:0:0; do
+                IFS=: read -r T C V <<< "$tcv"
+                [ -n "$V" ] || V=0
+                CMD="$CMD sendevent $MT $T $C $V;"
+              done
+              # stderr surfaces on purpose - run 4's "Permission denied" was only visible because
+              # of this, and it explained every silent canary at a stroke.
+              adb shell "$CMD" 2>&1 | sed 's/[[:space:]]*$//' | grep -v '^$' | head -3 || true
+            fi
+          }
+          canary() {  # one-finger tap on the tile centre via the current transport; true if a marker landed
+            NCX=$(nmark)
+            emit "$(ftrip 0 $1 $TX $TY)1:330:1"
             sleep 0.4
-            send "$(put 0 -1)$(btn 0)$(syn)"
+            emit "$(ftrip 0 -1)1:330:0"
             sleep 2
+            [ "$(nmark)" -gt "$NCX" ]
           }
 
-          # Link 2 - which of the eleven reaches the screen: a single-finger sendevent tap on the
-          # tile, per candidate, until the marker count moves. Empirical, because nothing in the
-          # capability dump distinguishes the live one. Each candidate gets two attempts with the
-          # 2s window link 1 trusts, and the winner must then CONFIRM with a second tap - a late
-          # marker from a previous candidate can masquerade as this one's, and a confirmation tap
-          # is immune to inheriting it.
-          CHOSEN=""; CHOSENNAME=""
-          for MT in $(adb shell getevent -pl 2>/dev/null | grep '^add device' | awk '{print $NF}' | sed 's/[[:space:]]*$//'); do
-            CAPS=$(adb shell getevent -pl "$MT" 2>/dev/null | sed 's/[[:space:]]*$//' || true)
-            echo "$CAPS" | grep -q ABS_MT_POSITION_X || continue
-            # Every assignment is guarded: under `set -e` with pipefail, VAR=$(...|grep...) with
-            # no match KILLS the script silently - the trap that ate runs 2 and 3, in new clothes.
-            NAME=$(echo "$CAPS" | grep -m1 'name:' | sed 's/.*name: *//' || true)
-            MAXX=$(echo "$CAPS" | grep -m1 ABS_MT_POSITION_X | grep -oE 'max [0-9]+' | head -1 | awk '{print $2}' || true)
-            MAXY=$(echo "$CAPS" | grep -m1 ABS_MT_POSITION_Y | grep -oE 'max [0-9]+' | head -1 | awk '{print $2}' || true)
-            : "${MAXX:=$SW}"; : "${MAXY:=$SH}"
-            HIT=""
-            for attempt in 1 2; do
-              NC=$(nmark)
-              sendtap 200
-              if [ "$(nmark)" -gt "$NC" ]; then HIT=1; break; fi
+          # Link 2 - elect the transport. The winner must CONFIRM with a second tap: a late marker
+          # from a previous attempt can masquerade as this one's, and a confirmation tap is immune
+          # to inheriting it.
+          MAXX=32767; MAXY=32767      # the emulator's virtio panel axis space (verified, run 2-4)
+          ELECTED=""
+          TRANSPORT=emu
+          if canary 150 && { sleep 1; canary 151; }; then
+            ELECTED=emu
+            echo "link 2: transport is the emulator console (QEMU-side, no kernel permissions)"
+          else
+            echo "console transport did not reach the app - trying adb root + evdev"
+            adb root 2>&1 | head -2 || true
+            adb wait-for-device
+            sleep 2
+            TRANSPORT=evdev
+            for MT in $(adb shell getevent -pl 2>/dev/null | grep '^add device' | awk '{print $NF}' | sed 's/[[:space:]]*$//'); do
+              CAPS=$(adb shell getevent -pl "$MT" 2>/dev/null | sed 's/[[:space:]]*$//' || true)
+              echo "$CAPS" | grep -q ABS_MT_POSITION_X || continue
+              NAME=$(echo "$CAPS" | grep -m1 'name:' | sed 's/.*name: *//' || true)
+              MAXX=$(echo "$CAPS" | grep -m1 ABS_MT_POSITION_X | grep -oE 'max [0-9]+' | head -1 | awk '{print $2}' || true)
+              MAXY=$(echo "$CAPS" | grep -m1 ABS_MT_POSITION_Y | grep -oE 'max [0-9]+' | head -1 | awk '{print $2}' || true)
+              : "${MAXX:=$SW}"; : "${MAXY:=$SH}"
+              HIT=""
+              if canary 200 || canary 202; then HIT=1; fi
+              echo "candidate $MT $NAME hit=${HIT:-0}"
+              [ -n "$HIT" ] || continue
+              sleep 1
+              if canary 201; then ELECTED="evdev $MT $NAME"; break; fi
+              echo "  confirmation tap did not reproduce - a stray late marker, not this device"
             done
-            echo "candidate $MT $NAME axes x<=$MAXX y<=$MAXY hit=${HIT:-0}"
-            [ -n "$HIT" ] || continue
-            sleep 1
-            NC=$(nmark)
-            sendtap 201
-            if [ "$(nmark)" -gt "$NC" ]; then CHOSEN="$MT"; CHOSENNAME="$NAME"; break; fi
-            echo "  confirmation tap did not reproduce - a stray late marker, not this device"
-          done
-          [ -n "$CHOSEN" ] || fail "sendevent reached the app on NO multi-touch device - injection itself is broken (link 1 proved position and markers are fine)"
-          echo "link 2: display touchscreen is $CHOSEN $CHOSENNAME"
+          fi
+          if [ -z "$ELECTED" ]; then
+            # Decisive diagnostics for the next round rather than another guess: does the kernel
+            # re-fan injected events to other evdev readers, and which devices claim DIRECT?
+            MT=/dev/input/event2
+            ( adb shell timeout 3 getevent /dev/input/event2 > echo.txt 2>&1 || true ) &
+            sleep 0.5
+            canary 210 || true
+            wait || true
+            echo "--- evdev echo test (kernel re-fanning injected events on multi_touch_1?):"
+            head -12 echo.txt || true
+            echo "--- input props by device:"
+            adb shell getevent -pl 2>/dev/null | grep -aE 'add device|name:|INPUT_PROP|input props' | head -44 || true
+            fail "no injection transport reached the app - console and all evdev devices silent"
+          fi
+          echo "link 2: elected transport: $ELECTED"
 
           # Link 3 - both fingers land together and spread. fingers=2 is asserted before scale
           # because one finger panning still moves the tile convincingly; scale alone would have
           # passed while the reported bug was present.
-          MT="$CHOSEN"
           TSA=$(now_ts)
           [ -n "$TSA" ] || fail "device date unavailable - cannot anchor marker extraction"
-          send "$(put 0 100 $(( TX - SP )) $TY)$(put 1 101 $(( TX + SP )) $TY)$(btn 1)$(syn)"
+          emit "$(ftrip 0 100 $(( TX - SP )) $TY)$(ftrip 1 101 $(( TX + SP )) $TY)1:330:1"
           sleep 0.5
           for k in 1 2 3 4 5 6; do
             G=$(( SP + k * SP / 2 ))
-            send "$(put 0 100 $(( TX - G )) $TY)$(put 1 101 $(( TX + G )) $TY)$(syn)"
+            emit "$(ftrip 0 100 $(( TX - G )) $TY)$(ftrip 1 101 $(( TX + G )) $TY)"
             sleep 0.4
           done
-          send "$(put 0 -1)$(put 1 -1)$(btn 0)$(syn)"
+          emit "$(ftrip 0 -1)$(ftrip 1 -1)1:330:0"
           sleep 2
           GEST=$(since "$TSA")
           echo "--- phase A (fingers land together):"; echo "$GEST"
@@ -613,23 +642,22 @@ jobs:
           # Link 4 - the REPORTED shape: one finger grabs, the tile follows it a little, and THEN
           # the second finger arrives. "it follows one of my fingers and not the other - no
           # scaling, no rotation." If the late finger is lost once the tile has moved, this leg
-          # turns that device report into a red build. The pan follows the down with no sleep (the
-          # adb round trip alone is ~200ms): a captured pointer cannot long-press in this engine -
-          # TouchInput only arms its long-press in Pending, and a captured finger never enters it -
-          # but the realistic gesture shape costs nothing.
+          # turns that device report into a red build. The pan follows the down with no sleep: a
+          # captured pointer cannot long-press in this engine (TouchInput only arms in Pending,
+          # and a captured finger never enters it), but the realistic shape costs nothing.
           TSB=$(now_ts)
           [ -n "$TSB" ] || fail "device date unavailable - cannot anchor marker extraction"
-          send "$(put 0 300 $(( TX - SP )) $TY)$(btn 1)$(syn)"
-          send "$(put 0 300 $(( TX - SP + 25 )) $(( TY + 15 )))$(syn)"
+          emit "$(ftrip 0 300 $(( TX - SP )) $TY)1:330:1"
+          emit "$(ftrip 0 300 $(( TX - SP + 25 )) $(( TY + 15 )))"
           sleep 0.4
-          send "$(put 1 301 $(( TX + SP )) $TY)$(syn)"
+          emit "$(ftrip 1 301 $(( TX + SP )) $TY)"
           sleep 0.4
           for k in 1 2 3 4; do
             G=$(( SP + k * SP ))
-            send "$(put 0 300 $(( TX - G )) $TY)$(put 1 301 $(( TX + G )) $TY)$(syn)"
+            emit "$(ftrip 0 300 $(( TX - G )) $TY)$(ftrip 1 301 $(( TX + G )) $TY)"
             sleep 0.4
           done
-          send "$(put 0 -1)$(put 1 -1)$(btn 0)$(syn)"
+          emit "$(ftrip 0 -1)$(ftrip 1 -1)1:330:0"
           sleep 2
           GESTB=$(since "$TSB")
           echo "--- phase B (second finger arrives late - the reported shape):"; echo "$GESTB"
