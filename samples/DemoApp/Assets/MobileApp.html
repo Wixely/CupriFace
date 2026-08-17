@@ -31,7 +31,9 @@
           <div class="stage">
             <div class="tile" data-gesture="photo" style="{{TileTransform}}">✦</div>
           </div>
-          <span class="muted">{{TileReadout}} · <a class="tile-reset" href="#">reset</a></span>
+          <!-- Not an <a href="#">: an anchor's own behaviour (scroll-to-anchor) claims the click
+               before a selector handler ever sees it, so the button did nothing. -->
+          <span class="muted">{{TileReadout}} · <span class="tile-reset">reset</span></span>
         </div>
 
         <!-- Horizontal scrolling: a row wider than the screen, dragged sideways with one finger. -->

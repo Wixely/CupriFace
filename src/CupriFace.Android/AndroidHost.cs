@@ -74,6 +74,12 @@ public sealed class AndroidHost : IDisposable
     /// it so the band behind the transparent status bar belongs to the app.</summary>
     internal SkiaSharp.SKColor AppBackground => _app.Transparent ? SkiaSharp.SKColors.Black : _app.Background;
 
+    /// <summary>Raised on the UI thread when the PAGE's own background colour changes — the app
+    /// switching to dark mode, or a different app being pushed. The activity paints the window and
+    /// the inset strips with it, so the surfaces the document does not draw stop being white.</summary>
+    public event Action<SkiaSharp.SKColor>? PageBackgroundChanged;
+    private SkiaSharp.SKColor _lastPageBg = SkiaSharp.SKColors.Transparent;
+
     /// <summary>Diagnostics for the CI gate and for humans: CUPRIFACE_ANDROID_DEBUG has no
     /// environment on Android, so markers are always on — they are cheap, and they are the only
     /// window CI has into the app.</summary>
@@ -258,6 +264,15 @@ public sealed class AndroidHost : IDisposable
         canvas.Scale(inputScale);
         _doc.Render(canvas, p.LogicalWidth, p.LogicalHeight);
         canvas.Restore();
+
+        // The page's own colour, watched for changes: a dark-mode swap is a CSS variable change
+        // with no other signal, and the window behind us would stay white without this.
+        var pageBg = _doc.PageBackground;
+        if (pageBg.Alpha > 0 && pageBg != _lastPageBg)
+        {
+            _lastPageBg = pageBg;
+            RunOnUi(() => PageBackgroundChanged?.Invoke(pageBg));
+        }
 
         var textInput = _doc.GetTextInputState();
         SetImeState(textInput);              // caret/selection move without a focus edge

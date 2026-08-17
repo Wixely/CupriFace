@@ -166,6 +166,24 @@ public sealed partial class CupriDocument : IDisposable
     /// is fullscreen, the host exits it (so overlays keep winning Escape first).</summary>
     public event Action<Interaction.WindowCommand>? WindowCommandRequested;
 
+    /// <summary>The colour the page itself paints behind everything — <c>body</c>'s computed
+    /// background, or the root's if the body is transparent. A host needs it for the surfaces the
+    /// document does NOT paint: the strip a soft keyboard animates over, the bars a fullscreen
+    /// window letterboxes with. Leaving those the platform default is why a dark app flashed white
+    /// every time the keyboard opened. Transparent when the page genuinely has no background.</summary>
+    public SkiaSharp.SKColor PageBackground
+    {
+        get
+        {
+            for (var n = _root; n is not null; n = n.Children.Count > 0 ? n.Children[0] : null)
+            {
+                if (n.Style.Background.Alpha > 0) return n.Style.Background;
+                if (n.Tag is "body") break;              // don't descend into the app's own content
+            }
+            return SkiaSharp.SKColors.Transparent;
+        }
+    }
+
     /// <summary>Raise a clipboard/edit command as though the engine's own context menu had asked
     /// for it — the seam an Android IME's edit menu routes into, so a paste from the keyboard, from
     /// our menu and from Ctrl+V all take the same path through the host.</summary>

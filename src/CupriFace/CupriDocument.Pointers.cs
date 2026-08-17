@@ -130,7 +130,14 @@ public sealed partial class CupriDocument
                 mine.Add(new CupriPointer(id, pos.X, pos.Y));
         mine.Sort((a, b) => a.Id.CompareTo(b.Id));
 
-        return Bump(handler(new MultiPointerEvent(
-            pointerId, phase, x, y, mine, element, element.GetAttribute(attribute) ?? "", _model)));
+        var changed = handler(new MultiPointerEvent(
+            pointerId, phase, x, y, mine, element, element.GetAttribute(attribute) ?? "", _model));
+
+        // Re-bind, don't merely mark dirty. A gesture handler's whole job is usually to write to the
+        // MODEL — a scale, a rotation, a position — and Bump only advances the version counter, so
+        // the new value never reached the DOM: the pinch worked perfectly and nothing moved on
+        // screen. The click path has always refreshed here; the pointer path forgot to.
+        if (changed) Refresh();
+        return Bump(changed);
     }
 }
