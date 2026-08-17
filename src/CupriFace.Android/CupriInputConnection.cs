@@ -1,3 +1,4 @@
+using Android.Text;
 using Android.Views;
 using Android.Views.InputMethods;
 using CupriFace.Interaction;
@@ -72,20 +73,142 @@ internal sealed class CupriInputConnection(CupriHostView view, AndroidHost host)
         // Some IMEs deliver deletes and Enter as raw key events rather than the calls above.
         if (e is { Action: KeyEventActions.Down })
         {
+            // Navigation as well as editing. Some keyboards move the caret by synthesising arrow
+            // keys rather than calling SetSelection — dropping these is why a soft keyboard could
+            // not move the cursor at all, while a hardware one could (that path is in the VIEW).
             var key = e.KeyCode switch
             {
                 Keycode.Del => EditKey.Backspace,
                 Keycode.ForwardDel => EditKey.Delete,
                 Keycode.Enter or Keycode.NumpadEnter => EditKey.Enter,
+                Keycode.DpadLeft => EditKey.Left,
+                Keycode.DpadRight => EditKey.Right,
+                Keycode.DpadUp => EditKey.Up,
+                Keycode.DpadDown => EditKey.Down,
+                Keycode.MoveHome => EditKey.Home,
+                Keycode.MoveEnd => EditKey.End,
+                Keycode.Tab => e.IsShiftPressed ? EditKey.ShiftTab : EditKey.Tab,
                 _ => EditKey.None,
             };
             if (key != EditKey.None)
             {
-                host.OnGlThread(() => host.Ime(d => d.DispatchKey(null, key)));
+                var mods = (e.IsShiftPressed ? KeyMods.Shift : KeyMods.None)
+                         | (e.IsCtrlPressed ? KeyMods.Ctrl : KeyMods.None);
+                host.OnGlThread(() => host.Ime(d => d.DispatchKey(null, key, mods)));
                 return true;
             }
         }
         return base.SendKeyEvent(e);
+    }
+
+    /// <summary>Move the caret or select a range. THE call a soft keyboard makes to move the
+    /// cursor — swiping the spacebar on FUTO, tapping to reposition, selecting a word to correct.
+    /// Unimplemented, it lands on BaseInputConnection's private Editable, "succeeds", and changes
+    /// nothing the user can see.</summary>
+    public override bool SetSelection(int start, int end)
+    {
+        host.OnGlThread(() => host.Ime(d => d.SetTextSelection(start, end)));
+        return true;
+    }
+
+    /// <summary>Mark an already-committed range as preedit — what a keyboard asks for when you tap
+    /// a finished word to correct it.</summary>
+    public override bool SetComposingRegion(int start, int end)
+    {
+        host.OnGlThread(() => host.Ime(d => d.SetComposingRegion(start, end)));
+        return true;
+    }
+
+    /// <summary>The code-point-correct sibling of <see cref="DeleteSurroundingText"/>. The engine's
+    /// Backspace/Delete already step by code point, so this is the same call — and the fact that
+    /// both map here is the point: an emoji deletes as one glyph either way.</summary>
+    public override bool DeleteSurroundingTextInCodePoints(int beforeLength, int afterLength) =>
+        DeleteSurroundingText(beforeLength, afterLength);
+
+    /// <summary>Whether the next character should auto-capitalise. Without this a keyboard cannot
+    /// shift itself at the start of a sentence, which is most of what "it feels wrong to type in"
+    /// amounts to on a phone.</summary>
+    public override CapitalizationMode GetCursorCapsMode(CapitalizationMode reqModes)
+    {
+        var state = State;
+        if (!state.Focused) return 0;
+
+        var text = state.Value ?? "";
+        var caret = System.Math.Clamp(state.SelStart, 0, text.Length);
+        var before = text[..caret];
+
+        var mode = (CapitalizationMode)0;
+        var trimmed = before.TrimEnd();
+        // Sentence start: nothing before the caret, or the last non-space character ends a sentence.
+        if ((reqModes & CapitalizationMode.Sentences) != 0
+            && (trimmed.Length == 0 || trimmed[^1] is '.' or '!' or '?')
+            && (before.Length == 0 || before.Length > trimmed.Length || trimmed.Length == 0))
+            mode |= CapitalizationMode.Sentences;
+        if ((reqModes & CapitalizationMode.Characters) != 0) { /* the field never forces caps */ }
+        return mode;
+    }
+
+    /// <summary>An IME wraps a compound edit (replace a word, move the caret, update the
+    /// composition) in a batch. Coalescing it means one repaint for the whole thing instead of one
+    /// per step — and the caret lands once, rather than visibly hopping through intermediate
+    /// positions.</summary>
+    public override bool BeginBatchEdit()
+    {
+        _batchDepth++;
+        return true;
+    }
+
+    public override bool EndBatchEdit()
+    {
+        if (_batchDepth > 0) _batchDepth--;
+        if (_batchDepth == 0) host.OnGlThread(host.MarkDirty);
+        return _batchDepth > 0;
+    }
+
+    private int _batchDepth;
+
+    /// <summary>The IME's own edit menu — its select-all, cut, copy and paste. These route to the
+    /// SAME clipboard seam as the engine's context menu and the Ctrl chords, so all three agree
+    /// about what "paste" means on this platform.</summary>
+    public override bool PerformContextMenuAction(int id)
+    {
+        // The ids are android.R.id.*; the framework passes them straight through.
+        const int SelectAll = 0x0102001f, Cut = 0x01020020, Copy = 0x01020021, Paste = 0x01020022;
+        switch (id)
+        {
+            case SelectAll: host.OnGlThread(() => host.Ime(d => d.DispatchKey(null, EditKey.SelectAll))); return true;
+            case Cut: host.OnGlThread(() => host.ContextCommandFromIme(ContextCommand.Cut)); return true;
+            case Copy: host.OnGlThread(() => host.ContextCommandFromIme(ContextCommand.Copy)); return true;
+            case Paste: host.OnGlThread(() => host.ContextCommandFromIme(ContextCommand.Paste)); return true;
+            default: return false;
+        }
+    }
+
+    /// <summary>The editor mirrored for an IME that renders its own copy — landscape "extract
+    /// mode", and the several keyboards that track the full text this way rather than by asking
+    /// around the cursor. Answered from the same post-frame snapshot as every other read.</summary>
+    public override ExtractedText? GetExtractedText(ExtractedTextRequest? request, GetTextFlags flags)
+    {
+        var state = State;
+        if (!state.Focused) return null;
+
+        // Monitoring: the IME asks once and expects to be TOLD about later changes. The bit is
+        // GET_EXTRACTED_TEXT_MONITOR (1) — which the managed enum only spells as WithStyles, since
+        // the platform reuses the value 1 for a different meaning on the get-text calls. Tested
+        // numerically rather than pretending the enum name fits.
+        if (((int)flags & 1) != 0) view.StartExtractMonitoring(request?.Token ?? 0);
+
+        var text = state.Value ?? "";
+        return new ExtractedText
+        {
+            Text = new Java.Lang.String(text),
+            StartOffset = 0,
+            SelectionStart = System.Math.Clamp(state.SelStart, 0, text.Length),
+            SelectionEnd = System.Math.Clamp(state.SelEnd, 0, text.Length),
+            PartialStartOffset = -1,
+            PartialEndOffset = -1,
+            Flags = state.Multiline ? 0 : ExtractedTextFlags.SingleLine,
+        };
     }
 
     // ---- synchronous questions (answered from the post-frame snapshot) ------------------------

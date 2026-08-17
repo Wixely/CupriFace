@@ -52,6 +52,7 @@ public sealed partial class CupriDocument : IDisposable
     private readonly List<IElement> _hoverChain = new();
     private readonly List<IElement> _activeChain = new(); // :active — the pressed element + ancestors
     private string? _focusKey;  // the focused field's bound path (survives rebuilds)
+    private string _focusInputMode = "", _focusEnterHint = "", _focusPlaceholder = "";
     private bool _focusNumeric; // focused field is validated as a number
     private bool _focusMultiline; // focused field is a textarea (Enter inserts a newline)
     private bool _focusMask;    // focused field masks its text (data-mask, e.g. <cupri-password>)
@@ -164,6 +165,12 @@ public sealed partial class CupriDocument : IDisposable
     /// also host-side: when <see cref="DispatchKey"/> returns unhandled for Escape and the window
     /// is fullscreen, the host exits it (so overlays keep winning Escape first).</summary>
     public event Action<Interaction.WindowCommand>? WindowCommandRequested;
+
+    /// <summary>Raise a clipboard/edit command as though the engine's own context menu had asked
+    /// for it — the seam an Android IME's edit menu routes into, so a paste from the keyboard, from
+    /// our menu and from Ctrl+V all take the same path through the host.</summary>
+    public void RequestContextCommand(Interaction.ContextCommand command) =>
+        ContextRequested?.Invoke(command);
 
     /// <summary>Ask the host for a window command from code — the same seam
     /// <c>data-window-command</c> uses, for apps whose own logic decides (a settings switch, a
@@ -1572,6 +1579,23 @@ public sealed partial class CupriDocument : IDisposable
         return true;
     }
 
+    /// <summary>Write text into the field at <paramref name="path"/> — what an autofill service
+    /// does when it fills a username and password. Goes through the SAME binding a keystroke would,
+    /// so validation, formatting and change notification all behave as though a person typed it.
+    /// Returns false when the path is not a bound field.</summary>
+    public bool AccessibilitySetText(string path, string text) => Bump(AccessibilitySetTextCore(path, text));
+
+    private bool AccessibilitySetTextCore(string path, string text)
+    {
+        EnsureLaidOut();
+        if (NodeAtPath(path)?.Element is not { } el) return false;
+        if (el.GetAttribute("data-bind-value") is not { Length: > 0 } bind) return false;
+        if (_model is null) return false;
+        if (!BindingEngine.TrySet(_model, bind, text)) return false;
+        Refresh();
+        return true;
+    }
+
     /// <summary>Set a slider's value directly — UIA RangeValue.SetValue. Clamps to min/max and writes
     /// through the same binding a drag would, rounded the way a drag rounds.</summary>
     public bool AccessibilitySetValue(string path, double value) => Bump(AccessibilitySetValueCore(path, value));
@@ -2229,6 +2253,11 @@ public sealed partial class CupriDocument : IDisposable
         _focusNumeric = field?.HasAttribute("data-numeric") == true;
         _focusMultiline = field?.HasAttribute("data-multiline") == true;
         _focusMask = field?.HasAttribute("data-mask") == true;
+        // The same vocabulary the web platform uses, so one authored attribute drives Android's
+        // EditorInfo and the web host's inputmode/enterkeyhint alike.
+        _focusInputMode = field?.GetAttribute("inputmode") ?? "";
+        _focusEnterHint = field?.GetAttribute("enterkeyhint") ?? "";
+        _focusPlaceholder = field?.GetAttribute("placeholder") ?? "";
         _maskRevealPos = -1; _maskRevealStart = double.NaN; // the last-typed peek is per-field
         _focusMin = double.TryParse(field?.GetAttribute("data-min"), out var mn) ? mn : null;
         _focusMax = double.TryParse(field?.GetAttribute("data-max"), out var mx) ? mx : null;
@@ -2255,6 +2284,56 @@ public sealed partial class CupriDocument : IDisposable
 
     /// <summary>True while an IME composition (preedit) is in progress in the focused field.</summary>
     public bool HasComposition => _compStart >= 0;
+
+    /// <summary>Move the caret / selection to an absolute range in the focused field's text, in
+    /// UTF-16 units — the same units Android and the DOM count in, so an IME's offsets need no
+    /// translation. This is how a soft keyboard moves the cursor: swiping the spacebar, tapping to
+    /// reposition, selecting a word to correct. Out-of-range values clamp rather than fail, because
+    /// an IME's model of the text can legitimately lag ours by a frame.</summary>
+    public bool SetTextSelection(int start, int end) => Bump(SetTextSelectionCore(start, end));
+
+    private bool SetTextSelectionCore(int start, int end)
+    {
+        if (_focusKey is null) return false;
+        var value = _editBuffer ?? BindingEngine.Resolve(_model, _focusKey)?.ToString() ?? "";
+        var s = Math.Clamp(start, 0, value.Length);
+        var e = Math.Clamp(end, 0, value.Length);
+        if (s == _selAnchor && e == _caret) return false;
+
+        _selAnchor = s;
+        _caret = e;
+        _caretMoved = true;
+        _maskRevealPos = -1;              // moving the caret is not a fresh keystroke
+        Refresh();
+        return true;
+    }
+
+    /// <summary>Mark an already-committed range as the composition — what a keyboard asks for when
+    /// you tap a finished word to correct it. The text is unchanged; it simply becomes preedit, so
+    /// the next <see cref="SetComposition"/> replaces exactly that range. Returns false when the
+    /// range is empty or there is nothing focused.</summary>
+    public bool SetComposingRegion(int start, int end) => Bump(SetComposingRegionCore(start, end));
+
+    private bool SetComposingRegionCore(int start, int end)
+    {
+        if (_focusKey is null) return false;
+        var value = _editBuffer ?? BindingEngine.Resolve(_model, _focusKey)?.ToString() ?? "";
+        var s = Math.Clamp(Math.Min(start, end), 0, value.Length);
+        var e = Math.Clamp(Math.Max(start, end), 0, value.Length);
+        if (e <= s) return false;
+
+        // The buffer becomes authoritative (the region is now preedit), and the undo snapshot is
+        // taken here so correcting a word is still ONE undo step, as any other composition is.
+        _compUndo = (value, _caret, _selAnchor);
+        _editBuffer = value;
+        _compStart = s;
+        _compLen = e - s;
+        _caret = e;
+        _selAnchor = e;
+        _caretMoved = true;
+        Refresh();
+        return true;
+    }
 
     /// <summary>Begin or update the composition: the marked text becomes <paramref name="text"/>,
     /// with the caret placed <paramref name="caretInComposition"/> UTF-16 units into it (or at its
@@ -2362,7 +2441,10 @@ public sealed partial class CupriDocument : IDisposable
             SelStart: Math.Min(_selAnchor, _caret),
             SelEnd: Math.Max(_selAnchor, _caret),
             Composing: HasComposition,
-            CaretRect: _layoutDirty ? null : ComputeCaretRect());
+            CaretRect: _layoutDirty ? null : ComputeCaretRect(),
+            InputMode: _focusInputMode,
+            EnterKeyHint: _focusEnterHint,
+            Placeholder: _focusPlaceholder);
     }
 
     /// <summary>

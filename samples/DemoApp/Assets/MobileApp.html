@@ -19,6 +19,32 @@
           <b>Links open outside</b>
           <span class="muted">External links hand off to the OS: <a href="https://github.com/Wixely/CupriFace">the repository</a>.</span>
         </div>
+
+        <!-- Multi-touch. data-gesture opts this element into raw pointers; the app computes what
+             two fingers mean (MobileApp.Configure). Deliberately gesture-only — the documented
+             example of what the engine lets an author build, accessible or not. -->
+        <div class="card">
+          <b>Two fingers</b>
+          <span class="muted">Pinch to scale, twist to rotate. <span class="touch-only">Two fingers
+          on the tile.</span><span class="mouse-only">A mouse can't pinch — try this one on a
+          phone.</span></span>
+          <div class="stage">
+            <div class="tile" data-gesture="photo" style="{{TileTransform}}">✦</div>
+          </div>
+          <span class="muted">{{TileReadout}} · <a class="tile-reset" href="#">reset</a></span>
+        </div>
+
+        <!-- Horizontal scrolling: a row wider than the screen, dragged sideways with one finger. -->
+        <div class="card">
+          <b>Sideways</b>
+          <span class="muted">Drag this row left and right — a second scrolling axis, with its own
+          momentum.</span>
+          <div class="strip">
+            <div class="chip">one</div><div class="chip">two</div><div class="chip">three</div>
+            <div class="chip">four</div><div class="chip">five</div><div class="chip">six</div>
+            <div class="chip">seven</div><div class="chip">eight</div>
+          </div>
+        </div>
       </div>
 
       <!-- List: the fling exerciser. 500 rows, virtualised to a screenful. role=listitem puts
@@ -43,6 +69,19 @@
         <div class="frow"><span class="lbl">Notes</span>
           <cupri-textarea value="{{Notes}}" rows="4" placeholder="Multiline…"></cupri-textarea></div>
         <div class="card"><span class="muted">Name: {{Name}} · Amount: {{Amount}}</span></div>
+
+        <!-- The keyboard's own contract. autocomplete is what a password manager fills; inputmode
+             picks which keyboard appears (@ key vs dial pad); enterkeyhint names the action key. -->
+        <div class="frow"><span class="lbl">Email <span class="muted">— inputmode, autofill</span></span>
+          <cupri-textfield value="{{Email}}" placeholder="you@example.com"
+                           inputmode="email" enterkeyhint="next"
+                           autocomplete="username" aria-label="Email"></cupri-textfield></div>
+        <div class="frow"><span class="lbl">Password <span class="muted">— autofill</span></span>
+          <cupri-password value="{{Password}}" placeholder="Your password"
+                          enterkeyhint="done"
+                          autocomplete="current-password" aria-label="Password"></cupri-password></div>
+        <div class="card"><span class="muted">Swipe the spacebar to move the cursor. Tap a finished
+        word to correct it. A password manager should offer to fill the two fields above.</span></div>
       </div>
 
       <!-- Settings: the gate's tap target is the FIRST row (stable geometry for CI). -->
