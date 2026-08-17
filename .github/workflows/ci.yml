@@ -783,17 +783,33 @@ jobs:
           Not on nuget.org yet: download the `.nupkg` and add its folder as a local source.
           EOF
           # Idempotent: re-running a tag (or adding an asset that was missed) updates the existing
-          # release rather than failing on "already exists".
-          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "release exists — updating"
-            gh release upload "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --clobber
-            # --draft=false is load-bearing: deleting a tag orphans its release into an untagged
-            # DRAFT, so a re-run must republish and re-associate it, not just refresh the notes.
-            gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
-              --title "CupriFace $GITHUB_REF_NAME" --notes-file notes.md --draft=false
-          else
-            gh release create "$GITHUB_REF_NAME" dist/* \
-              --repo "$GITHUB_REPOSITORY" \
-              --title "CupriFace $GITHUB_REF_NAME" \
-              --notes-file notes.md
-          fi
+          # release rather than failing on "already exists". Each call is checked explicitly —
+          # inside an `if` condition errexit is suspended, so a bare sequence would report the
+          # LAST command's status and silently swallow a failed upload.
+          publish() {
+            if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "release exists — updating"
+              gh release upload "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --clobber || return 1
+              # --draft=false is load-bearing: deleting a tag orphans its release into an untagged
+              # DRAFT, so a re-run must republish and re-associate it, not just refresh the notes.
+              gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+                --title "CupriFace $GITHUB_REF_NAME" --notes-file notes.md --draft=false || return 1
+            else
+              gh release create "$GITHUB_REF_NAME" dist/* \
+                --repo "$GITHUB_REPOSITORY" \
+                --title "CupriFace $GITHUB_REF_NAME" \
+                --notes-file notes.md || return 1
+            fi
+          }
+          # v0.2.7 was built, packed and then LOST to a single `503 No server is currently
+          # available` from api.github.com — every artifact sat finished in dist/ while the release
+          # itself never appeared. Retrying costs a minute; not retrying costs the whole matrix.
+          # The idempotence above is what makes this safe rather than duplicating: a half-made
+          # release (created, assets missing) is finished by the next attempt's upload --clobber.
+          for attempt in 1 2 3 4 5; do
+            if publish; then exit 0; fi
+            echo "publish attempt $attempt failed — GitHub may be having a moment; retrying in ${attempt}0s"
+            sleep "${attempt}0"
+          done
+          echo "::error::release publish failed five times — the build is fine, the API is not"
+          exit 1
