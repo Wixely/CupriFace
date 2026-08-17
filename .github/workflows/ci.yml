@@ -527,7 +527,10 @@ jobs:
             fi
           }
           syn() { printf 'sendevent %s 0 0 0;' "$MT"; }
-          send() { adb shell "$1" >/dev/null 2>&1 || true; }
+          # stderr is NOT swallowed. Hiding it is how two runs were spent without noticing
+          # that the question was never answered: a "Permission denied" writing to the input
+          # device looks exactly like a gesture that did not register.
+          send() { adb shell "$1 " 2>&1 | grep -v "^$" | head -3 || true; }
 
           # Separate adb calls with real pauses between them: one long burst is delivered faster
           # than the app samples, and the whole spread can arrive coalesced into a single frame.
