@@ -29,8 +29,9 @@ picture elsewhere. Flutter moves quickly; version-sensitive rows say so.*
 | Mobile maturity | Weeks old | Years; some of the most-downloaded apps on both stores |
 | Calling your logic | **Direct** — the model is a C# object your app already owns | **Platform channels** — async, serialized, and a Dart↔native boundary you maintain |
 | State model | Mutate a POCO; the engine rebinds and repaints | `setState` / `InheritedWidget` / Riverpod / Bloc — a whole discourse |
+| Gestures | Scrolling, momentum, overscroll, multi-touch capture, and a drag/pinch/rotate recogniser (`OnManipulate`) — with the raw pointers still exposed underneath | A deeper recogniser library, plus an arbitration *arena* for contests between widgets — which capture-at-down makes unnecessary here |
 | Accessibility | Portable semantics tree → **four bridges** (UIA, AT-SPI, NSAccessibility, TalkBack), each CI-gated by a real AT client | **Same architecture** — a semantics tree bridged per platform — and far more mature |
-| Headless UI testing | First-class: 369 tests click, type, fling, pixel-assert with no display | **Also first-class** — `flutter test` widget tests + golden files. A genuine peer here |
+| Headless UI testing | First-class: 423 tests click, type, fling, pixel-assert with no display | **Also first-class** — `flutter test` widget tests + golden files. A genuine peer here |
 | Hot reload | None | **Stateful hot reload — best in the industry** |
 | Embedding into your app | `RenderToPixels` into any RGBA buffer you own | Possible (add-to-app, embedder API) but you are hosting the **Flutter engine** |
 | Ecosystem | NuGet; 69 built-in elements | **pub.dev** — enormous; Material + Cupertino widget sets built in |
