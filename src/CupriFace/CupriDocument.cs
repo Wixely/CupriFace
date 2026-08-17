@@ -1050,12 +1050,26 @@ public sealed partial class CupriDocument : IDisposable
         var t = RowForCaret(BuildTextRows(anchor, value), caret); // wrap-aware for textarea + wrapped field
         float rowY = t.Y, rowH = t.Height;
 
+        // Reveal the FIELD's border box, not just the caret's text row — with breathing room.
+        // Scrolling the bare row flush to the band's last pixel is technically "visible", but on a
+        // phone it parks the field's bottom chrome exactly against whatever sits below the
+        // scroller (the tab bar), which reads as the keyboard/footer covering the input — the
+        // device report that prompted this. A field taller than the band (a big textarea) falls
+        // back to the row, which is the only part that MUST be seen.
+        const float margin = 8f;
+        var (_, fieldY) = PaintedTopLeft(field);
+        float top = rowY, bottom = rowY + rowH;
+        var boxTop = fieldY - margin;
+        var boxBottom = fieldY + field.Height + margin;
+
         var (_, scY) = PaintedTopLeft(sc);
         var bandTop = scY + sc.ContentTopInset;
         var bandBottom = bandTop + sc.ContentBoxHeight;
+        if (boxBottom - boxTop <= sc.ContentBoxHeight) { top = boxTop; bottom = boxBottom; }
+
         var newScroll = sc.ScrollY;
-        if (rowY < bandTop) newScroll = sc.ScrollY + (rowY - bandTop);              // scroll up to reveal
-        else if (rowY + rowH > bandBottom) newScroll = sc.ScrollY + (rowY + rowH - bandBottom); // down
+        if (top < bandTop) newScroll = sc.ScrollY + (top - bandTop);              // scroll up to reveal
+        else if (bottom > bandBottom) newScroll = sc.ScrollY + (bottom - bandBottom); // down
         sc.ScrollY = Math.Clamp(newScroll, 0, sc.MaxScrollY);
     }
 

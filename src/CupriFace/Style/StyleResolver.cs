@@ -428,6 +428,15 @@ public sealed class StyleResolver
     {
         v = v.Trim();
         if (v.Equals("auto", StringComparison.OrdinalIgnoreCase)) return Length.Auto;
+        // The intrinsic-size keywords must not fall through to the px parser: ParsePx's fallback
+        // is 0, so `width:max-content` silently became a DEFINITE 0px — a 20px padding-only box
+        // with every text line spilling out of it, which is exactly how it looked on a phone.
+        // Auto is the honest mapping here: for the boxes these keywords are used on (fixed-position
+        // popups, shrink-wrapped chips) the engine's auto width already resolves to max-content,
+        // clamped by max-width.
+        if (v.Equals("max-content", StringComparison.OrdinalIgnoreCase) ||
+            v.Equals("min-content", StringComparison.OrdinalIgnoreCase) ||
+            v.Equals("fit-content", StringComparison.OrdinalIgnoreCase)) return Length.Auto;
         if (v.StartsWith("calc(", StringComparison.OrdinalIgnoreCase)) return ParseCalc(v);
         if (v.EndsWith('%') && float.TryParse(v[..^1], out var pct)) return new Length(LengthUnit.Percent, pct);
         return new Length(LengthUnit.Px, ParsePx(v));

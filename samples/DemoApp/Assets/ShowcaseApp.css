@@ -92,7 +92,13 @@ body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; -
         color:var(--cupri-text); border-bottom:1px var(--cupri-border); }
 /* Bounded to the window height (flex-stretched), so a tall section scrolls (wheel + thumb) instead
    of overflowing off-screen. The scrollbar only appears when a section is taller than the viewport. */
-.content { flex:1; padding:26px; background:var(--cupri-bg); color:var(--cupri-text); transition: background-color 0.35s ease; overflow:scroll; }
+/* Each SECTION is its own scroller — .content only clips. When .content scrolled, all ten
+   sections shared one offset on one node: scroll down on Styling, switch to Diagnostics, and the
+   new page rendered pre-scrolled by the old one's offset (reported from a phone). Per-section
+   scrolling gives each page its own position — which also means RETURNING to a page finds it
+   where it was left, the same behaviour the mobile app's pages get from scroll memory. */
+.content { flex:1; background:var(--cupri-bg); color:var(--cupri-text); transition: background-color 0.35s ease; overflow:hidden; }
+.section { height:100%; overflow:scroll; padding:26px; }
 /* Sticky section header: stays pinned to the top of the scrolling content as you scroll a tall section.
    Needs an opaque background (theme var) to cover what scrolls under it, and a divider for separation. */
 .title { position:sticky; top:0; background:var(--cupri-bg); font-size:22px; font-weight:bold; color:var(--cupri-text);

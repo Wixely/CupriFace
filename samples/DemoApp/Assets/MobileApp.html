@@ -28,8 +28,14 @@
           <span class="muted">Pinch to scale, twist to rotate. <span class="touch-only">Two fingers
           on the tile.</span><span class="mouse-only">A mouse can't pinch — try this one on a
           phone.</span></span>
-          <div class="stage">
-            <div class="tile" data-gesture="photo" style="{{TileTransform}}">✦</div>
+          <!-- The STAGE owns the gesture, not the tile. The tile is 90dp - about 14mm on a
+               phone - and two adult fingertips cannot both land on a 14mm square: the second
+               finger fell outside, capture is per-element, and the gesture stayed one-finger
+               forever ("it follows one of my fingers and not the other"). The emulator gate
+               passed the whole time because its fingers are 1px points. Collage editors solve
+               it this way: the canvas takes the fingers, the photo takes the transform. -->
+          <div class="stage" data-gesture="photo">
+            <div class="tile" style="{{TileTransform}}">✦</div>
           </div>
           <!-- Not an <a href="#">: an anchor's own behaviour (scroll-to-anchor) claims the click
                before a selector handler ever sees it, so the button did nothing. -->

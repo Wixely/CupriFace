@@ -38,7 +38,11 @@ public class ShowcaseOnAPhoneTests
         var bad = new List<string>();
         void Walk(RenderNode n, float ox)
         {
-            var x = ox + n.X;
+            // A top-layer (position:fixed) node stores VIEWPORT-ABSOLUTE coordinates — exactly as
+            // hit-testing and the accessibility tree treat it. Accumulating the parent chain on
+            // top of that double-counted every ancestor offset and reported a 260px-clamped
+            // tooltip as "~670px wide": the engine was right and this measurement was lying.
+            var x = (n.IsTopLayer ? 0 : ox) + n.X;
             if (n.Width > 0 && x + n.Width > limit + 1)
                 bad.Add($"{n.Element?.TagName?.ToLowerInvariant() ?? "#text"}" +
                         $"{(n.Element?.GetAttribute("class") is { } c ? "." + c : "")} → {x + n.Width:F0}px");
@@ -65,11 +69,10 @@ public class ShowcaseOnAPhoneTests
     [InlineData("motion")]
     [InlineData("styling")]
     [InlineData("images")]
-    // "overlays" is deliberately ABSENT and the reason is recorded rather than hidden: a pinned
-    // <cupri-tooltip> lays out ~670px wide on a 393px screen and neither max-width nor
-    // width:max-content contains it, so the box is being sized by something other than its content
-    // — a position:fixed sizing defect in the engine, not a stylesheet mistake in the demo. Adding
-    // it here would leave a permanently red test; leaving it silent would let it be forgotten.
+    // "overlays" is back: the "~670px tooltip" this list once recorded as an engine defect was two
+    // bugs, neither the one suspected — this test's own walk double-counted fixed-position
+    // coordinates, and `width:max-content` parsed to a definite 0px (now a recognised keyword).
+    [InlineData("overlays")]
     public void No_section_runs_off_the_edge_of_a_phone(string section)
     {
         var (doc, lw) = Phone(section);
