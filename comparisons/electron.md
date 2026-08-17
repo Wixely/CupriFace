@@ -46,10 +46,11 @@ landed.*
 | Text / i18n | HarfBuzz shaping; bidi partial; **IME composition** (engine preedit model → Android + both web hosts) | Every script, every input method, flawless |
 | Media | Images; charts drawn by the engine; **WebM video** (browser-decoded on web, VP9+Opus package on desktop) | Video incl. H.264/HEVC, WebRTC, WebGL, WebGPU, PDF, audio |
 | Rendering arbitrary web content | **Cannot** — by design | That's the entire point |
-| Testing | **Headless-first**: 369 tests click/type/fling/pixel-assert, no display | Playwright/Spectron — real browser automation |
+| Testing | **Headless-first**: 417 tests click/type/fling/pixel-assert, no display | Playwright/Spectron — real browser automation |
 | Embedding | `RenderToPixels` into any RGBA buffer | Electron owns the process |
 | Web deployment | Same app → `<canvas>`, 14.2 MB wasm (5.5 MB gzipped) | It *is* web tech, but Electron itself is desktop-only |
-| Mobile | **Android** — same app class, ~20.9 MB APK (measured, arm64) | **None** — Electron is desktop-only; phones mean a different stack entirely |
+| Mobile | **Android** — same app class, ~21 MB APK (measured, arm64) | **None** — Electron is desktop-only; phones mean a different stack entirely |
+| Touch | Two-axis scrolling, momentum, rubber band, multi-touch capture — built into the engine | Chromium's, i.e. the web platform's, which is the standard everything else is measured against |
 | Track record | Young, pre-1.0 | A decade; some of the most-used desktop software on earth |
 
 ## The one idea

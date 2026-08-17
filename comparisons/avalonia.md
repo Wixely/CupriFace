@@ -28,11 +28,12 @@ landed. For the mobile-first version of this argument, see
 | Desktop | Windows / macOS / Linux via Silk.NET (OpenGL window or SDL software fallback) | Windows / macOS / Linux, mature windowing (multi-window, dialogs, tray, native menus) |
 | Browser | First-class target: thin JS glue → `<canvas>`; whole app is one wasm file — **14.2 MB (5.5 MB gzipped), measured** on the experimental NativeAOT-LLVM host | Supported, but heavyweight: Mono runtime + framework in the browser, large payloads, slower startup |
 | Mobile | **Android** — own host package, engine-level touch/fling/IME, TalkBack bridge, driven on an emulator by a blocking CI gate. **No iOS** | iOS **and** Android, both mature |
+| Touch & gestures | Two-axis scrolling with momentum and a rubber band; tap-on-release, long-press, double-tap; **multi-touch as an author seam** (`doc.OnPointer` with pointer capture) — the engine computes no gesture | Mature gesture recognizers, including pinch/rotate out of the box |
 | Embedding | Core capability: `RenderToPixels` / `Render(canvas)` into any RGBA surface — game texture, HTML canvas, server-side PNG | Possible but not the primary shape; the framework expects to own the window |
 | Control set | 69 `<cupri-*>` elements (inputs, pickers, tables, charts, overlays, kanban, command palette, …) with `role`/`aria-*` baked in | Deep, mature control library + third-party vendors (DataGrid, virtualization for huge lists, docking, …) |
 | Tooling | Files are plain HTML/CSS — any editor; no designer | IDE previewer, XAML hot reload, commercial dev tools |
 | Accessibility | Roles/ARIA in every component; **four bridges — UIA, AT-SPI, NSAccessibility, TalkBack** — each gated in CI by a real AT client; real DOM tree on web | OS bridges on all three desktops (UIA / AT-SPI / NSAccessibility), longer-proven; mobile a11y inherited from native controls |
-| Testing | **Headless-first**: the engine renders and takes input with no window; the repo's 369 tests click, type, fling and pixel-assert real documents | Headless test platform exists; most testing is app-level/UI automation |
+| Testing | **Headless-first**: the engine renders and takes input with no window; the repo's 417 tests click, type, fling and pixel-assert real documents | Headless test platform exists; most testing is app-level/UI automation |
 | Dependencies | SkiaSharp, HarfBuzzSharp, Silk.NET, AngleSharp — all MIT, checked as a hard project rule | MIT framework; larger dependency and binary surface |
 | Maturity | Young, moving fast; a documented CSS *subset* | Years of production use, commercial backing (incl. paid WPF-compat line) |
 
@@ -106,7 +107,7 @@ That buys three things Avalonia is not shaped for:
    screenshot/PDF-ish pipeline, an existing SDL/GL loop you already own. The
    UI is a function you call, not a process you surrender control to.
 2. **Headless is not a special mode.** The engine doesn't know whether a
-   window exists. The repo's test suite (369 tests) constructs documents,
+   window exists. The repo's test suite (417 tests) constructs documents,
    clicks, types, flings and composes IME text into them, and asserts on state
    and pixels — in milliseconds, in CI, with no display server. UI behaviour
    becomes as testable as business logic, which changes how much UI you are
@@ -154,7 +155,8 @@ An honest list, because it's a long one and it decides real projects:
   and real users behind them, where CupriFace's are young — no Text pattern for
   editable fields yet, and no human screen-reader pass on record.
 - **Input depth.** Full bidirectional text is mature in Avalonia and only
-  partial here. (IME composition is no longer on this list: CupriFace grew a
+  partial here — and Avalonia ships *recognised* gestures (pinch, rotate) where CupriFace hands
+  you the raw pointers and expects you to write the arithmetic. (IME composition is no longer on this list: CupriFace grew a
   real preedit model in the engine, wired to Android's InputConnection and both
   web hosts.)
 - **Tooling and support.** IDE previewers, XAML hot reload, commercial

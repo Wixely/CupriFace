@@ -624,6 +624,34 @@ engine, layout, paint, text, binding, and components are shared unchanged. Andro
 worked example: the host package plus one gesture recognizer and one IME seam in the engine,
 both of which desktop and web share.
 
+### Input model
+The engine takes **one pointer** and a keyboard. Everything richer is built above that, and the
+layering is deliberate:
+
+- **Activation is on pointer-DOWN** for the mouse (`DispatchClick` *is* the down event), which a
+  finger cannot live with — a scroll that began on a button would press it. `TouchInput` (portable,
+  in the engine) holds the decision back: a still short press becomes a tap at finger-UP, travel
+  beyond a slop becomes a scroll, a still long press becomes the context menu, and an explicit drag
+  affordance (slider thumb, scrollbar, reorder grip, split divider) drags from the first touch,
+  because there the mouse semantics and the touch semantics agree.
+- **Scrolling has two axes**, which chain independently, and a gesture locks to the axis it
+  committed to. Momentum (`StartFling`) and the rubber band both live in the DOCUMENT rather than
+  the recognizer, so every host's existing animation gates drive them with no host change — and
+  both had to join *both* gates, the wake gate and the drive gate, which is an asymmetry worth
+  remembering.
+- **Multi-pointer is a seam, not a feature.** `doc.OnPointer` gives an author raw pointers with
+  web-style **capture** (a pointer is owned by an element on down and stays until it lifts), which
+  is what stops a pinch also scrolling the page beneath it — and why there is no `touch-action`
+  arbitration. The engine computes no gesture: what a second finger means is the author's decision,
+  and guessing would be worse than not guessing.
+- **Everything that aims at an element agrees.** Paint, hit-testing and the semantics tree apply the
+  same scroll offsets, the same rubber band and the same CSS transform matrix. A control that has
+  been scrolled, stretched, scaled or rotated is touchable and readable *where it now is* — the
+  class of bug that appears the instant these three disagree.
+- **Interaction state is keyed by structural path**, never by node reference: the tree is rebuilt
+  constantly (per keystroke), so a captured pointer, an in-flight fling and a scroll offset all
+  survive by describing *where* rather than *what*.
+
 ### Presentation scaling
 The host presents a document via `CupriApp.Present(windowW, windowH)` → a **logical
 viewport + scale factor**; the host does `canvas.Scale(scale)` then lays out at the

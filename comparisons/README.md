@@ -29,8 +29,9 @@ CupriFace is that model with the browser removed.
 
 Planned next (no documents yet): Tauri, Blazor Hybrid.
 
-*Last reviewed against the repository in August 2026, after the Android host
-landed (four accessibility bridges, engine-level touch and IME composition).*
+*Last reviewed against the repository in August 2026, after the input layer landed: four
+accessibility bridges, two-axis scrolling with momentum and overscroll, multi-touch as an author
+seam, the full Android IME contract, and autofill.*
 
 ## Ground rules for these documents
 

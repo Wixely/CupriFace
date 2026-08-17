@@ -898,6 +898,61 @@ taken that on.
 If you want both, the usual approach is to keep the built-in control as the reachable path and
 treat the gesture as an accelerator on top of it, rather than as the only way in.
 
+## 8.2 Scrolling
+
+`overflow: scroll` scrolls on **both axes**, independently. A box whose content is wider than it is
+can be dragged sideways with a finger, flung, and it keeps its own momentum:
+
+```css
+.card-row      { overflow: scroll; display: flex; gap: 8px; }
+.card-row > *  { min-width: 160px; }     /* stop the row collapsing to fit */
+```
+
+Things worth knowing, because each one was a bug before it was a rule:
+
+- **The axes chain independently.** A card row inside a scrolling page takes the sideways part of a
+  diagonal drag while the page takes the up-down part — neither steals the other's axis.
+- **A gesture locks to the axis it committed to**, so a sideways drag doesn't creep the page
+  vertically. A genuinely diagonal start moves both, which is what a map or a zoomed image wants.
+- **Pulling past an edge stretches** (the rubber band) with resistance, then springs back on
+  release. That is what distinguishes "you have reached the end" from "the app stopped responding".
+  It never engages mid-content.
+- **What is scrolled into view is where it can be tapped.** Paint, hit-testing and the semantics
+  tree read one effective offset, so a control dragged into view — or pushed down by the rubber
+  band — is touchable and readable where it now appears.
+
+A wide block on a phone is usually better scrolled than shrunk: a six-column table squeezed into
+393dp is visible without being *usable*. The Showcase does this with a wrapper (`overflow: scroll`)
+around content that keeps a minimum width.
+
+## 8.3 Forms that a password manager understands
+
+Two attributes and one call:
+
+```html
+<cupri-textfield value="{{Email}}" inputmode="email" enterkeyhint="next"
+                 autocomplete="username" aria-label="Email"></cupri-textfield>
+<cupri-password  value="{{Password}}" enterkeyhint="done"
+                 autocomplete="current-password" aria-label="Password"></cupri-password>
+<cupri-button class="signin">Sign in</cupri-button>
+```
+
+```csharp
+doc.OnClick(".signin", _ => { SignIn(); doc.SubmitForm(); });
+```
+
+- **`autocomplete`** is what a fill service reads — `username`, `current-password`, `email`,
+  `tel`, `name`, `postal-code`… A field **without** one is deliberately not offered for filling.
+  The engine will not guess that something is a password field.
+- **`inputmode`** picks the keyboard (an `@` key for email, a dial pad for `tel`), and
+  **`enterkeyhint`** names the action key. Both are the web platform's own attributes, so the
+  Android host and the web host read the same markup.
+- **`SubmitForm()` is what makes a manager offer to SAVE.** Filling is passive — a service reads
+  the structure whenever it likes — but saving only happens when the app declares the entry
+  finished. Without that call, correct `autocomplete` attributes will still never produce a save
+  prompt. (On Android the host answers it with `AutofillManager.Commit()`; elsewhere nothing
+  listens and nothing breaks.)
+
 ## 9. Where to look in the repo
 
 - Core engine & document API: [src/CupriFace/CupriDocument.cs](src/CupriFace/CupriDocument.cs)
