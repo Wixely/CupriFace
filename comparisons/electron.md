@@ -46,7 +46,7 @@ landed.*
 | Text / i18n | HarfBuzz shaping; bidi partial; **IME composition** (engine preedit model → Android + both web hosts) | Every script, every input method, flawless |
 | Media | Images; charts drawn by the engine; **WebM video** (browser-decoded on web, VP9+Opus package on desktop) | Video incl. H.264/HEVC, WebRTC, WebGL, WebGPU, PDF, audio |
 | Rendering arbitrary web content | **Cannot** — by design | That's the entire point |
-| Testing | **Headless-first**: 417 tests click/type/fling/pixel-assert, no display | Playwright/Spectron — real browser automation |
+| Testing | **Headless-first**: 423 tests click/type/fling/pixel-assert, no display | Playwright/Spectron — real browser automation |
 | Embedding | `RenderToPixels` into any RGBA buffer | Electron owns the process |
 | Web deployment | Same app → `<canvas>`, 14.2 MB wasm (5.5 MB gzipped) | It *is* web tech, but Electron itself is desktop-only |
 | Mobile | **Android** — same app class, ~21 MB APK (measured, arm64) | **None** — Electron is desktop-only; phones mean a different stack entirely |

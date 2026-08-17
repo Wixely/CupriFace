@@ -42,7 +42,7 @@ README's published figures and were not independently reproduced.*
 | Native footprint | Skia (9.2 MB) + HarfBuzz (1.7 MB) + SDL/GLFW (1.8 MB) on win-x64, before any app code | Direct2D/GDI backends ride OS libraries — near-zero native payload |
 | AOT posture | Design goal, now **verified end-to-end** — the AOT Showcase renders and interacts correctly | **Non-negotiable design constraint**, validated continuously; `LibraryImport` source-generated P/Invoke |
 | Embedding | Core capability: `RenderToPixels` into any RGBA buffer (game texture, canvas, server) | Not a stated goal — the framework hosts the window |
-| Testing | **Headless-first**: engine needs no window; 417 tests click/type/fling/pixel-assert | Conventional; no headless-first claim |
+| Testing | **Headless-first**: engine needs no window; 423 tests click/type/fling/pixel-assert | Conventional; no headless-first claim |
 | Accessibility | `role`/`aria-*` in every component; **four bridges — UIA, AT-SPI, NSAccessibility, TalkBack — each CI-gated by a real AT client**; real DOM a11y tree on the web host | Focus/tab navigation documented; no OS a11y bridge story |
 | Extras | Charts, kanban, command palette, pickers built in (69 elements) | Thin core + **optional packages**: MewDock (VS-style docking), SVG, Skia, MewCharts, WebView2 |
 | Tooling | Plain text files, any editor; no designer | **Hot reload** and **Preview** documented — a real advantage |
@@ -155,7 +155,7 @@ An honest list, and it is not short:
   entire design world, already knows. Dark mode is a variable swap; responsive
   layout is a media query; restyling ships without a recompile.
 - **Headless-first testing.** The CupriFace engine doesn't know whether a window
-  exists, so UI behaviour is unit-testable: the repo's 417 tests build documents,
+  exists, so UI behaviour is unit-testable: the repo's 423 tests build documents,
   click, type, fling and compose IME text into them, and assert on state and
   pixels — in CI, in milliseconds, with no display. MewUI's window-owning design
   makes the same coverage an end-to-end automation problem.

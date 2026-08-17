@@ -884,6 +884,36 @@ doc.OnPointer("data-gesture", e =>
   than not guessing.
 - `Cancel` arrives when the app is backgrounded or the surface goes away — unwind there.
 
+### Recognised gestures: `doc.OnManipulate`
+
+Most apps that want two fingers want the same three numbers, so the engine works them out for you:
+
+```csharp
+doc.OnManipulate("data-gesture", g => {
+    model.Scale    = Math.Clamp(g.Scale, 0.4, 3);   // cumulative since the gesture began
+    model.Rotation = g.Rotation;                     // degrees
+    model.PanX     = g.PanX;                         // the focal point's travel
+    model.PanY     = g.PanY;
+    return true;
+});
+```
+
+It is a layer **over** `OnPointer` — same attribute opt-in, same capture, no new rules — so raw
+pointers remain available for anything it doesn't describe. What it saves you is not the
+trigonometry but the mistakes in it:
+
+- **The focal point.** A pinch scales about the midpoint *between the fingers*
+  (`g.FocusX`/`g.FocusY`), not the element's centre. Scale about the centre and the content slides
+  out from under the hands holding it. The engine's own first sample made this mistake.
+- **Re-baselining.** Adding or lifting a finger changes what "span" means, so the cumulative values
+  must be banked and re-measured, or the content jumps mid-gesture.
+- **The ±180° seam**, so a small turn past it reads as a few degrees rather than most of a circle.
+- **Three fingers**, where "the distance between the two" has no meaning — spread is measured from
+  the centroid.
+
+Use `OnPointer` directly when the gesture isn't a manipulation: a two-finger swipe, a custom
+multi-touch keyboard, anything where you want the pointers themselves.
+
 ### Accessibility: where the line is
 
 CupriFace is an engine, not a nanny. **Anything you build with `OnPointer` is yours to make

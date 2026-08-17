@@ -32,8 +32,8 @@ rows say so.*
 | Platform APIs | **None** — it is a renderer, not an app platform | **Extensive** (Essentials): sensors, geolocation, permissions, file/media pickers, secure storage, connectivity |
 | Android runtime | **CoreCLR, mandated** (see below — a Mono codegen defect forced it) | **Mono** by default; CoreCLR-on-Android is newer and opt-in |
 | Accessibility | Portable semantics tree + **four hand-built bridges** (UIA, AT-SPI, NSAccessibility, TalkBack), each gated in CI by a real AT client | **Inherited from the native controls** — mature and free, plus `SemanticProperties` |
-| Testing | **Headless-first**: 417 tests click, type, fling and pixel-assert with no device or display | Device/emulator UI testing (Appium, .NET MAUI UITest); unit tests cover view-models, not views |
-| Gestures | Two-axis scrolling with momentum and rubber band; multi-touch as a capture-based seam an author builds on | `GestureRecognizer`s (tap, pan, pinch, swipe) inherited from the native controls |
+| Testing | **Headless-first**: 423 tests click, type, fling and pixel-assert with no device or display | Device/emulator UI testing (Appium, .NET MAUI UITest); unit tests cover view-models, not views |
+| Gestures | Two-axis scrolling with momentum and rubber band; drag/pinch/rotate recogniser plus a raw capture-based seam | `GestureRecognizer`s (tap, pan, pinch, swipe) inherited from the native controls |
 | Android app size | ~20.9 MB APK (arm64, the phone sample, measured) | Broadly comparable for a small app; varies with trimming and linker settings |
 | Control set | 69 `<cupri-*>` elements, `role`/`aria-*` baked in | Native controls + a large first- and third-party ecosystem |
 | Tooling | Plain text files, any editor; no designer or previewer | XAML Hot Reload, .NET Hot Reload, VS/VS Code tooling, previewers |
@@ -122,7 +122,7 @@ Appium, .NET MAUI UITest, a running app on real hardware. In practice, MAUI
 teams unit-test view-models and accept that the views themselves are covered by
 slower, flakier end-to-end automation.
 
-CupriFace's engine does not know whether a window exists. Its 417 tests build
+CupriFace's engine does not know whether a window exists. Its 423 tests build
 real documents, click, type, drag, **fling with momentum**, compose text with a
 simulated IME, and assert on both state and pixels — in milliseconds, in CI, on
 any OS, with no display and no device.

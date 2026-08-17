@@ -64,41 +64,18 @@ public sealed class MobileApp : CupriApp
             return true;
         });
 
-        // Two fingers on the photo tile: pinch to scale, twist to rotate. The engine hands over the
-        // raw pointers and computes NO gesture — this arithmetic is what an author writes, and the
-        // sample exists so there is something to actually put two fingers on. Nothing about it is
-        // accessible, deliberately: it is the documented example of the freedom the seam gives you
-        // (TOOLBOX §8.1), sitting next to controls that are accessible by construction.
-        var startSpan = 0.0;
-        var startAngle = 0.0;
-        var startScale = 1.0;
-        var startRotation = 0.0;
-        doc.OnPointer("data-gesture", e =>
+        // Two fingers on the photo tile: pinch to scale, twist to rotate, drag to move. This uses
+        // the RECOGNISER (OnManipulate) rather than raw pointers — the same seam underneath, with
+        // the arithmetic and the focal point already right. The first version of this sample did
+        // the trigonometry by hand and scaled about the tile's centre instead of the point between
+        // the fingers, which is exactly the mistake the recogniser exists to stop repeating.
+        // doc.OnPointer is still there for anything this does not describe.
+        doc.OnManipulate("data-gesture", g =>
         {
-            if (e.Pointers.Count < 2)
-            {
-                // One finger still captures — otherwise the page would scroll under the tile the
-                // moment a second finger was late to arrive.
-                return true;
-            }
-
-            var (a, b) = (e.Pointers[0], e.Pointers[1]);
-            var span = Math.Sqrt(Math.Pow(b.X - a.X, 2) + Math.Pow(b.Y - a.Y, 2));
-            var angle = Math.Atan2(b.Y - a.Y, b.X - a.X) * 180 / Math.PI;
-
-            if (e.Phase == CupriFace.Interaction.PointerPhase.Down || startSpan <= 0)
-            {
-                startSpan = span;
-                startAngle = angle;
-                startScale = _model.TileScale;
-                startRotation = _model.TileRotation;
-                return true;
-            }
-
-            _model.TileScale = Math.Clamp(startScale * (span / startSpan), 0.4, 3.0);
-            _model.TileRotation = startRotation + (angle - startAngle);
-            if (e.Phase is CupriFace.Interaction.PointerPhase.Up or CupriFace.Interaction.PointerPhase.Cancel)
-                startSpan = 0;
+            _model.TileScale = Math.Clamp(g.Scale, 0.4, 3.0);
+            _model.TileRotation = g.Rotation;
+            _model.TilePanX = g.PanX;
+            _model.TilePanY = g.PanY;
             return true;
         });
 
@@ -106,7 +83,8 @@ public sealed class MobileApp : CupriApp
         {
             _model.TileScale = 1;
             _model.TileRotation = 0;
-            startSpan = 0;
+            _model.TilePanX = 0;
+            _model.TilePanY = 0;
         });
     }
 }
@@ -141,9 +119,17 @@ public sealed partial class MobileModel
     // The pinch/rotate tile. Written by the OnPointer handler, read back as a CSS transform.
     public double TileScale { get; set; } = 1;
     public double TileRotation { get; set; }
-    public string TileTransform =>
-        $"transform:scale({TileScale.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)}) " +
-        $"rotate({TileRotation.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)}deg)";
+    public double TilePanX { get; set; }
+    public double TilePanY { get; set; }
+    public string TileTransform
+    {
+        get
+        {
+            var c = System.Globalization.CultureInfo.InvariantCulture;
+            return $"transform:translate({TilePanX.ToString("0.#", c)}px,{TilePanY.ToString("0.#", c)}px) " +
+                   $"scale({TileScale.ToString("0.##", c)}) rotate({TileRotation.ToString("0.#", c)}deg)";
+        }
+    }
     public string TileReadout =>
         $"{TileScale.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)}× · " +
         $"{TileRotation.ToString("0", System.Globalization.CultureInfo.InvariantCulture)}°";

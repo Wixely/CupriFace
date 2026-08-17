@@ -41,6 +41,112 @@ public sealed partial class CupriDocument
         return this;
     }
 
+    /// <summary>Recognise a drag / pinch / rotate on elements carrying
+    /// <paramref name="dataAttribute"/>, instead of handling raw pointers yourself. Built ON TOP of
+    /// <see cref="OnPointer"/> — same attribute opt-in, same capture, no new rules — so this is a
+    /// convenience, not a different system. Raw pointers remain available for anything this does
+    /// not describe.
+    ///
+    /// What it saves you is not the trigonometry but the mistakes in it: the focal point (a pinch
+    /// scales about the midpoint BETWEEN the fingers, not the element's centre), and re-baselining
+    /// when a finger joins or leaves so the cumulative values do not jump mid-gesture.
+    ///
+    /// State is keyed by the ATTRIBUTE'S VALUE, not the element: the tree is rebuilt while you are
+    /// still holding the gesture, so an element reference would not survive its own drag. Give each
+    /// manipulable element a distinct value.</summary>
+    public CupriDocument OnManipulate(string dataAttribute, Func<ManipulationEvent, bool> handler)
+    {
+        var states = new Dictionary<string, Manip>();
+
+        return OnPointer(dataAttribute, e =>
+        {
+            var key = e.Value.Length > 0 ? e.Value : dataAttribute;
+            if (!states.TryGetValue(key, out var m)) states[key] = m = new Manip();
+
+            var (fx, fy) = Centre(e.Pointers);
+            var span = Spread(e.Pointers);
+            var angle = Angle(e.Pointers);
+
+            // A finger arriving or leaving changes what span and angle MEAN, so fold what has
+            // happened so far into the accumulators and start measuring afresh from here. Without
+            // this, lifting one of three fingers makes the content jump.
+            if (e.Phase == PointerPhase.Down || e.Pointers.Count != m.Count)
+            {
+                m.AccumScale *= m.LiveScale;
+                m.AccumRotation += m.LiveRotation;
+                m.AccumPanX += m.LivePanX;
+                m.AccumPanY += m.LivePanY;
+                m.LiveScale = 1; m.LiveRotation = 0; m.LivePanX = 0; m.LivePanY = 0;
+                m.BaseSpan = span; m.BaseAngle = angle; m.BaseX = fx; m.BaseY = fy;
+                m.Count = e.Pointers.Count;
+            }
+            else
+            {
+                // One finger can only pan; two or more also scale and turn.
+                m.LivePanX = fx - m.BaseX;
+                m.LivePanY = fy - m.BaseY;
+                if (e.Pointers.Count >= 2 && m.BaseSpan > 0.01)
+                {
+                    m.LiveScale = span / m.BaseSpan;
+                    m.LiveRotation = Normalise(angle - m.BaseAngle);
+                }
+            }
+
+            var changed = handler(new ManipulationEvent(
+                Scale: m.AccumScale * m.LiveScale,
+                Rotation: m.AccumRotation + m.LiveRotation,
+                PanX: m.AccumPanX + m.LivePanX,
+                PanY: m.AccumPanY + m.LivePanY,
+                FocusX: fx, FocusY: fy,
+                PointerCount: e.Pointers.Count,
+                Phase: e.Phase, Element: e.Element, Value: e.Value, Model: _model));
+
+            if (e.Phase is PointerPhase.Up or PointerPhase.Cancel && e.Pointers.Count <= 1)
+                states.Remove(key);          // the last finger left: the next touch starts over
+            return changed;
+        });
+    }
+
+    private sealed class Manip
+    {
+        public double AccumScale = 1, AccumRotation, AccumPanX, AccumPanY;
+        public double LiveScale = 1, LiveRotation, LivePanX, LivePanY;
+        public double BaseSpan, BaseAngle, BaseX, BaseY;
+        public int Count;
+    }
+
+    private static (double X, double Y) Centre(IReadOnlyList<CupriPointer> pointers)
+    {
+        if (pointers.Count == 0) return (0, 0);
+        double x = 0, y = 0;
+        foreach (var p in pointers) { x += p.X; y += p.Y; }
+        return (x / pointers.Count, y / pointers.Count);
+    }
+
+    // Mean distance from the centre — a definition that keeps working with three fingers, where
+    // "the distance between the two" has no meaning.
+    private static double Spread(IReadOnlyList<CupriPointer> pointers)
+    {
+        if (pointers.Count < 2) return 0;
+        var (cx, cy) = Centre(pointers);
+        double total = 0;
+        foreach (var p in pointers) total += Math.Sqrt((p.X - cx) * (p.X - cx) + (p.Y - cy) * (p.Y - cy));
+        return total / pointers.Count;
+    }
+
+    private static double Angle(IReadOnlyList<CupriPointer> pointers) =>
+        pointers.Count < 2 ? 0
+        : Math.Atan2(pointers[1].Y - pointers[0].Y, pointers[1].X - pointers[0].X) * 180 / Math.PI;
+
+    /// <summary>Keep a turn on the short side of the circle: crossing the ±180° seam must read as a
+    /// few degrees, not most of a revolution.</summary>
+    private static double Normalise(double degrees)
+    {
+        while (degrees > 180) degrees -= 360;
+        while (degrees < -180) degrees += 360;
+        return degrees;
+    }
+
     /// <summary>True while any pointer is captured — the host's cue that its single-pointer gesture
     /// recognizer should stay out of the way.</summary>
     public bool HasCapturedPointers => _captured.Count > 0;
