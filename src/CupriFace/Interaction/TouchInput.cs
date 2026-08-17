@@ -144,6 +144,7 @@ public sealed class TouchInput(CupriDocument document)
 
             case Mode.Scrolling:
             {
+                document.ReleaseOverscroll();   // let any stretched band spring back
                 Prune(t);
                 // Not gated on the VERTICAL target existing: a row that only scrolls sideways
                 // has none, and its fling is the one most worth having.
@@ -260,8 +261,14 @@ public sealed class TouchInput(CupriDocument document)
         // and the engine's own edge-chaining and virtual re-windowing do the rest. Both axes go in
         // the same call so a diagonal drag moves a horizontally scrolling row and the page under it
         // together, each taking the part it can use.
-        return (delta != 0 || deltaX != 0)
-               && document.DispatchWheel(_downX, _downY, delta, deltaX);
+        if (delta == 0 && deltaX == 0) return false;
+
+        var scrolled = document.DispatchWheel(_downX, _downY, delta, deltaX);
+        // Nothing moved and the finger is still pulling: the scroller is at its edge. Stretch it,
+        // so arriving at the end feels like arriving rather than like the app going dead.
+        if (!scrolled && delta != 0 && _scrollPath is not null)
+            return document.Overscroll(_scrollPath, delta);
+        return scrolled;
     }
 
     private void Prune(double t)

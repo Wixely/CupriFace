@@ -736,6 +736,7 @@ public sealed partial class CupriDocument : IDisposable
         }
         if (EaseReorder(timeSeconds)) any = true; // slide reorder rows into their gap
         if (StepFling(timeSeconds)) any = true;   // momentum scrolling (touch fling)
+        if (StepOverscroll(timeSeconds)) any = true;   // the rubber band springing back
         // Animation wrote style/offset values this frame → the retained fast-path list is stale.
         // A quiet call (rules exist, nothing active — every page of an app with a spinner
         // somewhere) must NOT bump, or the surface fast path would never fire anywhere.
@@ -752,7 +753,7 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>True while a CSS transition is mid-flight (a continuous host should keep calling
     /// <see cref="Animate"/> and repainting until it settles). Also true while a masked field is
     /// peeking its last-typed char, so the host keeps ticking until <see cref="Animate"/> re-masks it.</summary>
-    public bool HasActiveTransitions => _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || FlingActive;
+    public bool HasActiveTransitions => _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || FlingActive || OverscrollActive;
 
     /// <summary>True only if a *visible* node is currently animating (display:none subtrees are
     /// absent from the render tree). Lets a host render continuously only when it must, instead
@@ -760,7 +761,7 @@ public sealed partial class CupriDocument : IDisposable
     /// set only changes when the tree does), so a host may poll it every frame for free. Also true
     /// while a masked field peeks its last-typed char (see <see cref="HasActiveTransitions"/>),
     /// and while any live surface (a playing video) is producing frames.</summary>
-    public bool HasActiveAnimations => _hasActiveAnim || _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || Surfaces.AnyTicking || FlingActive;
+    public bool HasActiveAnimations => _hasActiveAnim || _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || Surfaces.AnyTicking || FlingActive || OverscrollActive;
     private bool _hasActiveAnim;
 
     private static bool AnyAnimated(RenderNode n)
@@ -1866,6 +1867,65 @@ public sealed partial class CupriDocument : IDisposable
     /// <see cref="ScrollTargetAt"/>), at signed pixels/second (positive scrolls down). The
     /// integration happens in <see cref="Animate"/>; a fling deliberately does NOT chain to
     /// ancestor scrollers — momentum dies at the edge, as native platforms do.</summary>
+    // ---- overscroll (the rubber band) ----------------------------------------------------------
+    // Lives beside the fling for the same reason: it is an animation the hosts already know how to
+    // drive, and its state is a structural path plus a number — nothing that dangles on a rebuild.
+
+    private string? _overscrollPath;
+    private const float OverscrollMax = 90f;      // how far the band can stretch, logical px
+    private const float OverscrollResist = 0.4f;  // …and how much of your drag it converts
+    private const float OverscrollSpring = 12f;   // decay rate on release (per second, exponential)
+    private bool _overscrollHeld;                 // a finger is still stretching it
+
+    /// <summary>Stretch a scroller past its edge. Called when a drag had nowhere left to go: the
+    /// alternative is a dead stop, which gives a finger no signal that it has arrived. Resistance
+    /// makes the band feel like a band — the further it is pulled, the less each pixel gives.</summary>
+    public bool Overscroll(string path, float pixelDelta)
+    {
+        if (NodeAtPath(path) is not { IsScrollable: true } n) return false;
+
+        // Only past an EDGE: pulling back toward the content is ordinary scrolling.
+        var atTop = n.ScrollY <= 0.01f && pixelDelta < 0;
+        var atBottom = n.ScrollY >= n.MaxScrollY - 0.01f && pixelDelta > 0;
+        if (!atTop && !atBottom && MathF.Abs(n.OverscrollY) < 0.01f) return false;
+
+        _overscrollPath = path;
+        _overscrollHeld = true;
+        var slack = 1f - MathF.Min(1f, MathF.Abs(n.OverscrollY) / OverscrollMax);
+        n.OverscrollY = Math.Clamp(n.OverscrollY + pixelDelta * OverscrollResist * slack,
+                                   -OverscrollMax, OverscrollMax);
+        return Bump(true);
+    }
+
+    /// <summary>The finger let go: let the band spring back.</summary>
+    public void ReleaseOverscroll() => _overscrollHeld = false;
+
+    /// <summary>True while a band is stretched or springing — a host's animation gate.</summary>
+    public bool OverscrollActive =>
+        _overscrollPath is not null && NodeAtPath(_overscrollPath) is { } n && MathF.Abs(n.OverscrollY) > 0.05f;
+
+    private bool StepOverscroll(double now)
+    {
+        if (_overscrollPath is null) return false;
+        if (NodeAtPath(_overscrollPath) is not { } n || MathF.Abs(n.OverscrollY) < 0.05f)
+        {
+            if (NodeAtPath(_overscrollPath) is { } done) done.OverscrollY = 0;
+            _overscrollPath = null;
+            return false;
+        }
+        if (_overscrollHeld) return true;           // still being pulled; nothing to animate
+
+        var dt = double.IsNaN(_overscrollT) ? 0 : Math.Clamp(now - _overscrollT, 0, 0.1);
+        _overscrollT = now;
+        if (dt <= 0) return true;
+
+        n.OverscrollY *= (float)Math.Exp(-dt * OverscrollSpring);
+        if (MathF.Abs(n.OverscrollY) < 0.05f) n.OverscrollY = 0;
+        return true;
+    }
+
+    private double _overscrollT = double.NaN;
+
     public bool StartFling(string path, float pixelsPerSecond, bool horizontal = false)
     {
         if (MathF.Abs(pixelsPerSecond) < FlingStopSpeed) return false;
