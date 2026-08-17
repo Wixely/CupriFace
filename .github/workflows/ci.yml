@@ -487,82 +487,158 @@ jobs:
 
           # --- two fingers: the one platform claim that never had a gate --------------------------
           # `adb shell input` is single-pointer, which is why this seam had no gate while every
-          # other one here is driven by a real client. A device reported the tile "follows one of my
+          # other one is driven by a real client. A device reported the tile "follows one of my
           # fingers - no scaling, no rotation"; nothing in CI could have caught that.
+          #
+          # Run 3's capability dump named the trap: the emulator exposes ELEVEN virtio multi-touch
+          # devices (multi-display plumbing), and the first one advertising ABS_MT_POSITION_X was
+          # virtio_input_multi_touch_11 - not the one wired to the visible display. Injecting into
+          # a wrong one is perfectly silent: fully capable device, no error, no gesture. So the
+          # chain is proven one link at a time, and each failure names its own cause.
           nav 0    # Home, where the gesture tile lives
           sleep 1
-          MT=$(adb shell getevent -pl 2>/dev/null | awk '/^add device/{d=$NF} /ABS_MT_POSITION_X/{print d; exit}' | sed 's/[[:space:]]*$//')
-          [ -n "$MT" ] || fail "no multi-touch input device on this emulator - cannot drive two fingers"
-          CAPS=$(adb shell getevent -pl "$MT" 2>/dev/null | sed 's/[[:space:]]*$//')
-          echo "touchscreen: $MT"
-          echo "$CAPS" | grep -E 'ABS_MT_' || true
+          nmark() { adb logcat -d -s cupri:I | grep -c 'cupri-gate: gesture' || true; }
+          # Phase extraction anchors on DEVICE TIME, not on marker counts: logcat's ring buffer can
+          # evict old lines mid-step, which silently shifts a positional tail -n +N slice onto the
+          # wrong markers while pointing the blame at the app.
+          now_ts() { adb shell 'date "+%m-%d %H:%M:%S.000"' | sed 's/[[:space:]]*$//' || true; }
+          since() { adb logcat -d -T "$1" -s cupri:I | grep 'cupri-gate: gesture' || true; }
 
-          # The touchscreen reports in its OWN axis range, which is not always screen pixels — the
-          # first version of this gate sent pixel coordinates into a device whose axes run to a
-          # different maximum, so every event landed somewhere the tile was not and the app saw no
-          # gesture at all. Read the ranges and map into them.
-          axmax() { echo "$CAPS" | grep -m1 "$1" | grep -oE 'max [0-9]+' | head -1 | awk '{print $2}'; }
-          MAXX=$(axmax ABS_MT_POSITION_X); MAXY=$(axmax ABS_MT_POSITION_Y)
-          SW=$(adb shell wm size | grep -oE '[0-9]+x[0-9]+' | tail -1 | cut -dx -f1)
-          SH=$(adb shell wm size | grep -oE '[0-9]+x[0-9]+' | tail -1 | cut -dx -f2)
-          : "${MAXX:=$SW}" ; : "${MAXY:=$SH}"
-          echo "axes: x<=$MAXX y<=$MAXY on a ${SW}x${SH} screen"
+          # Link 1 - the coordinates, via the single-touch path this gate already trusts. A plain
+          # tap on the tile must produce a fingers=1 marker; if not, the tile is not where the
+          # headless measurement put it (90dp square centred at 196,540 when 393dp wide) and
+          # nothing after this could mean anything.
+          N0=$(nmark)
+          tap 196 540
+          sleep 2
+          test "$(nmark)" -gt "$N0" \
+            || fail "a plain tap on the tile produced no gesture marker - wrong tile position, or markers not reaching logcat"
+          echo "link 1: tile position and marker plumbing confirmed by single-touch tap"
+
+          # One read, guarded, failing loudly: these were the leg's last unguarded substitutions,
+          # and an adb hiccup here would have killed the step with no message at all.
+          SIZE=$(adb shell wm size | grep -oE '[0-9]+x[0-9]+' | tail -1 || true)
+          [ -n "$SIZE" ] || fail "wm size reported no WxH - adb transport hiccup before the pinch"
+          SW=${SIZE%x*}; SH=${SIZE#*x}
+          TX=$(( OX + 196 * D / 160 )); TY=$(( OY + 540 * D / 160 ))
+          # Fingers land 30dp either side of centre - inside the 90dp tile with margin. The spread
+          # runs to a 240dp span: our recogniser is engine-owned (no ScaleGestureDetector, so no
+          # 27mm min-scaling-span), but wide geometry keeps the claim unambiguous if a host-side
+          # detector ever appears in the path.
+          SP=$(( 30 * D / 160 ))
+
+          # Protocol B, parameterised by MT/MAXX/MAXY (set per device): a SLOT per finger, a
+          # tracking id opening and closing each one, SYN committing the frame. TOUCH_MAJOR and
+          # PRESSURE ride along because a contact with neither can be discarded as noise. The
+          # touchscreen speaks its OWN axis range (0..32767 here), not pixels - run 2's lesson.
           dx() { echo $(( $1 * MAXX / SW )); }
           dy() { echo $(( $1 * MAXY / SH )); }
-
-          # Tile centre, measured headlessly at 393dp wide: a 90dp square at (196,540). Fingers sit
-          # 20dp either side, so both stay inside it even at full spread.
-          TX=$(( OX + 196 * D / 160 )); TY=$(( OY + 540 * D / 160 ))
-          SP=$(( 20 * D / 160 ))
-
-          # Protocol B: a SLOT per finger, a tracking id to open and close each one, SYN to commit.
-          # TOUCH_MAJOR and PRESSURE are sent because a contact with neither is discarded as noise
-          # by some input stacks before it ever becomes a MotionEvent.
           put() {   # put <slot> <trackingId|-1> <screenX> <screenY>
             if [ "$2" = "-1" ]; then
               printf 'sendevent %s 3 47 %s;sendevent %s 3 57 -1;' "$MT" "$1" "$MT"
             else
-              printf 'sendevent %s 3 47 %s;sendevent %s 3 57 %s;sendevent %s 3 48 6;sendevent %s 3 58 50;sendevent %s 3 53 %s;sendevent %s 3 54 %s;' \
+              printf 'sendevent %s 3 47 %s;sendevent %s 3 57 %s;sendevent %s 3 48 6;sendevent %s 3 58 60;sendevent %s 3 53 %s;sendevent %s 3 54 %s;' \
                      "$MT" "$1" "$MT" "$2" "$MT" "$MT" "$MT" "$(dx $3)" "$MT" "$(dy $4)"
             fi
           }
+          btn() { printf 'sendevent %s 1 330 %s;' "$MT" "$1"; }
           syn() { printf 'sendevent %s 0 0 0;' "$MT"; }
-          # stderr is NOT swallowed. Hiding it is how two runs were spent without noticing
-          # that the question was never answered: a "Permission denied" writing to the input
-          # device looks exactly like a gesture that did not register.
-          send() { adb shell "$1 " 2>&1 | grep -v "^$" | head -3 || true; }
+          # stderr surfaces on purpose: "Permission denied" writing to /dev/input looks exactly
+          # like a gesture that did not register once the error is thrown away.
+          send() { adb shell "$1" 2>&1 | sed 's/[[:space:]]*$//' | grep -v '^$' | head -3 || true; }
+          sendtap() {  # one sendevent finger, down then up, on the tile centre
+            send "$(put 0 $1 $TX $TY)$(btn 1)$(syn)"
+            sleep 0.4
+            send "$(put 0 -1)$(btn 0)$(syn)"
+            sleep 2
+          }
 
-          # Separate adb calls with real pauses between them: one long burst is delivered faster
-          # than the app samples, and the whole spread can arrive coalesced into a single frame.
-          send "$(put 0 100 $(( TX - SP )) $TY)$(put 1 101 $(( TX + SP )) $TY)$(printf 'sendevent %s 1 330 1;' "$MT")$(syn)"
-          sleep 1
+          # Link 2 - which of the eleven reaches the screen: a single-finger sendevent tap on the
+          # tile, per candidate, until the marker count moves. Empirical, because nothing in the
+          # capability dump distinguishes the live one. Each candidate gets two attempts with the
+          # 2s window link 1 trusts, and the winner must then CONFIRM with a second tap - a late
+          # marker from a previous candidate can masquerade as this one's, and a confirmation tap
+          # is immune to inheriting it.
+          CHOSEN=""; CHOSENNAME=""
+          for MT in $(adb shell getevent -pl 2>/dev/null | grep '^add device' | awk '{print $NF}' | sed 's/[[:space:]]*$//'); do
+            CAPS=$(adb shell getevent -pl "$MT" 2>/dev/null | sed 's/[[:space:]]*$//' || true)
+            echo "$CAPS" | grep -q ABS_MT_POSITION_X || continue
+            # Every assignment is guarded: under `set -e` with pipefail, VAR=$(...|grep...) with
+            # no match KILLS the script silently - the trap that ate runs 2 and 3, in new clothes.
+            NAME=$(echo "$CAPS" | grep -m1 'name:' | sed 's/.*name: *//' || true)
+            MAXX=$(echo "$CAPS" | grep -m1 ABS_MT_POSITION_X | grep -oE 'max [0-9]+' | head -1 | awk '{print $2}' || true)
+            MAXY=$(echo "$CAPS" | grep -m1 ABS_MT_POSITION_Y | grep -oE 'max [0-9]+' | head -1 | awk '{print $2}' || true)
+            : "${MAXX:=$SW}"; : "${MAXY:=$SH}"
+            HIT=""
+            for attempt in 1 2; do
+              NC=$(nmark)
+              sendtap 200
+              if [ "$(nmark)" -gt "$NC" ]; then HIT=1; break; fi
+            done
+            echo "candidate $MT $NAME axes x<=$MAXX y<=$MAXY hit=${HIT:-0}"
+            [ -n "$HIT" ] || continue
+            sleep 1
+            NC=$(nmark)
+            sendtap 201
+            if [ "$(nmark)" -gt "$NC" ]; then CHOSEN="$MT"; CHOSENNAME="$NAME"; break; fi
+            echo "  confirmation tap did not reproduce - a stray late marker, not this device"
+          done
+          [ -n "$CHOSEN" ] || fail "sendevent reached the app on NO multi-touch device - injection itself is broken (link 1 proved position and markers are fine)"
+          echo "link 2: display touchscreen is $CHOSEN $CHOSENNAME"
+
+          # Link 3 - both fingers land together and spread. fingers=2 is asserted before scale
+          # because one finger panning still moves the tile convincingly; scale alone would have
+          # passed while the reported bug was present.
+          MT="$CHOSEN"
+          TSA=$(now_ts)
+          [ -n "$TSA" ] || fail "device date unavailable - cannot anchor marker extraction"
+          send "$(put 0 100 $(( TX - SP )) $TY)$(put 1 101 $(( TX + SP )) $TY)$(btn 1)$(syn)"
+          sleep 0.5
           for k in 1 2 3 4 5 6; do
             G=$(( SP + k * SP / 2 ))
             send "$(put 0 100 $(( TX - G )) $TY)$(put 1 101 $(( TX + G )) $TY)$(syn)"
-            sleep 1
+            sleep 0.4
           done
-          send "$(put 0 -1)$(put 1 -1)$(printf 'sendevent %s 1 330 0;' "$MT")$(syn)"
+          send "$(put 0 -1)$(put 1 -1)$(btn 0)$(syn)"
           sleep 2
-
-          # `|| true` is load-bearing: under `set -e` with pipefail, a grep that matches
-          # nothing kills the script HERE — so the empty-result check below, and the
-          # capabilities dump written to diagnose exactly this, never ran. The step died
-          # silently at the grep and reported nothing at all.
-          GEST=$(adb logcat -d -s cupri:I | grep 'cupri-gate: gesture' | tail -20 || true)
-          if [ -z "$GEST" ]; then
-            echo "--- the touchscreen's full capabilities, for the next attempt ---"
-            echo "$CAPS" | head -40
-            fail "two fingers produced no gesture at all - the tile never saw them"
-          fi
-          echo "$GEST"
-          # The value actually in doubt. One finger panning still moves the tile convincingly, so
-          # scale alone would not have caught the reported bug; fingers=2 is the claim.
+          GEST=$(since "$TSA")
+          echo "--- phase A (fingers land together):"; echo "$GEST"
           echo "$GEST" | grep -q 'fingers=2' \
-            || fail "the recogniser never saw TWO fingers - the second was dropped before it arrived"
-          BIG=$(echo "$GEST" | grep -oE 'scale=[0-9]+\.[0-9]+' | cut -d= -f2 | sort -g | tail -1 || true)
+            || fail "two fingers landing TOGETHER never reached the recogniser as two"
+          BIG=$(echo "$GEST" | grep -oE 'scale=[0-9]+[.][0-9]+' | cut -d= -f2 | sort -g | tail -1 || true)
           awk -v s="$BIG" 'BEGIN{ exit !(s > 1.3) }' \
             || fail "two fingers spread wide and scale only reached ${BIG}x - the pinch is not tracking"
-          echo "two fingers: reached ${BIG}x"
+          echo "phase A: scale reached ${BIG}x"
+
+          # Link 4 - the REPORTED shape: one finger grabs, the tile follows it a little, and THEN
+          # the second finger arrives. "it follows one of my fingers and not the other - no
+          # scaling, no rotation." If the late finger is lost once the tile has moved, this leg
+          # turns that device report into a red build. The pan follows the down with no sleep (the
+          # adb round trip alone is ~200ms): a captured pointer cannot long-press in this engine -
+          # TouchInput only arms its long-press in Pending, and a captured finger never enters it -
+          # but the realistic gesture shape costs nothing.
+          TSB=$(now_ts)
+          [ -n "$TSB" ] || fail "device date unavailable - cannot anchor marker extraction"
+          send "$(put 0 300 $(( TX - SP )) $TY)$(btn 1)$(syn)"
+          send "$(put 0 300 $(( TX - SP + 25 )) $(( TY + 15 )))$(syn)"
+          sleep 0.4
+          send "$(put 1 301 $(( TX + SP )) $TY)$(syn)"
+          sleep 0.4
+          for k in 1 2 3 4; do
+            G=$(( SP + k * SP ))
+            send "$(put 0 300 $(( TX - G )) $TY)$(put 1 301 $(( TX + G )) $TY)$(syn)"
+            sleep 0.4
+          done
+          send "$(put 0 -1)$(put 1 -1)$(btn 0)$(syn)"
+          sleep 2
+          GESTB=$(since "$TSB")
+          echo "--- phase B (second finger arrives late - the reported shape):"; echo "$GESTB"
+          echo "$GESTB" | grep -q 'fingers=2' \
+            || fail "a second finger arriving AFTER the tile moved was dropped - the reported device bug, reproduced in CI"
+          BIGB=$(echo "$GESTB" | grep -oE 'scale=[0-9]+[.][0-9]+' | cut -d= -f2 | sort -g | tail -1 || true)
+          awk -v s="$BIGB" 'BEGIN{ exit !(s > 1.3) }' \
+            || fail "staggered fingers spread wide and scale only reached ${BIGB}x"
+          echo "phase B: scale reached ${BIGB}x"
 
           # --- rotation: relayout + the SAME dp arithmetic still lands ---------------------------
           adb shell settings put system accelerometer_rotation 0
