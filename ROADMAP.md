@@ -3,8 +3,9 @@
 The core milestones **M0–M9 are complete** (engine, layout, text, paint, binding, components,
 interaction, Windows a11y (UIA), AOT trim-clean, WASM host) — see [DESIGN.md §12](DESIGN.md).
 This document tracks everything **considered but not yet implemented**: the deferred refinements
-called out in the design plus items we've since scoped. It is a living list, not a commitment of
-dates.
+called out in the design plus items we've since scoped. Rows that have since shipped stay, marked
+🟢 with what proves them — a roadmap that quietly deletes its own history stops being checkable.
+It is a living list, not a commitment of dates.
 
 **Status legend:** 🔴 not started · 🟡 partial / scaffolded · 🟢 prototyped, needs hardening
 **Priority:** **P1** (core to the product's promises) · **P2** (important) · **P3** (nice to have)
@@ -141,9 +142,36 @@ uiautomator dumps. Feasibility forensics (including why Mono is off the table) l
 | **No desktop native in the APK** | 🟢 | The engine's convenience props pull desktop Skia natives into every restore; the TFM condition limits what it can (restore-only noise remains — documented in `src/SkiaNativeAssets.props`), and the gate ASSERTS the APK carries none of them. |
 | MediaCodec video (`<cupri-video>` on Android) | 🔴 | The engine's surface lane is host-agnostic; an Android leg means MediaCodec decode or codec-RID natives for `CupriFace.Media`. |
 | CursorAnchorInfo (IME popup positioning) | 🔴 | The engine already computes the caret rect; wiring it to `CursorAnchorInfo` positions gboard's candidate window precisely. |
-| Pinch-zoom gesture | 🔴 | `TouchInput` is single-pointer today; a second pointer means scale gestures (and a `Present`-level zoom seam). |
+| Pinch-zoom gesture | 🟢 | **Done (2026-08) as a SEAM, not a gesture.** `doc.OnPointer` hands an author the raw pointers with web-style capture; the engine computes no pinch, because what a second finger means is the author's decision. See §12. A `Present`-level document zoom is still open. |
 | AAB / Play-store shaping | 🔴 | The gate builds signed APKs; store distribution (AAB, per-ABI splits, signing config) is untouched. |
 | iOS host | 🔴 | The Android host is the template: same engine, a `CupriFace.iOS` package (CAMetalLayer or GLKit + UIKit touch + UIAccessibility bridge). Nothing engine-side blocks it. |
+
+## 12. Input & interaction (P1)
+
+Everything here was driven by a person holding a phone. Each row is a bug or a gap that no
+automated gate could have found, and several turned out to be engine-wide rather than mobile at
+all — the device was simply the first place they were reachable.
+
+| Item | Status | Notes |
+|------|--------|-------|
+| **Two-axis scrolling** | 🟢 | **Done (2026-08).** A box whose content is too wide scrolls sideways, with its own momentum. Mirrored from the vertical path but kept a SEPARATE concept (`IsScrollableX`), because `IsScrollable` means "overflows vertically" and is load-bearing for paint culling, wheel routing and scroll capture. The axes chain independently: a card row inside a scrolling page takes the sideways part of a diagonal drag while the page takes the up-down part. Layout measures the widest child extent; paint, hit-testing and the semantics tree all apply the same offset, because a card scrolled into view that cannot be tapped where it appears is worse than one you cannot reach. |
+| **Axis lock** | 🟢 | **Done (2026-08), reported from a device.** Sending both axes on every move meant a sideways drag also crept the page up and down. A gesture now claims the axis it committed to, decided once the finger has travelled far enough to have meant it — deferred rather than decided at slop, because a fling-catch enters scrolling with no movement at all. A genuinely diagonal start still moves both. |
+| **Overscroll (rubber band)** | 🟢 | **Done (2026-08), reported from a device**: reaching the end of a list was indistinguishable from the app freezing. Stretches with resistance (the further it goes, the less each pixel gives), bounded at 90px, springs back exponentially on release, and never engages mid-list. Lives beside the fling — an animation the hosts already drive, with state that is a structural path plus a number — and joins BOTH animation gates, the wake gate and the drive gate. |
+| **Multi-touch seam** (`doc.OnPointer`) | 🟢 | **Done (2026-08).** Pointer identity end to end, and **capture per target**: a pointer is owned by an element on down and stays until it lifts, which is what keeps a pinch from also scrolling the page underneath — and why there is no `touch-action` arbitration, since capture already solves it. The engine computes no gesture; `e.Pointers` carries every pointer that element holds and the arithmetic is the author's. Built-in `cupri-*` elements stay single-pointer and accessible; anything built on this seam is the author's to make accessible, or not (TOOLBOX §8.1). |
+| **Transform-aware hit-testing** | 🟢 | **Done (2026-08), reported from a device.** The painter had applied CSS transforms since the engine was written and hit-testing never had: it compared the pointer against the LAYOUT box, so a scaled element had a hit area the size it used to be and a rotated one answered near corners it no longer had. An engine-wide bug in any app using `transform:`, found in half a minute by the first feature that changes a transform continuously while you hold it. |
+| **Capability signal** | 🟢 | **Done (2026-08).** The host reports what is driving the app — coarse/fine pointer, hover or not — and the engine puts it on the body as `cupri-coarse`/`cupri-fine`/`cupri-nohover`. Adapting is then ordinary CSS. Deliberately NOT `@media (pointer: coarse)`: that means teaching the parser a discrete-keyword shape to reach exactly what the cascade already does with a class. Platform is the wrong axis anyway — a Windows tablet is a desktop OS with a coarse pointer, a docked phone a fine pointer on a mobile one. |
+| **The IME contract** | 🟢 | **Done (2026-08).** A soft keyboard could not move our cursor, and it had three independent causes: `setSelection` was never overridden, `updateSelection` was never *called* (so the keyboard's model of the field was empty and it had no offset to move from), and DPAD arrows were dropped. Plus `setComposingRegion` (tap a word to correct it, still one undo step), caps mode, code-point deletes, batch coalescing, extract mode for landscape, the IME's own edit menu routed through the same clipboard seam, and `inputmode`/`enterkeyhint`/placeholder reaching `EditorInfo` — the vocabulary the web host already speaks. |
+| **Autofill / password managers** | 🟢 | **Done (2026-08).** A virtual view structure built from the semantics tree — the TalkBack bridge's twin for a different consumer. Only fields the author labelled with `autocomplete` are offered; guessing that something is a password field would be a security bug wearing a convenience costume. Saving needed its own seam: a service fills passively but only offers to REMEMBER when the app declares the form finished (`doc.SubmitForm()` → `AutofillManager.Commit()`). |
+| Web host: touch + capability | 🔴 | Both pieces exist and are portable (`TouchInput`, `InputProfile`); the web host still drives the mouse path, so a phone in a browser gets no tap-on-release, no fling and no coarse-pointer styling. The cheapest remaining platform win. |
+| Document-level pinch zoom | 🔴 | An accessibility-shaped feature rather than a gesture one: two fingers scaling the whole page via `Present`, distinct from an element's own transform. |
+| `commitContent` (keyboard GIF/stickers) | 🔴 | Needs an image sink and an `EditorInfo.contentMimeTypes` opt-in. A feature rather than contract-completion. |
+
+**A note on proof.** Multi-touch, the IME contract and autofill are the first features here that CI
+structurally cannot drive: `adb shell input` is single-pointer, and it cannot drive a real IME or a
+fill service. Their engine halves are covered by headless tests; the platform halves rest on a
+documented manual pass. That is stated rather than papered over — and it is why the phone sample
+carries a surface for each of them (a gesture tile, a sideways row, autofilled fields), so the
+manual pass has something to press.
 
 ---
 
