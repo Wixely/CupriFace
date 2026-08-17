@@ -190,6 +190,16 @@ public sealed partial class CupriDocument : IDisposable
     public void RequestContextCommand(Interaction.ContextCommand command) =>
         ContextRequested?.Invoke(command);
 
+    /// <summary>Raised when the app says a form was submitted. A password manager only offers to
+    /// SAVE a new credential when the app tells it the entry is finished — filling is passive, but
+    /// saving needs a moment declared. On Android the host answers this with
+    /// <c>AutofillManager.Commit()</c>; elsewhere nothing listens and nothing breaks.</summary>
+    public event Action? FormSubmitted;
+
+    /// <summary>Declare that the user finished entering a form — the sign-in button, the last field
+    /// of a wizard. Call it after the model has the final values.</summary>
+    public void SubmitForm() => FormSubmitted?.Invoke();
+
     /// <summary>Ask the host for a window command from code — the same seam
     /// <c>data-window-command</c> uses, for apps whose own logic decides (a settings switch, a
     /// presentation mode, a kiosk that starts fullscreen). No-op when no host is listening, exactly

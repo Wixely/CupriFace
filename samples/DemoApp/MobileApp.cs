@@ -102,6 +102,17 @@ public sealed class MobileApp : CupriApp
             return true;
         });
 
+        // Submitting is what makes a password manager offer to SAVE — filling is passive, saving
+        // needs the app to declare the entry finished. The engine raises it; the Android host
+        // answers with AutofillManager.Commit().
+        doc.OnClick(".signin-submit", _ =>
+        {
+            _model.SignInStatus = _model.Email.Length > 0
+                ? $"Submitted as {_model.Email}."
+                : "Enter an email and password first.";
+            doc.SubmitForm();
+        });
+
         doc.OnClick(".tile-reset", _ =>
         {
             _model.TileScale = 1;
@@ -151,6 +162,7 @@ public sealed partial class MobileModel
     // The autofill demo's fields. autocomplete is what tells a password manager what to offer.
     public string Email { get; set; } = "";
     public string Password { get; set; } = "";
+    public string SignInStatus { get; set; } = "";
     public int Volume { get; set; } = 60;
     public string ThemeClass => Dark ? "dark" : "";
 

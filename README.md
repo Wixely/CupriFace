@@ -1,8 +1,12 @@
 # CupriFace
 
-A native, cross-platform desktop UI runtime that renders **HTML + CSS** to a GPU
-canvas and binds elements to backend C# objects — an Electron alternative that does
-**not** embed a web browser or a JavaScript engine.
+A native, cross-platform UI runtime that renders **HTML + CSS** to a GPU canvas and binds
+elements to backend C# objects — an Electron alternative that does **not** embed a web
+browser or a JavaScript engine.
+
+One app class runs on **Windows, macOS, Linux, Android and the browser**: the same
+markup, the same stylesheet, the same C# model, drawn by the same engine on every one of
+them. Not a desktop toolkit with a mobile port — there is only one renderer.
 
 See **[DESIGN.md](DESIGN.md)** for the full architecture and goals, **[TOOLBOX.md](TOOLBOX.md)** for
 the developer guide to the `cupri-*` elements (bind them to a C# model, style them, add your own),
@@ -27,8 +31,10 @@ throwaway harness, which is the same reason the UI is straightforward to unit-te
 | ![Styling](docs/screenshots/styling.png)<br>**Styling** — the cascade, variables, accent theming, shadows and borders | ![Settings](docs/screenshots/settings.png)<br>**Settings** — forms, validation, and the scaling modes |
 | ![Diagnostics](docs/screenshots/diagnostics.png)<br>**Diagnostics** — live frame timings and node counts | ![Dark mode](docs/screenshots/inputs-dark.png)<br>**Dark mode** — a CSS variable swap on `body.dark`, cross-faded by a `transition` |
 
-Run it yourself with `dotnet run --project samples/Viewer` (desktop) — the same app also runs in a
-browser on a `<canvas>`, no Blazor, via `samples/WebWasm`.
+Run it yourself with `dotnet run --project samples/Viewer` (desktop). The same app also runs in a
+browser on a `<canvas>` (no Blazor) via `samples/WebWasm`, and on a phone via
+`samples/AndroidViewer` — or download the APK from the
+[latest release](https://github.com/Wixely/CupriFace/releases/latest) and sideload it.
 
 ## What works today (.NET 10)
 
@@ -93,6 +99,12 @@ required — are attached to each release:
 | Windows x64 | `CupriFace-Viewer-<version>-win-x64.exe` | run it |
 | Linux x64 | `CupriFace-Viewer-<version>-linux-x64.tar.gz` | `tar xzf <file> && ./Viewer` |
 | macOS (Apple Silicon)* | `CupriFace-Viewer-<version>-osx-arm64.tar.gz` | `tar xzf <file> && xattr -d com.apple.quarantine Viewer && ./Viewer` |
+| Android (arm64)† | `CupriFace-Viewer-<version>-android-arm64.apk` | allow "install unknown apps", then open the APK |
+
+† The Android build is the phone-first sample (the desktop Showcase is reachable from its About
+page). It is signed with a CI debug key that changes every build, so **uninstall any previous
+CupriFace Viewer first** — Android refuses the update as a signature mismatch otherwise. Its About
+page states the version and build stamp, which is the quickest way to confirm what you installed.
 
 \* macOS builds ship from releases after v0.1.0 (the build is unsigned, hence the `xattr`
 quarantine strip). CI builds and runtime-smokes all three platforms on every push.
@@ -133,7 +145,7 @@ WebAssembly relink of Skia (slow once, cached after).
 Every snapshot sample writes a PNG and exits (works headless, no GPU). The Viewer and
 Web targets open a real window / browser.
 
-## Write once, run desktop **and** web
+## Write once, run desktop, mobile **and** web
 
 Define an app once as a `CupriApp` (markup + CSS + model + handlers — **no platform code**),
 then host it anywhere:
@@ -152,6 +164,11 @@ DesktopHost.Run(new SettingsApp());                    // desktop  (GL → SDL w
 ```
 ```razor
 <CupriView App="new SettingsApp()" />                  @* web  (WASM → <canvas>) *@
+```
+```csharp
+public sealed class MainActivity : CupriActivity {     // Android (GL surface, touch, IME, TalkBack)
+    protected override CupriApp CreateApp() => new SettingsApp();
+}
 ```
 
 "Exporting a desktop app as a website" = recompiling the same `SettingsApp` against the

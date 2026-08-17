@@ -72,18 +72,28 @@
           <cupri-textarea value="{{Notes}}" rows="4" placeholder="Multiline…"></cupri-textarea></div>
         <div class="card"><span class="muted">Name: {{Name}} · Amount: {{Amount}}</span></div>
 
-        <!-- The keyboard's own contract. autocomplete is what a password manager fills; inputmode
-             picks which keyboard appears (@ key vs dial pad); enterkeyhint names the action key. -->
-        <div class="frow"><span class="lbl">Email <span class="muted">— inputmode, autofill</span></span>
-          <cupri-textfield value="{{Email}}" placeholder="you@example.com"
-                           inputmode="email" enterkeyhint="next"
-                           autocomplete="username" aria-label="Email"></cupri-textfield></div>
-        <div class="frow"><span class="lbl">Password <span class="muted">— autofill</span></span>
-          <cupri-password value="{{Password}}" placeholder="Your password"
-                          enterkeyhint="done"
-                          autocomplete="current-password" aria-label="Password"></cupri-password></div>
+        <!-- A sign-in form, kept visually apart from the fields above it, because a password
+             manager reads a form as a UNIT: an identity field, a password field, and a submit that
+             says the entry is finished. autocomplete is what it fills; inputmode picks the keyboard
+             (@ key vs dial pad); enterkeyhint names the action key. -->
+        <div class="signin">
+          <b>Sign in</b>
+          <span class="muted">A password manager should offer to fill these — and to SAVE them when
+          you press the button, which is the moment the app declares the form done.</span>
+          <div class="frow"><span class="lbl">Email</span>
+            <cupri-textfield value="{{Email}}" placeholder="you@example.com"
+                             inputmode="email" enterkeyhint="next"
+                             autocomplete="username" aria-label="Email"></cupri-textfield></div>
+          <div class="frow"><span class="lbl">Password</span>
+            <cupri-password value="{{Password}}" placeholder="Your password"
+                            enterkeyhint="done"
+                            autocomplete="current-password" aria-label="Password"></cupri-password></div>
+          <cupri-button class="signin-submit">Sign in</cupri-button>
+          <span class="muted">{{SignInStatus}}</span>
+        </div>
+
         <div class="card"><span class="muted">Swipe the spacebar to move the cursor. Tap a finished
-        word to correct it. A password manager should offer to fill the two fields above.</span></div>
+        word to correct it.</span></div>
       </div>
 
       <!-- Settings: the gate's tap target is the FIRST row (stable geometry for CI). -->
