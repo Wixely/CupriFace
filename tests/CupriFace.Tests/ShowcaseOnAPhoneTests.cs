@@ -129,7 +129,19 @@ public class ShowcaseOnAPhoneTests
 
         var fields = All(doc.Root).Where(n => n.Element?.ClassList.Contains("field") == true).ToList();
         Assert.True(fields.Count >= 2, "the date and time controls are no longer grouped with their labels");
+
+        // The claim is not "they are in the same box" but "they are on the same LINE" — grouping
+        // them structurally would still look broken if the group itself wrapped internally.
         foreach (var f in fields)
+        {
             Assert.True(f.Children.Count >= 2, "a field group lost its label or its control");
+            var label = f.Children[0];
+            var control = f.Children[^1];
+            var overlap = MathF.Min(label.Y + label.Height, control.Y + control.Height)
+                        - MathF.Max(label.Y, control.Y);
+            Assert.True(overlap > 0,
+                $"the label sits at y={label.Y:F0}–{label.Y + label.Height:F0} and its control at " +
+                $"y={control.Y:F0}–{control.Y + control.Height:F0} — still on separate lines");
+        }
     }
 }
