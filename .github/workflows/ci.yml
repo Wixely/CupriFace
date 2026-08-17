@@ -485,6 +485,59 @@ jobs:
             fail "soft keyboard did not hide on blur"
           fi
 
+          # --- two fingers: the one platform claim that never had a gate --------------------------
+          # `adb shell input` is single-pointer, which is exactly why this was never covered: every
+          # other seam here is driven by a real client, and multi-touch was proven only headlessly.
+          # A device reported the tile "follows one of my fingers - no scaling, no rotation", and
+          # nothing in CI could have caught that. So drive the kernel's multi-touch protocol
+          # directly, on the touchscreen the emulator actually exposes.
+          nav 0    # Home, where the gesture tile lives
+          sleep 1
+          MT=$(adb shell getevent -pl 2>/dev/null | awk '/^add device/{d=$NF} /ABS_MT_POSITION_X/{print d; exit}' | sed 's/[[:space:]]*$//')
+          [ -n "$MT" ] || fail "no multi-touch input device on this emulator - cannot drive two fingers"
+          echo "touchscreen: $MT"
+
+          # Tile centre, measured headlessly at 393dp wide: a 90dp square at (196,540). Fingers sit
+          # 20dp either side, so both stay inside it even at full spread.
+          TX=$(( OX + 196 * D / 160 )); TY=$(( OY + 540 * D / 160 ))
+          SP=$(( 20 * D / 160 ))       # half the starting separation, in px
+
+          # Protocol B: a SLOT per finger, a tracking id to open/close each one, SYN to commit.
+          # BTN_TOUCH brackets the whole gesture, which some stacks require before they believe it.
+          two_fingers() {
+            CMD="sendevent $MT 3 47 0; sendevent $MT 3 57 100;"
+            CMD="$CMD sendevent $MT 3 53 $(( TX - SP )); sendevent $MT 3 54 $TY;"
+            CMD="$CMD sendevent $MT 3 47 1; sendevent $MT 3 57 101;"
+            CMD="$CMD sendevent $MT 3 53 $(( TX + SP )); sendevent $MT 3 54 $TY;"
+            CMD="$CMD sendevent $MT 1 330 1; sendevent $MT 0 0 0;"
+            # Spread apart over several steps - a single jump reads as one enormous move and tells
+            # us nothing about whether the gesture TRACKED.
+            for k in 1 2 3 4 5 6; do
+              G=$(( SP + k * SP / 2 ))
+              CMD="$CMD sendevent $MT 3 47 0; sendevent $MT 3 53 $(( TX - G ));"
+              CMD="$CMD sendevent $MT 3 47 1; sendevent $MT 3 53 $(( TX + G ));"
+              CMD="$CMD sendevent $MT 0 0 0;"
+            done
+            # Lift both: tracking id -1 closes a slot.
+            CMD="$CMD sendevent $MT 3 47 0; sendevent $MT 3 57 -1;"
+            CMD="$CMD sendevent $MT 3 47 1; sendevent $MT 3 57 -1;"
+            CMD="$CMD sendevent $MT 1 330 0; sendevent $MT 0 0 0"
+            adb shell "$CMD" >/dev/null 2>&1 || true
+          }
+          two_fingers
+          sleep 2
+
+          GEST=$(adb logcat -d -s cupri:I | grep 'cupri-gate: gesture' | tail -20)
+          [ -n "$GEST" ] || fail "two fingers produced no gesture at all - the tile never saw them"
+          echo "$GEST"
+          # The value actually in doubt. One finger panning still moves the tile convincingly, so
+          # scale alone would not have caught the reported bug; fingers=2 is the claim.
+          echo "$GEST" | grep -q 'fingers=2'             || fail "the recogniser never saw TWO fingers - the second was dropped before it arrived"
+          # ...and having seen them, it must actually scale. Spreading 20dp to 80dp is ~2x.
+          BIG=$(echo "$GEST" | grep -oE 'scale=[0-9]+\.[0-9]+' | cut -d= -f2 | sort -g | tail -1)
+          awk -v s="$BIG" 'BEGIN{ exit !(s > 1.3) }'             || fail "two fingers spread wide and scale only reached ${BIG}x - the pinch is not tracking"
+          echo "two fingers: reached ${BIG}x"
+
           # --- rotation: relayout + the SAME dp arithmetic still lands ---------------------------
           adb shell settings put system accelerometer_rotation 0
           adb shell settings put system user_rotation 1

@@ -76,6 +76,13 @@ public sealed class MobileApp : CupriApp
             _model.TileRotation = g.Rotation;
             _model.TilePanX = g.PanX;
             _model.TilePanY = g.PanY;
+            // The gate's only window into a gesture. fingers= is the value actually in doubt: a
+            // two-finger pinch that reports fingers=1 is the whole bug, and it is invisible from
+            // scale alone because one finger panning still moves the tile convincingly.
+            Console.WriteLine(
+                $"cupri-gate: gesture fingers={g.PointerCount} " +
+                $"scale={g.Scale.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"rot={g.Rotation.ToString("0", System.Globalization.CultureInfo.InvariantCulture)}");
             return true;
         });
 
