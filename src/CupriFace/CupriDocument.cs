@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Globalization;
 using AngleSharp.Dom;
 using AngleSharp.Html.Parser;
@@ -1020,6 +1020,21 @@ public sealed partial class CupriDocument : IDisposable
 
     // If the caret moved (typing/nav, not wheel) and its field scrolls, nudge that container's
     // ScrollY so the caret's row sits inside the visible band.
+    /// <summary>Ask for the caret to be scrolled back into view on the next frame, even though it
+    /// has not moved.
+    ///
+    /// The caret-follow normally fires when the caret itself moves, which is the right trigger for
+    /// typing. It is the wrong trigger for the VIEWPORT moving: tapping a field sets the caret while
+    /// the window is still full height, and the soft keyboard only takes its half of the screen a
+    /// moment later. By then the caret has not moved, so nothing looked again — and the field you
+    /// had just tapped sat behind the keyboard. A host calls this whenever the usable area changes.</summary>
+    public void EnsureCaretVisible()
+    {
+        if (_focusKey is null) return;
+        _caretMoved = true;
+        Refresh();
+    }
+
     private void ScrollCaretIntoView()
     {
         if (!_caretMoved || _focusKey is null) return;
@@ -1880,8 +1895,30 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>Stretch a scroller past its edge. Called when a drag had nowhere left to go: the
     /// alternative is a dead stop, which gives a finger no signal that it has arrived. Resistance
     /// makes the band feel like a band — the further it is pulled, the less each pixel gives.</summary>
-    public bool Overscroll(string path, float pixelDelta)
+    public bool Overscroll(string path, float pixelDelta) => Overscroll(path, pixelDelta, false);
+
+    /// <inheritdoc cref="Overscroll(string, float)"/>
+    /// <param name="horizontal">Stretch the sideways axis instead. A row that scrolls sideways
+    /// deserves the same signal at ITS end as the page does at the bottom; without this, reaching
+    /// the end of a horizontal strip felt like the app had died while the page still bounced.</param>
+    public bool Overscroll(string path, float pixelDelta, bool horizontal)
     {
+        if (horizontal)
+        {
+            if (NodeAtPath(path) is not { IsScrollableX: true } nx) return false;
+
+            var atLeft = nx.ScrollX <= 0.01f && pixelDelta < 0;
+            var atRight = nx.ScrollX >= nx.MaxScrollX - 0.01f && pixelDelta > 0;
+            if (!atLeft && !atRight && MathF.Abs(nx.OverscrollX) < 0.01f) return false;
+
+            HandOverBandTo(path);
+            _overscrollHeld = true;
+            var slackX = 1f - MathF.Min(1f, MathF.Abs(nx.OverscrollX) / OverscrollMax);
+            nx.OverscrollX = Math.Clamp(nx.OverscrollX + pixelDelta * OverscrollResist * slackX,
+                                        -OverscrollMax, OverscrollMax);
+            return Bump(true);
+        }
+
         if (NodeAtPath(path) is not { IsScrollable: true } n) return false;
 
         // Only past an EDGE: pulling back toward the content is ordinary scrolling.
@@ -1889,7 +1926,7 @@ public sealed partial class CupriDocument : IDisposable
         var atBottom = n.ScrollY >= n.MaxScrollY - 0.01f && pixelDelta > 0;
         if (!atTop && !atBottom && MathF.Abs(n.OverscrollY) < 0.01f) return false;
 
-        _overscrollPath = path;
+        HandOverBandTo(path);
         _overscrollHeld = true;
         var slack = 1f - MathF.Min(1f, MathF.Abs(n.OverscrollY) / OverscrollMax);
         n.OverscrollY = Math.Clamp(n.OverscrollY + pixelDelta * OverscrollResist * slack,
@@ -1902,14 +1939,28 @@ public sealed partial class CupriDocument : IDisposable
 
     /// <summary>True while a band is stretched or springing — a host's animation gate.</summary>
     public bool OverscrollActive =>
-        _overscrollPath is not null && NodeAtPath(_overscrollPath) is { } n && MathF.Abs(n.OverscrollY) > 0.05f;
+        _overscrollPath is not null && NodeAtPath(_overscrollPath) is { } n && Stretched(n);
+
+    private static bool Stretched(RenderNode n) =>
+        MathF.Abs(n.OverscrollY) > 0.05f || MathF.Abs(n.OverscrollX) > 0.05f;
+
+    /// <summary>Only one scroller holds a band at a time. Moving to another must release the last
+    /// one by hand: it is no longer stepped, so a band left stretched would freeze at that offset
+    /// and shift the content permanently.</summary>
+    private void HandOverBandTo(string path)
+    {
+        if (_overscrollPath is not null && _overscrollPath != path &&
+            NodeAtPath(_overscrollPath) is { } prev)
+        { prev.OverscrollY = 0; prev.OverscrollX = 0; }
+        _overscrollPath = path;
+    }
 
     private bool StepOverscroll(double now)
     {
         if (_overscrollPath is null) return false;
-        if (NodeAtPath(_overscrollPath) is not { } n || MathF.Abs(n.OverscrollY) < 0.05f)
+        if (NodeAtPath(_overscrollPath) is not { } n || !Stretched(n))
         {
-            if (NodeAtPath(_overscrollPath) is { } done) done.OverscrollY = 0;
+            if (NodeAtPath(_overscrollPath) is { } done) { done.OverscrollY = 0; done.OverscrollX = 0; }
             _overscrollPath = null;
             return false;
         }
@@ -1919,8 +1970,11 @@ public sealed partial class CupriDocument : IDisposable
         _overscrollT = now;
         if (dt <= 0) return true;
 
-        n.OverscrollY *= (float)Math.Exp(-dt * OverscrollSpring);
+        var decay = (float)Math.Exp(-dt * OverscrollSpring);
+        n.OverscrollY *= decay;
+        n.OverscrollX *= decay;
         if (MathF.Abs(n.OverscrollY) < 0.05f) n.OverscrollY = 0;
+        if (MathF.Abs(n.OverscrollX) < 0.05f) n.OverscrollX = 0;
         return true;
     }
 
@@ -3705,11 +3759,45 @@ public sealed partial class CupriDocument : IDisposable
     public bool DispatchWheel(float x, float y, float pixelDelta, float horizontalDelta) =>
         Bump(DispatchWheelCore(x, y, pixelDelta, horizontalDelta));
 
+    /// <summary>Scroll the scrollers CAPTURED at gesture start (from <see cref="ScrollTargetAt"/>)
+    /// rather than whatever currently lies under the finger.
+    ///
+    /// A wheel is dispatched at a live pointer, so re-resolving the target per event is right for a
+    /// mouse. A touch drag is the opposite: the finger holds one point while the CONTENT moves
+    /// beneath it. Re-hit-testing then hands the gesture to whatever happens to slide under that
+    /// point — dragging the page from well above a virtualised list would scroll the page until the
+    /// list arrived under the finger, at which point the list silently took over the drag.
+    ///
+    /// The axes are captured separately because the nearest sideways scroller is rarely the nearest
+    /// vertical one.</summary>
+    public bool ScrollCaptured(string? verticalPath, string? horizontalPath,
+                               float pixelDelta, float horizontalDelta)
+    {
+        EnsureLaidOut();
+        DismissContextMenuForScroll();
+        return Bump(ScrollCore(horizontalPath is null ? null : NodeAtPath(horizontalPath),
+                               verticalPath is null ? null : NodeAtPath(verticalPath),
+                               pixelDelta, horizontalDelta));
+    }
+
+    private void DismissContextMenuForScroll()
+    {
+        if (_ctxOpen || _ctxCustomIndex >= 0) { _ctxOpen = false; _ctxCustomIndex = -1; Refresh(); }
+    }
+
     private bool DispatchWheelCore(float x, float y, float pixelDelta, float horizontalDelta)
     {
         EnsureLaidOut();
-        if (_ctxOpen || _ctxCustomIndex >= 0) { _ctxOpen = false; _ctxCustomIndex = -1; Refresh(); } // scrolling dismisses the context menu
+        DismissContextMenuForScroll();
         var hit = HitTesting.HitTest(_root, x, y);
+        return ScrollCore(hit, hit, pixelDelta, horizontalDelta);
+    }
+
+    /// <summary>The chaining itself, shared by the pointer-resolved and path-resolved entry points.
+    /// Each axis starts from its own node and chains outward through ancestors.</summary>
+    private bool ScrollCore(RenderNode? xStart, RenderNode? yStart, float pixelDelta, float horizontalDelta)
+    {
+        var hit = xStart;
         var moved = false;
 
         // The axes chain INDEPENDENTLY: the nearest ancestor that can move on each one takes that
@@ -3726,7 +3814,7 @@ public sealed partial class CupriDocument : IDisposable
             }
 
         if (Math.Abs(pixelDelta) > 0.01f)
-            for (var n = hit; n is not null; n = n.Parent)
+            for (var n = yStart; n is not null; n = n.Parent)
             {
                 if (!n.IsScrollable) continue;
                 var before = n.ScrollY;

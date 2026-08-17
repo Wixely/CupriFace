@@ -66,11 +66,14 @@
           <span class="lbl">Quantity</span>
           <cupri-number value="{{Quantity}}" min="0" max="20" step="1"></cupri-number>
         </div>
+        <!-- Each label stays glued to its control. Four loose flex items wrap wherever they run
+             out of room, which on a phone put "Time" at the end of one line and its picker on the
+             next — reported as the Time field being off the screen. -->
         <div class="row">
-          <span class="lbl">Date</span>
-          <cupri-datepicker value="{{Date}}" open="{{DateOpen}}"></cupri-datepicker>
-          <span class="lbl">Time</span>
-          <cupri-timepicker value="{{Time}}" open="{{TimeOpen}}"></cupri-timepicker>
+          <span class="field"><span class="lbl">Date</span>
+            <cupri-datepicker value="{{Date}}" open="{{DateOpen}}"></cupri-datepicker></span>
+          <span class="field"><span class="lbl">Time</span>
+            <cupri-timepicker value="{{Time}}" open="{{TimeOpen}}"></cupri-timepicker></span>
         </div>
         <div class="row">
           <span class="lbl">Search</span>
@@ -146,7 +149,10 @@
               <cupri-tree-item label="Shell"></cupri-tree-item>
             </cupri-tree-item>
           </cupri-tree>
-          <cupri-table style="flex:1; max-height:172px; overflow:scroll" sort="{{TableSort}}" select="{{TableSel}}" resize="{{TableCols}}">
+          <!-- Six columns do not fit a phone. Rather than compress them to slivers, the wrapper
+               holds a floor width and scrolls sideways. -->
+          <div class="hscroll" style="flex:1; min-width:0">
+          <cupri-table style="width:100%; max-height:172px; overflow:scroll" sort="{{TableSort}}" select="{{TableSel}}" resize="{{TableCols}}">
             <cupri-row header><cupri-cell>Name</cupri-cell><cupri-cell>Role</cupri-cell></cupri-row>
             <cupri-row><cupri-cell>Ada</cupri-cell><cupri-cell>Admin</cupri-cell></cupri-row>
             <cupri-row><cupri-cell>Grace</cupri-cell><cupri-cell>Editor</cupri-cell></cupri-row>
@@ -156,6 +162,7 @@
             <cupri-row><cupri-cell>Margaret</cupri-cell><cupri-cell>Editor</cupri-cell></cupri-row>
             <cupri-row><cupri-cell>Dennis</cupri-cell><cupri-cell>Admin</cupri-cell></cupri-row>
           </cupri-table>
+          </div>
         </div>
         <div class="tip" style="margin:-4px 0 14px">Click rows to select (multi) · drag a header's right edge to resize its column · scroll the table — its header stays put · {{TableSelLabel}}</div>
         <div class="mlabel">Drag a row by its grip to reorder — or Tab to a grip and use the Up / Down keys</div>
@@ -245,6 +252,9 @@ doc.RenderToImage(800, 600);
         <div class="mlabel">Bar — bound to the model, with axis + gridlines (<code>values="{{Sales}}"</code>)</div>
         <cupri-bar-chart class="chart" axis values="{{Sales}}" labels="Mon,Tue,Wed,Thu,Fri,Sat,Sun"></cupri-bar-chart>
         <div class="mlabel">Grouped &amp; stacked — multiple series per category</div>
+        <!-- Two charts side by side are wider than a phone and stay unreadable if squashed, so on
+             a phone the wrapper scrolls sideways to reach the second one. -->
+        <div class="hscroll">
         <div class="row" style="align-items:flex-start">
           <cupri-bar-chart class="chart pair" axis labels="Q1,Q2,Q3,Q4">
             <cupri-series label="2023" values="10,15,12,18" color="#4682B4"></cupri-series>
@@ -255,6 +265,7 @@ doc.RenderToImage(800, 600);
             <cupri-series label="Service" values="6,7,8,7" color="#10ac84"></cupri-series>
             <cupri-series label="Other" values="3,2,4,3" color="#f5b301"></cupri-series>
           </cupri-bar-chart>
+        </div>
         </div>
         <div class="mlabel">Line — smooth (curve) + area fill, with axis</div>
         <cupri-line-chart class="chart" axis values="4,8,5,10,7,12,9,13" labels="W1,W2,W3,W4,W5,W6,W7,W8" area dots curve></cupri-line-chart>

@@ -1,4 +1,4 @@
-namespace CupriFace.Interaction;
+﻿namespace CupriFace.Interaction;
 
 /// <summary>Tunables for <see cref="TouchInput"/>. Distances are LOGICAL pixels (the same space
 /// every Dispatch* call uses), times are seconds on whatever clock the host feeds in.</summary>
@@ -52,6 +52,7 @@ public sealed class TouchInput(CupriDocument document)
     private double _downT;
     private float _prevY, _prevX;
     private string? _scrollPath;
+    private string? _scrollPathX;   // the sideways scroller, resolved at the same instant
 
     // Velocity ring: the last ~100 ms of (time, finger-y) — enough to measure release speed
     // without letting the start of a long drag pollute it.
@@ -166,9 +167,8 @@ public sealed class TouchInput(CupriDocument document)
                         {
                             // Resolved for THIS axis: the nearest sideways-scrolling ancestor is
                             // rarely the same node as the nearest vertical one.
-                            if (MathF.Abs(vx) >= Options.MinFlingPxPerSec
-                                && document.ScrollTargetAt(_downX, _downY, horizontal: true) is { } xPath)
-                                return document.StartFling(xPath, vx, horizontal: true);
+                            if (MathF.Abs(vx) >= Options.MinFlingPxPerSec && _scrollPathX is not null)
+                                return document.StartFling(_scrollPathX, vx, horizontal: true);
                         }
                         else if (MathF.Abs(v) >= Options.MinFlingPxPerSec && _scrollPath is not null)
                             return document.StartFling(_scrollPath, v);
@@ -211,8 +211,18 @@ public sealed class TouchInput(CupriDocument document)
     private void EnterScroll(float x, float y, double t)
     {
         _mode = Mode.Scrolling;
+        // Both axes resolved once, here: the sideways scroller under the finger is rarely the same
+        // node as the vertical one, and neither may be re-resolved later without letting the
+        // gesture jump scrollers mid-drag.
         _scrollPath = document.ScrollTargetAt(x, y);
+        _scrollPathX = document.ScrollTargetAt(x, y, horizontal: true);
         _prevY = _downY = y; _prevX = _downX = x; _downT = t;
+        // The origin the axis decision measures from, re-stamped HERE and not only in Down: a
+        // finger that catches a fling enters scrolling without going through Down's assignment, so
+        // it would otherwise measure its travel from the PREVIOUS gesture's start — instantly
+        // clearing the slop and locking whichever axis the stale offset happened to favour. Caught
+        // by a sideways drag that followed a fling and was read as vertical.
+        _downX0 = x; _downY0 = y;
         _ring.Clear();
         _ring.Add((t, x, y));
 
@@ -257,17 +267,25 @@ public sealed class TouchInput(CupriDocument document)
         if (_axis == Axis.Vertical) deltaX = 0;
         _ring.Add((t, x, y));
         Prune(t);
-        // Wheel at the DOWN point: the target chain stays stable however far the finger travels,
-        // and the engine's own edge-chaining and virtual re-windowing do the rest. Both axes go in
-        // the same call so a diagonal drag moves a horizontally scrolling row and the page under it
+        // Scroll the scrollers CAPTURED at gesture start, not whatever is under the finger now.
+        // The finger holds one point while the content slides beneath it, so re-resolving per move
+        // lets an inner scroller that drifts under that point hijack a drag begun on the page.
+        // Both axes go in one call so a diagonal drag moves a sideways row and the page under it
         // together, each taking the part it can use.
         if (delta == 0 && deltaX == 0) return false;
 
-        var scrolled = document.DispatchWheel(_downX, _downY, delta, deltaX);
+        var scrolled = document.ScrollCaptured(_scrollPath, _scrollPathX, delta, deltaX);
         // Nothing moved and the finger is still pulling: the scroller is at its edge. Stretch it,
-        // so arriving at the end feels like arriving rather than like the app going dead.
-        if (!scrolled && delta != 0 && _scrollPath is not null)
-            return document.Overscroll(_scrollPath, delta);
+        // so arriving at the end feels like arriving rather than like the app going dead. Whichever
+        // axis the finger is actually working gets the band — sideways ends deserve the same signal
+        // the bottom of a page gets.
+        if (!scrolled)
+        {
+            if (delta != 0 && _scrollPath is not null)
+                return document.Overscroll(_scrollPath, delta);
+            if (deltaX != 0 && _scrollPathX is not null)
+                return document.Overscroll(_scrollPathX, deltaX, horizontal: true);
+        }
         return scrolled;
     }
 

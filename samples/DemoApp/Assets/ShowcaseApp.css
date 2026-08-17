@@ -52,22 +52,6 @@ body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; -
    wins over every rule below — which is exactly why the first attempt at this did nothing. */
 .pair { flex:1; min-width:230px; }
 
-@media (max-width: 560px) {
-  .frame { width:100%; max-width:100%; min-width:0; height:220px; }
-  .chart { max-width:100%; }
-  .ctx-card { width:100%; }
-  .pair { min-width:100%; }                   /* side-by-side charts stack instead of overlapping */
-  .gbox, .sbox { width:auto; min-width:72px; }
-  .vform { max-width:100%; }
-
-  /* Blocks that genuinely need width — a table with six columns, a kanban with three — SCROLL
-     sideways instead of being squashed into unreadability. Shrinking them to fit was the honest
-     answer while the engine had one scrolling axis; now that a finger can drag horizontally, the
-     desktop layout is reachable on a phone rather than merely visible.
-     The scroller is the wrapper; the content keeps a minimum width so it stops collapsing. */
-  .hscroll { overflow:scroll; }
-  .hscroll > * { min-width:640px; }
-}
 
 /* Responsive: auto-collapse to the icon rail below a narrow width — the same look as .collapsed,
    driven by @media instead of the toggle, and the width transition animates the change. */
@@ -118,6 +102,8 @@ body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; -
 .vform cupri-textfield { min-width:300px; }
 .ok-msg { display:inline-flex; align-items:center; gap:5px; color:#12805c; font-weight:bold; font-size:14px; }
 .row { display:flex; align-items:center; flex-wrap:wrap; gap:14px; margin-bottom:14px; }
+/* A label and its control wrap together or not at all. */
+.field { display:flex; align-items:center; gap:10px; }
 /* Block-level components dropped straight into a section (not wrapped in a .row) have no margin of
    their own, so they'd sit flush against their neighbours — give them the same vertical rhythm. */
 .section > cupri-tabs, .section > cupri-textarea, .section > cupri-accordion { display:block; margin-bottom:14px; }
@@ -234,3 +220,30 @@ body.dark .pill { color:#8fb8e0; border-color:#345069; }
 .opt { color:var(--cupri-text); font-size:15px; font-weight:bold; }
 .optd { color:var(--cupri-muted); font-size:13px; }
 .zoomval { color:var(--cupri-text); font-size:15px; font-weight:bold; width:56px; text-align:center; }
+
+/* ---- Phone widths -------------------------------------------------------------------------
+   LAST in the file on purpose. These are class selectors overriding class selectors, so they win
+   only by source order — and while this block sat near the top, `.frame`, `.chart` and `.vform`
+   were all re-widened by their own base rules further down. The block looked right and did
+   nothing, which is why the image stayed too big and the charts stayed off the edge across two
+   rounds of device testing. Anything added here must stay below every base rule it overrides. */
+@media (max-width: 560px) {
+  .frame { width:100%; max-width:100%; min-width:0; height:220px; }
+  .chart { max-width:100%; }
+  .ctx-card { width:100%; }
+  .pair { min-width:100%; }                   /* side-by-side charts stack instead of overlapping */
+  .gbox, .sbox { width:auto; min-width:72px; }
+  .vform { max-width:100%; }
+  /* The 300px floor is a desktop nicety; on a phone it is just an overflow. */
+  .vform cupri-textfield { min-width:0; }
+
+  /* Blocks that genuinely need width — a table with six columns, a kanban with three — SCROLL
+     sideways instead of being squashed into unreadability. Shrinking them to fit was the honest
+     answer while the engine had one scrolling axis; now that a finger can drag horizontally, the
+     desktop layout is reachable on a phone rather than merely visible.
+     The scroller is the wrapper; the content keeps a minimum width so it stops collapsing. */
+  /* A sideways scroller takes its own line: sharing a row (the tree beside the table)
+     leaves the floor width nothing to work with. */
+  .hscroll { overflow:scroll; flex-basis:100%; }
+  .hscroll > * { min-width:640px; }
+}

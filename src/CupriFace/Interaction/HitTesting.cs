@@ -68,7 +68,7 @@ public static class HitTesting
         // Children of a horizontally scrolled box are shifted left by its offset, exactly as the
         // painter shifts them — otherwise a card dragged into view could not be tapped where it
         // now appears.
-        var childOx = ax - (node.IsScrollableX ? node.ClampedScrollX : 0f);
+        var childOx = ax - (node.IsScrollableX ? node.EffectiveScrollX : 0f);
 
         // Inline content owns no box: LayoutInline zeroes an inline element's X/Y/W/H and positions
         // its text through fragments instead. Without this, a link inside a paragraph is invisible
@@ -127,7 +127,7 @@ public static class HitTesting
             y += n.Y;
             if (n.IsTopLayer) break;
             if (n.Parent is { IsScrollable: true } p) y -= p.EffectiveScrollY;
-            if (n.Parent is { IsScrollableX: true } px) x -= px.ClampedScrollX;
+            if (n.Parent is { IsScrollableX: true } px) x -= px.EffectiveScrollX;
         }
         return (x, y);
     }
