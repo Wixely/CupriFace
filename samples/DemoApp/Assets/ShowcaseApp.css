@@ -58,8 +58,15 @@ body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; -
   .ctx-card { width:100%; }
   .pair { min-width:100%; }                   /* side-by-side charts stack instead of overlapping */
   .gbox, .sbox { width:auto; min-width:72px; }
-  /* Wide demo blocks: let them use the full width rather than a desktop-sized fixed one. */
-  .vform, .kanban, cupri-table { max-width:100%; }
+  .vform { max-width:100%; }
+
+  /* Blocks that genuinely need width — a table with six columns, a kanban with three — SCROLL
+     sideways instead of being squashed into unreadability. Shrinking them to fit was the honest
+     answer while the engine had one scrolling axis; now that a finger can drag horizontally, the
+     desktop layout is reachable on a phone rather than merely visible.
+     The scroller is the wrapper; the content keeps a minimum width so it stops collapsing. */
+  .hscroll { overflow:scroll; }
+  .hscroll > * { min-width:640px; }
 }
 
 /* Responsive: auto-collapse to the icon rail below a narrow width — the same look as .collapsed,

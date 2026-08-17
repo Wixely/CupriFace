@@ -36,6 +36,7 @@ public sealed class CupriHostView : SKGLSurfaceView
         host.TextInputChanged += OnTextInputChanged;
         host.SelectionChanged += OnSelectionChanged;
         host.TextInputChanged += NotifyAutofillFocus;
+        host.FormSubmitted += CommitAutofill;
 
         // WHEN_DIRTY parks the GL thread between frames; RequestRender wakes it. Everything the
         // engine's render-on-demand model needs — Dispatch* returns and HasActiveAnimations —
@@ -83,6 +84,16 @@ public sealed class CupriHostView : SKGLSurfaceView
     public override void Autofill(global::Android.Util.SparseArray values)
     {
         (_autofill ??= new AutofillBridge(this, _host)).Fill(values);
+    }
+
+    /// <summary>The app finished a form: ask the autofill service whether it wants to save what
+    /// was entered. Without this a password manager fills happily and never offers to remember
+    /// anything, because nothing ever told it the entry was complete.</summary>
+    private void CommitAutofill()
+    {
+        if (!OperatingSystem.IsAndroidVersionAtLeast(26)) return;
+        if (Context?.GetSystemService(global::Java.Lang.Class.FromType(typeof(AutofillManager)))
+                is AutofillManager manager) manager.Commit();
     }
 
     /// <summary>Autofill needs to know a field was entered before it offers anything.</summary>

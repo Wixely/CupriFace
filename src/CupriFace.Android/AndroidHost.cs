@@ -153,6 +153,11 @@ public sealed class AndroidHost : IDisposable
         // The engine's fullscreen request (the video ⛶ button) maps to immersive mode here.
         doc.WindowCommandRequested += cmd => RunOnUi(() => FullscreenRequested?.Invoke(cmd));
 
+        // A submitted form is what makes a password manager OFFER TO SAVE. Filling is passive —
+        // the service reads the structure whenever it likes — but saving needs the app to say the
+        // entry is finished, which is exactly what Commit() means.
+        doc.FormSubmitted += () => RunOnUi(() => FormSubmitted?.Invoke());
+
         // Focus edges are the soft keyboard's cue. Raised on the GL thread mid-dispatch; the VIEW
         // owns the InputMethodManager work, so hop to the UI thread and hand it the state.
         //
@@ -213,6 +218,10 @@ public sealed class AndroidHost : IDisposable
     /// <summary>Raised on the UI thread when the document asks for fullscreen; the activity maps
     /// it to immersive mode (it owns the window).</summary>
     public event Action<WindowCommand>? FullscreenRequested;
+
+    /// <summary>Raised on the UI thread when the app declares a form submitted; the view answers it
+    /// with AutofillManager.Commit().</summary>
+    public event Action? FormSubmitted;
 
     // ---- wiring -------------------------------------------------------------------------------
 
