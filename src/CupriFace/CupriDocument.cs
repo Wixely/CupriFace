@@ -1020,6 +1020,21 @@ public sealed partial class CupriDocument : IDisposable
 
     // If the caret moved (typing/nav, not wheel) and its field scrolls, nudge that container's
     // ScrollY so the caret's row sits inside the visible band.
+    /// <summary>Ask for the caret to be scrolled back into view on the next frame, even though it
+    /// has not moved.
+    ///
+    /// The caret-follow normally fires when the caret itself moves, which is the right trigger for
+    /// typing. It is the wrong trigger for the VIEWPORT moving: tapping a field sets the caret while
+    /// the window is still full height, and the soft keyboard only takes its half of the screen a
+    /// moment later. By then the caret has not moved, so nothing looked again — and the field you
+    /// had just tapped sat behind the keyboard. A host calls this whenever the usable area changes.</summary>
+    public void EnsureCaretVisible()
+    {
+        if (_focusKey is null) return;
+        _caretMoved = true;
+        Refresh();
+    }
+
     private void ScrollCaretIntoView()
     {
         if (!_caretMoved || _focusKey is null) return;

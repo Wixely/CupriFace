@@ -1,4 +1,4 @@
-using Android.Content;
+﻿using Android.Content;
 using Android.Util;
 using CupriFace.Interaction;
 using SkiaSharp;
@@ -37,6 +37,8 @@ public sealed class AndroidHost : IDisposable
     private CupriHostView? _view;
 
     private readonly System.Diagnostics.Stopwatch _clock = System.Diagnostics.Stopwatch.StartNew();
+    // Last painted size in dp, to notice the keyboard taking (or giving back) its half.
+    private float _lastDpW, _lastDpH;
     private double _lastRefresh;
     private bool _firstFrameLogged;
     private volatile Snapshot? _snapshot;
@@ -254,6 +256,18 @@ public sealed class AndroidHost : IDisposable
         var inputScale = density * scale;                // ONE factor for canvas AND touch — the
                                                          // probe divided touch by density alone,
                                                          // which mis-hits whenever Present scales.
+
+        // The usable area changed — almost always the soft keyboard arriving or leaving, since its
+        // inset is applied as padding and shrinks this surface. The caret has NOT moved, so the
+        // ordinary caret-follow will not fire, and without this the field you just tapped stays
+        // behind the keyboard: reported as "when clicking on an input the keyboard hides the input
+        // box". Compared in dp so a density change is not mistaken for a resize.
+        if (MathF.Abs(dpW - _lastDpW) > 0.5f || MathF.Abs(dpH - _lastDpH) > 0.5f)
+        {
+            var shrank = dpH < _lastDpH - 0.5f;
+            _lastDpW = dpW; _lastDpH = dpH;
+            if (shrank) _doc.EnsureCaretVisible();
+        }
 
         // Host-driven refresh cadence (diagnostics pages etc.), same shape as DesktopHost.
         if (_app.RefreshIntervalSeconds > 0 &&
