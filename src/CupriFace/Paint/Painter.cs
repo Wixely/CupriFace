@@ -319,6 +319,7 @@ public sealed class Painter
         {
             scrollY = Math.Clamp(node.ScrollY, 0, node.MaxScrollY);
             node.ScrollY = scrollY;
+            scrollY += node.OverscrollY;      // the rubber band, while a finger is stretching it
         }
         // Clamped for a container that overflows horizontally; passed through untouched for a
         // single-line text field, which owns its own caret-follow shift.

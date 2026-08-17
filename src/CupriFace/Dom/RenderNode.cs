@@ -99,6 +99,16 @@ public sealed class RenderNode
     public float DragOffsetY, DragTargetY, DragOffsetX;
     public bool Dragging;
     public float ContentBoxHeight => Height - VerticalInsets;
+    /// <summary>How far the content is currently pulled PAST its edge by a finger that kept
+    /// dragging — the rubber band. Transient interaction state: applied while the finger is down,
+    /// sprung back to zero on release. Positive pulls content up (dragged past the bottom).</summary>
+    public float OverscrollY;
+
+    /// <summary>Where the content actually sits: the clamped scroll offset plus any rubber band.
+    /// Paint and hit-testing both read this, so what you see and what you can touch agree even
+    /// mid-stretch.</summary>
+    public float EffectiveScrollY => Math.Clamp(ScrollY, 0, MaxScrollY) + OverscrollY;
+
     public float MaxScrollY => MathF.Max(0, ScrollContentHeight - ContentBoxHeight);
     public bool IsScrollable => MaxScrollY > 0.5f;
 

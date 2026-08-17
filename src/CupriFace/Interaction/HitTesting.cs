@@ -91,7 +91,7 @@ public static class HitTesting
                     { best = owner; break; }
         }
         // Children of a scrolled element are shifted up by the scroll offset.
-        var childOy = ay - (node.IsScrollable ? Math.Clamp(node.ScrollY, 0, node.MaxScrollY) : 0f);
+        var childOy = ay - (node.IsScrollable ? node.EffectiveScrollY : 0f);
         foreach (var child in node.Children)
         {
             var hit = Hit(child, childOx, childOy, x, y, inTopLayer);
@@ -126,7 +126,7 @@ public static class HitTesting
             x += n.X;
             y += n.Y;
             if (n.IsTopLayer) break;
-            if (n.Parent is { IsScrollable: true } p) y -= Math.Clamp(p.ScrollY, 0, p.MaxScrollY);
+            if (n.Parent is { IsScrollable: true } p) y -= p.EffectiveScrollY;
             if (n.Parent is { IsScrollableX: true } px) x -= px.ClampedScrollX;
         }
         return (x, y);
