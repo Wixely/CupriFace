@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
 using AngleSharp.Dom;
@@ -17,7 +17,9 @@ public sealed class PaginationComponent : ComponentBase
     // constant, so the control keeps exactly one width regardless of the current page — no shifting
     // as you page through (see BuildSlots).
     public override string DefaultCss => """
-        .cupri-pagination { display:inline-flex; gap:4px; align-items:center; }
+        /* wrap: the slot count is fixed by design (no shifting as you page), which on a phone
+           makes the strip wider than the screen unless it is allowed onto a second line. */
+        .cupri-pagination { display:inline-flex; gap:4px; align-items:center; flex-wrap:wrap; max-width:100%; }
         .cupri-page, .cupri-page-nav, .cupri-page-ell { min-width:32px; height:32px; padding:0 6px; border-radius:6px;
                                        font-size:14px; display:inline-flex; align-items:center; justify-content:center;
                                        color:var(--cupri-text, #1e2430); }

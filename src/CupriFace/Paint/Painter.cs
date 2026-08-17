@@ -324,7 +324,7 @@ public sealed class Painter
         // Clamped for a container that overflows horizontally; passed through untouched for a
         // single-line text field, which owns its own caret-follow shift.
         var scrollX = node.ClampedScrollX;
-        if (node.IsScrollableX) node.ScrollX = scrollX;
+        if (node.IsScrollableX) { node.ScrollX = scrollX; scrollX += node.OverscrollX; }
 
         // Virtualisation: in a scroll container, skip painting children whose box is entirely outside
         // the visible band (plus a margin). Long lists then cost paint+raster for the visible rows

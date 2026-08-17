@@ -128,6 +128,15 @@ public sealed class RenderNode
     /// the clamping the vertical path does at paint time.</summary>
     public float ClampedScrollX => IsScrollableX ? Math.Clamp(ScrollX, 0, MaxScrollX) : ScrollX;
 
+    /// <summary><see cref="OverscrollY"/>'s sideways twin. Positive pulls content left (dragged
+    /// past the right-hand end).</summary>
+    public float OverscrollX;
+
+    /// <summary>Where the content actually sits horizontally. Guarded on
+    /// <see cref="IsScrollableX"/> because <see cref="ScrollX"/> doubles as a single-line text
+    /// field's caret-follow shift — a field is not a scroller and must never acquire a band.</summary>
+    public float EffectiveScrollX => IsScrollableX ? ClampedScrollX + OverscrollX : ScrollX;
+
     public bool IsText => Text is not null;
 
     public float ContentLeftInset => BorderLeftW + PadLeft;

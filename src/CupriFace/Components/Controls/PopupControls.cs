@@ -1,4 +1,4 @@
-using AngleSharp.Dom;
+﻿using AngleSharp.Dom;
 
 namespace CupriFace.Components.Controls;
 
@@ -142,8 +142,11 @@ public sealed class TooltipComponent : ComponentBase
     public override string DefaultCss => """
         .cupri-tooltip { display:inline-block; }
         .cupri-tt-anchor { display:inline-block; }
+        /* max-width, because the anchor clamp can only move a bubble, not shrink one: a long
+           tooltip measured 712px and ran off a 393px phone from x=4. Wrapping is the fix. */
         .cupri-tt-bubble { position:fixed; background:#1e2430; color:white; padding:6px 10px;
-                           border-radius:6px; font-size:12px; z-index:40; display:none; box-shadow:0 4px 14px #00000033; }
+                           border-radius:6px; font-size:12px; z-index:40; display:none; max-width:260px; width:max-content;
+                           box-shadow:0 4px 14px #00000033; }
         .cupri-tooltip:hover .cupri-tt-bubble { display:inline-block; } /* reveal on hover */
         .cupri-tt-bubble.cupri-tt-open { display:inline-block; }        /* open="true" pins it */
         """;
