@@ -541,7 +541,11 @@ jobs:
           send "$(put 0 -1)$(put 1 -1)$(printf 'sendevent %s 1 330 0;' "$MT")$(syn)"
           sleep 2
 
-          GEST=$(adb logcat -d -s cupri:I | grep 'cupri-gate: gesture' | tail -20)
+          # `|| true` is load-bearing: under `set -e` with pipefail, a grep that matches
+          # nothing kills the script HERE — so the empty-result check below, and the
+          # capabilities dump written to diagnose exactly this, never ran. The step died
+          # silently at the grep and reported nothing at all.
+          GEST=$(adb logcat -d -s cupri:I | grep 'cupri-gate: gesture' | tail -20 || true)
           if [ -z "$GEST" ]; then
             echo "--- the touchscreen's full capabilities, for the next attempt ---"
             echo "$CAPS" | head -40
@@ -552,7 +556,7 @@ jobs:
           # scale alone would not have caught the reported bug; fingers=2 is the claim.
           echo "$GEST" | grep -q 'fingers=2' \
             || fail "the recogniser never saw TWO fingers - the second was dropped before it arrived"
-          BIG=$(echo "$GEST" | grep -oE 'scale=[0-9]+\.[0-9]+' | cut -d= -f2 | sort -g | tail -1)
+          BIG=$(echo "$GEST" | grep -oE 'scale=[0-9]+\.[0-9]+' | cut -d= -f2 | sort -g | tail -1 || true)
           awk -v s="$BIG" 'BEGIN{ exit !(s > 1.3) }' \
             || fail "two fingers spread wide and scale only reached ${BIG}x - the pinch is not tracking"
           echo "two fingers: reached ${BIG}x"
