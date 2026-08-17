@@ -289,4 +289,27 @@ public class DeviceRegressionTests
         Assert.NotNull(shown);
         Assert.Equal(describe, shown!.Element!.TextContent.Trim());
     }
+
+    [Fact]
+    public void The_showcase_kanban_scrolls_sideways_on_a_phone()
+    {
+        // Reported: "the desktop version on the phone still has sections cut off". Shrinking them
+        // to fit was the honest answer while the engine had one scrolling axis. Now a finger can
+        // drag horizontally, so the desktop layout is REACHABLE rather than merely visible.
+        var app = new ShowcaseApp();
+        using var doc = app.CreateDocument();
+        var model = (ShowcaseModel)app.Model!;
+        model.Section = "components";
+        var p = app.Present(W, H);
+        using (doc.RenderToImage((int)p.LogicalWidth, (int)p.LogicalHeight)) { }
+
+        var scroller = Find(doc.Root, n => n.Element?.ClassList.Contains("hscroll") == true);
+        Assert.NotNull(scroller);
+        Assert.True(scroller!.IsScrollableX,
+            $"the board fits in {scroller.Width:F0}px, so there is nothing to drag");
+
+        var (x, y, w, h) = HitTesting.ScreenBox(scroller);
+        Assert.True(doc.DispatchWheel(x + w / 2, y + h / 2, 0, 100));
+        Assert.True(scroller.ScrollX > 50);
+    }
 }
