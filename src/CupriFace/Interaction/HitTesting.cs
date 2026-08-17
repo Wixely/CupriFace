@@ -40,6 +40,28 @@ public static class HitTesting
 
         var ax = originX + node.X;
         var ay = originY + node.Y;
+
+        // A transformed node PAINTS somewhere other than its layout box, so the pointer has to be
+        // mapped into that box's space before anything is compared. Without this a scaled-up tile
+        // can only be grabbed inside its original rectangle and a rotated one only near its
+        // unrotated corners — it looks like the shape moved but its handle stayed behind. The
+        // mapping is inherited by the subtree, because children paint through the same matrix.
+        if (node.Style.HasTransform)
+        {
+            var s = node.Style;
+            float cx = ax + node.Width / 2f, cy = ay + node.Height / 2f;
+            var local = SkiaSharp.SKMatrix.CreateTranslation(cx + s.TranslateX, cy + s.TranslateY);
+            local = local.PreConcat(SkiaSharp.SKMatrix.CreateRotationDegrees(s.RotateDeg));
+            local = local.PreConcat(SkiaSharp.SKMatrix.CreateScale(s.ScaleX, s.ScaleY));
+            local = local.PreConcat(SkiaSharp.SKMatrix.CreateTranslation(-cx, -cy));
+            if (local.TryInvert(out var inverse))
+            {
+                var p = inverse.MapPoint(x, y);
+                x = p.X;
+                y = p.Y;
+            }
+        }
+
         var inside = x >= ax && x < ax + node.Width && y >= ay && y < ay + node.Height;
 
         RenderNode? best = inside && !node.IsText ? node : null;
