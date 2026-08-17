@@ -37,6 +37,7 @@ h1 { font-size:22px; color:var(--cupri-text); margin:4px 0 8px 0; }
 
 /* The capability signal: the host says what is driving the app, and ordinary CSS answers. No
    media feature, no platform check — just the cascade. */
+.tile-reset { color:var(--cupri-accent); }
 .touch-only { display:none; }
 .cupri-coarse .touch-only { display:inline; }
 .cupri-coarse .mouse-only { display:none; }

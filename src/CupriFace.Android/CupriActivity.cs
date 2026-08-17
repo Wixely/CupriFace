@@ -55,6 +55,16 @@ public abstract class CupriActivity : global::Android.App.Activity
         });
         _view = new CupriHostView(this, _host);
 
+        // The window's own background, kept in step with the page's. Everything the document does
+        // not paint shows this: the strip a soft keyboard animates over (a bright white flash on a
+        // dark app, every time it opened) and the letterbox bars of a fullscreen landscape window.
+        _host.PageBackgroundChanged += colour =>
+        {
+            var c = new global::Android.Graphics.Color(colour.Red, colour.Green, colour.Blue, colour.Alpha);
+            Window?.SetBackgroundDrawable(new global::Android.Graphics.Drawables.ColorDrawable(c));
+            _container?.SetBackgroundColor(c);
+        };
+
         // Edge-to-edge, DELIBERATELY, wherever insets can be controlled (API 30+): Android 15
         // forces it anyway — the system bars become transparent overlays and a view that ignores
         // them puts its bottom nav underneath the gesture bar, which is exactly what the first
@@ -90,7 +100,7 @@ public abstract class CupriActivity : global::Android.App.Activity
             if (OperatingSystem.IsAndroidVersionAtLeast(28) && w.Attributes is { } attrs)
                 attrs.LayoutInDisplayCutoutMode = LayoutInDisplayCutoutMode.ShortEdges;
 
-            var container = new global::Android.Widget.FrameLayout(this);
+            var container = _container = new global::Android.Widget.FrameLayout(this);
             container.SetBackgroundColor(new global::Android.Graphics.Color(bg.Red, bg.Green, bg.Blue, bg.Alpha));
             container.AddView(_view);
             _padder = new InsetsPadder();
@@ -130,6 +140,7 @@ public abstract class CupriActivity : global::Android.App.Activity
     /// as padding, so the app's content sits in the truly-usable rectangle while the container's
     /// background fills the strips behind the transparent bars.</summary>
     private InsetsPadder? _padder;
+    private global::Android.Widget.FrameLayout? _container;
 
     private sealed class InsetsPadder : global::Java.Lang.Object, View.IOnApplyWindowInsetsListener
     {

@@ -139,4 +139,67 @@ public class MultiPointerTests
         Assert.Equal(new[] { 1, 2 }, cancelled.OrderBy(i => i));
         Assert.False(doc.HasCapturedPointers);
     }
+
+    [Fact]
+    public void A_handler_that_writes_to_the_model_is_seen_on_screen()
+    {
+        // The bug a real phone found: the pinch worked perfectly and NOTHING MOVED. Bump() only
+        // advances the version counter — it does not re-bind — so a gesture handler's whole purpose
+        // (writing a scale, a rotation, a position to the model) never reached the DOM.
+        var model = new Box();
+        using var t = new TestDoc(
+            "<body><div class='tile' data-gesture='x' style='width:{{Size}}px;height:40px'>t</div></body>",
+            "body{margin:0}", model);
+        t.Doc.OnPointer("data-gesture", e => { model.Size = 150; return true; });
+
+        var tile = TestDoc.Find(t.Doc.Root, n => n.Element?.ClassList.Contains("tile") == true)!;
+        var (x, y, w, h) = HitTesting.ScreenBox(tile);
+        t.Doc.DispatchPointer(1, PointerPhase.Down, x + w / 2, y + h / 2);
+        t.Layout();
+
+        var after = TestDoc.Find(t.Doc.Root, n => n.Element?.ClassList.Contains("tile") == true)!;
+        Assert.Equal(150f, after.Width, 1);
+    }
+
+    private sealed class Box { public int Size { get; set; } = 60; }
+
+    [Fact]
+    public void A_sideways_drag_does_not_creep_vertically()
+    {
+        // Reported from a device: dragging the row sideways also nudged the page up and down. A
+        // gesture now claims the axis it committed to.
+        using var doc = CupriDocument.Load(
+            """
+            <body><div class='page'>
+              <div class='strip'><div class='wide'>w</div></div>
+              <div class='filler'>f</div>
+            </div></body>
+            """,
+            """
+            body{margin:0}
+            .page{width:200px;height:300px;overflow:scroll}
+            .strip{width:200px;height:60px;overflow:scroll}
+            .wide{width:900px;height:40px}
+            .filler{height:800px}
+            """);
+        doc.BuildFrame(400, 400);
+
+        var page = TestDoc.Find(doc.Root, n => n.Element?.ClassList.Contains("page") == true)!;
+        var strip = TestDoc.Find(doc.Root, n => n.Element?.ClassList.Contains("strip") == true)!;
+        Assert.True(strip.IsScrollableX && page.IsScrollable);
+
+        // Drag mostly sideways, with the small vertical wobble any real finger has.
+        var touch = new TouchInput(doc);
+        touch.Down(150, 20, 0);
+        for (var i = 1; i <= 10; i++) touch.Move(150 - i * 12, 20 + (i % 2 == 0 ? 2 : -2), i * 0.01);
+
+        // Re-find: pressing restyles, which rebuilds the tree — the nodes captured above are from
+        // the tree that existed before the finger landed.
+        strip = TestDoc.Find(doc.Root, n => n.Element?.ClassList.Contains("strip") == true)!;
+        page = TestDoc.Find(doc.Root, n => n.Element?.ClassList.Contains("page") == true)!;
+
+        Assert.True(strip.ScrollX > 60,
+            $"the row barely moved ({strip.ScrollX:F0}); page moved {page.ScrollY:F0}");
+        Assert.Equal(0f, page.ScrollY, 1);      // …and the page stayed exactly still
+    }
 }

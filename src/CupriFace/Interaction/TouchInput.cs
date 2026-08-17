@@ -79,6 +79,7 @@ public sealed class TouchInput(CupriDocument document)
         }
 
         _downX = x; _downY = y; _downT = t;
+        _downX0 = x; _downY0 = y;          // the true origin, kept for the axis decision
 
         if (document.ClassifyPress(x, y) == CupriDocument.PressKind.DragSurface)
         {
@@ -213,13 +214,46 @@ public sealed class TouchInput(CupriDocument document)
         _prevY = _downY = y; _prevX = _downX = x; _downT = t;
         _ring.Clear();
         _ring.Add((t, x, y));
+
+        // Which way did the finger COMMIT? A drag is never perfectly straight, so sending both axes
+        // meant a sideways drag also crept the page up and down under it. The gesture locks to the
+        // axis it started along and stays there; only a genuinely diagonal start (neither axis
+        // clearly dominant) moves both, which is what a map or a zoomed image wants.
+        _axis = Axis.Both;
+        _axisDecided = false;
+        DecideAxis(x, y);
     }
+
+    /// <summary>Claim an axis once the finger has travelled far enough to have meant it. Deferred
+    /// rather than decided at slop, because a fling-CATCH enters scrolling with no movement at all
+    /// and would otherwise be stuck reading "diagonal" for the whole gesture.</summary>
+    private void DecideAxis(float x, float y)
+    {
+        if (_axisDecided) return;
+        var dx = MathF.Abs(x - _downX0);
+        var dy = MathF.Abs(y - _downY0);
+        if (MathF.Max(dx, dy) < Options.SlopPx) return;
+
+        _axis = dx > dy * AxisBias ? Axis.Horizontal
+              : dy > dx * AxisBias ? Axis.Vertical
+              : Axis.Both;              // a genuine diagonal moves both, which a map wants
+        _axisDecided = true;
+    }
+
+    private enum Axis { Both, Horizontal, Vertical }
+    private Axis _axis;
+    private bool _axisDecided;
+    private float _downX0, _downY0;      // where the finger first touched, before any slop
+    private const float AxisBias = 1.6f; // how decisively one axis must lead to claim the gesture
 
     private bool Scroll(float x, float y, double t)
     {
         var delta = _prevY - y;                          // finger up (y shrinks) → scroll down (+)
         var deltaX = _prevX - x;                         // finger left (x shrinks) → scroll right (+)
         _prevY = y; _prevX = x;
+        DecideAxis(x, y);
+        if (_axis == Axis.Horizontal) delta = 0;         // committed sideways: don't creep vertically
+        if (_axis == Axis.Vertical) deltaX = 0;
         _ring.Add((t, x, y));
         Prune(t);
         // Wheel at the DOWN point: the target chain stays stable however far the finger travels,
