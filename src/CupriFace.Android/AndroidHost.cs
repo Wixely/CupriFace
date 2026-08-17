@@ -439,7 +439,13 @@ public sealed class AndroidHost : IDisposable
     internal void PointerDown(int id, float x, float y, double t)
     {
         var (lx, ly) = (x / InputScale(), y / InputScale());
-        if (_doc.DispatchPointer(id, PointerPhase.Down, lx, ly)) { MarkDirty(); return; }
+        var changed = _doc.DispatchPointer(id, PointerPhase.Down, lx, ly);
+        // Which fingers arrive, and who takes them — the line that turns any phone with adb into
+        // this bug's test rig (`adb logcat -s cupri:I` while pinching). A two-finger grab that
+        // logs only one id is the input path dropping a finger before the engine ever saw it;
+        // two ids, both captured, puts the fault past the host.
+        Log($"pointer down id={id} captured={_doc.IsPointerCaptured(id)}");
+        if (changed) { MarkDirty(); return; }
         if (_primaryPointer >= 0) return;                       // a second finger the app didn't want
         _primaryPointer = id;
         if (_touch.Down(lx, ly, t)) MarkDirty();
