@@ -86,7 +86,7 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 | `samples/Viewer` | Desktop host running `ShowcaseApp` (GPU → SDL fallback, live animation); `--app mobile` runs the phone sample |
 | `samples/AndroidViewer` | The phone-first `MobileApp` on Android (the Showcase reachable from its About page) |
 | `samples/WebWasm` | Web host (**default**): raw .NET-WASM + thin JS glue → `<canvas>`, no Blazor |
-| `samples/Web` | Web host (alt): the same app via Blazor `<SKCanvasView>` |
+| `samples/Web` | Web host (alt): a **minimal** Blazor `<SKCanvasView>` embedding example — clicks only, see below |
 
 ## Download
 
@@ -141,6 +141,13 @@ dotnet run --project samples/Web                  # Blazor host (alternative)
 Both web hosts render the **same** `SettingsApp` — pick raw-WASM for minimal deps, or
 Blazor to embed CupriFace inside an existing Blazor app. First build does a native
 WebAssembly relink of Skia (slow once, cached after).
+
+**The Blazor host is a starting point, not a finished host.** It is ~30 lines showing how to put
+the engine inside a `<SKCanvasView>`, and it wires **clicks only** — no scrolling, no keyboard, no
+touch. `samples/WebWasm` is the one that carries the full input contract (tap-on-release, momentum,
+long-press, IME composition, the coarse/fine capability signal), and it is what the browser gate
+tests. If you are embedding in an existing Blazor app, expect to bring input across yourself —
+`CupriDocument` exposes the same `Dispatch*` seam both other web hosts use.
 
 Every snapshot sample writes a PNG and exits (works headless, no GPU). The Viewer and
 Web targets open a real window / browser.

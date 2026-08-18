@@ -337,7 +337,12 @@ the canvas/runtime bridge differs:
   (which exits after `Main`, breaking later `[JSExport]` calls).
 - **Blazor (`samples/Web`, alternative)** — `SkiaSharp.Views.Blazor`'s `<SKCanvasView>`
   provides the canvas glue for free; heavier, but ideal for **embedding CupriFace inside
-  an existing Blazor app**.
+  an existing Blazor app**. Deliberately MINIMAL: it routes clicks and nothing else — no
+  scroll, no keyboard, no touch, no frame loop. It answers "how do I put this in my Blazor
+  app", not "here is a maintained third web host". The input contract lives in `WebWasm`
+  (and `WebLlvm`), which is where the browser gate points; bringing it here would mean a
+  third copy of the same seam for the host with the fewest users, so the honest move is to
+  say so rather than to imply parity.
 Both link Skia natively into wasm (via `SkiaSharp.NativeAssets.WebAssembly`).
 
 ### 9.1 JS glue — scope and boundaries
