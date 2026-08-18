@@ -119,7 +119,7 @@
       "args": [
         "run",
         "--project",
-        "${workspaceFolder}/samples/WebWasm/tools/Serve",
+        "${workspaceFolder}/tools/Serve",
         "--",
         "${workspaceFolder}/samples/WebWasm/publish-aot/wwwroot",
         "5199"
@@ -201,7 +201,7 @@
       "args": [
         "run",
         "--project",
-        "${workspaceFolder}/samples/WebWasm/tools/Serve",
+        "${workspaceFolder}/tools/Serve",
         "--",
         "${workspaceFolder}/samples/WebLlvm/bin/Release/net10.0/browser-wasm/publish",
         "5230"

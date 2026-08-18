@@ -56,10 +56,10 @@ Options, in order of impact:
 - `main.js` mirrors boot progress + console into a hidden `<pre id="bootlog">` and paints any
   boot/render error onto the canvas — failures are visible without dev tools, and headless
   `--dump-dom` can read the log.
-- `tools/Serve` statically serves a PUBLISHED build (the WASM SDK's dev server only serves
+- `../../tools/Serve` statically serves a PUBLISHED build (the WASM SDK's dev server only serves
   `dotnet run` output). It exists because a project whose claim is "no JavaScript engine" should
   not need one in its own dev loop either:
-  `dotnet run --project tools/Serve -- <path-to>/wwwroot 5199`
+  `dotnet run --project ../../tools/Serve -- <path-to>/wwwroot 5199`
   (drop a `{"type":"module"}` package.json into `_framework` first). Prints each boot step,
   paints one frame, and times a few interactions.
 - AOT publishes emit `dotnet.native.js.symbols` (in `obj/.../wasm/for-publish/`): map a crash

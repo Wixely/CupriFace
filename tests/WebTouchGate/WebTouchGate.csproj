@@ -1,0 +1,27 @@
+<!-- The web host's touch gate. Every other input claim in this repo is held by a real client —
+     FlaUI on Windows, pyatspi on Linux, pyobjc on macOS, a real emulator on Android. Web touch had
+     nothing, which is how it shipped for months routing fingers down the mouse path.
+
+     Playwright drives a REAL Chromium with touch emulation, so the whole chain is under test: the
+     JS layer (pointerType routing, touch-action, pointer capture), the interop boundary, and the
+     engine's recognizer. A headless harness calling the C# exports would skip the first of those —
+     which is exactly where the bug lived. -->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <!-- Deliberately NOT in CupriFace.slnx: it needs the wasm workload and a browser, so a plain
+         `dotnet build` of the solution must not drag either in. CI runs it as its own job. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Playwright" Version="1.55.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+</Project>

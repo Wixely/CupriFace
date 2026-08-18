@@ -328,6 +328,44 @@ jobs:
           f=$(find samples/WebLlvm/bin/Release -name 'dotnet.native.wasm' | head -1)
           test -n "$f" || { echo "::error::no wasm module was produced"; exit 1; }
           ls -l "$f"
+  # The web host's touch contract, driven by a REAL browser.
+  #
+  # Every other input claim here is held by a real client — FlaUI on Windows, pyatspi on Linux,
+  # pyobjc on macOS, an emulator on Android. Web touch had none, which is how it shipped for months
+  # sending fingers down the MOUSE path: buttons fired on touch-down and lists stopped dead where a
+  # thumb left them. A headless harness could not have caught that, because the bug lived in the JS
+  # layer such a harness skips — pointerType routing, touch-action, pointer capture. So Playwright
+  # drives Chromium with touch emulation against a published build, served by this repo's own
+  # managed static server.
+  webtouch:
+    name: Web touch (real browser)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install wasm tooling
+        run: sudo dotnet workload install wasm-tools
+
+      # A PUBLISHED build, not `dotnet run`: it is what a user actually downloads, and publishing
+      # is also what caught a project nested inside this one breaking the wasm compile.
+      - name: Publish the web host
+        run: dotnet publish samples/WebWasm/WebWasm.csproj -c Release
+
+      - name: Build the gate
+        run: dotnet build tests/WebTouchGate/WebTouchGate.csproj -c Release
+
+      # Playwright ships its own browser; --with-deps pulls the shared libraries a headless
+      # Chromium needs on a bare runner.
+      - name: Install Chromium
+        run: pwsh tests/WebTouchGate/bin/Release/net10.0/playwright.ps1 install chromium --with-deps
+
+      - name: Fingers on glass
+        run: dotnet test tests/WebTouchGate/WebTouchGate.csproj -c Release --no-build --logger "console;verbosity=normal"
+
 
   # THE ANDROID GATE — promoted from android-gate.yml after seventeen runs earned it (the same
   # path every accessibility gate walked: own workflow until stable green, then blocking here).
