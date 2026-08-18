@@ -321,6 +321,14 @@ public static unsafe partial class Interop
         catch (Exception ex) { Crash("TouchCancel", ex); }
     }
 
+    /// <summary>What the host told the engine it is being driven by — the twin of the WASM host's
+    /// export, so one browser gate can drive either host through the same contract.</summary>
+    [UnmanagedCallersOnly(EntryPoint = "IsCoarsePointer")]
+    public static int IsCoarsePointer()
+    {
+        try { return _doc.InputProfile.CoarsePointer ? 1 : 0; } catch { return 0; }
+    }
+
     [UnmanagedCallersOnly(EntryPoint = "SetCoarsePointer")]
     public static void SetCoarsePointer(int coarse)
     {

@@ -56,9 +56,9 @@ public class TouchTests(WebHostFixture host)
         var after = await HashAsync(page);
 
         Assert.True(start == held,
-            "holding a finger down changed the screen — activation is happening on touch-down, the desktop contract");
+            $"[{host.Host}] holding a finger down changed the screen — activation on touch-down, the desktop contract");
         Assert.True(held != after,
-            "releasing the finger changed nothing — the tap never activated");
+            $"[{host.Host}] releasing the finger changed nothing — the tap never activated");
     }
 
     [Fact]
@@ -83,7 +83,7 @@ public class TouchTests(WebHostFixture host)
               return start !== hash();
             }
             """);
-        Assert.True(moved, "a finger dragged across the page and nothing scrolled");
+        Assert.True(moved, $"[{host.Host}] a finger dragged across the page and nothing scrolled");
 
         // Momentum: the frame must keep changing AFTER the finger is gone.
         var atRelease = await HashAsync(page);
@@ -93,18 +93,18 @@ public class TouchTests(WebHostFixture host)
         var t680 = await HashAsync(page);
 
         Assert.True(atRelease != t180 || t180 != t680,
-            "the list stopped dead where the thumb left it — the fling never ran");
+            $"[{host.Host}] the list stopped dead where the thumb left it — the fling never ran");
     }
 
     [Fact]
     public async Task The_capability_signal_follows_the_pointer_in_use()
     {
         var page = await host.PhoneAsync();
-        var coarse = () => page.EvaluateAsync<bool>("() => globalThis.__cupri.I.IsCoarsePointer()");
+        var coarse = () => page.EvaluateAsync<bool>("() => globalThis.__cupri.isCoarse()");
 
         // A touch device reports coarse before anything is touched (the opening guess), and any
         // real pointer corrects it — a laptop with a touchscreen is honestly both.
-        Assert.True(await coarse(), "a touch device did not report a coarse pointer at boot");
+        Assert.True(await coarse(), $"[{host.Host}] a touch device did not report a coarse pointer at boot");
 
         await page.EvaluateAsync("""
             () => { const c = document.getElementById('cupri');
@@ -114,7 +114,7 @@ public class TouchTests(WebHostFixture host)
                   buttons: t === 'pointerup' ? 0 : 1 })); }
             """);
         await page.WaitForTimeoutAsync(200);
-        Assert.False(await coarse(), "a mouse arrived and the app still called itself coarse");
+        Assert.False(await coarse(), $"[{host.Host}] a mouse arrived and the app still called itself coarse");
 
         await page.EvaluateAsync("""
             () => { const c = document.getElementById('cupri');
@@ -124,7 +124,7 @@ public class TouchTests(WebHostFixture host)
                   buttons: t === 'pointerup' ? 0 : 1 })); }
             """);
         await page.WaitForTimeoutAsync(200);
-        Assert.True(await coarse(), "a finger came back and the app stayed fine");
+        Assert.True(await coarse(), $"[{host.Host}] a finger came back and the app stayed fine");
     }
 
     [Fact]

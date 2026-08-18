@@ -16,6 +16,9 @@ public sealed class WebHostFixture : IAsyncLifetime
     private IPlaywright? _pw;
     public IBrowser Browser { get; private set; } = null!;
     public string Url { get; private set; } = "";
+    /// <summary>Which web host this run is driving — named in assertions so a matrix failure
+    /// says which leg broke.</summary>
+    public string Host { get; private set; } = "wasm";
 
     // Repo root, found by walking up to the file that only the root has.
     private static string Root()
@@ -31,6 +34,7 @@ public sealed class WebHostFixture : IAsyncLifetime
 
         // The published app. CI publishes it in the job step; locally, publish once yourself:
         //   dotnet publish samples/WebWasm/WebWasm.csproj -c Release
+        Host = Environment.GetEnvironmentVariable("CUPRI_WEB_HOST") ?? "wasm";
         var wwwroot = Environment.GetEnvironmentVariable("CUPRI_WEB_WWWROOT")
                       ?? Path.Combine(root, "samples", "WebWasm", "bin", "Release", "net10.0", "publish", "wwwroot");
         if (!Directory.Exists(wwwroot))
@@ -92,9 +96,13 @@ public sealed class WebHostFixture : IAsyncLifetime
         await page.GotoAsync(Url);
         // The engine boots, then paints. Wait for the canvas to carry pixels rather than for a
         // fixed delay — a slow runner would otherwise fail for no reason.
+        // Both web hosts publish the same automation contract (__cupri.isCoarse), so this gate
+        // drives either without knowing whether it is talking to JSExports (raw WASM) or to
+        // Emscripten's module (NativeAOT-LLVM).
         await page.WaitForFunctionAsync(
-            "() => { const c = document.getElementById('cupri'); return c && c.width > 0 && !!(globalThis.__cupri||{}).I; }",
-            null, new() { Timeout = 120_000 });
+            "() => { const c = document.getElementById('cupri');" +
+            "  return c && c.width > 0 && typeof (globalThis.__cupri||{}).isCoarse === 'function'; }",
+            null, new() { Timeout = 180_000 });
         return page;
     }
 

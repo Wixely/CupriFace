@@ -175,7 +175,12 @@ try {
     const I = exports.Interop;
     // Exposed for automation, as the WebLlvm host does: a browser test drives the same exports the
     // page does, rather than a parallel path that could pass while the real one is broken.
-    globalThis.__cupri = Object.assign(globalThis.__cupri || {}, { I });
+    // `isCoarse` is the UNIFORM contract both web hosts publish, so one gate can drive either
+    // without knowing whether it is talking to JSExports or to Emscripten's module.
+    globalThis.__cupri = Object.assign(globalThis.__cupri || {}, {
+        I,
+        isCoarse: () => I.IsCoarsePointer(),
+    });
     logBoot('exports ok');
 
     // The browser can end fullscreen on its own (Esc goes to the BROWSER, not our key handler) —
