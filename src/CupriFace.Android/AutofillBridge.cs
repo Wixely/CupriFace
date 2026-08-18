@@ -21,10 +21,49 @@ namespace CupriFace.Android;
 /// </summary>
 internal sealed class AutofillBridge(CupriHostView view, AndroidHost host)
 {
-    // Virtual id → structural path, rebuilt whenever the structure is requested. Autofill's
-    // lifecycle is request/respond rather than long-lived, so unlike TalkBack's ids these need no
-    // permanence — they only have to survive from the request to the fill.
+    // Virtual id ↔ structural path, STABLE for the life of the view — grow-only, ids never
+    // reused. They were originally minted per structure request (index+1), which was fine for
+    // fill alone but fatal for the session: NotifyViewEntered must name the focused field's id
+    // BEFORE the framework has asked for any structure (the notification is what makes it ask),
+    // so an id that does not exist until the request can never be announced.
+    private readonly Dictionary<string, int> _idByPath = new();
     private readonly Dictionary<int, string> _byId = new();
+
+    internal int IdForPath(string path)
+    {
+        if (!_idByPath.TryGetValue(path, out var id))
+        {
+            id = _idByPath.Count + 1;
+            _idByPath[path] = id;
+            _byId[id] = path;
+        }
+        return id;
+    }
+
+    /// <summary>The focused fillable field right now — its stable virtual id and its bounds in
+    /// view pixels — or null when focus is elsewhere. This is what the session announcement
+    /// (NotifyViewEntered) is made from.</summary>
+    internal (int Id, global::Android.Graphics.Rect Bounds)? FocusedField()
+    {
+        var snapshot = host.Current;
+        if (snapshot is null) return null;
+
+        AccessibilityNode? hit = null;
+        void Walk(AccessibilityNode n)
+        {
+            if (hit is null && n.Focused && n.Role is "textbox" or "spinbutton" &&
+                n.AutofillHint is { Length: > 0 })
+                hit = n;
+            if (hit is null) foreach (var c in n.Children) Walk(c);
+        }
+        Walk(host.BuildSemanticsForAutofill());
+        if (hit is null) return null;
+
+        var scale = snapshot.InputScale;
+        var (x, y, w, h) = hit.Bounds;
+        return (IdForPath(hit.Path), new global::Android.Graphics.Rect(
+            (int)(x * scale), (int)(y * scale), (int)((x + w) * scale), (int)((y + h) * scale)));
+    }
 
     /// <summary>Describe the fillable fields. Called when an autofill service inspects the window.</summary>
     internal void ProvideStructure(ViewStructure structure)
@@ -43,7 +82,6 @@ internal sealed class AutofillBridge(CupriHostView view, AndroidHost host)
         }
         Walk(host.BuildSemanticsForAutofill());
 
-        _byId.Clear();
         structure.SetClassName("android.view.ViewGroup");
         structure.ChildCount = fields.Count;
 
@@ -52,8 +90,7 @@ internal sealed class AutofillBridge(CupriHostView view, AndroidHost host)
         {
             var node = fields[i];
             var child = structure.NewChild(i);
-            var id = i + 1;
-            _byId[id] = node.Path;
+            var id = IdForPath(node.Path);   // the SAME id the focus announcement used
 
             child.SetAutofillId(structure.AutofillId!, id);
             child.SetAutofillType(AutofillType.Text);

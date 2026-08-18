@@ -24,7 +24,10 @@ h1 { font-size:22px; color:var(--cupri-text); margin:4px 0 8px 0; }
 .build { font-size:12px; margin-top:4px; }
 
 /* The pinch/rotate stage. The tile carries a CSS transform written by the gesture handler. */
-.stage { height:150px; display:flex; align-items:center; justify-content:center;
+/* 220dp: tall enough that the cube at its clamped extremes (90dp x 1.8 scale, half 81dp, plus
+   25dp pan = 106dp from centre) never hangs outside the gesture surface — a visually-touchable
+   cube that is not over the stage is a cube a finger cannot grab. */
+.stage { height:220px; display:flex; align-items:center; justify-content:center;
          background:var(--cupri-bg); border-radius:10px; margin:4px 0; }
 .tile { width:90px; height:90px; display:flex; align-items:center; justify-content:center;
         font-size:34px; color:#ffffff; background:var(--cupri-accent); border-radius:14px; }

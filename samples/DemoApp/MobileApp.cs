@@ -70,12 +70,32 @@ public sealed class MobileApp : CupriApp
         // the trigonometry by hand and scaled about the tile's centre instead of the point between
         // the fingers, which is exactly the mistake the recogniser exists to stop repeating.
         // doc.OnPointer is still there for anything this does not describe.
+        // COMPOSE, don't assign: the recogniser reports cumulative-SINCE-GESTURE-START (as every
+        // platform's does), so a handler that writes g.Scale straight into the model snaps the
+        // tile back to 1x and origin the instant a new grab begins — reported as "the cube resets
+        // size and position" on the second try. The transform is banked when a gesture ends and
+        // each new gesture multiplies on top of it.
+        var live = false;
+        double baseScale = 1, baseRot = 0, basePanX = 0, basePanY = 0;
         doc.OnManipulate("data-gesture", g =>
         {
-            _model.TileScale = Math.Clamp(g.Scale, 0.4, 3.0);
-            _model.TileRotation = g.Rotation;
-            _model.TilePanX = g.PanX;
-            _model.TilePanY = g.PanY;
+            if (!live)
+            {
+                live = true;
+                baseScale = _model.TileScale; baseRot = _model.TileRotation;
+                basePanX = _model.TilePanX; basePanY = _model.TilePanY;
+            }
+            _model.TileScale = Math.Clamp(baseScale * g.Scale, 0.4, 1.8);
+            _model.TileRotation = baseRot + g.Rotation;
+            // Clamped so the cube can never leave the stage strip. A finger landing on a part of
+            // the cube that hangs OUTSIDE the stage lands on ground the stage never captures —
+            // which is how the third grab came to "only follow one finger": the second finger was
+            // touching the cube's image, but not the gesture surface under it.
+            _model.TilePanX = Math.Clamp(basePanX + g.PanX, -70, 70);
+            _model.TilePanY = Math.Clamp(basePanY + g.PanY, -25, 25);
+            if (g.Phase is CupriFace.Interaction.PointerPhase.Up or CupriFace.Interaction.PointerPhase.Cancel
+                && g.PointerCount <= 1)
+                live = false;   // the gesture ended: what stands is the next one's base
             // The gate's only window into a gesture. fingers= is the value actually in doubt: a
             // two-finger pinch that reports fingers=1 is the whole bug, and it is invisible from
             // scale alone because one finger panning still moves the tile convincingly.
