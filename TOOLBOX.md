@@ -889,11 +889,19 @@ doc.OnPointer("data-gesture", e =>
 Most apps that want two fingers want the same three numbers, so the engine works them out for you:
 
 ```csharp
+// COMPOSE onto a banked base — g.* is cumulative since THIS gesture began (as on every
+// platform), so assigning it directly snaps your content back to 1x the moment a second
+// grab starts. Bank when a gesture ends; multiply while one is live.
+var live = false; double baseScale = 1, baseRot = 0, basePanX = 0, basePanY = 0;
 doc.OnManipulate("data-gesture", g => {
-    model.Scale    = Math.Clamp(g.Scale, 0.4, 3);   // cumulative since the gesture began
-    model.Rotation = g.Rotation;                     // degrees
-    model.PanX     = g.PanX;                         // the focal point's travel
-    model.PanY     = g.PanY;
+    if (!live) { live = true; baseScale = model.Scale; baseRot = model.Rotation;
+                 basePanX = model.PanX; basePanY = model.PanY; }
+    model.Scale    = Math.Clamp(baseScale * g.Scale, 0.4, 3);
+    model.Rotation = baseRot + g.Rotation;           // degrees
+    model.PanX     = basePanX + g.PanX;              // the focal point's travel
+    model.PanY     = basePanY + g.PanY;
+    if (g.Phase is PointerPhase.Up or PointerPhase.Cancel && g.PointerCount <= 1)
+        live = false;                                // gesture over: this result is the next base
     return true;
 });
 ```
@@ -910,6 +918,18 @@ trigonometry but the mistakes in it:
 - **The ±180° seam**, so a small turn past it reads as a few degrees rather than most of a circle.
 - **Three fingers**, where "the distance between the two" has no meaning — spread is measured from
   the centroid.
+
+Two more lessons, both learned from a phone rather than from code review:
+
+- **Size the gesture surface for fingers, not for the artwork.** Fingertips are ~10 mm of glass;
+  capture is per-element; and a 90dp tile is a target two fingers cannot both land on. Put
+  `data-gesture` on the *stage* around the content and apply the transform to the content inside
+  it — the collage-editor pattern. Emulators and headless tests will not catch this for you,
+  because their fingers are points.
+- **Keep the content inside its surface.** A transform can carry the visuals outside the element
+  that owns the gesture, and a finger on that overhang touches whatever is underneath instead.
+  Clamp scale and pan so everything a user might grab stays over the surface that would capture
+  the grab.
 
 Use `OnPointer` directly when the gesture isn't a manipulation: a two-finger swipe, a custom
 multi-touch keyboard, anything where you want the pointers themselves.

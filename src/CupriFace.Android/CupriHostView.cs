@@ -96,14 +96,57 @@ public sealed class CupriHostView : SKGLSurfaceView
                 is AutofillManager manager) manager.Commit();
     }
 
-    /// <summary>Autofill needs to know a field was entered before it offers anything.</summary>
+    /// <summary>Autofill needs to know WHICH field was entered before it offers anything.
+    ///
+    /// This used to call the view-level <c>NotifyViewEntered(this)</c> — but we publish a VIRTUAL
+    /// structure, and a virtual field's session must be announced with the virtual-id overload.
+    /// Without the id the framework never learns that an autofillable node has focus, so no fill
+    /// session starts: no dropdown, no keyboard-inline chip (a password manager's button in the
+    /// IME strip), and nothing for <c>Commit()</c> to save. A device with Vaultwarden showed the
+    /// exact symptom pair — no chip, no save prompt — while filling-by-structure worked.</summary>
+    private int _autofillFocusedId;                     // 0 = nothing announced
+    private string? _autofillLastValue;
+
     private void NotifyAutofillFocus(TextInputState state)
     {
         if (!OperatingSystem.IsAndroidVersionAtLeast(26)) return;
         if (Context?.GetSystemService(global::Java.Lang.Class.FromType(typeof(AutofillManager)))
                 is not AutofillManager manager) return;
-        if (state.Focused) manager.NotifyViewEntered(this);
-        else manager.NotifyViewExited(this);
+
+        var bridge = _autofill ??= new AutofillBridge(this, _host);
+        var target = state.Focused ? bridge.FocusedField() : null;
+        if (target is { } t)
+        {
+            // The framework wants the field's bounds in SCREEN coordinates — the bridge computed
+            // view pixels, so add where this view sits.
+            var loc = new int[2];
+            GetLocationOnScreen(loc);
+            t.Bounds.Offset(loc[0], loc[1]);
+            if (_autofillFocusedId != 0 && _autofillFocusedId != t.Id)
+                manager.NotifyViewExited(this, _autofillFocusedId);
+            _autofillFocusedId = t.Id;
+            _autofillLastValue = state.Value;
+            manager.NotifyViewEntered(this, t.Id, t.Bounds);
+        }
+        else if (_autofillFocusedId != 0)
+        {
+            manager.NotifyViewExited(this, _autofillFocusedId);
+            _autofillFocusedId = 0;
+            _autofillLastValue = null;
+        }
+    }
+
+    /// <summary>Typing must reach the autofill session too: save-on-submit is decided from the
+    /// value changes the framework has SEEN, so a session that never hears the password being
+    /// typed has nothing it considers worth saving.</summary>
+    private void NotifyAutofillValue(TextInputState state)
+    {
+        if (_autofillFocusedId == 0 || !OperatingSystem.IsAndroidVersionAtLeast(26)) return;
+        if (state.Value == _autofillLastValue) return;
+        _autofillLastValue = state.Value;
+        if (Context?.GetSystemService(global::Java.Lang.Class.FromType(typeof(AutofillManager)))
+                is AutofillManager manager)
+            manager.NotifyValueChanged(this, _autofillFocusedId, AutofillValue.ForText(state.Value ?? ""));
     }
 
     // ---- TalkBack -----------------------------------------------------------------------------
@@ -177,6 +220,10 @@ public sealed class CupriHostView : SKGLSurfaceView
     /// its candidate window — it is guessing about an editor it cannot see.</summary>
     private void OnSelectionChanged(TextInputState state)
     {
+        // Typing rides the same event as caret movement — the autofill session hears every value
+        // change here, which is what save-on-submit is judged from.
+        NotifyAutofillValue(state);
+
         if (Context?.GetSystemService(Context.InputMethodService) is not InputMethodManager imm) return;
         var (compStart, compEnd) = state.Composing ? (state.SelStart, state.SelEnd) : (-1, -1);
         imm.UpdateSelection(this, state.SelStart, state.SelEnd, compStart, compEnd);
