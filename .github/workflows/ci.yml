@@ -54,6 +54,27 @@ jobs:
       - name: Test
         run: dotnet test tests/CupriFace.Tests/CupriFace.Tests.csproj -c Release --no-restore
 
+      # The macOS crash-report parser, exercised against a fixture. It only runs after the
+      # Viewer has already died, so without this it is verified by nothing until the day it
+      # matters — and a diagnostic that fails exactly when you need it is worse than none.
+      # The fixture carries the two traps it must survive: an imageIndex past the end of
+      # usedImages (jq reads a negative index from the END, so a naive default silently names
+      # the wrong library), and a frame with no imageIndex at all.
+      - name: Crash-report parser (fixture)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          out=$(tail -n +2 tools/fixtures/sample-crash.ips | jq -r -f tools/ips-faulting-thread.jq)
+          echo "$out"
+          echo "$out" | grep -q "EXC_BAD_ACCESS"               || { echo "::error::exception line missing"; exit 1; }
+          echo "$out" | grep -q "libSkiaSharp.dylib + 123456"  || { echo "::error::faulting-thread frames wrong"; exit 1; }
+          echo "$out" | grep -q "sk_surface_new_render_target" || { echo "::error::symbols missing"; exit 1; }
+          # The faulting thread is index 1; thread 0 (dyld) must not appear.
+          if echo "$out" | grep -q "dyld"; then echo "::error::printed the wrong thread"; exit 1; fi
+          # Out-of-range and missing imageIndex degrade to "?" instead of naming a wrong image.
+          test "$(echo "$out" | grep -c "  [?] + ")" = "2"      || { echo "::error::bad imageIndex not handled"; exit 1; }
+          echo "crash-report parser OK"
+
   # The demo app (Viewer + DemoApp + the Silk.NET/SDL shell) built on all three desktop targets.
   # The test job above never compiles the shell, so without this a platform-specific break in the
   # host layer ships unnoticed. Each run also publishes a runnable build as an artifact.
@@ -188,19 +209,13 @@ jobs:
               local rep; rep=$(ls -t "$HOME"/Library/Logs/DiagnosticReports/Viewer*.ips 2>/dev/null | head -1)
               if [ -n "$rep" ]; then
                 echo "--- faulting thread ($rep) ---"
-                python3 - "$rep" <<'PY' || head -c 4000 "$rep"
-          import json, sys
-          raw = open(sys.argv[1]).read()
-          first, rest = raw.split("\n", 1)
-          d = json.loads(rest)
-          print("exception:", d.get("exception"))
-          imgs = d.get("usedImages", [])
-          th = d["threads"][d.get("faultingThread", 0)]
-          for f in th["frames"][:15]:
-              i = f.get("imageIndex")
-              img = imgs[i]["name"] if i is not None and i < len(imgs) else "?"
-              print(" ", img, "+", f.get("imageOffset"), f.get("symbol", ""), f.get("symbolLocation", ""))
-          PY
+                # An .ips is a one-line JSON header followed by the report; strip the header
+                # and let jq do the rest. The program lives in tools/ so the fixture check in
+                # the test job runs the SAME one — this path only executes after a crash,
+                # which makes it the likeliest thing to be broken when it is finally needed.
+                tail -n +2 "$rep" \
+                  | jq -r -f "$GITHUB_WORKSPACE/tools/ips-faulting-thread.jq" \
+                  || head -c 4000 "$rep"
               else
                 echo "(no crash report found)"
               fi

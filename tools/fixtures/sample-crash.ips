@@ -1,0 +1,23 @@
+{"app_name":"Viewer","timestamp":"2026-08-18 09:00:00.00 +0000","app_version":"","slice_uuid":"00000000-0000-0000-0000-000000000000","build_version":"","platform":1,"bundleID":"com.cupriface.viewer","share_with_app_devs":0,"is_first_party":0,"bug_type":"309","os_version":"macOS 15.0","incident_id":"00000000-0000-0000-0000-000000000000","name":"Viewer"}
+{
+  "uptime": 120,
+  "procRole": "Foreground",
+  "exception": { "codes": "0x0000000000000000, 0x0000000000000000", "rawCodes": [0, 0], "type": "EXC_BAD_ACCESS", "signal": "SIGSEGV", "subtype": "KERN_INVALID_ADDRESS at 0x0000000000000010" },
+  "faultingThread": 1,
+  "usedImages": [
+    { "source": "P", "arch": "arm64", "name": "dyld", "path": "/usr/lib/dyld" },
+    { "source": "P", "arch": "arm64", "name": "libSkiaSharp.dylib", "path": "/tmp/Viewer/libSkiaSharp.dylib" },
+    { "source": "P", "arch": "arm64", "name": "Viewer", "path": "/tmp/Viewer/Viewer" }
+  ],
+  "threads": [
+    { "id": 1000, "name": "main", "frames": [
+      { "imageOffset": 4096, "imageIndex": 0, "symbol": "start", "symbolLocation": 4 }
+    ] },
+    { "id": 1001, "triggered": true, "frames": [
+      { "imageOffset": 123456, "imageIndex": 1, "symbol": "sk_surface_new_render_target", "symbolLocation": 88 },
+      { "imageOffset": 654321, "imageIndex": 2, "symbol": "CupriFace_Shell_GlWindow_Create", "symbolLocation": 12 },
+      { "imageOffset": 999, "imageIndex": 99 },
+      { "imageOffset": 111 }
+    ] }
+  ]
+}
