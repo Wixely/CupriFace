@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Runtime.InteropServices.JavaScript;
 using CupriFace;
 using CupriFace.Demo;
@@ -15,6 +15,12 @@ public partial class Interop
 {
     private static CupriApp _app = null!;
     private static CupriDocument _doc = null!;
+    // The SAME recognizer the Android host uses — tap-on-release, slop, momentum fling,
+    // long-press, axis lock, rubber band. It was portable from the day it was written; the web
+    // host simply never called it, so a phone in a browser got desktop semantics: buttons that
+    // fired on touch-down and lists that stopped dead instead of coasting.
+    private static TouchInput _touch = null!;
+    private static int _primaryPointer = -1;     // the recognizer follows one finger; apps may hold others
     private static SKColor _bg;
     private static bool _transparent;           // overlay mode: transparent clear + straight-alpha present
     private static float _scale = 1f;           // Present scale, for un-scaling pointer coords
@@ -31,6 +37,7 @@ public partial class Interop
     {
         _app = new ShowcaseApp();
         _doc = _app.CreateDocument();
+        _touch = new TouchInput(_doc);
 
         // The wasm Skia build has ONE embedded face (Noto Mono) — without these, sans-serif silently
         // renders monospaced. Registered faces win over platform lookup; first family becomes the
@@ -93,6 +100,12 @@ public partial class Interop
             _doc.Refresh();
             _dirty = true;
         }
+
+        // A press held still becomes a context menu. The recognizer says WHEN it next wants
+        // asking; the frame loop is already running, so it asks — no second timer, and the same
+        // clock JS stamps its events with.
+        if (_touch.NextDeadline is { } deadline && nowMs / 1000.0 >= deadline && _touch.Tick(nowMs / 1000.0))
+            _dirty = true;
 
         // Continuous repaint only while something is actually animating, capped at ~30 fps.
         var animating = _doc.HasActiveAnimations;
@@ -225,6 +238,79 @@ public partial class Interop
     }
     // Browser deltaY is PIXELS, positive = scroll down — the same direction ScrollY grows, so no
     // negation (desktop wheels report notches, positive = up; copying DesktopHost's -dy inverted us).
+    // ---- touch ---------------------------------------------------------------------------------
+    // Routed exactly as the Android host routes it: an element that opted into raw pointers
+    // (doc.OnPointer / doc.OnManipulate) CAPTURES the finger that lands on it and the single-pointer
+    // recognizer never sees that finger — which is what stops a pinch from also scrolling the page
+    // underneath. Everything uncaptured goes to the recognizer, one finger at a time.
+    private static float L(double v) => (float)(v / _scale);
+
+    [JSExport]
+    internal static void TouchDown(int id, double x, double y, double tMs)
+    {
+        if (_doc is null) return;
+        float lx = L(x), ly = L(y);
+        if (_doc.DispatchPointer(id, PointerPhase.Down, lx, ly)) _dirty = true;
+        if (_doc.IsPointerCaptured(id)) return;
+        if (_primaryPointer >= 0) return;                  // a second finger the app did not want
+        _primaryPointer = id;
+        if (_touch.Down(lx, ly, tMs / 1000.0)) _dirty = true;
+    }
+
+    [JSExport]
+    internal static void TouchMove(int id, double x, double y, double tMs)
+    {
+        if (_doc is null) return;
+        float lx = L(x), ly = L(y);
+        if (_doc.IsPointerCaptured(id))
+        {
+            if (_doc.DispatchPointer(id, PointerPhase.Move, lx, ly)) _dirty = true;
+            return;
+        }
+        if (id == _primaryPointer && _touch.Move(lx, ly, tMs / 1000.0)) _dirty = true;
+    }
+
+    [JSExport]
+    internal static void TouchUp(int id, double x, double y, double tMs)
+    {
+        if (_doc is null) return;
+        float lx = L(x), ly = L(y);
+        if (_doc.IsPointerCaptured(id))
+        {
+            if (_doc.DispatchPointer(id, PointerPhase.Up, lx, ly)) _dirty = true;
+            return;
+        }
+        if (id != _primaryPointer) return;
+        _primaryPointer = -1;
+        if (_touch.Up(lx, ly, tMs / 1000.0)) _dirty = true;
+    }
+
+    /// <summary>The browser took the gesture away (scroll takeover, a system gesture, the tab
+    /// hiding). A cancel must never become a click.</summary>
+    [JSExport]
+    internal static void TouchCancel(int id, double tMs)
+    {
+        if (_doc is null) return;
+        if (_doc.IsPointerCaptured(id)) { if (_doc.DispatchPointer(id, PointerPhase.Cancel, 0, 0)) _dirty = true; return; }
+        if (id != _primaryPointer) return;
+        _primaryPointer = -1;
+        if (_touch.Cancel(tMs / 1000.0)) _dirty = true;
+    }
+
+    /// <summary>What is driving the app right now. The engine puts it on the body as
+    /// cupri-coarse/cupri-fine/cupri-nohover, so adapting is ordinary CSS. Reported from the
+    /// POINTER that is actually being used rather than from the device: a laptop with a
+    /// touchscreen is both, and whichever the user just touched is the truthful answer.</summary>
+    [JSExport]
+    internal static void SetCoarsePointer(bool coarse)
+    {
+        if (_doc is null) return;
+        var next = coarse ? InputProfile.Touch : InputProfile.Desktop;
+        if (_doc.InputProfile == next) return;
+        _doc.InputProfile = next;
+        _dirty = true;
+    }
+
     [JSExport] internal static void Wheel(double x, double y, double dy) { if (_doc?.DispatchWheel((float)(x / _scale), (float)(y / _scale), (float)dy) == true) _dirty = true; }
     [JSExport] internal static void KeyChar(string text) { if (_doc?.DispatchKey(text, EditKey.None) == true) _dirty = true; }
     // The browser's own fullscreen transitions (its Esc key never reaches EditKeyPress).
@@ -258,6 +344,11 @@ public partial class Interop
 
     /// <summary>True when the app renders as a transparent overlay — JS then makes the canvas
     /// transparent and passes pointer events through wherever nothing is drawn.</summary>
+    /// <summary>What the host told the engine it is being driven by. Exists so a browser test can
+    /// check the CAPABILITY BOUNDARY — that a touch reached the document as a coarse pointer. What
+    /// the engine then does with it (body classes, the cascade) is covered by InputProfileTests.</summary>
+    [JSExport] internal static bool IsCoarsePointer() => _doc?.InputProfile.CoarsePointer == true;
+
     [JSExport] internal static bool IsTransparent() => _transparent;
 
     // JS side (module "cupri") copies the pixels into the 2D canvas via putImageData; the damage rect

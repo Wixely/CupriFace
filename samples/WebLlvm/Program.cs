@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Runtime.InteropServices;
 using CupriFace;
 using CupriFace.Demo;
@@ -16,6 +16,9 @@ public static unsafe partial class Interop
 {
     private static CupriApp _app = null!;
     private static CupriDocument _doc = null!;
+    // The same portable recognizer the Android host and the WASM host use.
+    private static TouchInput _touch = null!;
+    private static int _primaryPointer = -1;
 
     // Hooks for the partial-class halves (BrowserVideo.cs): the video events arrive over the C ABI
     // and need to nudge the same render-on-demand state the input exports use.
@@ -110,6 +113,7 @@ public static unsafe partial class Interop
         {
             _app = new ShowcaseApp();
             _doc = _app.CreateDocument();
+            _touch = new TouchInput(_doc);
 
             // The wasm Skia build has ONE embedded face (Noto Mono) — without these, sans-serif silently
             // renders monospaced. Registered faces win over platform lookup; first family becomes the
@@ -159,6 +163,10 @@ public static unsafe partial class Interop
                 _doc.Refresh();
                 _dirty = true;
             }
+            // Long-press: the recognizer names its own deadline and the frame loop asks.
+            if (_touch is not null && _touch.NextDeadline is { } deadline
+                && nowMs / 1000.0 >= deadline && _touch.Tick(nowMs / 1000.0)) _dirty = true;
+
             var animating = _doc.HasActiveAnimations;
             if (animating && nowMs - _lastAnimMs >= 33) { _lastAnimMs = nowMs; _dirty = true; }
             if (!_dirty) return 0;
@@ -249,6 +257,81 @@ public static unsafe partial class Interop
         if (css == _cursor) return;
         _cursor = css;
         SendCursor(css);
+    }
+
+    // ---- touch ---------------------------------------------------------------------------------
+    // Mirrors the WASM host exactly: raw-pointer elements capture their finger, everything else
+    // goes to the single-pointer recognizer (tap on RELEASE, slop, momentum, long-press).
+    private static float L(double v) => (float)(v / _scale);
+
+    [UnmanagedCallersOnly(EntryPoint = "TouchDown")]
+    public static void TouchDown(int id, double x, double y, double tMs)
+    {
+        try
+        {
+            float lx = L(x), ly = L(y);
+            if (_doc.DispatchPointer(id, PointerPhase.Down, lx, ly)) _dirty = true;
+            if (_doc.IsPointerCaptured(id)) return;
+            if (_primaryPointer >= 0) return;
+            _primaryPointer = id;
+            if (_touch.Down(lx, ly, tMs / 1000.0)) _dirty = true;
+        }
+        catch (Exception ex) { Crash("TouchDown", ex); }
+    }
+
+    [UnmanagedCallersOnly(EntryPoint = "TouchMove")]
+    public static void TouchMove(int id, double x, double y, double tMs)
+    {
+        try
+        {
+            float lx = L(x), ly = L(y);
+            if (_doc.IsPointerCaptured(id))
+            { if (_doc.DispatchPointer(id, PointerPhase.Move, lx, ly)) _dirty = true; return; }
+            if (id == _primaryPointer && _touch.Move(lx, ly, tMs / 1000.0)) _dirty = true;
+        }
+        catch (Exception ex) { Crash("TouchMove", ex); }
+    }
+
+    [UnmanagedCallersOnly(EntryPoint = "TouchUp")]
+    public static void TouchUp(int id, double x, double y, double tMs)
+    {
+        try
+        {
+            float lx = L(x), ly = L(y);
+            if (_doc.IsPointerCaptured(id))
+            { if (_doc.DispatchPointer(id, PointerPhase.Up, lx, ly)) _dirty = true; return; }
+            if (id != _primaryPointer) return;
+            _primaryPointer = -1;
+            if (_touch.Up(lx, ly, tMs / 1000.0)) _dirty = true;
+        }
+        catch (Exception ex) { Crash("TouchUp", ex); }
+    }
+
+    [UnmanagedCallersOnly(EntryPoint = "TouchCancel")]
+    public static void TouchCancel(int id, double tMs)
+    {
+        try
+        {
+            if (_doc.IsPointerCaptured(id))
+            { if (_doc.DispatchPointer(id, PointerPhase.Cancel, 0, 0)) _dirty = true; return; }
+            if (id != _primaryPointer) return;
+            _primaryPointer = -1;
+            if (_touch.Cancel(tMs / 1000.0)) _dirty = true;
+        }
+        catch (Exception ex) { Crash("TouchCancel", ex); }
+    }
+
+    [UnmanagedCallersOnly(EntryPoint = "SetCoarsePointer")]
+    public static void SetCoarsePointer(int coarse)
+    {
+        try
+        {
+            var next = coarse != 0 ? InputProfile.Touch : InputProfile.Desktop;
+            if (_doc.InputProfile == next) return;
+            _doc.InputProfile = next;
+            _dirty = true;
+        }
+        catch (Exception ex) { Crash("SetCoarsePointer", ex); }
     }
 
     [UnmanagedCallersOnly(EntryPoint = "PointerDown")]

@@ -95,11 +95,44 @@ try {
     window.addEventListener("resize", sizeCanvas);
     const at = e => { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
 
-    canvas.addEventListener("pointerdown", e => { focusKbd(); const [x, y] = at(e); M._PointerDown(x, y, e.detail || 1); });
-    canvas.addEventListener("contextmenu", e => { focusKbd(); const [x, y] = at(e); M._ContextMenu(x, y); e.preventDefault(); });
-    canvas.addEventListener("pointermove", e => { const [x, y] = at(e); M._PointerMove(x, y); });
-    canvas.addEventListener("pointerup", e => { const [x, y] = at(e); M._PointerUp(x, y); });
-    canvas.addEventListener("wheel", e => { const [x, y] = at(e); M._Wheel(x, y, e.deltaY); e.preventDefault(); }, { passive: false });
+    // Without this the browser keeps every gesture for its own scrolling and pinch-zoom, and
+    // pointermove stops arriving as soon as a finger travels.
+    canvas.style.touchAction = "none";
+
+    // Fingers take the RECOGNIZER (tap on release, slop, momentum, long-press); a mouse keeps the
+    // desktop path. Same split as the WASM host and the Android host.
+    const touch = e => e.pointerType === "touch" || e.pointerType === "pen";
+    let coarse = null;
+    const profile = isCoarse => {
+        if (coarse === isCoarse) return;
+        coarse = isCoarse;
+        try { M._SetCoarsePointer(isCoarse ? 1 : 0); } catch { /* before the engine is live */ }
+    };
+
+    canvas.addEventListener("pointerdown", e => {
+        focusKbd(); profile(touch(e));
+        const [x, y] = at(e);
+        try { canvas.setPointerCapture(e.pointerId); } catch { /* not capturable */ }
+        if (touch(e)) { M._TouchDown(e.pointerId, x, y, e.timeStamp); e.preventDefault(); }
+        else M._PointerDown(x, y, e.detail || 1);
+    });
+    canvas.addEventListener("contextmenu", e => {
+        e.preventDefault();
+        if (coarse) return;                       // touch gets the menu from long-press instead
+        focusKbd(); const [x, y] = at(e); M._ContextMenu(x, y);
+    });
+    canvas.addEventListener("pointermove", e => {
+        const [x, y] = at(e);
+        if (touch(e)) { M._TouchMove(e.pointerId, x, y, e.timeStamp); e.preventDefault(); }
+        else M._PointerMove(x, y);
+    });
+    canvas.addEventListener("pointerup", e => {
+        const [x, y] = at(e);
+        if (touch(e)) { M._TouchUp(e.pointerId, x, y, e.timeStamp); e.preventDefault(); }
+        else M._PointerUp(x, y);
+    });
+    canvas.addEventListener("pointercancel", e => { if (touch(e)) M._TouchCancel(e.pointerId, e.timeStamp); });
+    canvas.addEventListener("wheel", e => { profile(false); const [x, y] = at(e); M._Wheel(x, y, e.deltaY); e.preventDefault(); }, { passive: false });
 
     let EK = { Backspace: 1, Delete: 2, ArrowLeft: 3, ArrowRight: 4, Home: 5, End: 6, Enter: 7, ArrowUp: 8, ArrowDown: 9, Escape: 13, Tab: 10, ShiftTab: 11, SelectAll: 14 };
     // WINDOW-level, not kbd: app chords (Ctrl+K…) must beat the browser's own (address-bar search)
@@ -141,6 +174,8 @@ try {
     logBoot("Init ok");
     live = true;
     focusKbd();
+    // An opening guess so a phone gets coarse styling on the FIRST paint; a real pointer corrects it.
+    try { profile(window.matchMedia("(pointer: coarse)").matches); } catch { /* ancient browser */ }
     window.addEventListener("focus", focusKbd); // clipboard events still ride the kbd element — re-arm it
     // The browser can end fullscreen on its own (its Esc never reaches our key handler) — tell
     // the engine so an element-fullscreened video returns to its place in the layout.

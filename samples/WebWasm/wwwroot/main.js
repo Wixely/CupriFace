@@ -173,6 +173,9 @@ try {
     logBoot('exports...');
     const exports = await getAssemblyExports(config.mainAssemblyName);
     const I = exports.Interop;
+    // Exposed for automation, as the WebLlvm host does: a browser test drives the same exports the
+    // page does, rather than a parallel path that could pass while the real one is broken.
+    globalThis.__cupri = Object.assign(globalThis.__cupri || {}, { I });
     logBoot('exports ok');
 
     // The browser can end fullscreen on its own (Esc goes to the BROWSER, not our key handler) —
@@ -187,15 +190,62 @@ try {
     window.addEventListener('resize', sizeCanvas);
     const at = e => { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
 
-    // JS → C#: pointer + wheel (same hit-test/dispatch as desktop). Registered now; they only
-    // fire after the runtime is running, below.
+    // Without this the browser claims every gesture for its own scrolling and pinch-zoom, and
+    // pointermove stops arriving the moment a finger travels — there is no amount of
+    // preventDefault that substitutes for it.
+    canvas.style.touchAction = 'none';
+
+    // A finger and a mouse are not the same instrument, and the engine has always known it: the
+    // TOUCH path runs the same recognizer the Android host uses (activation on RELEASE, an 8px
+    // slop before a press becomes a scroll, momentum, long-press, the rubber band), while a mouse
+    // keeps the desktop path it always had. This host used to send fingers down the mouse path,
+    // which is why a phone in a browser fired buttons on touch-down and stopped dead instead of
+    // coasting.
+    const touch = e => e.pointerType === 'touch' || e.pointerType === 'pen';
+
+    // Tell the engine what is actually driving it — reported from the pointer in use, not from
+    // the device, because a laptop with a touchscreen is honestly both.
+    let coarse = null;
+    const profile = isCoarse => {
+        if (coarse === isCoarse) return;
+        coarse = isCoarse;
+        try { I.SetCoarsePointer(isCoarse); } catch { /* before the runtime is live */ }
+    };
+
+    // JS → C#: pointer + wheel. Registered now; they only fire after the runtime is running.
     // e.detail carries the click count (1/2/3 = single/double/triple) for word/line selection.
-    canvas.addEventListener('pointerdown', e => { focusKbd(); const [x, y] = at(e); I.PointerDown(x, y, e.detail || 1); });
-    // Right-click: show the engine's context menu, suppress the browser's default menu.
-    canvas.addEventListener('contextmenu', e => { focusKbd(); const [x, y] = at(e); I.ContextMenu(x, y); e.preventDefault(); });
-    canvas.addEventListener('pointermove', e => { const [x, y] = at(e); I.PointerMove(x, y); });
-    canvas.addEventListener('pointerup',   e => { const [x, y] = at(e); I.PointerUp(x, y); });
-    canvas.addEventListener('wheel', e => { const [x, y] = at(e); I.Wheel(x, y, e.deltaY); e.preventDefault(); }, { passive: false });
+    canvas.addEventListener('pointerdown', e => {
+        focusKbd();
+        profile(touch(e));
+        const [x, y] = at(e);
+        // Capture, so a finger that slides off the canvas mid-drag still reports — otherwise a
+        // scroll that leaves the element strands the gesture with no up, and the next tap
+        // inherits it.
+        try { canvas.setPointerCapture(e.pointerId); } catch { /* not capturable */ }
+        if (touch(e)) { I.TouchDown(e.pointerId, x, y, e.timeStamp); e.preventDefault(); }
+        else I.PointerDown(x, y, e.detail || 1);
+    });
+    // Right-click: the engine's context menu, and the browser's suppressed. On touch the same menu
+    // arrives from the recognizer's long-press, so the browser's must not also appear.
+    canvas.addEventListener('contextmenu', e => {
+        e.preventDefault();
+        if (coarse) return;
+        focusKbd(); const [x, y] = at(e); I.ContextMenu(x, y);
+    });
+    canvas.addEventListener('pointermove', e => {
+        const [x, y] = at(e);
+        if (touch(e)) { I.TouchMove(e.pointerId, x, y, e.timeStamp); e.preventDefault(); }
+        else I.PointerMove(x, y);
+    });
+    canvas.addEventListener('pointerup', e => {
+        const [x, y] = at(e);
+        if (touch(e)) { I.TouchUp(e.pointerId, x, y, e.timeStamp); e.preventDefault(); }
+        else I.PointerUp(x, y);
+    });
+    // The browser took the gesture away (a system gesture, the tab hiding). A cancel must never
+    // become a click.
+    canvas.addEventListener('pointercancel', e => { if (touch(e)) I.TouchCancel(e.pointerId, e.timeStamp); });
+    canvas.addEventListener('wheel', e => { profile(false); const [x, y] = at(e); I.Wheel(x, y, e.deltaY); e.preventDefault(); }, { passive: false });
 
     // Keyboard, WINDOW-level (not kbd): named keys → EditKey codes (must match
     // CupriFace.Interaction.EditKey), Shift/Ctrl mods (KeyMods: Shift=1, Ctrl=2); printable chars →
@@ -257,6 +307,10 @@ try {
 
     I.Init();
     logBoot('Init ok');
+
+    // An opening guess before anyone has touched anything, so a phone gets coarse styling on the
+    // FIRST paint rather than after the first tap. Any real pointer event corrects it.
+    try { profile(window.matchMedia('(pointer: coarse)').matches); } catch { /* ancient browser */ }
     focusKbd(); // keyboard + clipboard flow through the hidden textarea, not the canvas
 
     // Overlay mode: the engine clears transparent and presents straight alpha, so the canvas
