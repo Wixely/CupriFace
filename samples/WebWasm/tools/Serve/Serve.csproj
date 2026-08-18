@@ -1,0 +1,19 @@
+<!-- A static file server for PUBLISHED wasm output. The WASM SDK's dev server only serves
+     `dotnet run` output, not `dotnet publish`, so the AOT and NativeAOT-LLVM launch configs need
+     something to point a browser at. This replaces a Node script: a project whose whole claim is
+     "no JavaScript engine" should not need one to look at itself.
+
+     Deliberately OUTSIDE CupriFace.slnx — it is a dev tool, not part of the product, and nothing
+     in CI builds or needs it. -->
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>CupriFace.Tools.Serve</RootNamespace>
+    <!-- Nothing here is shipped; keep it out of any package or publish flow. -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+</Project>

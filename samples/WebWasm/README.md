@@ -44,7 +44,7 @@ Options, in order of impact:
    (`SliderComponent.Expand` → interface dispatch). The fix keeps **CupriFace interpreted**
    (`_AOT_InternalForceInterpretAssemblies`) while CoreLib, AngleSharp, Regex, the JS-interop
    layer etc. are AOT-compiled — those were the bulk of the interpreter time in the profile.
-   Verified booting + painting end-to-end under a Node host (`tools/node-host.mjs`).
+   Verified booting + painting end-to-end in a browser.
 2. **Plain publish** enables the **jiterpreter** (partial JIT for hot interpreter loops) that
    the dev server does not.
 3. **Reduce per-interaction work.** Each click/keystroke rebuilds the whole document; the
@@ -56,8 +56,10 @@ Options, in order of impact:
 - `main.js` mirrors boot progress + console into a hidden `<pre id="bootlog">` and paints any
   boot/render error onto the canvas — failures are visible without dev tools, and headless
   `--dump-dom` can read the log.
-- `tools/node-host.mjs` boots a published build under Node (no browser):
-  `node --experimental-wasm-eh tools/node-host.mjs <path-to>/wwwroot/_framework`
+- `tools/Serve` statically serves a PUBLISHED build (the WASM SDK's dev server only serves
+  `dotnet run` output). It exists because a project whose claim is "no JavaScript engine" should
+  not need one in its own dev loop either:
+  `dotnet run --project tools/Serve -- <path-to>/wwwroot 5199`
   (drop a `{"type":"module"}` package.json into `_framework` first). Prints each boot step,
   paints one frame, and times a few interactions.
 - AOT publishes emit `dotnet.native.js.symbols` (in `obj/.../wasm/for-publish/`): map a crash
