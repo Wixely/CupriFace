@@ -27,7 +27,26 @@ jobs:
       # SkiaSharp's native raster/text stack needs fontconfig at runtime for the render tests.
       - name: Install native deps (Skia)
         if: runner.os == 'Linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq libfontconfig1 > /dev/null
+        timeout-minutes: 12
+        run: |
+          # A wedged apt mirror once held a release for 33 minutes on a step that normally
+          # takes seconds, and would have held it to the job's 6-hour ceiling. Each attempt is
+          # bounded so a hang FAILS instead of waiting, and retried because a stuck mirror is
+          # transient. timeout-minutes above is the backstop if the loop itself stalls.
+          apt() {
+            for attempt in 1 2 3; do
+              if sudo timeout 180 apt-get update -qq && sudo timeout 300 apt-get install -y -qq "$@"; then
+                return 0
+              fi
+              echo "apt attempt $attempt failed or hung - retrying in ${attempt}0s"
+              sudo pkill -9 apt-get 2>/dev/null || true
+              sudo rm -f /var/lib/apt/lists/lock /var/cache/apt/archives/lock /var/lib/dpkg/lock* 2>/dev/null || true
+              sleep "${attempt}0"
+            done
+            echo "::error::apt failed three times - the mirror is not answering"
+            return 1
+          }
+          apt libfontconfig1 > /dev/null
 
       - name: Restore
         run: dotnet restore tests/CupriFace.Tests/CupriFace.Tests.csproj
@@ -63,9 +82,26 @@ jobs:
       # down — the Linux counterpart of the FlaUI one.
       - name: Install native deps
         if: runner.os == 'Linux'
-        run: >
-          sudo apt-get update -qq && sudo apt-get install -y -qq
-          libfontconfig1 xvfb at-spi2-core dbus-x11 python3-gi gir1.2-atspi-2.0 > /dev/null
+        timeout-minutes: 12
+        run: |
+          # A wedged apt mirror once held a release for 33 minutes on a step that normally
+          # takes seconds, and would have held it to the job's 6-hour ceiling. Each attempt is
+          # bounded so a hang FAILS instead of waiting, and retried because a stuck mirror is
+          # transient. timeout-minutes above is the backstop if the loop itself stalls.
+          apt() {
+            for attempt in 1 2 3; do
+              if sudo timeout 180 apt-get update -qq && sudo timeout 300 apt-get install -y -qq "$@"; then
+                return 0
+              fi
+              echo "apt attempt $attempt failed or hung - retrying in ${attempt}0s"
+              sudo pkill -9 apt-get 2>/dev/null || true
+              sudo rm -f /var/lib/apt/lists/lock /var/cache/apt/archives/lock /var/lib/dpkg/lock* 2>/dev/null || true
+              sleep "${attempt}0"
+            done
+            echo "::error::apt failed three times - the mirror is not answering"
+            return 1
+          }
+          apt libfontconfig1 xvfb at-spi2-core dbus-x11 python3-gi gir1.2-atspi-2.0 > /dev/null
 
       - name: Restore
         run: dotnet restore samples/Viewer/Viewer.csproj -r ${{ matrix.rid }}
