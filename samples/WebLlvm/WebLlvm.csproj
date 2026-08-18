@@ -10,7 +10,8 @@
        No Mono runtime also means no [JSImport]/[JSExport]: interop is UnmanagedCallersOnly exports +
        DllImport into the Emscripten JS library (wwwroot/imports.js). Publish then serve:
          dotnet publish samples/WebLlvm/WebLlvm.csproj -c Release
-         dotnet run --project tools/Serve -- samples/WebLlvm/bin/Release/net10.0/browser-wasm/publish 5230 -->
+         then serve bin/Release/net10.0/browser-wasm/publish with tools/Serve on port 5230
+         (the "Web (NativeAOT-LLVM)" VS Code launch config does both). -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>

@@ -89,6 +89,8 @@ try {
     // otherwise only reachable through real clipboard keystrokes, which cannot be driven from
     // automation without wedging it. Exposing the module lets a test exercise the same code paths.
     globalThis.__cupri.M = M;
+    // The same automation contract the WASM host publishes, so one browser gate drives both.
+    globalThis.__cupri.isCoarse = () => !!M._IsCoarsePointer();
 
     const sizeCanvas = () => { canvas.width = canvas.clientWidth || 940; canvas.height = canvas.clientHeight || 720; };
     sizeCanvas();

@@ -338,8 +338,20 @@ jobs:
   # drives Chromium with touch emulation against a published build, served by this repo's own
   # managed static server.
   webtouch:
-    name: Web touch (real browser)
+    name: Web touch (${{ matrix.host }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false     # one host breaking must not hide the other's result
+      matrix:
+        include:
+          - host: raw WASM
+            project: samples/WebWasm/WebWasm.csproj
+            wwwroot: samples/WebWasm/bin/Release/net10.0/publish/wwwroot
+            id: wasm
+          - host: NativeAOT-LLVM
+            project: samples/WebLlvm/WebLlvm.csproj
+            wwwroot: samples/WebLlvm/bin/Release/net10.0/browser-wasm/publish
+            id: llvm
     steps:
       - uses: actions/checkout@v4
 
@@ -353,7 +365,7 @@ jobs:
       # A PUBLISHED build, not `dotnet run`: it is what a user actually downloads, and publishing
       # is also what caught a project nested inside this one breaking the wasm compile.
       - name: Publish the web host
-        run: dotnet publish samples/WebWasm/WebWasm.csproj -c Release
+        run: dotnet publish ${{ matrix.project }} -c Release
 
       - name: Build the gate
         run: dotnet build tests/WebTouchGate/WebTouchGate.csproj -c Release
@@ -363,8 +375,15 @@ jobs:
       - name: Install Chromium
         run: pwsh tests/WebTouchGate/bin/Release/net10.0/playwright.ps1 install chromium --with-deps
 
+      # Both hosts publish the same automation contract (__cupri.isCoarse), so ONE gate drives
+      # either — the tests never learn whether they are talking to JSExports or to Emscripten's
+      # module, which is what keeps the two hosts honest about behaving identically.
       - name: Fingers on glass
+        env:
+          CUPRI_WEB_WWWROOT: ${{ github.workspace }}/${{ matrix.wwwroot }}
+          CUPRI_WEB_HOST: ${{ matrix.id }}
         run: dotnet test tests/WebTouchGate/WebTouchGate.csproj -c Release --no-build --logger "console;verbosity=normal"
+
 
 
   # THE ANDROID GATE — promoted from android-gate.yml after seventeen runs earned it (the same
