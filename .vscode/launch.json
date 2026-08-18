@@ -21,19 +21,12 @@
     },
     {
       "name": "Web (NativeAOT-LLVM, experimental) — browser",
-      "type": "node",
+      "type": "msedge",
       "request": "launch",
-      "program": "${workspaceFolder}/samples/WebWasm/tools/serve.mjs",
-      "args": [
-        "${workspaceFolder}/samples/WebLlvm/bin/Release/net10.0/browser-wasm/publish",
-        "5230"
-      ],
-      "preLaunchTask": "publish-webllvm",
-      "serverReadyAction": {
-        "pattern": "on (http://\\S+)",
-        "uriFormat": "%s",
-        "action": "openExternally"
-      }
+      "url": "http://127.0.0.1:5230",
+      "webRoot": "${workspaceFolder}/samples/WebLlvm/bin/Release/net10.0/browser-wasm/publish",
+      "preLaunchTask": "serve-webllvm",
+      "browserAttachLocation": "workspace"
     },
     {
       "name": "Web — Blazor WASM (browser + debug)",

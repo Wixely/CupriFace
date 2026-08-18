@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <!-- EXPERIMENTAL web host on NativeAOT-LLVM (dotnet/runtimelab) instead of the Mono WASM runtime.
        Why it exists: Mono's WASM AOT mis-compiles CupriFace (see WebWasm.csproj), forcing the engine
@@ -10,7 +10,7 @@
        No Mono runtime also means no [JSImport]/[JSExport]: interop is UnmanagedCallersOnly exports +
        DllImport into the Emscripten JS library (wwwroot/imports.js). Publish then serve:
          dotnet publish samples/WebLlvm/WebLlvm.csproj -c Release
-         node samples/WebWasm/tools/serve.mjs samples/WebLlvm/bin/Release/net10.0/browser-wasm/publish 5230 -->
+         dotnet run --project samples/WebWasm/tools/Serve -- samples/WebLlvm/bin/Release/net10.0/browser-wasm/publish 5230 -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>

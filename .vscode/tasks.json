@@ -22,10 +22,16 @@
       "detail": "Serve the Blazor WASM host (samples/Web).",
       "command": "dotnet",
       "type": "process",
-      "args": ["run", "--project", "${workspaceFolder}/samples/Web/Web.csproj"],
+      "args": [
+        "run",
+        "--project",
+        "${workspaceFolder}/samples/Web/Web.csproj"
+      ],
       "isBackground": true,
       "problemMatcher": {
-        "pattern": { "regexp": "^\\s*$" },
+        "pattern": {
+          "regexp": "^\\s*$"
+        },
         "background": {
           "activeOnStart": true,
           "beginsPattern": "Building\\.\\.\\.",
@@ -38,10 +44,18 @@
       "detail": "Serve the raw .NET-WASM host (samples/WebWasm) — no Blazor.",
       "command": "dotnet",
       "type": "process",
-      "args": ["run", "--project", "${workspaceFolder}/samples/WebWasm/WebWasm.csproj", "-c", "Release"],
+      "args": [
+        "run",
+        "--project",
+        "${workspaceFolder}/samples/WebWasm/WebWasm.csproj",
+        "-c",
+        "Release"
+      ],
       "isBackground": true,
       "problemMatcher": {
-        "pattern": { "regexp": "^\\s*$" },
+        "pattern": {
+          "regexp": "^\\s*$"
+        },
         "background": {
           "activeOnStart": true,
           "beginsPattern": "Building\\.\\.\\.",
@@ -54,10 +68,16 @@
       "detail": "Serve the raw .NET-WASM host (Debug, with symbols) for the browser debugger.",
       "command": "dotnet",
       "type": "process",
-      "args": ["run", "--project", "${workspaceFolder}/samples/WebWasm/WebWasm.csproj"],
+      "args": [
+        "run",
+        "--project",
+        "${workspaceFolder}/samples/WebWasm/WebWasm.csproj"
+      ],
       "isBackground": true,
       "problemMatcher": {
-        "pattern": { "regexp": "^\\s*$" },
+        "pattern": {
+          "regexp": "^\\s*$"
+        },
         "background": {
           "activeOnStart": true,
           "beginsPattern": "Building\\.\\.\\.",
@@ -80,9 +100,13 @@
       "command": "dotnet",
       "type": "process",
       "args": [
-        "publish", "${workspaceFolder}/samples/WebWasm/WebWasm.csproj",
-        "-c", "Release", "-p:Aot=true",
-        "-o", "${workspaceFolder}/samples/WebWasm/publish-aot"
+        "publish",
+        "${workspaceFolder}/samples/WebWasm/WebWasm.csproj",
+        "-c",
+        "Release",
+        "-p:Aot=true",
+        "-o",
+        "${workspaceFolder}/samples/WebWasm/publish-aot"
       ],
       "problemMatcher": "$msCompile"
     },
@@ -90,32 +114,41 @@
       "label": "serve-webwasm-aot",
       "detail": "Publish (AOT) then statically serve the output at http://127.0.0.1:5199.",
       "dependsOn": "publish-webwasm-aot",
-      "command": "node",
+      "command": "dotnet",
       "type": "process",
       "args": [
-        "${workspaceFolder}/samples/WebWasm/tools/serve.mjs",
+        "run",
+        "--project",
+        "${workspaceFolder}/samples/WebWasm/tools/Serve",
+        "--",
         "${workspaceFolder}/samples/WebWasm/publish-aot/wwwroot",
         "5199"
       ],
       "isBackground": true,
       "problemMatcher": {
-        "pattern": { "regexp": "^\\s*$" },
+        "pattern": {
+          "regexp": "^\\s*$"
+        },
         "background": {
           "activeOnStart": true,
           "beginsPattern": "Serving",
           "endsPattern": "Serving"
         }
       }
-    }
-  ,
+    },
     {
       "label": "android-run",
       "detail": "Build AndroidViewer, install it on the first adb device (emulator or USB phone), and launch it. Needs `dotnet workload install android` and a running emulator or a connected device — check with `adb devices`.",
       "command": "dotnet",
       "type": "process",
       "args": [
-        "build", "${workspaceFolder}/samples/AndroidViewer/AndroidViewer.csproj",
-        "-f", "net10.0-android", "-t:Run", "-c", "Debug"
+        "build",
+        "${workspaceFolder}/samples/AndroidViewer/AndroidViewer.csproj",
+        "-f",
+        "net10.0-android",
+        "-t:Run",
+        "-c",
+        "Debug"
       ],
       "problemMatcher": "$msCompile"
     },
@@ -126,7 +159,9 @@
       "command": "adb logcat -s cupri:I",
       "isBackground": true,
       "problemMatcher": {
-        "pattern": { "regexp": "^\\s*$" },
+        "pattern": {
+          "regexp": "^\\s*$"
+        },
         "background": {
           "activeOnStart": true,
           "beginsPattern": ".",
@@ -138,7 +173,10 @@
       "label": "android-run-with-logcat",
       "detail": "Deploy + launch AndroidViewer, then stream its logcat in a second terminal.",
       "dependsOrder": "sequence",
-      "dependsOn": ["android-run", "android-logcat"],
+      "dependsOn": [
+        "android-run",
+        "android-logcat"
+      ],
       "problemMatcher": []
     },
     {
@@ -147,8 +185,10 @@
       "command": "dotnet",
       "type": "process",
       "args": [
-        "publish", "${workspaceFolder}/samples/WebLlvm/WebLlvm.csproj",
-        "-c", "Release"
+        "publish",
+        "${workspaceFolder}/samples/WebLlvm/WebLlvm.csproj",
+        "-c",
+        "Release"
       ],
       "problemMatcher": "$msCompile"
     },
@@ -156,16 +196,21 @@
       "label": "serve-webllvm",
       "detail": "Publish (NativeAOT-LLVM) then statically serve the output at http://127.0.0.1:5230.",
       "dependsOn": "publish-webllvm",
-      "command": "node",
+      "command": "dotnet",
       "type": "process",
       "args": [
-        "${workspaceFolder}/samples/WebWasm/tools/serve.mjs",
+        "run",
+        "--project",
+        "${workspaceFolder}/samples/WebWasm/tools/Serve",
+        "--",
         "${workspaceFolder}/samples/WebLlvm/bin/Release/net10.0/browser-wasm/publish",
         "5230"
       ],
       "isBackground": true,
       "problemMatcher": {
-        "pattern": { "regexp": "^\\s*$" },
+        "pattern": {
+          "regexp": "^\\s*$"
+        },
         "background": {
           "activeOnStart": true,
           "beginsPattern": "Serving",
