@@ -158,20 +158,46 @@ all — the device was simply the first place they were reachable.
 | **Axis lock** | 🟢 | **Done (2026-08), reported from a device.** Sending both axes on every move meant a sideways drag also crept the page up and down. A gesture now claims the axis it committed to, decided once the finger has travelled far enough to have meant it — deferred rather than decided at slop, because a fling-catch enters scrolling with no movement at all. A genuinely diagonal start still moves both. |
 | **Overscroll (rubber band)** | 🟢 | **Done (2026-08), reported from a device**: reaching the end of a list was indistinguishable from the app freezing. Stretches with resistance (the further it goes, the less each pixel gives), bounded at 90px, springs back exponentially on release, and never engages mid-list. Lives beside the fling — an animation the hosts already drive, with state that is a structural path plus a number — and joins BOTH animation gates, the wake gate and the drive gate. |
 | **Multi-touch seam** (`doc.OnPointer`) | 🟢 | **Done (2026-08).** Pointer identity end to end, and **capture per target**: a pointer is owned by an element on down and stays until it lifts, which is what keeps a pinch from also scrolling the page underneath — and why there is no `touch-action` arbitration, since capture already solves it. The engine computes no gesture; `e.Pointers` carries every pointer that element holds and the arithmetic is the author's. Built-in `cupri-*` elements stay single-pointer and accessible; anything built on this seam is the author's to make accessible, or not (TOOLBOX §8.1). |
+| **Gesture recogniser** (`doc.OnManipulate`) | 🟢 | **Done (2026-08).** Scale, rotation and pan with the focal point already right, layered over the raw seam — every other cross-platform toolkit ships one, and not shipping ours meant every author rewriting the same trigonometry. Two of its lessons came from a phone rather than from review, and TOOLBOX §8.1 now teaches both: **compose, don't assign** (the values are cumulative since the gesture began, so writing them straight into a model resets the content the instant a second grab starts), and **size the gesture surface for fingers, not artwork** (a 90dp tile is ~14mm of glass — two fingertips cannot both land on it, capture is per-element, and the second finger silently falls outside). Emulators and headless tests catch neither, because their fingers are points. |
 | **Transform-aware hit-testing** | 🟢 | **Done (2026-08), reported from a device.** The painter had applied CSS transforms since the engine was written and hit-testing never had: it compared the pointer against the LAYOUT box, so a scaled element had a hit area the size it used to be and a rotated one answered near corners it no longer had. An engine-wide bug in any app using `transform:`, found in half a minute by the first feature that changes a transform continuously while you hold it. |
 | **Capability signal** | 🟢 | **Done (2026-08).** The host reports what is driving the app — coarse/fine pointer, hover or not — and the engine puts it on the body as `cupri-coarse`/`cupri-fine`/`cupri-nohover`. Adapting is then ordinary CSS. Deliberately NOT `@media (pointer: coarse)`: that means teaching the parser a discrete-keyword shape to reach exactly what the cascade already does with a class. Platform is the wrong axis anyway — a Windows tablet is a desktop OS with a coarse pointer, a docked phone a fine pointer on a mobile one. |
 | **The IME contract** | 🟢 | **Done (2026-08).** A soft keyboard could not move our cursor, and it had three independent causes: `setSelection` was never overridden, `updateSelection` was never *called* (so the keyboard's model of the field was empty and it had no offset to move from), and DPAD arrows were dropped. Plus `setComposingRegion` (tap a word to correct it, still one undo step), caps mode, code-point deletes, batch coalescing, extract mode for landscape, the IME's own edit menu routed through the same clipboard seam, and `inputmode`/`enterkeyhint`/placeholder reaching `EditorInfo` — the vocabulary the web host already speaks. |
-| **Autofill / password managers** | 🟢 | **Done (2026-08).** A virtual view structure built from the semantics tree — the TalkBack bridge's twin for a different consumer. Only fields the author labelled with `autocomplete` are offered; guessing that something is a password field would be a security bug wearing a convenience costume. Saving needed its own seam: a service fills passively but only offers to REMEMBER when the app declares the form finished (`doc.SubmitForm()` → `AutofillManager.Commit()`). |
+| **Autofill / password managers** | 🟡 | **Built, NOT yet confirmed on a device (2026-08-18).** A virtual view structure built from the semantics tree — the TalkBack bridge's twin for a different consumer. Only fields the author labelled with `autocomplete` are offered; guessing that something is a password field would be a security bug wearing a convenience costume. Saving needs its own seam: a service fills passively but only offers to REMEMBER when the app declares the form finished (`doc.SubmitForm()` → `AutofillManager.Commit()`). **Why amber:** two device passes showed neither a fill prompt nor a keyboard chip. The cause found on the second was that focus was announced with the VIEW-level `NotifyViewEntered` while the fields live in a virtual structure, so Android never learned which field had focus and no fill session ever started. That is fixed (stable path-keyed virtual ids, per-field enter/exit with screen bounds, `NotifyValueChanged` on typing) but is **unverified**: no emulator carries a password manager, so CI cannot answer this one. See *Parked: verifying autofill* below. |
 | Web host: touch + capability | 🔴 | Both pieces exist and are portable (`TouchInput`, `InputProfile`); the web host still drives the mouse path, so a phone in a browser gets no tap-on-release, no fling and no coarse-pointer styling. The cheapest remaining platform win. |
 | Document-level pinch zoom | 🔴 | An accessibility-shaped feature rather than a gesture one: two fingers scaling the whole page via `Present`, distinct from an element's own transform. |
 | `commitContent` (keyboard GIF/stickers) | 🔴 | Needs an image sink and an `EditorInfo.contentMimeTypes` opt-in. A feature rather than contract-completion. |
 
-**A note on proof.** Multi-touch, the IME contract and autofill are the first features here that CI
-structurally cannot drive: `adb shell input` is single-pointer, and it cannot drive a real IME or a
-fill service. Their engine halves are covered by headless tests; the platform halves rest on a
-documented manual pass. That is stated rather than papered over — and it is why the phone sample
-carries a surface for each of them (a gesture tile, a sideways row, autofilled fields), so the
-manual pass has something to press.
+**A note on proof.** The IME contract and autofill are the features here that CI structurally
+cannot drive: it cannot type on a real keyboard or install a fill service. Their engine halves are
+covered by headless tests; the platform halves rest on a documented manual pass. That is stated
+rather than papered over — and it is why the phone sample carries a surface for each of them (a
+gesture tile, a sideways row, autofilled fields), so the manual pass has something to press.
+
+**Multi-touch used to be on that list and no longer is.** `adb shell input` is single-pointer, which
+is why the seam shipped without a gate — and a device then found a two-finger bug CI could not have
+caught. The gate now speaks the multi-touch protocol itself and elects its transport empirically
+(the emulator console; `sendevent` is permission-denied to the shell user, and the emulator exposes
+eleven virtio touch devices of which one drives the display). It proves each link separately: a
+trusted single tap, a canary that finds the live device, both fingers landing together, a second
+finger arriving late, and the same pinch repeated. Five CI rounds to build, and the lesson worth
+keeping is that every one of those rounds failed for a reason inside the harness rather than inside
+the product.
+
+### Parked: verifying autofill
+
+Implemented, plausible, unproven — and it needs a human with a password manager, so it is written
+down rather than left in someone's memory. On a device with a manager installed (Vaultwarden,
+Bitwarden, 1Password…), running the phone sample's **Form** page:
+
+1. Tap **Email**. Expect the manager's inline chip in the keyboard strip, or a fill dropdown. This
+   is the load-bearing signal: it means a fill SESSION exists. Everything else depends on it.
+2. Fill both fields (by hand is fine) and press **Sign in**. Expect an offer to SAVE.
+3. If neither appears, `adb logcat -s cupri:I` while tapping the field shows the host's focus and
+   pointer markers — whether the announcement fires at all is the first fork in the diagnosis.
+
+Known unknowns if it still fails: whether the manager uses the Autofill framework at all (some use
+an accessibility service instead, which is a different integration), and whether `SubmitForm()`
+reaches `Commit()` before the field values have been reported to the session.
 
 ---
 
