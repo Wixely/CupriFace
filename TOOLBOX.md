@@ -797,6 +797,14 @@ public sealed class RatingComponent : ComponentBase
 var registry = ComponentRegistry.Default().Register(new RatingComponent());
 ```
 
+**Shipping components to other people** — bundling several into a library someone can add to their
+project, and guaranteeing they can override the styles and the code of what they receive — is
+designed in [COMPONENT-PACKAGING.md](COMPONENT-PACKAGING.md) and not built yet. Two things there
+are worth knowing even while writing a component for yourself: component CSS is parsed BEFORE the
+app's, so an app stylesheet already wins ties (that is what makes overriding possible), and a
+component cannot yet carry its own event handlers — behaviour is wired by the app, or by the engine
+off a `data-*` marker the component emits.
+
 `ComponentBase` helpers: `Str(el,name,fallback)`, `Num(el,name,fallback)`, `Flag(el,name)`,
 `Percent(value,min,max)`, `IconMarkup(name,size,cssClass?)`, `NextId()` (unique anchor id).
 Expansion runs **after** binding (so components see concrete values) and repeats up to 8 passes, so a
