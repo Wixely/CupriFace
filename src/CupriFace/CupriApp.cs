@@ -15,6 +15,24 @@ public readonly record struct PresentInfo(float LogicalWidth, float LogicalHeigh
 /// </summary>
 public abstract class CupriApp
 {
+    /// <summary>Raised when application UI wants to place text on the host clipboard. Desktop and
+    /// web hosts can service the request without leaking platform clipboard APIs into the app.</summary>
+    public event Action<string>? ClipboardWriteRequested;
+
+    /// <summary>Ask the current host to place text on its clipboard. Returns false when the host
+    /// has not supplied clipboard support.</summary>
+    protected bool TryWriteClipboard(string text)
+    {
+        var handler = ClipboardWriteRequested;
+        if (handler is null)
+        {
+            return false;
+        }
+
+        handler(text);
+        return true;
+    }
+
     /// <summary>Where the markup is loaded from (embedded resource, file, or URL). Preferred over
     /// overriding <see cref="Html"/> directly — see <see cref="EmbeddedAsset"/>.</summary>
     protected virtual CupriSource? MarkupSource => null;

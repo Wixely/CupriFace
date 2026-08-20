@@ -145,10 +145,28 @@ public static class DesktopHost
                 tray.Attach(window.Win32Hwnd);
             };
 
-            window.PointerDown += (x, y, clicks) => { Mark(doc.DispatchClick(x / scale, y / scale, clicks)); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
+            window.PointerDown += (x, y, clicks) =>
+            {
+                var logicalX = x / scale;
+                var logicalY = y / scale;
+                Mark(DesktopPointerDown(doc, logicalX, logicalY, clicks));
+                window.SetCursor(doc.CursorAt(logicalX, logicalY));
+            };
             window.RightPointerDown += (x, y) => Mark(doc.DispatchContextMenu(x / scale, y / scale));
-            window.PointerMove += (x, y) => { Mark(doc.DispatchPointerMove(x / scale, y / scale)); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
-            window.PointerUp += (x, y) => { Mark(doc.DispatchPointerUp(x / scale, y / scale)); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
+            window.PointerMove += (x, y) =>
+            {
+                var logicalX = x / scale;
+                var logicalY = y / scale;
+                Mark(DesktopPointerMove(doc, logicalX, logicalY));
+                window.SetCursor(doc.CursorAt(logicalX, logicalY));
+            };
+            window.PointerUp += (x, y) =>
+            {
+                var logicalX = x / scale;
+                var logicalY = y / scale;
+                Mark(DesktopPointerUp(doc, logicalX, logicalY));
+                window.SetCursor(doc.CursorAt(logicalX, logicalY));
+            };
             window.PointerWheel += (x, y, dy) => Mark(doc.DispatchWheel(x / scale, y / scale, -dy * 50f)); // wheel up → scroll up
             window.TextEntered += t => Mark(doc.DispatchKey(t, EditKey.None));
             window.EditKeyPressed += (k, mods) =>
@@ -167,7 +185,10 @@ public static class DesktopHost
                 WindowCommand.ExitFullscreen => false,
                 _ => !window.IsFullscreen,
             });
-            window.Run();
+            Action<string> clipboardWriter = value => window.ClipboardText = value;
+            app.ClipboardWriteRequested += clipboardWriter;
+            try { window.Run(); }
+            finally { app.ClipboardWriteRequested -= clipboardWriter; }
         }
         catch (Exception ex)
         {
@@ -251,10 +272,28 @@ public static class DesktopHost
                     return damage;
                 };
             }
-            window.PointerDown += (x, y, clicks) => { Mark(doc.DispatchClick(x / scale, y / scale, clicks)); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
+            window.PointerDown += (x, y, clicks) =>
+            {
+                var logicalX = x / scale;
+                var logicalY = y / scale;
+                Mark(DesktopPointerDown(doc, logicalX, logicalY, clicks));
+                window.SetCursor(doc.CursorAt(logicalX, logicalY));
+            };
             window.RightPointerDown += (x, y) => Mark(doc.DispatchContextMenu(x / scale, y / scale));
-            window.PointerMove += (x, y) => { Mark(doc.DispatchPointerMove(x / scale, y / scale)); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
-            window.PointerUp += (x, y) => { Mark(doc.DispatchPointerUp(x / scale, y / scale)); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
+            window.PointerMove += (x, y) =>
+            {
+                var logicalX = x / scale;
+                var logicalY = y / scale;
+                Mark(DesktopPointerMove(doc, logicalX, logicalY));
+                window.SetCursor(doc.CursorAt(logicalX, logicalY));
+            };
+            window.PointerUp += (x, y) =>
+            {
+                var logicalX = x / scale;
+                var logicalY = y / scale;
+                Mark(DesktopPointerUp(doc, logicalX, logicalY));
+                window.SetCursor(doc.CursorAt(logicalX, logicalY));
+            };
             window.PointerWheel += (x, y, dy) => Mark(doc.DispatchWheel(x / scale, y / scale, -dy * 50f)); // wheel up → scroll up
             window.TextEntered += t => Mark(doc.DispatchKey(t, EditKey.None));
             window.EditKeyPressed += (k, mods) =>
@@ -271,9 +310,27 @@ public static class DesktopHost
                 WindowCommand.ExitFullscreen => false,
                 _ => !window.IsFullscreen,
             });
-            window.Run();
+            Action<string> clipboardWriter = value => window.ClipboardText = value;
+            app.ClipboardWriteRequested += clipboardWriter;
+            try { window.Run(); }
+            finally { app.ClipboardWriteRequested -= clipboardWriter; }
         }
     }
+
+    // Raw-pointer elements get first refusal so a desktop mouse can drive the same captured hold /
+    // drag interactions as touch. Everything else keeps the ordinary click/hover/drag path.
+    private static bool DesktopPointerDown(CupriDocument doc, float x, float y, int clickCount) =>
+        doc.DispatchPointer(0, PointerPhase.Down, x, y) || doc.DispatchClick(x, y, clickCount);
+
+    private static bool DesktopPointerMove(CupriDocument doc, float x, float y) =>
+        doc.IsPointerCaptured(0)
+            ? doc.DispatchPointer(0, PointerPhase.Move, x, y)
+            : doc.DispatchPointerMove(x, y);
+
+    private static bool DesktopPointerUp(CupriDocument doc, float x, float y) =>
+        doc.IsPointerCaptured(0)
+            ? doc.DispatchPointer(0, PointerPhase.Up, x, y)
+            : doc.DispatchPointerUp(x, y);
 
     // Launch ourselves with --cupriface-gl-probe and read the verdict off the exit code: 0 means the
     // child brought GL up end to end; anything else — a managed throw, a native SIGSEGV, a hang —
