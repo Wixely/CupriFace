@@ -41,6 +41,28 @@ public sealed class CupriHostView : SKGLSurfaceView
         // WHEN_DIRTY parks the GL thread between frames; RequestRender wakes it. Everything the
         // engine's render-on-demand model needs — Dispatch* returns and HasActiveAnimations —
         // maps onto exactly this. (Must be set after the base ctor installs its renderer.)
+        // A video underlay is a plain SurfaceView beneath this one, and it can only be seen if
+        // this surface can carry alpha. Two SurfaceViews also do not layer by view order — the
+        // media-overlay flag is what lifts this one above the underlay.
+        //
+        // What is deliberately NOT here is SetEGLConfigChooser: GLSurfaceView throws
+        // IllegalStateException if it is called after SetRenderer, and SKGLSurfaceView sets its
+        // renderer in its own constructor — which is almost certainly why the first attempt at
+        // this launched and never painted a frame. The base class already chooses an RGBA config;
+        // asking again is both illegal and unnecessary.
+        //
+        // Guarded because this is presentation, not correctness: if a device refuses either call,
+        // an opaque surface that PAINTS beats a translucent one that does not.
+        try
+        {
+            SetZOrderMediaOverlay(true);
+            Holder?.SetFormat(global::Android.Graphics.Format.Translucent);
+        }
+        catch (Exception ex)
+        {
+            global::Android.Util.Log.Warn(AndroidHost.Tag, $"video underlay unavailable: {ex.Message}");
+        }
+
         RenderMode = Rendermode.WhenDirty;
 
         // Keep the EGL context across pause when the device allows: without this, every
