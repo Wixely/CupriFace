@@ -41,15 +41,6 @@ public sealed class CupriHostView : SKGLSurfaceView
         // WHEN_DIRTY parks the GL thread between frames; RequestRender wakes it. Everything the
         // engine's render-on-demand model needs — Dispatch* returns and HasActiveAnimations —
         // maps onto exactly this. (Must be set after the base ctor installs its renderer.)
-        // A video underlay is a plain SurfaceView beneath this one. Two SurfaceViews do not
-        // z-order by view order — the media-overlay flag is what lifts this one above it — and the
-        // surface needs an alpha channel, or the transparent hole the engine punches at a
-        // <cupri-video> would composite as black instead of revealing the frames underneath.
-        // Neutral when no video exists: the engine still clears to the app's opaque background.
-        SetEGLConfigChooser(8, 8, 8, 8, 0, 8);   // alpha for the hole, stencil for Skia's clips
-        SetZOrderMediaOverlay(true);
-        Holder?.SetFormat(global::Android.Graphics.Format.Translucent);
-
         RenderMode = Rendermode.WhenDirty;
 
         // Keep the EGL context across pause when the device allows: without this, every
