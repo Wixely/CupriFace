@@ -232,6 +232,23 @@ public sealed class AndroidHost : IDisposable
     /// <summary>Run an action on the document's thread. Safe from any thread.</summary>
     public void OnGlThread(Action action) => _view?.QueueEvent(action);
 
+    // ---- video -----------------------------------------------------------------------------
+    // The platform decodes; the engine paints a hole. Attached by CupriActivity once it has a
+    // container to put underlays in — an app's markup is identical on every host, only the
+    // decoder differs (desktop ships codecs, the browser and Android use the platform's).
+    private AndroidVideoBackend? _video;
+
+    internal void UseVideo(global::Android.Content.Context context, global::Android.Widget.FrameLayout underlays)
+    {
+        _video = new AndroidVideoBackend(context, underlays, MarkDirty, RunOnUi);
+        _doc.UseVideo(_video);
+    }
+
+    /// <summary>True while a video underlay can show pixels: the frame must then clear to
+    /// TRANSPARENT so the engine's punched hole actually reveals what is beneath it. With no
+    /// video ready this stays false and the app paints its opaque background exactly as before.</summary>
+    private bool VideoUnderlayReady => _video?.AnyReady == true;
+
     private void RunOnUi(Action action)
     {
         if (_view?.Handler is { } h) h.Post(action);
@@ -282,7 +299,7 @@ public sealed class AndroidHost : IDisposable
         if (_doc.HasAnimations || _doc.HasActiveTransitions)
             _doc.Animate(_clock.Elapsed.TotalSeconds);
 
-        canvas.Clear(_app.Transparent ? SKColors.Transparent : _app.Background);
+        canvas.Clear(_app.Transparent || VideoUnderlayReady ? SKColors.Transparent : _app.Background);
         canvas.Save();
         canvas.Scale(inputScale);
         _doc.Render(canvas, p.LogicalWidth, p.LogicalHeight);
@@ -300,6 +317,7 @@ public sealed class AndroidHost : IDisposable
         var textInput = _doc.GetTextInputState();
         SetImeState(textInput);              // caret/selection move without a focus edge
         _snapshot = new Snapshot(_doc.ContentVersion, p.LogicalWidth, p.LogicalHeight, inputScale, textInput);
+        _video?.SyncRects(_doc, inputScale);
 
         // Not every focus change arrives as a focus EVENT: an overlay that opens with a focused
         // field (the command palette autofocuses its query box) lands the caret without one, and

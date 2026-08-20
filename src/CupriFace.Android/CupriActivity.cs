@@ -1,4 +1,4 @@
-using Android.OS;
+﻿using Android.OS;
 using Android.Views;
 
 namespace CupriFace.Android;
@@ -102,7 +102,14 @@ public abstract class CupriActivity : global::Android.App.Activity
 
             var container = _container = new global::Android.Widget.FrameLayout(this);
             container.SetBackgroundColor(new global::Android.Graphics.Color(bg.Red, bg.Green, bg.Blue, bg.Alpha));
+            // Video underlays live in their own layer BENEATH the GL surface: the engine punches a
+            // transparent hole at a <cupri-video>'s box and the platform's decoder shows through it,
+            // which is the same shape the web host uses with an underlaid <video>. Added first, so
+            // every later child (the GL surface) sits on top of it.
+            var underlays = new global::Android.Widget.FrameLayout(this);
+            container.AddView(underlays);
             container.AddView(_view);
+            _host!.UseVideo(this, underlays);
             _padder = new InsetsPadder();
             container.SetOnApplyWindowInsetsListener(_padder);
             SetContentView(container);
