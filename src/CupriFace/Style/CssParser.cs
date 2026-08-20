@@ -113,7 +113,7 @@ public static partial class CssParser
         float? Feature(string name)
         {
             var m = Regex.Match(header, name + @"\s*:\s*([\d.]+)px", RegexOptions.IgnoreCase);
-            return m.Success ? float.Parse(m.Groups[1].Value) : null;
+            return m.Success && CssNumber.TryParse(m.Groups[1].Value, out var value) ? value : null;
         }
         return new MediaCondition(Feature("min-width"), Feature("max-width"),
                                   Feature("min-height"), Feature("max-height"));

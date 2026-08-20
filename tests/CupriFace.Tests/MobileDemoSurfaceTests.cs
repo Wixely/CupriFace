@@ -30,6 +30,22 @@ public class MobileDemoSurfaceTests
         return null;
     }
 
+    private static void RevealVertically(RenderNode node, float viewportHeight)
+    {
+        var box = HitTesting.ScreenBox(node);
+        for (var ancestor = node.Parent; ancestor is not null; ancestor = ancestor.Parent)
+        {
+            if (!ancestor.IsScrollable) continue;
+            var ancestorBox = HitTesting.ScreenBox(ancestor);
+            var visibleTop = MathF.Max(0, ancestorBox.Y);
+            var visibleBottom = MathF.Min(viewportHeight, ancestorBox.Y + ancestorBox.H);
+            var targetY = (visibleTop + visibleBottom) / 2f;
+            ancestor.ScrollY = Math.Clamp(ancestor.ScrollY + box.Y + box.H / 2f - targetY,
+                0, ancestor.MaxScrollY);
+            return;
+        }
+    }
+
     private static void Nav(CupriDocument doc, string page)
     {
         var tree = doc.BuildAccessibilityTree(W, H);
@@ -75,6 +91,7 @@ public class MobileDemoSurfaceTests
         Assert.NotNull(strip);
         Assert.True(strip!.IsScrollableX, "the demo row fits the screen, so there is nothing to drag");
 
+        RevealVertically(strip, H);
         var (x, y, w, h) = HitTesting.ScreenBox(strip);
         Assert.True(doc.DispatchWheel(x + w / 2, y + h / 2, 0, 120));
         Assert.True(strip.ScrollX > 50);

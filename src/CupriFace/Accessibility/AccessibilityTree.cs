@@ -102,13 +102,14 @@ public static class AccessibilityTree
         var target = parent;
         if (role is not null && render.Element is { } el)
         {
+            var bounds = InlineAwareBounds(render, ax, ay);
             var sem = new AccessibilityNode
             {
                 Role = role,
                 Name = AccessibleName(render, el, role),
                 Path = path,
                 Parent = parent,
-                Bounds = InlineAwareBounds(render, ax, ay),
+                Bounds = bounds,
                 Focusable = isFocusable?.Invoke(el)
                             ?? role is "slider" or "button" or "switch" or "checkbox" or "radio"
                                     or "link" or "textbox" or "spinbutton",
@@ -116,7 +117,7 @@ public static class AccessibilityTree
                 Disabled = IsDisabled(el),
                 AutomationId = FirstAttr(el, "id", "data-bind-value", "data-bind-checked"),
                 AutofillHint = AutofillHintFor(el),
-                Offscreen = !Intersects(clip, ax, ay, render.Width, render.Height),
+                Offscreen = !Intersects(clip, bounds.X, bounds.Y, bounds.W, bounds.H),
             };
             ApplyValues(sem, render, el, role);
             parent.Children.Add(sem);

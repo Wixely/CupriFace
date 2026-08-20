@@ -29,6 +29,22 @@ public class DeviceRegressionTests
         return null;
     }
 
+    private static void RevealVertically(RenderNode node, float viewportHeight)
+    {
+        var box = HitTesting.ScreenBox(node);
+        for (var ancestor = node.Parent; ancestor is not null; ancestor = ancestor.Parent)
+        {
+            if (!ancestor.IsScrollable) continue;
+            var ancestorBox = HitTesting.ScreenBox(ancestor);
+            var visibleTop = MathF.Max(0, ancestorBox.Y);
+            var visibleBottom = MathF.Min(viewportHeight, ancestorBox.Y + ancestorBox.H);
+            var targetY = (visibleTop + visibleBottom) / 2f;
+            ancestor.ScrollY = Math.Clamp(ancestor.ScrollY + box.Y + box.H / 2f - targetY,
+                0, ancestor.MaxScrollY);
+            return;
+        }
+    }
+
     private static void Nav(CupriDocument doc, string page)
     {
         var tree = doc.BuildAccessibilityTree(W, H);
@@ -308,6 +324,7 @@ public class DeviceRegressionTests
         Assert.True(scroller!.IsScrollableX,
             $"the board fits in {scroller.Width:F0}px, so there is nothing to drag");
 
+        RevealVertically(scroller, p.LogicalHeight);
         var (x, y, w, h) = HitTesting.ScreenBox(scroller);
         Assert.True(doc.DispatchWheel(x + w / 2, y + h / 2, 0, 100));
         Assert.True(scroller.ScrollX > 50);

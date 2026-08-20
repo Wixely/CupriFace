@@ -13,6 +13,13 @@ public class TimePickerTests
     private static RenderNode? Popup(TestDoc t) => t.Find(n => n.Element?.ClassList.Contains("cupri-tp-popup") == true);
     private static RenderNode? Opt(TestDoc t, string iso) => t.Find(n => n.Element?.ClassList.Contains("cupri-tp-opt") == true && n.Element.GetAttribute("data-set-value") == iso);
 
+    private static void Reveal(RenderNode option)
+    {
+        var column = option.Parent!;
+        column.ScrollY = Math.Clamp(option.Y - (column.Height - option.Height) / 2f,
+            0, column.MaxScrollY);
+    }
+
     [Fact]
     public void Opens_showing_the_selected_hour_and_minute()
     {
@@ -48,12 +55,16 @@ public class TimePickerTests
         var m = new Model { Open = true };
         using var t = new TestDoc(Html, "", m, components: true, width: 360, height: 320);
 
-        t.ClickNode(Opt(t, "14:30")!);   // pick hour 14 (keeps minute 30)
+        var hour = Opt(t, "14:30")!;
+        Reveal(hour);
+        t.ClickNode(hour);                  // pick hour 14 (keeps minute 30)
         Assert.Equal("14:30", m.Time);
         Assert.True(m.Open);             // data-set-keep → stays open
         Assert.NotNull(Popup(t));
 
-        t.ClickNode(Opt(t, "14:45")!);   // pick minute 45 (keeps hour 14)
+        var minute = Opt(t, "14:45")!;
+        Reveal(minute);
+        t.ClickNode(minute);                // pick minute 45 (keeps hour 14)
         Assert.Equal("14:45", m.Time);
         Assert.True(m.Open);
     }

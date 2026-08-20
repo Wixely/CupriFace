@@ -39,14 +39,13 @@ public class ScrollChainingTests
     [Fact]
     public void At_the_inner_top_a_wheel_up_scrolls_the_outer()
     {
-        // Fresh document: outer pre-scrolled down, inner at its own top. (AbsoluteBox is unscrolled,
-        // so the on-screen position subtracts the outer's scroll explicitly.)
+        // Fresh document: outer pre-scrolled down, inner at its own top. Aim at the visible part of
+        // the inner box; its top edge is clipped above the outer viewport at this scroll position.
         using var t = new TestDoc(Html, "", width: 300, height: 220);
         t.FindClass("outer").ScrollY = 120;
         t.Layout();
 
-        var ib = CupriFace.Interaction.HitTesting.AbsoluteBox(t.FindClass("inner"));
-        float sx = ib.X + ib.W / 2, sy = ib.Y + 10 - 120;
+        var (sx, sy) = TestDoc.Center(t.FindClass("inner"));
 
         Assert.True(t.Doc.DispatchWheel(sx, sy, -60f), "the wheel should chain to the outer");
         t.Layout();

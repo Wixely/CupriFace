@@ -37,7 +37,7 @@ public static partial class Animation
                 {
                     var offset = sel.Equals("from", StringComparison.OrdinalIgnoreCase) ? 0f
                         : sel.Equals("to", StringComparison.OrdinalIgnoreCase) ? 1f
-                        : float.TryParse(sel.TrimEnd('%'), out var p) ? p / 100f : -1f;
+                        : CssNumber.TryParse(sel.TrimEnd('%'), out var p) ? p / 100f : -1f;
                     if (offset >= 0) frames.Add(new Keyframe(offset, decls));
                 }
             }

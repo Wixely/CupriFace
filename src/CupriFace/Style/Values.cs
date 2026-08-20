@@ -187,7 +187,7 @@ public static class Colors
                 && byte.TryParse(parts[2], out var b))
             {
                 byte a = 255;
-                if (parts.Length >= 4 && float.TryParse(parts[3], out var af)) a = (byte)Math.Clamp(af * 255f, 0, 255);
+                if (parts.Length >= 4 && CssNumber.TryParse(parts[3], out var af)) a = (byte)Math.Clamp(af * 255f, 0, 255);
                 color = new SKColor(r, g, b, a);
                 return true;
             }

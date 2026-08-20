@@ -298,7 +298,7 @@ public sealed class Painter
             if (pts.Count >= 4)
             {
                 var el = node.Element;
-                var lineW = float.TryParse(el?.GetAttribute("data-cupri-width"), out var lw) ? lw : 2f;
+                var lineW = CssNumber.TryParse(el?.GetAttribute("data-cupri-width"), out var lw) ? lw : 2f;
                 var fillCol = el?.HasAttribute("data-cupri-area") == true
                     ? new SKColor(s.Color.Red, s.Color.Green, s.Color.Blue, 0x2E) : SKColor.Empty;
                 var curved = el?.HasAttribute("data-cupri-curve") == true;

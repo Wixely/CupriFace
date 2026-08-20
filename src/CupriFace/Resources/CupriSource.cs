@@ -98,11 +98,7 @@ public sealed class CupriSource
     {
         ArgumentNullException.ThrowIfNull(uri);
         var opt = options ?? CupriSourceOptions.Default;
-
-        if (opt.RequireHttps && !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-            throw new CupriResourceException($"Refusing to load '{uri}': only https is allowed (set CupriSourceOptions.RequireHttps=false to override).");
-        if (opt.AllowedHosts is { Count: > 0 } hosts && !hosts.Contains(uri.Host, StringComparer.OrdinalIgnoreCase))
-            throw new CupriResourceException($"Refusing to load '{uri}': host '{uri.Host}' is not in AllowedHosts.");
+        ValidateUrl(uri, opt);
 
         return new CupriSource(ResourceTrust.Remote, $"url:{uri}",
             () => FetchAsync(uri, opt, CancellationToken.None).GetAwaiter().GetResult(),
@@ -140,37 +136,67 @@ public sealed class CupriSource
 
     // ---- url fetch (shared, redirect-safe) --------------------------------
 
-    // Two shared clients: one that never auto-redirects (the safe default) and one that does.
-    private static readonly HttpClient _noRedirect = new(new HttpClientHandler { AllowAutoRedirect = false });
-    private static readonly HttpClient _redirect = new(new HttpClientHandler { AllowAutoRedirect = true });
+    // Redirects are followed manually so every destination is checked against the same scheme and
+    // host policy as the original URL. HttpClient's automatic redirect handler would validate only
+    // the first URI, allowing an approved origin to bounce a request into a blocked/private host.
+    private static readonly HttpClient _http = new(new HttpClientHandler { AllowAutoRedirect = false });
+    private const int MaxRedirects = 10;
+
+    private static void ValidateUrl(Uri uri, CupriSourceOptions opt)
+    {
+        if (!uri.IsAbsoluteUri || uri.Host.Length == 0
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            throw new CupriResourceException($"Refusing to load '{uri}': only absolute http/https URLs are supported.");
+        if (opt.RequireHttps && !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+            throw new CupriResourceException($"Refusing to load '{uri}': only https is allowed (set CupriSourceOptions.RequireHttps=false to override).");
+        if (opt.AllowedHosts is { } hosts && !hosts.Contains(uri.Host, StringComparer.OrdinalIgnoreCase))
+            throw new CupriResourceException($"Refusing to load '{uri}': host '{uri.Host}' is not in AllowedHosts.");
+    }
 
     private static async Task<byte[]> FetchAsync(Uri uri, CupriSourceOptions opt, CancellationToken outer)
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(outer);
         cts.CancelAfter(opt.Timeout);
         var ct = cts.Token;
-        var client = opt.FollowRedirects ? _redirect : _noRedirect;
+        var current = uri;
+        var redirects = 0;
         try
         {
-            using var resp = await client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct);
-            if (!opt.FollowRedirects && (int)resp.StatusCode is >= 300 and < 400)
-                throw new CupriResourceException($"Refusing to load '{uri}': server redirected and FollowRedirects=false.");
-            resp.EnsureSuccessStatusCode();
-
-            if (resp.Content.Headers.ContentLength is long declared && declared > opt.MaxBytes)
-                throw new CupriResourceException($"Refusing to load '{uri}': {declared} bytes exceeds MaxBytes={opt.MaxBytes}.");
-
-            using var stream = await resp.Content.ReadAsStreamAsync(ct);
-            using var ms = new MemoryStream();
-            var buffer = new byte[81920];
-            int read;
-            while ((read = await stream.ReadAsync(buffer, ct)) > 0)
+            while (true)
             {
-                if (ms.Length + read > opt.MaxBytes)
-                    throw new CupriResourceException($"Refusing to load '{uri}': response exceeds MaxBytes={opt.MaxBytes}.");
-                ms.Write(buffer, 0, read);
+                using var resp = await _http.GetAsync(current, HttpCompletionOption.ResponseHeadersRead, ct);
+                if ((int)resp.StatusCode is >= 300 and < 400)
+                {
+                    if (!opt.FollowRedirects)
+                        throw new CupriResourceException($"Refusing to load '{current}': server redirected and FollowRedirects=false.");
+                    if (resp.Headers.Location is not { } location)
+                        throw new CupriResourceException($"Refusing to load '{current}': redirect response has no Location header.");
+                    if (redirects++ >= MaxRedirects)
+                        throw new CupriResourceException($"Refusing to load '{current}': more than {MaxRedirects} redirects.");
+
+                    var next = location.IsAbsoluteUri ? location : new Uri(current, location);
+                    ValidateUrl(next, opt); // validate BEFORE making a request to the redirect target
+                    current = next;
+                    continue;
+                }
+
+                resp.EnsureSuccessStatusCode();
+
+                if (resp.Content.Headers.ContentLength is long declared && declared > opt.MaxBytes)
+                    throw new CupriResourceException($"Refusing to load '{current}': {declared} bytes exceeds MaxBytes={opt.MaxBytes}.");
+
+                using var stream = await resp.Content.ReadAsStreamAsync(ct);
+                using var ms = new MemoryStream();
+                var buffer = new byte[81920];
+                int read;
+                while ((read = await stream.ReadAsync(buffer, ct)) > 0)
+                {
+                    if (ms.Length + read > opt.MaxBytes)
+                        throw new CupriResourceException($"Refusing to load '{current}': response exceeds MaxBytes={opt.MaxBytes}.");
+                    ms.Write(buffer, 0, read);
+                }
+                return ms.ToArray();
             }
-            return ms.ToArray();
         }
         catch (OperationCanceledException) when (!outer.IsCancellationRequested)
         {

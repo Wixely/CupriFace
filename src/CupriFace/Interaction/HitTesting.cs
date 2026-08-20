@@ -92,12 +92,41 @@ public static class HitTesting
         }
         // Children of a scrolled element are shifted up by the scroll offset.
         var childOy = ay - (node.IsScrollable ? node.EffectiveScrollY : 0f);
+
+        // Paint clips descendants to the padding box whenever overflow is not visible. Keep the
+        // element itself hittable in its border, but never descend to a child at a point where that
+        // child cannot be seen. Top-layer descendants are tested separately from the viewport and
+        // therefore remain independent of this normal-tree clip, exactly as they are in Painter.
+        if (node.Style.Overflow != OverflowMode.Visible && !InsideOverflowClip(node, ax, ay, x, y))
+            return best;
+
         foreach (var child in node.Children)
         {
             var hit = Hit(child, childOx, childOy, x, y, inTopLayer);
             if (hit is not null) best = hit;
         }
         return best;
+    }
+
+    // Painter clips overflow to this same rounded padding box. The node itself still owns its
+    // rectangular border box, but descendants in a visually cut-away corner must not receive input.
+    private static bool InsideOverflowClip(RenderNode node, float ax, float ay, float x, float y)
+    {
+        var left = ax + node.BorderLeftW;
+        var top = ay + node.BorderTopW;
+        var right = ax + node.Width - node.BorderRightW;
+        var bottom = ay + node.Height - node.BorderBottomW;
+        if (x < left || x >= right || y < top || y >= bottom) return false;
+
+        var radius = MathF.Min(MathF.Max(0, node.Style.BorderRadius),
+            MathF.Min(right - left, bottom - top) / 2f);
+        if (radius <= 0) return true;
+
+        var dx = x < left + radius ? x - (left + radius)
+            : x > right - radius ? x - (right - radius) : 0f;
+        var dy = y < top + radius ? y - (top + radius)
+            : y > bottom - radius ? y - (bottom - radius) : 0f;
+        return dx * dx + dy * dy <= radius * radius;
     }
 
     /// <summary>Absolute border-box of a node. Stops accumulating at a top-layer ancestor

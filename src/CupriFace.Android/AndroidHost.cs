@@ -119,7 +119,7 @@ public sealed class AndroidHost : IDisposable
         // GL thread (inside a dispatch), so hop to the UI thread for the Intent.
         doc.Navigated += e =>
         {
-            if (!e.External) return;
+            if (!e.External || !ExternalLinkPolicy.IsAllowed(e.Href)) return;
             RunOnUi(() =>
             {
                 try

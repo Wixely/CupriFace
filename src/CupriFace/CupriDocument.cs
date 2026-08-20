@@ -2073,7 +2073,8 @@ public sealed partial class CupriDocument : IDisposable
             if (el.LocalName == "a" && el.GetAttribute("href") is { Length: > 0 } href)
             {
                 if (href[0] == '#') return ScrollToAnchor(href[1..]);
-                Navigated?.Invoke(new Interaction.NavigateEvent(href, IsExternalHref(href)));
+                Navigated?.Invoke(new Interaction.NavigateEvent(href,
+                    Interaction.ExternalLinkPolicy.IsAllowed(href)));
                 return true;
             }
 
@@ -2140,12 +2141,6 @@ public sealed partial class CupriDocument : IDisposable
         }
         return false;
     }
-
-    // A href with a URL scheme (http:, https:, mailto:, tel:, …) or protocol-relative // is external;
-    // a bare path (e.g. "charts") is internal in-app routing. (A "#anchor" is handled before this.)
-    private static bool IsExternalHref(string href) =>
-        href.StartsWith("//", StringComparison.Ordinal)
-        || System.Text.RegularExpressions.Regex.IsMatch(href, "^[a-zA-Z][a-zA-Z0-9+.-]*:");
 
     // In-page anchor: scroll the element with this id to the top of its nearest scrollable ancestor.
     // Scroll offsets survive the rebuild (CaptureScroll), so the page stays put at the anchor.
