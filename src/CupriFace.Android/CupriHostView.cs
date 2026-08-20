@@ -46,7 +46,7 @@ public sealed class CupriHostView : SKGLSurfaceView
         // surface needs an alpha channel, or the transparent hole the engine punches at a
         // <cupri-video> would composite as black instead of revealing the frames underneath.
         // Neutral when no video exists: the engine still clears to the app's opaque background.
-        SetEGLConfigChooser(8, 8, 8, 8, 16, 0);
+        SetEGLConfigChooser(8, 8, 8, 8, 0, 8);   // alpha for the hole, stencil for Skia's clips
         SetZOrderMediaOverlay(true);
         Holder?.SetFormat(global::Android.Graphics.Format.Translucent);
 
