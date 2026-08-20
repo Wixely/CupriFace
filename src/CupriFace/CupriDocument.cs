@@ -783,11 +783,55 @@ public sealed partial class CupriDocument : IDisposable
         return false;
     }
 
+    // ---- page zoom ---------------------------------------------------------------------------
+    // REFLOW zoom, which is what a browser's Ctrl+= does and what accessibility guidance asks for:
+    // the document lays out at size/Zoom and paints scaled up, so content reflows into the narrower
+    // viewport instead of forcing the reader to scroll sideways. A magnifier (fixed layout, pan
+    // around a bigger surface) would be the other choice and is deliberately NOT this: reflow is
+    // what keeps a zoomed page readable in one column.
+    //
+    // It lives in the engine rather than in each host so every platform gets it at once. A host
+    // keeps passing window-logical coordinates; everything crossing that boundary is divided by
+    // Zoom on the way in, and the semantics tree's bounds are multiplied on the way out.
+
+    /// <summary>The narrowest and widest the page may be scaled to.</summary>
+    public const float MinZoom = 0.5f, MaxZoom = 4f;
+
+    private float _zoom = 1f;
+
+    /// <summary>Whole-document zoom, 1 = unzoomed. Clamped to
+    /// <see cref="MinZoom"/>..<see cref="MaxZoom"/>. Layout happens at viewport/Zoom, so raising it
+    /// makes everything bigger AND reflows the content to the narrower width — <c>@media</c>
+    /// queries see that narrower width, exactly as a browser's page zoom behaves.</summary>
+    public float Zoom
+    {
+        get => _zoom;
+        set
+        {
+            var z = Math.Clamp(value, MinZoom, MaxZoom);
+            if (MathF.Abs(z - _zoom) < 0.0005f) return;
+            _zoom = z;
+            _layoutDirty = true;
+            _lastPresented = null;   // the retained damage list describes the old scale
+            _lastList = null;
+            Bump(true);
+        }
+    }
+
+    /// <summary>Window-logical → document coordinates. Every public entry point that accepts a
+    /// point from a host passes through this, so a zoomed page is still clicked where it looks.</summary>
+    private float Zc(float v) => v / _zoom;
+
     /// <summary>Lay out at the given viewport size and paint onto <paramref name="canvas"/>.</summary>
     public void Render(SKCanvas canvas, float width, float height)
     {
         var list = BuildFrame(width, height);
+        if (_zoom == 1f) { _rasterizer.Paint(canvas, list); return; }
+
+        var restore = canvas.Save();
+        canvas.Scale(_zoom);
         _rasterizer.Paint(canvas, list);
+        canvas.RestoreToCount(restore);
     }
 
     // The previously-presented frame's commands, for RenderIncremental's damage diff. Only that path
@@ -901,6 +945,16 @@ public sealed partial class CupriDocument : IDisposable
     /// computes AA coverage against the clip).</summary>
     public SKRectI? RenderIncremental(SKCanvas canvas, float width, float height, SKColor background)
     {
+        // Damage rectangles are computed in DOCUMENT space; under zoom they would need scaling into
+        // device space, and a rectangle that is wrong by a scale factor leaves visible dirt on
+        // screen. A zoomed page repaints in full until that mapping is worth writing — zoom is a
+        // deliberate, occasional act, not a per-frame cost.
+        if (_zoom != 1f)
+        {
+            Render(canvas, width, height);
+            return new SKRectI(0, 0, (int)MathF.Ceiling(width), (int)MathF.Ceiling(height));
+        }
+
         // FAST PATH: no input/rebuild/animation touched the document since the retained list was
         // built — only live-surface frames can differ. Re-raster the SAME list clipped to the
         // changed surfaces (DrawSurface resolves its frame at raster time); skip layout, paint
@@ -976,8 +1030,12 @@ public sealed partial class CupriDocument : IDisposable
     /// and paint the render tree (with caret/selection/focus-ring) into an immutable
     /// <see cref="DisplayList"/> — <b>without rasterising</b>. A threaded host hands this to a render
     /// thread (see <c>ThreadedPresenter</c>); <see cref="Render"/> just rasterises it inline.</summary>
-    public DisplayList BuildFrame(float width, float height)
+    public DisplayList BuildFrame(float hostWidth, float hostHeight)
     {
+        // Sizes arrive in the WINDOW's logical pixels and the document is laid out at size/Zoom.
+        // Dividing here — rather than in each caller — is what keeps Render, the semantics tree and
+        // every test speaking one coordinate space.
+        float width = hostWidth / _zoom, height = hostHeight / _zoom;
         var t0 = Stopwatch.GetTimestamp();
         // @media depends on the viewport size — re-resolve styles when either axis changes
         // (height-qualified queries are how phone landscape and a desktop window are told apart).
@@ -1462,7 +1520,7 @@ public sealed partial class CupriDocument : IDisposable
         return this;
     }
 
-    public RenderNode? HitTest(float x, float y) { EnsureLaidOut(); return HitTesting.HitTest(_root, x, y); }
+    public RenderNode? HitTest(float x, float y) { EnsureLaidOut(); return HitTesting.HitTest(_root, Zc(x), Zc(y)); }
 
     /// <summary>Lay out the current tree if it hasn't been, at the last size a frame used. A rebuild or
     /// restyle throws away the laid-out tree, and hosts render once per frame and dispatch input in
@@ -1591,15 +1649,32 @@ public sealed partial class CupriDocument : IDisposable
     /// just laid out at this size (the common per-frame case).</summary>
     public Accessibility.AccessibilityNode BuildAccessibilityTree(float width, float height)
     {
-        if (_layoutDirty || _laidOutWidth != width || _laidOutHeight != height)
+        // The caller passes the WINDOW's size; the document is laid out at size/Zoom like every
+        // other path.
+        float w = width / _zoom, h = height / _zoom;   // same division BuildFrame performs
+        if (_layoutDirty || _laidOutWidth != w || _laidOutHeight != h)
         {
-            _layout.Layout(_root, width, height);
-            _laidOutWidth = width;
-            _laidOutHeight = height;
+            _layout.Layout(_root, w, h);
+            _laidOutWidth = w;
+            _laidOutHeight = h;
             _layoutDirty = false;
         }
         var focused = FindFocused(_root) ?? CurrentFocusNode();
-        return Accessibility.AccessibilityTree.Build(_root, IsFocusable, focused);
+        var tree = Accessibility.AccessibilityTree.Build(_root, IsFocusable, focused);
+
+        // Bounds go back out in the HOST's space. A screen reader draws its focus rectangle from
+        // these and a magnifier follows them, so reporting document coordinates on a zoomed page
+        // would point assistive technology at the wrong place on screen — the one bug that would
+        // make zoom actively hostile to the users it exists for.
+        if (_zoom != 1f) ScaleBounds(tree, _zoom);
+        return tree;
+    }
+
+    private static void ScaleBounds(Accessibility.AccessibilityNode n, float k)
+    {
+        var (x, y, w, h) = n.Bounds;
+        n.Bounds = (x * k, y * k, w * k, h * k);
+        foreach (var c in n.Children) ScaleBounds(c, k);
     }
 
     /// <summary>Resolve a structural path (<see cref="Accessibility.AccessibilityNode.Path"/>) back to
@@ -1700,7 +1775,7 @@ public sealed partial class CupriDocument : IDisposable
     /// toggle, slider set) and user handlers along the bubble path, write back to the
     /// bound model, and refresh. Returns true if anything handled it (→ needs repaint).
     /// </summary>
-    public bool DispatchClick(float x, float y, int clickCount = 1) => Bump(DispatchClickCore(x, y, clickCount));
+    public bool DispatchClick(float x, float y, int clickCount = 1) => Bump(DispatchClickCore(Zc(x), Zc(y), clickCount));
     private bool DispatchClickCore(float x, float y, int clickCount)
     {
         EnsureLaidOut();
@@ -1838,9 +1913,10 @@ public sealed partial class CupriDocument : IDisposable
     /// activation for everything except dedicated drag surfaces, which drag from the first touch.</summary>
     internal enum PressKind { Empty, DragSurface, TextField, Other }
 
-    internal PressKind ClassifyPress(float x, float y)
+    internal PressKind ClassifyPress(float xHost, float yHost)
     {
         EnsureLaidOut();
+        float x = Zc(xHost), y = Zc(yHost);
         var hit = HitTesting.HitTest(_root, x, y);
         if (hit is null) return PressKind.Empty;
 
@@ -1866,9 +1942,10 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>Press feedback for a deferred tap: :active on the chain under the finger — and
     /// nothing else. No focus, no activation; those happen at finger-up if the press turns out to
     /// be a tap.</summary>
-    internal bool SetPressed(float x, float y)
+    internal bool SetPressed(float xHost, float yHost)
     {
         EnsureLaidOut();
+        float x = Zc(xHost), y = Zc(yHost);
         var hit = HitTesting.HitTest(_root, x, y);
         if (hit?.Element is null) return false;
         SetActive(hit.Element);
@@ -1882,9 +1959,10 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>The structural path of the scroller a drag at (x, y) would move — captured once at
     /// gesture start so a fling can outlive the per-keystroke rebuild (paths survive; node
     /// references do not).</summary>
-    internal string? ScrollTargetAt(float x, float y, bool horizontal = false)
+    internal string? ScrollTargetAt(float xHost, float yHost, bool horizontal = false)
     {
         EnsureLaidOut();
+        float x = Zc(xHost), y = Zc(yHost);
         for (var n = HitTesting.HitTest(_root, x, y); n is not null; n = n.Parent)
             if (horizontal ? n.IsScrollableX : n.IsScrollable) return PathOf(n);
         return null;
@@ -2862,7 +2940,7 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>Open a context menu at (x,y) if it's over a text field. Focuses the field (a fresh
     /// focus has no selection, so Cut/Copy start disabled; right-clicking the already-focused field
     /// keeps its selection). Returns true if a menu opened or an open one closed (→ repaint).</summary>
-    public bool DispatchContextMenu(float x, float y) => Bump(DispatchContextMenuCore(x, y));
+    public bool DispatchContextMenu(float x, float y) => Bump(DispatchContextMenuCore(Zc(x), Zc(y)));
     private bool DispatchContextMenuCore(float x, float y)
     {
         EnsureLaidOut();
@@ -3717,7 +3795,7 @@ public sealed partial class CupriDocument : IDisposable
         return true;
     }
 
-    public bool DispatchPointerMove(float x, float y) => Bump(DispatchPointerMoveCore(x, y));
+    public bool DispatchPointerMove(float x, float y) => Bump(DispatchPointerMoveCore(Zc(x), Zc(y)));
     private bool DispatchPointerMoveCore(float x, float y)
     {
         EnsureLaidOut();
@@ -3767,7 +3845,7 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>Pointer up: end any slider drag, scrollbar drag, or text drag-select.</summary>
     /// <summary>Pointer released: end any drag and clear the :active press. Returns true if the press
     /// state cleared (→ repaint needed to un-press).</summary>
-    public bool DispatchPointerUp(float x, float y) => Bump(DispatchPointerUpCore(x, y));
+    public bool DispatchPointerUp(float x, float y) => Bump(DispatchPointerUpCore(Zc(x), Zc(y)));
     private bool DispatchPointerUpCore(float x, float y)
     {
         if (_reorderItems is not null) { EndReorder(); return true; }
@@ -3777,13 +3855,13 @@ public sealed partial class CupriDocument : IDisposable
     }
 
     /// <summary>Scroll wheel: scroll the nearest scrollable element under the pointer by pixels.</summary>
-    public bool DispatchWheel(float x, float y, float pixelDelta) => Bump(DispatchWheelCore(x, y, pixelDelta, 0f));
+    public bool DispatchWheel(float x, float y, float pixelDelta) => Bump(DispatchWheelCore(Zc(x), Zc(y), pixelDelta, 0f));
 
     /// <summary>Scroll under the pointer, on either axis. <paramref name="horizontalDelta"/> is
     /// positive-right, matching the vertical convention (positive-down); a touch drag supplies both
     /// so a box that overflows diagonally follows the finger.</summary>
     public bool DispatchWheel(float x, float y, float pixelDelta, float horizontalDelta) =>
-        Bump(DispatchWheelCore(x, y, pixelDelta, horizontalDelta));
+        Bump(DispatchWheelCore(Zc(x), Zc(y), pixelDelta, horizontalDelta));
 
     /// <summary>Scroll the scrollers CAPTURED at gesture start (from <see cref="ScrollTargetAt"/>)
     /// rather than whatever currently lies under the finger.

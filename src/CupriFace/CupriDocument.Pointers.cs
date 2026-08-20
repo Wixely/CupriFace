@@ -1,4 +1,4 @@
-using AngleSharp.Dom;
+﻿using AngleSharp.Dom;
 using CupriFace.Interaction;
 
 namespace CupriFace;
@@ -156,15 +156,25 @@ public sealed partial class CupriDocument
 
     /// <summary>Feed one pointer. Returns true when an element owns it — the caller must then NOT
     /// give that pointer to the ordinary touch recognizer.</summary>
-    public bool DispatchPointer(int pointerId, PointerPhase phase, float x, float y)
+    public bool DispatchPointer(int pointerId, PointerPhase phase, float xHost, float yHost)
     {
         EnsureLaidOut();
+        // Host-logical → document, like every other entry point: a pinch on a zoomed page must
+        // still address the element under the fingers.
+        float x = Zc(xHost), y = Zc(yHost);
 
         if (phase is PointerPhase.Down)
         {
             _active[pointerId] = (x, y);
             var (node, attribute, handler) = FindPointerTarget(x, y);
-            if (node is null) { _active.Remove(pointerId); return false; }   // nobody opted in here
+            if (node is null)
+            {
+                _active.Remove(pointerId);
+                // Nobody opted in here — but a finger the page itself owns is exactly what page
+                // zoom is made of, so remember it. It is only CONSUMED once a second one joins;
+                // one finger must still tap, scroll and fling as it always did.
+                return TrackPageFinger(pointerId, phase, xHost, yHost);
+            }
 
             // The handler may decline on down (a tile that only reacts to a SECOND finger, say),
             // in which case the pointer is never captured and the recognizer takes it.
@@ -178,7 +188,8 @@ public sealed partial class CupriDocument
             return false;
         }
 
-        if (!_captured.TryGetValue(pointerId, out var capture)) return false;
+        if (!_captured.TryGetValue(pointerId, out var capture))
+            return TrackPageFinger(pointerId, phase, xHost, yHost);
 
         _active[pointerId] = (x, y);
         if (NodeAtPath(capture.Path)?.Element is { } el && FindHandler(capture.Attribute) is { } h)
@@ -192,6 +203,63 @@ public sealed partial class CupriDocument
         // Consumed whatever the handler answered: a captured pointer belongs to that element until
         // it lifts, or one indecisive frame would hand a half-finished gesture to the scroller.
         return true;
+    }
+
+    // ---- page zoom gesture ---------------------------------------------------------------------
+    // Fingers no element captured. Kept in HOST coordinates: this gesture measures the distance
+    // between two fingers on the glass, which must not itself change as the zoom it is driving
+    // changes the document scale — measuring in document space would feed the gesture its own
+    // output and run away.
+    private readonly Dictionary<int, (float X, float Y)> _pageFingers = new();
+    private float _pinchStartSpan, _pinchStartZoom;
+
+    /// <summary>Two uncaptured fingers zoom the whole page. On by default, as it is in a browser —
+    /// an accessibility affordance nobody switches on helps nobody. An app that owns the gesture
+    /// itself (a map, a canvas) sets this false.</summary>
+    public bool PageZoomEnabled { get; set; } = true;
+
+    /// <summary>True while a page-zoom pinch is in flight, so a host can cancel the single-pointer
+    /// gesture it had started — otherwise the page scrolls under the fingers while they pinch.</summary>
+    public bool PageZoomActive => _pinchStartSpan > 0;
+
+    private bool TrackPageFinger(int id, PointerPhase phase, float xHost, float yHost)
+    {
+        if (!PageZoomEnabled) return false;
+
+        if (phase is PointerPhase.Up or PointerPhase.Cancel)
+        {
+            _pageFingers.Remove(id);
+            if (_pageFingers.Count < 2) _pinchStartSpan = 0;   // the pinch is over
+            return false;                                      // never consume a lift
+        }
+
+        _pageFingers[id] = (xHost, yHost);
+        if (_pageFingers.Count < 2) return false;              // one finger is not a pinch
+
+        var span = Span();
+        if (_pinchStartSpan <= 0)
+        {
+            // A pinch begins. Bank where it started so the whole gesture is measured from one
+            // baseline — accumulating per-move ratios would drift.
+            _pinchStartSpan = span;
+            _pinchStartZoom = Zoom;
+            return true;
+        }
+
+        if (span > 0.01f) Zoom = _pinchStartZoom * (span / _pinchStartSpan);
+        return true;
+    }
+
+    private float Span()
+    {
+        float minX = float.MaxValue, minY = float.MaxValue, maxX = float.MinValue, maxY = float.MinValue;
+        foreach (var (fx, fy) in _pageFingers.Values)
+        {
+            minX = MathF.Min(minX, fx); maxX = MathF.Max(maxX, fx);
+            minY = MathF.Min(minY, fy); maxY = MathF.Max(maxY, fy);
+        }
+        float dx = maxX - minX, dy = maxY - minY;
+        return MathF.Sqrt(dx * dx + dy * dy);
     }
 
     /// <summary>Drop every captured pointer — the window lost focus, the app was backgrounded, the
