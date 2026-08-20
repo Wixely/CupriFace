@@ -87,6 +87,21 @@ public class NativeControlsTests
     }
 
     [Fact]
+    public void Number_field_beside_a_switch_does_not_toggle_the_switch()
+    {
+        var m = new ToggleModel();
+        const string html = "<body><div style='display:flex;gap:8px'>" +
+            "<cupri-switch checked=\"{{On}}\"></cupri-switch>" +
+            "<cupri-number value=\"{{Count}}\" min=\"0\" max=\"10\"></cupri-number>" +
+            "</div></body>";
+        using var t = new TestDoc(html, "", m, components: true, width: 280, height: 120);
+
+        t.ClickNode(t.FindRole("spinbutton"));
+
+        Assert.False(m.On);
+    }
+
+    [Fact]
     public void Radio_group_selects_the_clicked_value()
     {
         var m = new RadioModel();
@@ -114,7 +129,7 @@ public class NativeControlsTests
     private sealed class SelectModel { public string Size { get; set; } = "small"; public bool Open { get; set; } }
     private sealed class NotesModel { public string Notes { get; set; } = ""; }
     private sealed class TreeModel { public bool Open { get; set; } = true; }
-    private sealed class ToggleModel { public bool Checked { get; set; } public bool On { get; set; } }
+    private sealed class ToggleModel { public bool Checked { get; set; } public bool On { get; set; } public int Count { get; set; } = 5; }
     private sealed class RadioModel { public string Sel { get; set; } = ""; }
     private sealed class SliderModel { public int Volume { get; set; } }
 }

@@ -595,10 +595,22 @@ public sealed partial class CupriDocument : IDisposable
         _root = new StyleResolver(_rules, _viewportWidth, _viewportHeight).BuildTree(dom);
         _layoutDirty = true; // fresh tree: no geometry until the next layout
         RestoreScroll(scroll);
-        _transitions.Detect(_root, _laidOutWidth, _laidOutHeight); // (re)start transitions whose target value changed this rebuild
+        _dom = dom;
+        if (float.IsFinite(_lastHitX) && float.IsFinite(_lastHitY))
+        {
+            // A model refresh replaces every DOM element. Re-hit-test the last pointer position on the
+            // fresh tree so :hover does not blink off until the mouse moves again. This matters most for
+            // periodically refreshed dashboards: otherwise each refresh clears hover, and every small
+            // pointer movement restores it, repeatedly restarting hover transitions under a still cursor.
+            EnsureLaidOut();
+            _ = UpdateHover(_lastHitX, _lastHitY);
+        }
+        else
+        {
+            _transitions.Detect(_root, _laidOutWidth, _laidOutHeight); // (re)start transitions whose target value changed this rebuild
+        }
         Mark("style+tree");
         _hasActiveAnim = _keyframes.Count > 0 && AnyAnimated(_root);
-        _dom = dom;
     }
 
     // Per-node interaction state preserved across a rebuild, keyed by structural path (child-index
@@ -3141,6 +3153,11 @@ public sealed partial class CupriDocument : IDisposable
         for (var hops = 0; node is not null && hops < 5; node = node.Parent, hops++)
         {
             if (node.Element is not { } el) continue;
+            // An adjacent control is only a label target when the click came through inert text.
+            // A spinbutton/textbox/slider/button is an interaction boundary even when its particular
+            // click was not consumed (for example, clicking the editable body of cupri-number). Without
+            // this boundary, a number field beside a switch is mistaken for that switch's label.
+            if (IsFocusableRole(el)) yield break;
             if (el.PreviousElementSibling is { } prev && IsLabelableControl(prev)) yield return prev;
             if (el.NextElementSibling is { } next && IsLabelableControl(next) && !HasTrailingLabel(next))
                 yield return next;

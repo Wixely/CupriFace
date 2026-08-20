@@ -34,4 +34,18 @@ public class PseudoClassTests
         t.Move(290, 150);
         Assert.Equal("#0000ff", Hex(t.FindClass("btn").Style.Background)); // move off → base
     }
+
+    [Fact]
+    public void Model_refresh_preserves_hover_under_a_stationary_pointer()
+    {
+        using var t = new TestDoc(Html, Css, width: 300, height: 160);
+        var (cx, cy) = TestDoc.Center(t.FindClass("btn"));
+        t.Move(cx, cy);
+        Assert.Equal("#00ff00", Hex(t.FindClass("btn").Style.Background));
+
+        t.Doc.Refresh();
+        t.Layout();
+
+        Assert.Equal("#00ff00", Hex(t.FindClass("btn").Style.Background));
+    }
 }
