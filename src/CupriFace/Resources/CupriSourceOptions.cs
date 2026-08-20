@@ -15,7 +15,8 @@ public sealed class CupriSourceOptions
     /// <summary>Give up if the fetch takes longer than this. Default 10s.</summary>
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(10);
 
-    /// <summary>Follow HTTP redirects. Default <c>false</c> — a redirect can smuggle you to another origin.</summary>
+    /// <summary>Follow HTTP redirects. Every target is still checked against <see cref="RequireHttps"/>
+    /// and <see cref="AllowedHosts"/>. Default <c>false</c>.</summary>
     public bool FollowRedirects { get; init; }
 
     /// <summary>If set, the URL's host must be in this allow-list (guards against SSRF / drift). Default: any host.</summary>

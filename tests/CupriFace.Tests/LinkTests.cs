@@ -6,7 +6,7 @@ using Xunit;
 namespace CupriFace.Tests;
 
 /// <summary><c>&lt;a href&gt;</c> links: an in-page <c>#anchor</c> is scrolled into view by the engine;
-/// every other href raises <c>Navigated</c> with an <c>External</c> flag (URL scheme ⇒ external). Links are
+/// every other href raises <c>Navigated</c>; only explicitly safe OS/browser schemes are external. Links are
 /// focusable (Enter activates) and show the pointer cursor.</summary>
 public class LinkTests
 {
@@ -29,8 +29,8 @@ public class LinkTests
     [Theory]
     [InlineData("https://skia.org")]
     [InlineData("mailto:hi@example.com")]
-    [InlineData("//cdn.example.com/x")]
-    public void Scheme_or_protocol_relative_links_are_external(string href)
+    [InlineData("tel:+442071234567")]
+    public void Supported_absolute_links_are_external(string href)
     {
         using var t = new TestDoc($"<body><a href=\"{href}\" class=\"go\">Link</a></body>", "", width: 260, height: 120);
         NavigateEvent? got = null;
@@ -40,6 +40,27 @@ public class LinkTests
         Assert.NotNull(got);
         Assert.Equal(href, got!.Value.Href);
         Assert.True(got.Value.External);
+    }
+
+    [Theory]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("file:///etc/passwd")]
+    [InlineData("intent://scan/#Intent;scheme=zxing;end")]
+    [InlineData("data:text/html,hello")]
+    [InlineData("custom:route")]
+    [InlineData("//cdn.example.com/x")]
+    public void Unsafe_or_ambiguous_schemes_are_never_marked_for_the_host(string href)
+    {
+        using var t = new TestDoc($"<body><a href=\"{href}\" class=\"go\">Link</a></body>", "",
+            width: 260, height: 120);
+        NavigateEvent? got = null;
+        t.Doc.Navigated += e => got = e;
+
+        t.ClickMatch(n => n.Element?.ClassList.Contains("go") == true);
+
+        Assert.NotNull(got);                // the app may still implement a custom in-app route
+        Assert.Equal(href, got!.Value.Href);
+        Assert.False(got.Value.External);   // but hosts must not hand it to an OS/browser handler
     }
 
     [Fact]

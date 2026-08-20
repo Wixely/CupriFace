@@ -438,7 +438,7 @@ public sealed class StyleResolver
             v.Equals("min-content", StringComparison.OrdinalIgnoreCase) ||
             v.Equals("fit-content", StringComparison.OrdinalIgnoreCase)) return Length.Auto;
         if (v.StartsWith("calc(", StringComparison.OrdinalIgnoreCase)) return ParseCalc(v);
-        if (v.EndsWith('%') && float.TryParse(v[..^1], out var pct)) return new Length(LengthUnit.Percent, pct);
+        if (v.EndsWith('%') && CssNumber.TryParse(v[..^1], out var pct)) return new Length(LengthUnit.Percent, pct);
         return new Length(LengthUnit.Px, ParsePx(v));
     }
 
@@ -454,7 +454,7 @@ public sealed class StyleResolver
         {
             if (tok == "+") { sign = 1; continue; }
             if (tok == "-") { sign = -1; continue; }
-            if (tok.EndsWith('%') && float.TryParse(tok[..^1], out var p)) percent += sign * p;
+            if (tok.EndsWith('%') && CssNumber.TryParse(tok[..^1], out var p)) percent += sign * p;
             else px += sign * ParsePx(tok);
             sign = 1;
         }
@@ -479,11 +479,11 @@ public sealed class StyleResolver
     {
         v = v.Trim().ToLowerInvariant();
         if (v.EndsWith("px")) v = v[..^2];
-        else if (v.EndsWith("rem") || v.EndsWith("em")) { if (float.TryParse(v.TrimEnd('r', 'e', 'm'), out var em)) return em * 16f; }
-        return float.TryParse(v, out var px) ? px : fallback;
+        else if (v.EndsWith("rem") || v.EndsWith("em")) { if (CssNumber.TryParse(v.TrimEnd('r', 'e', 'm'), out var em)) return em * 16f; }
+        return CssNumber.TryParse(v, out var px) ? px : fallback;
     }
 
-    private static float ParseNum(string v) => float.TryParse(v.Trim(), out var n) ? n : 0f;
+    private static float ParseNum(string v) => CssNumber.TryParse(v.Trim(), out var n) ? n : 0f;
 
     private static int ParseWeight(string v) => v.ToLowerInvariant() switch
     {
@@ -496,7 +496,7 @@ public sealed class StyleResolver
     {
         v = v.Trim();
         if (v.EndsWith("px", StringComparison.OrdinalIgnoreCase)) return ParsePx(v) / 16f; // rough; refined once font-size known
-        return float.TryParse(v, out var n) ? n : 1.2f;
+        return CssNumber.TryParse(v, out var n) ? n : 1.2f;
     }
 
     // ---- grid parsers --------------------------------------------------------
@@ -559,8 +559,8 @@ public sealed class StyleResolver
             var max = inner.Length > 1 ? ParseTrack(inner[1]) : new TrackSize(TrackKind.Fraction, 1);
             return new TrackSize(max.Kind, max.Value, minPx: min);
         }
-        if (v.EndsWith("fr")) return new TrackSize(TrackKind.Fraction, float.TryParse(v[..^2], out var fr) ? fr : 1);
-        if (v.EndsWith('%')) return new TrackSize(TrackKind.Percent, float.TryParse(v[..^1], out var p) ? p : 0);
+        if (v.EndsWith("fr")) return new TrackSize(TrackKind.Fraction, CssNumber.TryParse(v[..^2], out var fr) ? fr : 1);
+        if (v.EndsWith('%')) return new TrackSize(TrackKind.Percent, CssNumber.TryParse(v[..^1], out var p) ? p : 0);
         return new TrackSize(TrackKind.Px, ParsePx(v));
     }
 
@@ -609,9 +609,9 @@ public sealed class StyleResolver
     private static float ParseSeconds(string v)
     {
         v = v.Trim().ToLowerInvariant();
-        if (v.EndsWith("ms")) return float.TryParse(v[..^2], out var ms) ? ms / 1000f : 0f;
-        if (v.EndsWith('s')) return float.TryParse(v[..^1], out var sec) ? sec : 0f;
-        return float.TryParse(v, out var n) ? n : 0f;
+        if (v.EndsWith("ms")) return CssNumber.TryParse(v[..^2], out var ms) ? ms / 1000f : 0f;
+        if (v.EndsWith('s')) return CssNumber.TryParse(v[..^1], out var sec) ? sec : 0f;
+        return CssNumber.TryParse(v, out var n) ? n : 0f;
     }
 
     // transition: <prop|all> <duration> [timing] [delay] [, <prop> <duration> …]. A later `transition`
@@ -644,7 +644,7 @@ public sealed class StyleResolver
             foreach (var p in SplitTopLevel(segs[i], ' '))
             {
                 if (Colors.TryParse(p, out var c)) col = c;
-                else if (p.EndsWith('%') && float.TryParse(p[..^1], out var pct)) pos = pct / 100f;
+                else if (p.EndsWith('%') && CssNumber.TryParse(p[..^1], out var pct)) pos = pct / 100f;
             }
             if (col is { } cc) stops.Add(new GradientStop(cc, pos));
         }
@@ -661,7 +661,7 @@ public sealed class StyleResolver
     private static float? ParseAngle(string seg)
     {
         var t = seg.Trim().ToLowerInvariant();
-        if (t.EndsWith("deg") && float.TryParse(t[..^3], out var d)) return d;
+        if (t.EndsWith("deg") && CssNumber.TryParse(t[..^3], out var d)) return d;
         if (t.StartsWith("to "))
             return t[3..].Trim() switch
             {
@@ -750,8 +750,8 @@ public sealed class StyleResolver
         {
             var nums = t[13..^1].Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
             if (nums.Length == 4
-                && float.TryParse(nums[0], out var x1) && float.TryParse(nums[1], out var y1)
-                && float.TryParse(nums[2], out var x2) && float.TryParse(nums[3], out var y2))
+                && CssNumber.TryParse(nums[0], out var x1) && CssNumber.TryParse(nums[1], out var y1)
+                && CssNumber.TryParse(nums[2], out var x2) && CssNumber.TryParse(nums[3], out var y2))
                 return new Easing(EasingKind.Bezier, Math.Clamp(x1, 0f, 1f), y1, Math.Clamp(x2, 0f, 1f), y2);
         }
         return null;
@@ -761,8 +761,8 @@ public sealed class StyleResolver
     {
         seconds = 0f;
         var t = tok.ToLowerInvariant();
-        if (t.EndsWith("ms")) { if (float.TryParse(t[..^2], out var ms)) { seconds = ms / 1000f; return true; } return false; }
-        if (t.EndsWith('s') && float.TryParse(t[..^1], out var sec)) { seconds = sec; return true; }
+        if (t.EndsWith("ms")) { if (CssNumber.TryParse(t[..^2], out var ms)) { seconds = ms / 1000f; return true; } return false; }
+        if (t.EndsWith('s') && CssNumber.TryParse(t[..^1], out var sec)) { seconds = sec; return true; }
         return false;
     }
 
@@ -812,8 +812,8 @@ public sealed class StyleResolver
     private static float Amount(string v)
     {
         v = v.Trim();
-        if (v.EndsWith('%')) return float.TryParse(v[..^1], out var pct) ? pct / 100f : 1f;
-        return float.TryParse(v, out var n) ? n : 1f;
+        if (v.EndsWith('%')) return CssNumber.TryParse(v[..^1], out var pct) ? pct / 100f : 1f;
+        return CssNumber.TryParse(v, out var n) ? n : 1f;
     }
 
     private static void ParseTransform(ComputedStyle s, string v)
@@ -823,7 +823,7 @@ public sealed class StyleResolver
             var fn = m.Groups[1].Value.ToLowerInvariant();
             var args = m.Groups[2].Value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
             float A(int i) => i < args.Length ? ParsePx(args[i]) : 0f;
-            float N(int i, float d) => i < args.Length && float.TryParse(args[i].TrimEnd('d', 'e', 'g'), out var n) ? n : d;
+            float N(int i, float d) => i < args.Length && CssNumber.TryParse(args[i].TrimEnd('d', 'e', 'g'), out var n) ? n : d;
             switch (fn)
             {
                 case "translate": s.TranslateX = A(0); s.TranslateY = A(1); s.HasTransform = true; break;
@@ -840,9 +840,9 @@ public sealed class StyleResolver
     private static void ParseFlexShorthand(ComputedStyle s, string v)
     {
         var parts = v.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length == 1 && float.TryParse(parts[0], out var g)) { s.FlexGrow = g; s.FlexShrink = 1; s.FlexBasis = new Length(LengthUnit.Px, 0); return; }
-        if (parts.Length >= 1 && float.TryParse(parts[0], out var grow)) s.FlexGrow = grow;
-        if (parts.Length >= 2 && float.TryParse(parts[1], out var shrink)) s.FlexShrink = shrink;
+        if (parts.Length == 1 && CssNumber.TryParse(parts[0], out var g)) { s.FlexGrow = g; s.FlexShrink = 1; s.FlexBasis = new Length(LengthUnit.Px, 0); return; }
+        if (parts.Length >= 1 && CssNumber.TryParse(parts[0], out var grow)) s.FlexGrow = grow;
+        if (parts.Length >= 2 && CssNumber.TryParse(parts[1], out var shrink)) s.FlexShrink = shrink;
         if (parts.Length >= 3) s.FlexBasis = ParseLen(parts[2]);
     }
 
@@ -850,7 +850,7 @@ public sealed class StyleResolver
     {
         foreach (var token in v.Split(' ', StringSplitOptions.RemoveEmptyEntries))
         {
-            if (token.EndsWith("px", StringComparison.OrdinalIgnoreCase) || float.TryParse(token, out _))
+            if (token.EndsWith("px", StringComparison.OrdinalIgnoreCase) || CssNumber.TryParse(token, out _))
             { var w = ParsePx(token); s.BorderTop = s.BorderRight = s.BorderBottom = s.BorderLeft = w; }
             else if (ParseBorderStyle(token) is { } st) s.BorderStyle = st;
             else if (Colors.TryParse(token, out var c)) s.BorderColor = c;

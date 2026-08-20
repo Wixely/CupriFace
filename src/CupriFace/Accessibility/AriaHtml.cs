@@ -26,6 +26,8 @@ public static class AriaHtml
         if (n.Focusable) sb.Append(" tabindex=\"0\"");
         if (n.Disabled) sb.Append(" aria-disabled=\"true\"");
         if (n.Checked is { } c) sb.Append(" aria-checked=\"").Append(c ? "true" : "false").Append('"');
+        if (n.Selected is { } selected) sb.Append(" aria-selected=\"").Append(selected ? "true" : "false").Append('"');
+        if (n.Expanded is { } expanded) sb.Append(" aria-expanded=\"").Append(expanded ? "true" : "false").Append('"');
         if (n.Now is { } now) sb.Append(" aria-valuenow=\"").Append(Num(now)).Append('"');
         if (n.Min is { } min) sb.Append(" aria-valuemin=\"").Append(Num(min)).Append('"');
         if (n.Max is { } max) sb.Append(" aria-valuemax=\"").Append(Num(max)).Append('"');

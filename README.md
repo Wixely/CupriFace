@@ -122,6 +122,8 @@ host. They are not on nuget.org yet — download them and add the folder as a lo
 ## Run
 
 ```pwsh
+# The full solution includes the Android and WebAssembly hosts.
+dotnet workload restore CupriFace.slnx
 dotnet build CupriFace.slnx -c Debug
 
 # Each sample writes a PNG snapshot (works headless — no GPU needed):

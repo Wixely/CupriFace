@@ -50,7 +50,7 @@ public class VideoComponentTests
 
     private sealed class Model { public string Section { get; set; } = "media"; }
 
-    private const string Html = "<body><cupri-video src='clip.webm' controls muted autoplay loop label='Trailer'></cupri-video></body>";
+    private const string Html = "<body><cupri-video src='clip.webm' controls muted autoplay loop label='Trailer' style='width:320px;height:180px'></cupri-video></body>";
 
     [Fact]
     public void Expansion_produces_surface_poster_lane_and_accessible_controls()

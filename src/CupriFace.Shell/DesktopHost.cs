@@ -277,10 +277,11 @@ public static class DesktopHost
         }
     }
 
-    // Open an external link in the OS default browser/handler. UseShellExecute lets the shell resolve
-    // http(s)/mailto/tel/… ; a bad url or missing handler is swallowed (nothing to do).
+    // Open an allowed external link in the OS default browser/handler. Re-check at the host boundary
+    // so no future call site can hand file:, javascript:, or a custom executable protocol to the shell.
     private static void OpenExternal(string href)
     {
+        if (!ExternalLinkPolicy.IsAllowed(href)) return;
         try { Process.Start(new ProcessStartInfo(href) { UseShellExecute = true }); }
         catch { /* no handler / malformed url — ignore */ }
     }

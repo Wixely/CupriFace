@@ -134,6 +134,10 @@ public class AccessibilityTests
         var tree = t.Doc.BuildAccessibilityTree(400, 300);
         Assert.True(FindRole(tree, "tab")!.Selected);
         Assert.False(FindRole(tree, "treeitem")!.Expanded);
+
+        var aria = t.Doc.BuildAriaHtml(400, 300);
+        Assert.Contains("aria-selected=\"true\"", aria);
+        Assert.Contains("aria-expanded=\"false\"", aria);
     }
 
     [Fact]
@@ -254,5 +258,16 @@ public class AccessibilityTests
     {
         using var t = new TestDoc("<body><div role=\"button\" aria-label=\"Here\">x</div></body>", "", height: 300);
         Assert.False(FindNamed(t.Doc.BuildAccessibilityTree(400, 300), "Here")!.Offscreen);
+    }
+
+    [Fact]
+    public void A_visible_inline_link_uses_its_text_bounds_for_offscreen_state()
+    {
+        using var t = new TestDoc("<body><p>Read the <a href='about'>About page</a>.</p></body>", "",
+            height: 300);
+
+        var link = FindNamed(t.Doc.BuildAccessibilityTree(400, 300), "About page")!;
+        Assert.True(link.Bounds.W > 0 && link.Bounds.H > 0);
+        Assert.False(link.Offscreen);
     }
 }

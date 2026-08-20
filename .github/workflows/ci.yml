@@ -340,6 +340,7 @@ jobs:
   webtouch:
     name: Web touch (${{ matrix.host }})
     runs-on: ubuntu-latest
+    timeout-minutes: 25  # the whole gate normally takes <8 min; never consume the 6-hour default
     strategy:
       fail-fast: false     # one host breaking must not hide the other's result
       matrix:
@@ -371,8 +372,10 @@ jobs:
         run: dotnet build tests/WebTouchGate/WebTouchGate.csproj -c Release
 
       # Playwright ships its own browser; --with-deps pulls the shared libraries a headless
-      # Chromium needs on a bare runner.
+      # Chromium needs on a bare runner. A hosted runner once wedged here until GitHub's six-hour
+      # job limit; bound the network/package-manager step so a transient failure reports promptly.
       - name: Install Chromium
+        timeout-minutes: 15
         run: pwsh tests/WebTouchGate/bin/Release/net10.0/playwright.ps1 install chromium --with-deps
 
       # Both hosts publish the same automation contract (__cupri.isCoarse), so ONE gate drives
