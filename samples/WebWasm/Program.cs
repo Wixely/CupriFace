@@ -251,7 +251,8 @@ public partial class Interop
         if (_doc is null) return;
         float lx = L(x), ly = L(y);
         if (_doc.DispatchPointer(id, PointerPhase.Down, lx, ly)) _dirty = true;
-        if (_doc.IsPointerCaptured(id)) return;
+        CancelTouchForPageZoom(tMs);
+        if (_doc.IsPointerCaptured(id) || _doc.PageZoomActive) return;
         if (_primaryPointer >= 0) return;                  // a second finger the app did not want
         _primaryPointer = id;
         if (_touch.Down(lx, ly, tMs / 1000.0)) _dirty = true;
@@ -262,11 +263,9 @@ public partial class Interop
     {
         if (_doc is null) return;
         float lx = L(x), ly = L(y);
-        if (_doc.IsPointerCaptured(id))
-        {
-            if (_doc.DispatchPointer(id, PointerPhase.Move, lx, ly)) _dirty = true;
-            return;
-        }
+        // Offered to the document first: captured pointers belong to their element, and an
+        // uncaptured one may be half of a page-zoom pinch. Only the declined reach the recognizer.
+        if (_doc.DispatchPointer(id, PointerPhase.Move, lx, ly)) { CancelTouchForPageZoom(tMs); _dirty = true; return; }
         if (id == _primaryPointer && _touch.Move(lx, ly, tMs / 1000.0)) _dirty = true;
     }
 
@@ -275,14 +274,19 @@ public partial class Interop
     {
         if (_doc is null) return;
         float lx = L(x), ly = L(y);
-        if (_doc.IsPointerCaptured(id))
-        {
-            if (_doc.DispatchPointer(id, PointerPhase.Up, lx, ly)) _dirty = true;
-            return;
-        }
+        if (_doc.DispatchPointer(id, PointerPhase.Up, lx, ly)) { _dirty = true; return; }
         if (id != _primaryPointer) return;
         _primaryPointer = -1;
         if (_touch.Up(lx, ly, tMs / 1000.0)) _dirty = true;
+    }
+
+    // A page-zoom pinch took over: end the single-pointer gesture so a half-finished scroll cannot
+    // run alongside it, and so the finger never becomes a tap when it lifts.
+    private static void CancelTouchForPageZoom(double tMs)
+    {
+        if (_doc is null || !_doc.PageZoomActive || _primaryPointer < 0) return;
+        _primaryPointer = -1;
+        if (_touch.Cancel(tMs / 1000.0)) _dirty = true;
     }
 
     /// <summary>The browser took the gesture away (scroll takeover, a system gesture, the tab

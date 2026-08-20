@@ -445,7 +445,7 @@ public sealed class AndroidHost : IDisposable
         // logs only one id is the input path dropping a finger before the engine ever saw it;
         // two ids, both captured, puts the fault past the host.
         Log($"pointer down id={id} captured={_doc.IsPointerCaptured(id)}");
-        if (changed) { MarkDirty(); return; }
+        if (changed) { CancelTouchForPageZoom(t); MarkDirty(); return; }
         if (_primaryPointer >= 0) return;                       // a second finger the app didn't want
         _primaryPointer = id;
         if (_touch.Down(lx, ly, t)) MarkDirty();
@@ -454,17 +454,29 @@ public sealed class AndroidHost : IDisposable
     internal void PointerMove(int id, float x, float y, double t)
     {
         var (lx, ly) = (x / InputScale(), y / InputScale());
-        if (_doc.IsPointerCaptured(id)) { if (_doc.DispatchPointer(id, PointerPhase.Move, lx, ly)) MarkDirty(); return; }
+        // Every pointer is offered to the document first: a captured one belongs to its element,
+        // and an uncaptured one may be half of a page-zoom pinch. Only what the document declines
+        // reaches the single-pointer recognizer.
+        if (_doc.DispatchPointer(id, PointerPhase.Move, lx, ly)) { CancelTouchForPageZoom(t); MarkDirty(); return; }
         if (id == _primaryPointer && _touch.Move(lx, ly, t)) MarkDirty();
     }
 
     internal void PointerUp(int id, float x, float y, double t)
     {
         var (lx, ly) = (x / InputScale(), y / InputScale());
-        if (_doc.IsPointerCaptured(id)) { if (_doc.DispatchPointer(id, PointerPhase.Up, lx, ly)) MarkDirty(); return; }
+        if (_doc.DispatchPointer(id, PointerPhase.Up, lx, ly)) { MarkDirty(); return; }
         if (id != _primaryPointer) return;
         _primaryPointer = -1;
         TouchUp(x, y, t);
+    }
+
+    // A page-zoom pinch has taken over: end whatever the single-pointer recognizer had begun so a
+    // half-finished scroll cannot run alongside it, and never let that finger become a tap.
+    private void CancelTouchForPageZoom(double t)
+    {
+        if (!_doc.PageZoomActive || _primaryPointer < 0) return;
+        _primaryPointer = -1;
+        _touch.Cancel(t);
     }
 
     internal void TouchDown(float x, float y, double t) { if (_touch.Down(x / InputScale(), y / InputScale(), t)) MarkDirty(); }
