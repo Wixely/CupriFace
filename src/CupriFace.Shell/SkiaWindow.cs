@@ -21,6 +21,8 @@ public sealed class SkiaWindow : IDisposable
 {
     private readonly WindowOptions _options;
     private readonly FrameStats _stats = new();
+    private readonly bool _darkWindowChrome;
+    private readonly SKColor _windowChromeColor;
 
     private IWindow? _window;
     private IInputContext? _input;
@@ -73,6 +75,15 @@ public sealed class SkiaWindow : IDisposable
         _forceRender = true;
     }
 
+    /// <summary>Change the native always-on-top state while the window is running.</summary>
+    public void SetTopMost(bool on)
+    {
+        if (_window is not null)
+        {
+            _window.TopMost = on;
+        }
+    }
+
     /// <summary>Raised on left-button press with client-area coordinates and the click count
     /// (1/2/3 = single/double/triple — for word/line text selection).</summary>
     public event Action<float, float, int>? PointerDown;
@@ -118,8 +129,11 @@ public sealed class SkiaWindow : IDisposable
     public FrameStats Stats => _stats;
 
     public SkiaWindow(string title = "CupriFace", int width = 1024, int height = 768,
-        bool transparent = false, bool frameless = false, bool topMost = false)
+        bool transparent = false, bool frameless = false, bool topMost = false,
+        bool darkWindowChrome = false, SKColor? windowChromeColor = null)
     {
+        _darkWindowChrome = darkWindowChrome;
+        _windowChromeColor = windowChromeColor ?? new SKColor(0x20, 0x20, 0x20);
         _options = WindowOptions.Default with
         {
             Title = title,
@@ -225,6 +239,11 @@ public sealed class SkiaWindow : IDisposable
 
     private void OnLoad()
     {
+        if (_darkWindowChrome && Win32Hwnd is { } hwnd)
+        {
+            WindowChrome.TryEnableDarkMode(hwnd, _windowChromeColor);
+        }
+
         var ctx = _window!.GLContext
             ?? throw new InvalidOperationException("Window was created without a GL context.");
 

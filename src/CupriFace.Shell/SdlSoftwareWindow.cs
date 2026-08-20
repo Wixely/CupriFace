@@ -118,6 +118,15 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         }
     }
 
+    /// <summary>Change the native always-on-top state while the window is running.</summary>
+    public void SetTopMost(bool on)
+    {
+        if (_window is not null)
+        {
+            _sdl.SetWindowAlwaysOnTop(_window, (SdlBool)(on ? 1 : 0));
+        }
+    }
+
     /// <summary>OS clipboard text, for copy/cut/paste (SDL, via managed Silk bindings). SDL clipboard
     /// strings are UTF-8; marshal them explicitly (Silk's convenience *S/string overloads assume
     /// ANSI, which mangles non-ASCII like “—” into mojibake).</summary>
@@ -192,19 +201,23 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         }
     }
 
-    private readonly bool _frameless, _topMost;
+    private readonly bool _frameless, _topMost, _darkWindowChrome;
+    private readonly SKColor _windowChromeColor;
 
     // NOTE: the SDL software path is opaque — its streaming texture blits over the window with no
     // per-pixel alpha against the desktop, so `transparent` has no effect here (the GL path handles
     // transparency). Frameless / always-on-top do work through standard SDL window flags.
     public SdlSoftwareWindow(string title = "CupriFace", int width = 1024, int height = 768,
-        bool transparent = false, bool frameless = false, bool topMost = false)
+        bool transparent = false, bool frameless = false, bool topMost = false,
+        bool darkWindowChrome = false, SKColor? windowChromeColor = null)
     {
         _title = title;
         _width = width;
         _height = height;
         _frameless = frameless;
         _topMost = topMost;
+        _darkWindowChrome = darkWindowChrome;
+        _windowChromeColor = windowChromeColor ?? new SKColor(0x20, 0x20, 0x20);
     }
 
     public void Run()
@@ -219,6 +232,10 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
             _width, _height, (uint)flags);
         if (_window is null) throw new InvalidOperationException($"SDL_CreateWindow failed: {_sdl.GetErrorS()}");
         ApplyPendingIcon();
+        if (_darkWindowChrome && Win32Hwnd is { } hwnd)
+        {
+            WindowChrome.TryEnableDarkMode(hwnd, _windowChromeColor);
+        }
 
         _renderer = _sdl.CreateRenderer(_window, -1, (uint)RendererFlags.Software);
         if (_renderer is null) throw new InvalidOperationException($"SDL_CreateRenderer failed: {_sdl.GetErrorS()}");

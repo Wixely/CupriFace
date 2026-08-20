@@ -112,7 +112,15 @@ public static class DesktopHost
             if (forceSoftware)
                 throw new InvalidOperationException("CUPRIFACE_SOFTWARE is set; skipping the GL window.");
 
-            var window = new SkiaWindow(app.Title, app.Width, app.Height, app.Transparent, app.Frameless, app.TopMost);
+            var window = new SkiaWindow(
+                app.Title,
+                app.Width,
+                app.Height,
+                app.Transparent,
+                app.Frameless,
+                app.TopMost,
+                app.DarkWindowChrome,
+                app.Background);
             if (icon is { } ic) window.SetIcon(ic.Rgba, ic.W, ic.H);
             window.ShouldRender = NeedsRender; // GL: skip draw + swap entirely on clean frames
             window.Render += Draw;
@@ -125,6 +133,17 @@ public static class DesktopHost
             using var a11y = new Accessibility.PlatformAccessibility(doc, () => dirty = true, app.Title);
             window.Tick += () => { if (a11y.Tick(() => OperatingSystem.IsMacOS() ? window.CocoaWindow : window.Win32Hwnd)) dirty = true; };
             window.Render += _ => a11y.Publish(logicalW, logicalH, scale, window.ScreenPosition);
+            using var tray = new WindowsTrayIcon(app.CloseToTray, app.Title, app.TrayCloseLabel);
+            var topMost = app.TopMost;
+            window.Tick += () =>
+            {
+                if (app.TopMost != topMost)
+                {
+                    topMost = app.TopMost;
+                    window.SetTopMost(topMost);
+                }
+                tray.Attach(window.Win32Hwnd);
+            };
 
             window.PointerDown += (x, y, clicks) => { Mark(doc.DispatchClick(x / scale, y / scale, clicks)); window.SetCursor(doc.CursorAt(x / scale, y / scale)); };
             window.RightPointerDown += (x, y) => Mark(doc.DispatchContextMenu(x / scale, y / scale));
@@ -153,7 +172,15 @@ public static class DesktopHost
         catch (Exception ex)
         {
             Console.WriteLine($"[CupriFace] GPU unavailable ({ex.GetType().Name}); using the SDL software window.");
-            using var window = new SdlSoftwareWindow(app.Title, app.Width, app.Height, app.Transparent, app.Frameless, app.TopMost);
+            using var window = new SdlSoftwareWindow(
+                app.Title,
+                app.Width,
+                app.Height,
+                app.Transparent,
+                app.Frameless,
+                app.TopMost,
+                app.DarkWindowChrome,
+                app.Background);
             if (icon is { } ic) window.SetIcon(ic.Rgba, ic.W, ic.H);
 
             // The retained surface was recreated (blank): the doc's damage diff must restart from
@@ -165,6 +192,17 @@ public static class DesktopHost
             // must work here, not only on GL.
             using var a11y = new Accessibility.PlatformAccessibility(doc, () => dirty = true, app.Title);
             window.Tick += () => { if (a11y.Tick(() => OperatingSystem.IsMacOS() ? window.CocoaWindow : window.Win32Hwnd)) dirty = true; };
+            using var tray = new WindowsTrayIcon(app.CloseToTray, app.Title, app.TrayCloseLabel);
+            var topMost = app.TopMost;
+            window.Tick += () =>
+            {
+                if (app.TopMost != topMost)
+                {
+                    topMost = app.TopMost;
+                    window.SetTopMost(topMost);
+                }
+                tray.Attach(window.Win32Hwnd);
+            };
 
             // Commit-snapshot render thread (opt-in): build the display list on this UI thread and let
             // a background thread rasterise it; present the latest completed frame each vsync. Targets

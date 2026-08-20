@@ -54,6 +54,18 @@ public abstract class CupriApp
     /// <summary>Keep the window above other windows (always-on-top).</summary>
     public virtual bool TopMost => false;
 
+    /// <summary>Hide the native window instead of exiting when its close button is pressed, and
+    /// provide a notification-area icon for restoring or explicitly closing the application.
+    /// Currently implemented by the Windows desktop host.</summary>
+    public virtual bool CloseToTray => false;
+
+    /// <summary>Label for the explicit exit command in the notification-area menu.</summary>
+    public virtual string TrayCloseLabel => $"Close {Title}";
+
+    /// <summary>Request dark native title-bar and border chrome from desktop hosts that support it.
+    /// Other hosts and older operating-system versions safely ignore the preference.</summary>
+    public virtual bool DarkWindowChrome => false;
+
     /// <summary>Opt in to the commit-snapshot render-thread split (DESIGN §7.2): the UI thread builds
     /// the display list and a background thread rasterises it, so rasterisation never blocks input.
     /// Wired for the CPU/SDL software path; the GL path renders inline. Default off.</summary>
