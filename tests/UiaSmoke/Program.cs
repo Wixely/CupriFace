@@ -141,30 +141,37 @@ const ushort ScanTab = 0x0F, ScanCtrl = 0x1D, ScanEquals = 0x0D, ScanZero = 0x0B
 [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
 static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 
-// Can injected PAYLOAD keys reach the window under test? Asked of the definitive witness: the
-// window's own key log (CUPRIFACE_KEY_DEBUG). Softer witnesses lied in turn across seven runs —
-// foreground [ok], thread focus [ok], GetAsyncKeyState registering the press, even a WinForms
-// window in this process hearing everything — while the SDL window heard only MODIFIERS. That
-// split is the finding: modifier state arrives everywhere, but SendInput payload keys reach an
-// SDL window only in some sessions, under either injection style. So: inject F13 (absent from
-// real keyboards, ignored by the app) and read the window's log. A line means payload keys
-// deliver here and the chord legs run strict; silence means they cannot, and the legs skip
-// saying so — while the zoom claim is still proven for real through Ctrl+wheel, whose two
-// ingredients (modifier state, mouse input) deliver everywhere.
-static bool WindowHearsInjectedKeys(string keyLogPath)
+// WHICH injection style reaches the window under test? Asked of the definitive witness: the
+// window's own key log (CUPRIFACE_KEY_DEBUG). Softer witnesses lied in turn across eight runs —
+// foreground [ok], thread focus [ok], GetAsyncKeyState registering presses, a WinForms window in
+// this process hearing everything — and the final twist was a STYLE split: one session delivers
+// scancode-style payload keys and not VK-style, another the reverse, and a leg typing in the
+// wrong style fails against a perfectly healthy window (run 8: the VK probe arrived, the
+// scancode legs typed into the void). So the canary probes each style separately with F13
+// (absent from real keyboards, ignored by the app) and counts the window's keydown lines; the
+// legs then type in a style the window demonstrably hears, and skip only when NEITHER works.
+static (bool Scan, bool Vk) StylesTheWindowHears(string keyLogPath)
 {
     const ushort ScanF13 = 0x64;
-    for (var i = 0; i < 5; i++)
+    int Lines()
     {
-        TypeScan(ScanF13);
-        Keyboard.Type(VirtualKeyShort.F13);   // both styles — either one counting is enough
-        Thread.Sleep(150);
-        // Match the KEY, not "any keydown": the focus dance taps Alt, and modifiers arriving is
-        // precisely the misleading signal this hunt kept mistaking for a working keyboard.
-        try { if (File.Exists(keyLogPath) && File.ReadAllText(keyLogPath).Contains("F13")) return true; }
-        catch { /* mid-write; try again */ }
+        try { return File.Exists(keyLogPath) ? File.ReadAllLines(keyLogPath).Count(l => l.Contains("keydown")) : 0; }
+        catch { return -1; /* mid-write — caller retries */ }
     }
-    return false;
+    bool Probe(Action send)
+    {
+        for (var i = 0; i < 3; i++)
+        {
+            var before = Lines();
+            if (before < 0) { Thread.Sleep(100); continue; }
+            send();
+            if (Poll(() => Lines() > before, 800)) return true;
+        }
+        return false;
+    }
+    var scan = Probe(() => TypeScan(ScanF13));
+    var vk = Probe(() => Keyboard.Type(VirtualKeyShort.F13));
+    return (scan, vk);
 }
 
 var startInfo = new ProcessStartInfo(viewerPath) { UseShellExecute = false };
@@ -266,16 +273,27 @@ try
         return new System.Drawing.Point(rc.Left + rc.Width / 2, rc.Top + rc.Height / 2);
     }
 
-    // The chord-driven legs. Blocking wherever injected payload keys actually reach the window
-    // under test — its own key log is the witness; where they don't (some sessions hand an SDL
-    // window only MODIFIERS, under either injection style), they SKIP and say so. The wheel-zoom
-    // leg below never skips: both of its ingredients deliver everywhere.
+    // The chord-driven legs. Blocking wherever SOME injection style reaches the window under
+    // test — its own key log is the witness, per style, because sessions differ on which style
+    // they deliver — and the legs then type in a style the window demonstrably hears. Where no
+    // style gets through, they SKIP and say so. The wheel-zoom leg never skips.
     BringToFront(window, SafeClick());
-    var keysAlive = WindowHearsInjectedKeys(keyLogPath);
+    var styles = StylesTheWindowHears(keyLogPath);
+    var keysAlive = styles.Scan || styles.Vk;
+    void SendKey(VirtualKeyShort vk, ushort scan)
+    {
+        if (styles.Scan) TypeScan(scan);
+        else { Keyboard.Type(vk); Thread.Sleep(60); }
+    }
+    void SendChord(VirtualKeyShort vk, ushort scan)
+    {
+        if (styles.Scan) TypeScan(ScanCtrl, scan);
+        else { using (Keyboard.Pressing(VirtualKeyShort.CONTROL)) Keyboard.Type(vk); Thread.Sleep(60); }
+    }
     void KeyboardCheck(string name, Func<(bool Ok, string Detail)> test)
     {
         if (!keysAlive)
-            Console.WriteLine($"SKIP  {name}  [injected payload keys do not reach this window in this session - its own log heard none]");
+            Console.WriteLine($"SKIP  {name}  [no injection style reaches this window in this session - its own log heard neither probe]");
         else Check(name, test);
     }
 
@@ -291,7 +309,7 @@ try
             catch { return false; }
         })?.Properties.AutomationId.ValueOrDefault;
         var before = FocusedId();
-        TypeScan(ScanTab);
+        SendKey(VirtualKeyShort.TAB, ScanTab);
         var moved = Poll(() => FocusedId() is { } now && now != before);
         return (moved, $"[{front}] focus {before ?? "(none)"} -> {FocusedId() ?? "(none)"}");
     });
@@ -305,18 +323,18 @@ try
         // A synthetic chord occasionally evaporates even on a healthy desktop (~1 run in 4 here),
         // so the leg does what a person does: press again, bounded. Three lost presses in a row
         // is no longer injection luck — a genuinely broken path fails all three.
-        bool PressUntil(ushort scan, Func<bool> done)
+        bool PressUntil(VirtualKeyShort vk, ushort scan, Func<bool> done)
         {
             for (var attempt = 0; attempt < 3 && !done(); attempt++)
             {
-                TypeScan(ScanCtrl, scan);
+                SendChord(vk, scan);
                 if (Poll(done, 1500)) return true;
             }
             return done();
         }
-        var grew = PressUntil(ScanEquals, () => box.BoundingRectangle.Width > before * 1.05);
+        var grew = PressUntil(VirtualKeyShort.OEM_PLUS, ScanEquals, () => box.BoundingRectangle.Width > before * 1.05);
         var zoomed = box.BoundingRectangle.Width;
-        var restored = PressUntil(ScanZero, () => Math.Abs(box.BoundingRectangle.Width - before) <= 1);
+        var restored = PressUntil(VirtualKeyShort.KEY_0, ScanZero, () => Math.Abs(box.BoundingRectangle.Width - before) <= 1);
         return (grew && restored, $"[{front}] width {before:0} -> {zoomed:0} -> {box.BoundingRectangle.Width:0}");
     });
 
@@ -341,11 +359,15 @@ try
         {
             for (var attempt = 0; attempt < 4 && !done(); attempt++)
             {
-                SendInput(1, [ScanInput(ScanCtrl, up: false)], System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
-                Thread.Sleep(40);                      // let the modifier state land before the wheel
-                FlaUI.Core.Input.Mouse.Scroll(direction);
-                Thread.Sleep(40);
-                SendInput(1, [ScanInput(ScanCtrl, up: true)], System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
+                // The modifier rides VK-style — run 8's lesson: scan-style Ctrl never arrived
+                // on the runner, SDL's modifier state stayed empty, and the wheel scrolled
+                // instead of zooming. VK modifiers have arrived in every session observed.
+                using (Keyboard.Pressing(VirtualKeyShort.CONTROL))
+                {
+                    Thread.Sleep(40);                  // let the modifier state land before the wheel
+                    FlaUI.Core.Input.Mouse.Scroll(direction);
+                    Thread.Sleep(40);
+                }
                 if (Poll(done, 1500)) return true;
             }
             return done();
