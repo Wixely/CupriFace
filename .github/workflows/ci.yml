@@ -1128,6 +1128,34 @@ jobs:
 
           Not on nuget.org yet: download the `.nupkg` and add its folder as a local source.
           EOF
+
+          # Per-release notes come from RELEASE-NOTES.md, not from this heredoc: a breaking change
+          # has to be written in the commit that makes it, or it gets reconstructed from memory at
+          # tag time — and a static blurb here would repeat one release's breakage in every later
+          # release's notes. Prefer a section named for the tag; fall back to "Unreleased" so
+          # pending entries publish under whatever version actually ships. No section = nothing
+          # added, which is right for a release that breaks nothing.
+          SECTION=""
+          if [ -f RELEASE-NOTES.md ]; then
+            for heading in "$GITHUB_REF_NAME" "Unreleased"; do
+              SECTION=$(awk -v want="## $heading" '
+                $0 == want { grab = 1; next }
+                grab && /^## / { exit }
+                grab { print }
+              ' RELEASE-NOTES.md | sed '/^[[:space:]]*$/{ /./!d }')
+              if [ -n "$(echo "$SECTION" | tr -d '[:space:]')" ]; then
+                echo "release notes: using the '$heading' section of RELEASE-NOTES.md"
+                break
+              fi
+              SECTION=""
+            done
+          fi
+          if [ -n "$SECTION" ]; then
+            { printf '## Changes in this release\n\n%s\n\n---\n\n' "$SECTION"; cat notes.md; } > notes.tmp
+            mv notes.tmp notes.md
+          else
+            echo "release notes: no matching section in RELEASE-NOTES.md - publishing the standard notes only"
+          fi
           # Idempotent: re-running a tag (or adding an asset that was missed) updates the existing
           # release rather than failing on "already exists". Each call is checked explicitly —
           # inside an `if` condition errexit is suspended, so a bare sequence would report the
