@@ -37,7 +37,8 @@ public sealed class WebmVideoBackend : IVideoBackend
 /// render loop (kept live by <see cref="Ticking"/>) paints whatever is current. The first frame
 /// is presented on open (poster → real picture, like a browser's preload). Retired frames are
 /// disposed a few swaps later, honouring the surface contract. The pump runs on a background
-/// thread in production and is driven directly (manual clock) in tests.
+/// thread in production; injecting a clock (tests) disables that thread entirely, so manual
+/// <see cref="Pump"/> calls are the only pump and a test can never race its own player.
 /// </summary>
 public sealed class WebmPlayer : IVideoPlayer, ISurfaceSource
 {
@@ -78,6 +79,10 @@ public sealed class WebmPlayer : IVideoPlayer, ISurfaceSource
         _factory = decoders;
         _providedSink = sink;
         _now = clock ?? (() => Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency);
+        _manualPump = clock is not null;
+        if (_manualPump && deferred)   // the thread is also the downloader; without it a deferred
+            throw new ArgumentException(  // open would sit on its poster forever, silently
+                "A deferred open needs the pump thread for its download; a manual-clock player must use deferred: false.");
 
         if (!deferred)
         {
@@ -202,9 +207,14 @@ public sealed class WebmPlayer : IVideoPlayer, ISurfaceSource
 
     // ---- the pump ----------------------------------------------------------------------------
 
+    // An injected clock means the TEST is the pump. This gate is what makes that true: without
+    // it, Play() spins the real thread and the "deterministic" test races a 4 ms pump loop over
+    // the very state it asserts on — which is exactly what happened (see AudioTrackTests).
+    private readonly bool _manualPump;
+
     private void EnsureThread()
     {
-        if (_thread is not null) return;
+        if (_manualPump || _thread is not null) return;
         _thread = new Thread(() =>
         {
             // Deferred open: resolve OFF the UI thread (this may be a network fetch under the
