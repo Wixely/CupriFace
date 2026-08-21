@@ -59,18 +59,21 @@ static bool Poll(Func<bool> condition, int timeoutMs = 5000)
 // thread's input state to the window's thread and call SetFocus directly. Every step is VERIFIED
 // (GetForegroundWindow, then GetFocus through the attachment) and the verdict string goes into
 // the failure detail, so a red gate names the broken link instead of shrugging.
-static string BringToFront(FlaUI.Core.AutomationElements.Window w)
+static string BringToFront(FlaUI.Core.AutomationElements.Window w, System.Drawing.Point clickAt)
 {
     var target = new IntPtr(w.Properties.NativeWindowHandle.Value);
 
-    // First, focus the way a person does: click the window. The runner taught us why this
-    // matters — its session delivers injected keys (the gate's own canary form hears them), yet
-    // programmatic SetForegroundWindow+SetFocus left the SDL window deaf. SDL routes keyboard
-    // events by its OWN focus bookkeeping, fed by real activation; a click produces that, an
-    // attached SetFocus evidently need not. Click the title strip: part of the drag region, so a
-    // single click with no move activates without touching any control.
-    var r = w.BoundingRectangle;
-    FlaUI.Core.Input.Mouse.Click(new System.Drawing.Point(r.Left + r.Width / 2, r.Top + 12));
+    // First, focus the way a person does: click the window. The runner proved both halves of
+    // why this is delicate. Without a real click, SendInput payload keys never reach the SDL
+    // window there (SDL routes keys by its own focus bookkeeping, fed by real activation); with
+    // a click on the TITLE STRIP, the OS modal window-move loop swallowed the event loop whole —
+    // on that virtual display it never exited, and every check after read a frozen window. So
+    // the click lands on CONTENT the caller vouches for — the same checkbox the legs measure —
+    // twice, so the toggle it flips is flipped straight back. Real activation, no drag region,
+    // and delivery of mouse input proven as a side effect.
+    FlaUI.Core.Input.Mouse.Click(clickAt);
+    Thread.Sleep(120);
+    FlaUI.Core.Input.Mouse.Click(clickAt);
     Thread.Sleep(200);
 
     for (var attempt = 0; attempt < 20 && GetForegroundWindow() != target; attempt++)
@@ -254,11 +257,20 @@ try
         return (applied, $"[{min}..{max}] {v} -> {range.Value.Value} (asked {target})");
     });
 
+    // The one content pixel a focus click can vouch for: the checkbox the legs measure anyway.
+    // Its toggle is flipped twice per activation, so state always comes back restored.
+    System.Drawing.Point SafeClick()
+    {
+        var cb = window.FindFirstDescendant(cf => cf.ByControlType(ControlType.CheckBox));
+        var rc = cb?.BoundingRectangle ?? window.BoundingRectangle;
+        return new System.Drawing.Point(rc.Left + rc.Width / 2, rc.Top + rc.Height / 2);
+    }
+
     // The chord-driven legs. Blocking wherever injected payload keys actually reach the window
     // under test — its own key log is the witness; where they don't (some sessions hand an SDL
     // window only MODIFIERS, under either injection style), they SKIP and say so. The wheel-zoom
     // leg below never skips: both of its ingredients deliver everywhere.
-    BringToFront(window);
+    BringToFront(window, SafeClick());
     var keysAlive = WindowHearsInjectedKeys(keyLogPath);
     void KeyboardCheck(string name, Func<(bool Ok, string Detail)> test)
     {
@@ -272,7 +284,7 @@ try
         // Strict on purpose: the original version asserted "anything has focus after Tab", which
         // an earlier pattern action could satisfy — a keyboard check that never needed the
         // keyboard. This one requires focus to MOVE, so it fails when the keystroke doesn't land.
-        var front = BringToFront(window);
+        var front = BringToFront(window, SafeClick());
         string? FocusedId() => window.FindAllDescendants().FirstOrDefault(e =>
         {
             try { return e.Properties.HasKeyboardFocus.ValueOrDefault; }
@@ -289,7 +301,7 @@ try
         var box = window.FindFirstDescendant(cf => cf.ByControlType(ControlType.CheckBox));
         if (box is null) return (false, "no checkbox to measure");
         var before = box.BoundingRectangle.Width;
-        var front = BringToFront(window);
+        var front = BringToFront(window, SafeClick());
         // A synthetic chord occasionally evaporates even on a healthy desktop (~1 run in 4 here),
         // so the leg does what a person does: press again, bounded. Three lost presses in a row
         // is no longer injection luck — a genuinely broken path fails all three.
@@ -321,7 +333,7 @@ try
         var before = box.BoundingRectangle.Width;
         if (before <= 0) return (false, "degenerate rect before zoom");
 
-        var front = BringToFront(window);
+        var front = BringToFront(window, SafeClick());
         var r = window.BoundingRectangle;
         FlaUI.Core.Input.Mouse.Position = new System.Drawing.Point(r.Left + r.Width / 2, r.Top + r.Height / 2);
 
