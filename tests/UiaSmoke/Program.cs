@@ -44,6 +44,30 @@ static bool Poll(Func<bool> condition, int timeoutMs = 5000)
     return condition();
 }
 
+// SendInput delivers to the FOREGROUND window, and on Windows Server SetForegroundWindow is
+// routinely denied to a background process — the keys then land in the console, silently, and a
+// keyboard check "fails" while the code under test never saw a key. So: take foreground the
+// documented way (a synthetic Alt makes this thread the last-input owner, which unlocks the
+// call), and VERIFY with GetForegroundWindow rather than trusting the attempt. Callers put the
+// verdict in the failure detail, so a red gate says which side of the keyboard was broken.
+static bool BringToFront(FlaUI.Core.AutomationElements.Window w)
+{
+    var target = new IntPtr(w.Properties.NativeWindowHandle.Value);
+    for (var attempt = 0; attempt < 20; attempt++)
+    {
+        if (GetForegroundWindow() == target) return true;
+        Keyboard.Type(VirtualKeyShort.ALT);
+        SetForegroundWindow(target);
+        Thread.Sleep(100);
+    }
+    return GetForegroundWindow() == target;
+}
+
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+static extern IntPtr GetForegroundWindow();
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+static extern bool SetForegroundWindow(IntPtr hWnd);
+
 using var app = FlaUI.Core.Application.Launch(viewerPath);
 try
 {
@@ -129,15 +153,19 @@ try
 
     Check("Tab moves keyboard focus and UIA sees it", () =>
     {
-        window.Focus();
-        Thread.Sleep(300);
-        Keyboard.Type(VirtualKeyShort.TAB);
-        var focused = Poll(() => window.FindAllDescendants().Any(e =>
+        // Strict on purpose: the original version asserted "anything has focus after Tab", which
+        // an earlier pattern action could satisfy — a keyboard check that never needed the
+        // keyboard. This one requires focus to MOVE, so it fails when the keystroke doesn't land.
+        if (!BringToFront(window)) return (false, "could not take foreground - keys would go elsewhere");
+        string? FocusedId() => window.FindAllDescendants().FirstOrDefault(e =>
         {
             try { return e.Properties.HasKeyboardFocus.ValueOrDefault; }
             catch { return false; }
-        }));
-        return (focused, "");
+        })?.Properties.AutomationId.ValueOrDefault;
+        var before = FocusedId();
+        Keyboard.Type(VirtualKeyShort.TAB);
+        var moved = Poll(() => FocusedId() is { } now && now != before);
+        return (moved, $"focus {before ?? "(none)"} -> {FocusedId() ?? "(none)"}");
     });
 
     Check("Ctrl+= zooms the page where an AT can see it, and Ctrl+0 undoes it", () =>
@@ -151,8 +179,7 @@ try
         var before = box.BoundingRectangle.Width;
         if (before <= 0) return (false, "degenerate rect before zoom");
 
-        window.Focus();
-        Thread.Sleep(300);
+        if (!BringToFront(window)) return (false, "could not take foreground - keys would go elsewhere");
         using (Keyboard.Pressing(VirtualKeyShort.CONTROL)) Keyboard.Type(VirtualKeyShort.OEM_PLUS);
         var grew = Poll(() => box.BoundingRectangle.Width > before * 1.05);
         var zoomed = box.BoundingRectangle.Width;
