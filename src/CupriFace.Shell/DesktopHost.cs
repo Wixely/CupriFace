@@ -167,7 +167,13 @@ public static class DesktopHost
                 Mark(DesktopPointerUp(doc, logicalX, logicalY));
                 window.SetCursor(doc.CursorAt(logicalX, logicalY));
             };
-            window.PointerWheel += (x, y, dy) => Mark(doc.DispatchWheel(x / scale, y / scale, -dy * 50f)); // wheel up → scroll up
+            window.PointerWheel += (x, y, dy, mods) =>
+            {
+                // Ctrl+wheel is zoom — one ladder rung per notch, as every browser has it. A plain
+                // wheel scrolls. The split lives here so the engine never learns chord conventions.
+                if (mods.HasFlag(KeyMods.Ctrl)) { if (dy > 0) doc.ZoomIn(); else if (dy < 0) doc.ZoomOut(); dirty = true; }
+                else Mark(doc.DispatchWheel(x / scale, y / scale, -dy * 50f)); // wheel up → scroll up
+            };
             window.TextEntered += t => Mark(doc.DispatchKey(t, EditKey.None));
             window.EditKeyPressed += (k, mods) =>
             {
@@ -294,7 +300,13 @@ public static class DesktopHost
                 Mark(DesktopPointerUp(doc, logicalX, logicalY));
                 window.SetCursor(doc.CursorAt(logicalX, logicalY));
             };
-            window.PointerWheel += (x, y, dy) => Mark(doc.DispatchWheel(x / scale, y / scale, -dy * 50f)); // wheel up → scroll up
+            window.PointerWheel += (x, y, dy, mods) =>
+            {
+                // Ctrl+wheel is zoom — one ladder rung per notch, as every browser has it. A plain
+                // wheel scrolls. The split lives here so the engine never learns chord conventions.
+                if (mods.HasFlag(KeyMods.Ctrl)) { if (dy > 0) doc.ZoomIn(); else if (dy < 0) doc.ZoomOut(); dirty = true; }
+                else Mark(doc.DispatchWheel(x / scale, y / scale, -dy * 50f)); // wheel up → scroll up
+            };
             window.TextEntered += t => Mark(doc.DispatchKey(t, EditKey.None));
             window.EditKeyPressed += (k, mods) =>
             {
@@ -393,6 +405,11 @@ public static class DesktopHost
             case 'v': if (getClip() is { Length: > 0 } pv) doc.DispatchKey(pv, EditKey.None); break;
             case 'z': if (mods.HasFlag(KeyMods.Shift)) doc.Redo(); else doc.Undo(); break; // Ctrl+Shift+Z = redo
             case 'y': doc.Redo(); break;
+            // Page zoom, browser keys. The chrome owns these the way a browser does — they never
+            // reach the app's OnShortcut. (The windows only send =/-/0 as chords for this purpose.)
+            case '=': doc.ZoomIn(); break;
+            case '-': doc.ZoomOut(); break;
+            case '0': doc.ZoomReset(); break;
             // Anything else is the app's own shortcut (doc.OnShortcut) — e.g. Ctrl+K opening a command
             // palette. The web host has always forwarded these via KeyChord; the desktop hosts dropped
             // them, so a documented feature only worked in the browser.

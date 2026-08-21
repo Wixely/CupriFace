@@ -140,6 +140,30 @@ try
         return (focused, "");
     });
 
+    Check("Ctrl+= zooms the page where an AT can see it, and Ctrl+0 undoes it", () =>
+    {
+        // Zoom is only real if what assistive tech is TOLD moves with it: the engine scales the
+        // semantics tree's bounds, and this reads them back over the wire. A checkbox glyph has a
+        // fixed logical size, so one ladder step (×1.1) must widen its UIA rect by that ratio no
+        // matter how the surrounding content reflows.
+        var box = window.FindFirstDescendant(cf => cf.ByControlType(ControlType.CheckBox));
+        if (box is null) return (false, "no checkbox to measure");
+        var before = box.BoundingRectangle.Width;
+        if (before <= 0) return (false, "degenerate rect before zoom");
+
+        window.Focus();
+        Thread.Sleep(300);
+        using (Keyboard.Pressing(VirtualKeyShort.CONTROL)) Keyboard.Type(VirtualKeyShort.OEM_PLUS);
+        var grew = Poll(() => box.BoundingRectangle.Width > before * 1.05);
+        var zoomed = box.BoundingRectangle.Width;
+
+        using (Keyboard.Pressing(VirtualKeyShort.CONTROL)) Keyboard.Type(VirtualKeyShort.KEY_0);
+        var restored = Poll(() => Math.Abs(box.BoundingRectangle.Width - before) <= 1);
+
+        return (grew && restored,
+            $"width {before:0} -> {zoomed:0} -> {box.BoundingRectangle.Width:0}");
+    });
+
     return failures;
 }
 finally

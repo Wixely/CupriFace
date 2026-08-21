@@ -90,10 +90,10 @@ public sealed class SkiaWindow : IDisposable
     public event Action<float, float>? RightPointerDown;     // right-click → context menu
     public event Action<float, float>? PointerMove;
     public event Action<float, float>? PointerUp;
-    public event Action<float, float, float>? PointerWheel; // x, y, deltaY (notches)
+    public event Action<float, float, float, KeyMods>? PointerWheel; // x, y, deltaY (notches), mods — Ctrl+wheel is zoom
     public event Action<string>? TextEntered;
     public event Action<EditKey, KeyMods>? EditKeyPressed;  // key + Shift/Ctrl modifiers
-    public event Action<char, KeyMods>? Shortcut;           // Ctrl/Cmd + letter (a/c/x/v …)
+    public event Action<char, KeyMods>? Shortcut;           // Ctrl/Cmd + letter (a/c/x/v …) or =/-/0 (zoom)
 
     /// <summary>OS clipboard text, for copy/cut/paste (Silk keyboard, no P/Invoke).</summary>
     public string? ClipboardText
@@ -312,7 +312,8 @@ public sealed class SkiaWindow : IDisposable
             };
             mouse.MouseUp += (m, btn) => { if (btn == MouseButton.Left) PointerUp?.Invoke(m.Position.X, m.Position.Y); };
             mouse.MouseMove += (m, pos) => PointerMove?.Invoke(pos.X, pos.Y);
-            mouse.Scroll += (m, wheel) => PointerWheel?.Invoke(m.Position.X, m.Position.Y, wheel.Y);
+            mouse.Scroll += (m, wheel) => PointerWheel?.Invoke(m.Position.X, m.Position.Y, wheel.Y,
+                _input.Keyboards.Any(Ctrl) ? KeyMods.Ctrl : KeyMods.None);
         }
         foreach (var kb in _input.Keyboards)
         {
@@ -328,6 +329,18 @@ public sealed class SkiaWindow : IDisposable
                 {
                     Shortcut?.Invoke((char)('a' + (key - Key.A)), mods);
                     return;
+                }
+                // Ctrl/Cmd + =/-/0 is page zoom, browser-style; keypad +/-/0 carry the same intent.
+                if (Ctrl(k))
+                {
+                    var zoomCh = key switch
+                    {
+                        Key.Equal or Key.KeypadAdd => '=',
+                        Key.Minus or Key.KeypadSubtract => '-',
+                        Key.Number0 or Key.Keypad0 => '0',
+                        _ => '\0',
+                    };
+                    if (zoomCh != '\0') { Shortcut?.Invoke(zoomCh, mods); return; }
                 }
                 var ek = key switch
                 {

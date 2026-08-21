@@ -240,4 +240,68 @@ public class PageZoomTests
         Finger(doc, 4, Interaction.PointerPhase.Move, 550, 300);
         Assert.True(doc.Zoom > afterFirst, "the second pinch reset instead of continuing");
     }
+
+    // ---- the keyboard ladder (what a host's Ctrl+= / − / 0 and Ctrl+wheel call) ----------------
+
+    [Fact]
+    public void The_ladder_steps_like_a_browser_and_always_returns_exactly_home()
+    {
+        using var doc = CupriDocument.Load(Html, Css);
+
+        doc.ZoomIn();
+        Assert.Equal(1.1f, doc.Zoom);
+        doc.ZoomIn();
+        Assert.Equal(1.25f, doc.Zoom);
+        doc.ZoomOut();
+        doc.ZoomOut();
+        Assert.Equal(1f, doc.Zoom);   // exactly — the discrete ladder is why there is no ×÷ drift
+
+        doc.ZoomOut();
+        Assert.Equal(0.9f, doc.Zoom);
+        doc.ZoomReset();
+        Assert.Equal(1f, doc.Zoom);
+    }
+
+    [Fact]
+    public void The_ladder_ends_are_the_pinch_clamps_and_pressing_past_them_holds()
+    {
+        using var doc = CupriDocument.Load(Html, Css);
+        for (var i = 0; i < 30; i++) doc.ZoomIn();
+        Assert.Equal(CupriDocument.MaxZoom, doc.Zoom);
+        for (var i = 0; i < 30; i++) doc.ZoomOut();
+        Assert.Equal(CupriDocument.MinZoom, doc.Zoom);
+    }
+
+    [Fact]
+    public void A_pinch_value_between_rungs_climbs_to_the_next_rung_not_past_it()
+    {
+        // A pinch can leave any value; the next keypress must land ON the ladder, in the pressed
+        // direction — 1.37 zooms "in" to 1.5, not to 1.1's neighbour or a multiplied 1.507.
+        using var doc = CupriDocument.Load(Html, Css);
+        doc.Zoom = 1.37f;
+        doc.ZoomIn();
+        Assert.Equal(1.5f, doc.Zoom);
+
+        doc.Zoom = 1.37f;
+        doc.ZoomOut();
+        Assert.Equal(1.25f, doc.Zoom);
+    }
+
+    [Fact]
+    public void An_app_that_owns_zoom_keeps_the_keys_but_reset_still_works()
+    {
+        // PageZoomEnabled=false is the app saying "zoom is mine" (a map, a canvas). The in/out keys
+        // honour that — but Ctrl+0 must always undo whatever zoom is in force, no matter whose it
+        // was: an escape hatch is only an escape hatch if nothing can close it.
+        using var doc = CupriDocument.Load(Html, Css);
+        doc.Zoom = 2f;
+        doc.PageZoomEnabled = false;
+
+        doc.ZoomIn();
+        doc.ZoomOut();
+        Assert.Equal(2f, doc.Zoom);
+
+        doc.ZoomReset();
+        Assert.Equal(1f, doc.Zoom);
+    }
 }
