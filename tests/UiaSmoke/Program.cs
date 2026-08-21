@@ -91,6 +91,24 @@ static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttac
 static extern IntPtr SetFocus(IntPtr hWnd);
 [System.Runtime.InteropServices.DllImport("user32.dll")]
 static extern IntPtr GetFocus();
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+static extern short GetAsyncKeyState(int vKey);
+
+// Does synthetic input exist AT ALL in this session? On the hosted windows-2025 runner it does
+// not: foreground and thread focus both verify [ok] and injected keys still never arrive — dead
+// at the OS, not in any window. The distinguisher matters: ask the SYSTEM, not the app. Inject
+// F13 (absent from real keyboards, ignored by the app) and read GetAsyncKeyState's
+// pressed-since-last-call bit. An app-side regression cannot fake a NO here — if the OS
+// registered the press, the keyboard legs run strict and blocking; only when the OS itself never
+// saw the key do they skip, stating so. Where injection works, nothing is weakened.
+static bool SystemSeesInjectedKeys()
+{
+    const int VK_F13 = 0x7C;
+    GetAsyncKeyState(VK_F13);                   // clear the since-last-call bit
+    Keyboard.Type(VirtualKeyShort.F13);
+    Thread.Sleep(50);
+    return (GetAsyncKeyState(VK_F13) & 0x0001) != 0;
+}
 
 using var app = FlaUI.Core.Application.Launch(viewerPath);
 try
@@ -175,7 +193,19 @@ try
         return (applied, $"[{min}..{max}] {v} -> {range.Value.Value} (asked {target})");
     });
 
-    Check("Tab moves keyboard focus and UIA sees it", () =>
+    // The two keyboard legs. Blocking wherever the session can inject keys; where the OS itself
+    // registers none (today's hosted runner), they SKIP and say so — the chord path's proof is
+    // then the engine ladder tests plus the full-chain local pass, stated in ROADMAP rather than
+    // implied by a green that typed into the void.
+    var keysAlive = SystemSeesInjectedKeys();
+    void KeyboardCheck(string name, Func<(bool Ok, string Detail)> test)
+    {
+        if (!keysAlive)
+            Console.WriteLine($"SKIP  {name}  [this session registers no injected input at the OS level (GetAsyncKeyState after SendInput = 0)]");
+        else Check(name, test);
+    }
+
+    KeyboardCheck("Tab moves keyboard focus and UIA sees it", () =>
     {
         // Strict on purpose: the original version asserted "anything has focus after Tab", which
         // an earlier pattern action could satisfy — a keyboard check that never needed the
@@ -192,7 +222,7 @@ try
         return (moved, $"[{front}] focus {before ?? "(none)"} -> {FocusedId() ?? "(none)"}");
     });
 
-    Check("Ctrl+= zooms the page where an AT can see it, and Ctrl+0 undoes it", () =>
+    KeyboardCheck("Ctrl+= zooms the page where an AT can see it, and Ctrl+0 undoes it", () =>
     {
         // Zoom is only real if what assistive tech is TOLD moves with it: the engine scales the
         // semantics tree's bounds, and this reads them back over the wire. A checkbox glyph has a
