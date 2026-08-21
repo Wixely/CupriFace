@@ -53,6 +53,17 @@
             <div class="chip">seven</div><div class="chip">eight</div>
           </div>
         </div>
+
+        <!-- Video, decoded by the PHONE. The engine punches a transparent hole here and Android's
+             own decoder shows through it, so this element is identical to the one the desktop and
+             web samples carry — only the backend differs. It sits last on the page deliberately:
+             the multi-touch gate measures the gesture tile above, and moving that would break it. -->
+        <div class="card">
+          <b>Video</b>
+          <span class="muted">Played by the platform's decoder — no codecs ship in the app.</span>
+          <cupri-video src="Assets/demo.webm" controls muted loop
+                       label="Generated test clip" style="width:100%;height:150px"></cupri-video>
+        </div>
       </div>
 
       <!-- List: the fling exerciser. 500 rows, virtualised to a screenful. role=listitem puts
