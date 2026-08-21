@@ -92,22 +92,59 @@ static extern IntPtr SetFocus(IntPtr hWnd);
 [System.Runtime.InteropServices.DllImport("user32.dll")]
 static extern IntPtr GetFocus();
 [System.Runtime.InteropServices.DllImport("user32.dll")]
-static extern short GetAsyncKeyState(int vKey);
+static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
-// Does synthetic input exist AT ALL in this session? On the hosted windows-2025 runner it does
-// not: foreground and thread focus both verify [ok] and injected keys still never arrive — dead
-// at the OS, not in any window. The distinguisher matters: ask the SYSTEM, not the app. Inject
-// F13 (absent from real keyboards, ignored by the app) and read GetAsyncKeyState's
-// pressed-since-last-call bit. An app-side regression cannot fake a NO here — if the OS
-// registered the press, the keyboard legs run strict and blocking; only when the OS itself never
-// saw the key do they skip, stating so. Where injection works, nothing is weakened.
-static bool SystemSeesInjectedKeys()
+// Does this session DELIVER injected keys to any window at all? Every softer witness lied in
+// turn on the hosted runner: foreground verifies [ok], thread focus verifies [ok], and
+// GetAsyncKeyState even REGISTERS the press — the input is synthesized into the key-state table
+// and then discarded before any window queue hears it. So the canary asks the only witness that
+// counts: a window this very process owns. Inject F13 (absent from real keyboards, ignored by
+// the app under test) at our own focused form and observe whether OUR KeyDown fires. If it does
+// not, the session delivers input to no one — the keyboard legs skip, saying so. If it does,
+// delivery works here, and a Viewer that then ignores keys is a REAL failure. An app-side
+// regression cannot touch this canary; it never involves the app.
+static bool SessionDeliversKeys()
 {
-    const int VK_F13 = 0x7C;
-    GetAsyncKeyState(VK_F13);                   // clear the since-last-call bit
-    Keyboard.Type(VirtualKeyShort.F13);
-    Thread.Sleep(50);
-    return (GetAsyncKeyState(VK_F13) & 0x0001) != 0;
+    var got = 0;
+    var handle = IntPtr.Zero;
+    using var shown = new ManualResetEventSlim(false);
+    var pump = new Thread(() =>
+    {
+        var f = new System.Windows.Forms.Form
+        {
+            Text = "cupri input canary",
+            ShowInTaskbar = false,
+            StartPosition = System.Windows.Forms.FormStartPosition.Manual,
+            Location = new System.Drawing.Point(0, 0),
+            Size = new System.Drawing.Size(160, 60),
+        };
+        f.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode != System.Windows.Forms.Keys.F13) return;
+            Interlocked.Exchange(ref got, 1);
+            f.BeginInvoke(f.Close);
+        };
+        f.Shown += (_, _) => { handle = f.Handle; f.Activate(); shown.Set(); };
+        System.Windows.Forms.Application.Run(f);
+    });
+    pump.SetApartmentState(ApartmentState.STA);
+    pump.IsBackground = true;
+    pump.Start();
+
+    if (shown.Wait(5000))
+    {
+        SetForegroundWindow(handle);
+        Thread.Sleep(200);
+        for (var i = 0; i < 10 && Volatile.Read(ref got) == 0; i++)
+        {
+            Keyboard.Type(VirtualKeyShort.F13);
+            Thread.Sleep(100);
+        }
+    }
+    if (Volatile.Read(ref got) == 0 && handle != IntPtr.Zero)
+        PostMessage(handle, 0x0010 /* WM_CLOSE */, IntPtr.Zero, IntPtr.Zero);
+    pump.Join(2000);
+    return Volatile.Read(ref got) == 1;
 }
 
 using var app = FlaUI.Core.Application.Launch(viewerPath);
@@ -197,11 +234,11 @@ try
     // registers none (today's hosted runner), they SKIP and say so — the chord path's proof is
     // then the engine ladder tests plus the full-chain local pass, stated in ROADMAP rather than
     // implied by a green that typed into the void.
-    var keysAlive = SystemSeesInjectedKeys();
+    var keysAlive = SessionDeliversKeys();
     void KeyboardCheck(string name, Func<(bool Ok, string Detail)> test)
     {
         if (!keysAlive)
-            Console.WriteLine($"SKIP  {name}  [this session registers no injected input at the OS level (GetAsyncKeyState after SendInput = 0)]");
+            Console.WriteLine($"SKIP  {name}  [this session delivers injected keys to no window - not even the gate's own canary form heard one]");
         else Check(name, test);
     }
 
@@ -234,12 +271,21 @@ try
         if (before <= 0) return (false, "degenerate rect before zoom");
 
         var front = BringToFront(window);
-        using (Keyboard.Pressing(VirtualKeyShort.CONTROL)) Keyboard.Type(VirtualKeyShort.OEM_PLUS);
-        var grew = Poll(() => box.BoundingRectangle.Width > before * 1.05);
+        // A synthetic chord occasionally evaporates even on a healthy desktop (~1 run in 4 here),
+        // so the leg does what a person does: press again, bounded. Three lost presses in a row
+        // is no longer injection luck — a genuinely broken path fails all three.
+        bool PressUntil(VirtualKeyShort key, Func<bool> done)
+        {
+            for (var attempt = 0; attempt < 3 && !done(); attempt++)
+            {
+                using (Keyboard.Pressing(VirtualKeyShort.CONTROL)) Keyboard.Type(key);
+                if (Poll(done, 1500)) return true;
+            }
+            return done();
+        }
+        var grew = PressUntil(VirtualKeyShort.OEM_PLUS, () => box.BoundingRectangle.Width > before * 1.05);
         var zoomed = box.BoundingRectangle.Width;
-
-        using (Keyboard.Pressing(VirtualKeyShort.CONTROL)) Keyboard.Type(VirtualKeyShort.KEY_0);
-        var restored = Poll(() => Math.Abs(box.BoundingRectangle.Width - before) <= 1);
+        var restored = PressUntil(VirtualKeyShort.KEY_0, () => Math.Abs(box.BoundingRectangle.Width - before) <= 1);
 
         return (grew && restored,
             $"[{front}] width {before:0} -> {zoomed:0} -> {box.BoundingRectangle.Width:0}");
