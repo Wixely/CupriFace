@@ -640,7 +640,20 @@ jobs:
             sleep 1
           done
           VID=$(adb logcat -d -s cupri:I | grep "cupri-gate: video ready" | tail -1 || true)
-          [ -n "$VID" ] || fail "the video never reached the decoder - source, backend or underlay"
+          if [ -z "$VID" ]; then
+            # This clip is PROVEN to play on real hardware (arm64 device, same commit: frames,
+            # working controls, advancing timeline). So a failure here is a statement about the
+            # EMULATOR, not about the code, and the log is the only thing that can say which:
+            # a missing decoder reads very differently from a surface that never arrived.
+            echo "--- what the platform said (decoder, surface, our own warnings) ---"
+            adb logcat -d | grep -iE "cupri|MediaPlayer|MediaCodec|OMX|CCodec|Codec2|SurfaceView" \
+              | tail -60 || echo "(the log had nothing to say, which is itself a finding)"
+            echo "--- decoders this emulator actually has ---"
+            adb shell cmd media.codec list 2>/dev/null | grep -iE "video|vp8|vp9|avc|name" | head -30 \
+              || adb shell dumpsys media.player 2>/dev/null | head -20 \
+              || echo "(could not enumerate decoders)"
+            fail "the video never reached the decoder - source, backend or underlay"
+          fi
           echo "$VID"
           # A clip that prepared but reports 0x0 decoded nothing.
           if ! echo "$VID" | grep -qE "video ready [1-9][0-9]*x[1-9][0-9]*"; then
