@@ -153,20 +153,16 @@ public class AudioTrackTests
 
         player.Play();
         clock[0] = 0.05;
-        // The demuxer fills the block list on its own thread, so a single Pump races it and
-        // feeds only the sliver parsed so far — CI saw 0.0075 s against the 0.008 threshold on
-        // both Windows and Linux. "Pump until it stops growing" was the wrong repair: before the
-        // demuxer has produced anything, growth stops instantly and the loop leaves at once.
-        // Wait for the CONDITION instead, generously bounded — the assert is about the size of
-        // the ~0.2 s lookahead, and it should take however long this machine needs to demux it.
-        var waited = System.Diagnostics.Stopwatch.StartNew();
-        while (sink.Submitted <= 0.008 && waited.Elapsed < TimeSpan.FromSeconds(10))
-        {
-            player.Pump();
-            Thread.Sleep(5);
-        }
-        Assert.True(sink.Submitted > 0.008,
-            $"expected the lookahead's PCM after {waited.ElapsedMilliseconds} ms, got {sink.Submitted}");
+        // ONE pump, and it is deterministic: an injected clock disables the player's pump thread,
+        // so nothing here races. It used to — Play() started the real thread, and when its first
+        // pump beat the clock write above, the lookahead horizon was 0.20 instead of 0.25: three
+        // of the fixture's Opus blocks (0.022/0.083/0.142) instead of four, 0.0075 s of PCM
+        // against this 0.008 assert. No waiting could recover, because after that first feed the
+        // audio-master clock reads drained = 0 — the horizon FROZE at 0.20 and the fourth block
+        // (0.203) never qualified. Two repairs waited for a "demuxer thread" to finish; this
+        // player has none (WebmFile.Parse is whole-buffer). The number was frozen, not slow.
+        player.Pump();
+        Assert.True(sink.Submitted > 0.008, $"expected the lookahead's PCM, got {sink.Submitted}");
         Assert.Equal(0, player.Position, 3);             // nothing drained yet → time stands still
 
         sink.Drained = 0.004;
