@@ -416,5 +416,9 @@ finally
 struct INPUT { public uint type; public KEYBDINPUT ki; public long pad1, pad2; }
 [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
 struct KEYBDINPUT { public ushort wVk, wScan; public uint dwFlags, time; public IntPtr dwExtraInfo; }
+// The explicit pad0 is the whole bug run 10 found: on x64 the INPUT union sits at offset 8
+// (MOUSEINPUT ends in an 8-aligned pointer), but bare int fields after `type` pack at offset 4 —
+// every field lands 4 bytes early and Windows reads a garbage event. The keyboard struct never
+// hit this because its nested KEYBDINPUT is itself 8-aligned, which bumps the offset by accident.
 [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
-struct MINPUT { public uint type; public int dx, dy; public uint mouseData, dwFlags, time; public IntPtr dwExtraInfo; public long pad; }
+struct MINPUT { public uint type, pad0; public int dx, dy; public uint mouseData, dwFlags, time; public IntPtr dwExtraInfo; }
