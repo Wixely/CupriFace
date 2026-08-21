@@ -7,6 +7,24 @@ using SkiaSharp;
 namespace CupriFace.Shell;
 
 /// <summary>
+/// CUPRIFACE_KEY_DEBUG=&lt;file.txt&gt;: append one line per keyboard/focus event a window hands the
+/// host — BOTH windows write here, because a diagnostic wired into one window once sent this
+/// project chasing a "silent" GL window that simply wasn't the window under test. Exists for the
+/// same reason as the frame dump: when a machine is reachable only through CI, the window must be
+/// able to testify about what it actually received — the hosted-runner keyboard hunt burned five
+/// blind runs before anything could say which link broke.
+/// </summary>
+internal static class KeyDiag
+{
+    private static readonly string? LogPath = Environment.GetEnvironmentVariable("CUPRIFACE_KEY_DEBUG");
+    public static void Log(string line)
+    {
+        if (LogPath is null) return;
+        try { File.AppendAllText(LogPath, line + Environment.NewLine); } catch { /* diagnostics never throw */ }
+    }
+}
+
+/// <summary>
 /// Cross-platform no-GPU window (DESIGN.md §7.5). Renders to a CPU <see cref="SKBitmap"/>
 /// and presents it through SDL's *software* renderer (a streaming texture), so it needs
 /// no OpenGL — works on Windows, macOS, and Linux, including over remote sessions. This is
@@ -46,10 +64,10 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     public event Action<float, float>? RightPointerDown;    // right-click → context menu
     public event Action<float, float>? PointerMove;
     public event Action<float, float>? PointerUp;
-    public event Action<float, float, float>? PointerWheel; // x, y, deltaY (notches)
+    public event Action<float, float, float, KeyMods>? PointerWheel; // x, y, deltaY (notches), mods — Ctrl+wheel is zoom
     public event Action<string>? TextEntered;               // printable text (IME-aware)
     public event Action<EditKey, KeyMods>? EditKeyPressed;  // key + Shift/Ctrl modifiers
-    public event Action<char, KeyMods>? Shortcut;           // Ctrl/Cmd + letter (a/c/x/v …)
+    public event Action<char, KeyMods>? Shortcut;           // Ctrl/Cmd + letter (a/c/x/v …) or =/-/0 (zoom)
     public FrameStats Stats => _stats;
 
     /// <summary>Raised once per loop iteration (after the event pump, before the render decision),
@@ -271,7 +289,10 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                         PointerMove?.Invoke(e.Motion.X, e.Motion.Y);
                         break;
                     case EventType.Mousewheel:
-                        PointerWheel?.Invoke(_lastX, _lastY, e.Wheel.Y);
+                        // The wheel event itself carries no modifier state; ask SDL at delivery time.
+                        var wheelMods = ((ushort)_sdl.GetModState() & ((ushort)Keymod.Ctrl | (ushort)Keymod.Gui)) != 0
+                            ? KeyMods.Ctrl : KeyMods.None;
+                        PointerWheel?.Invoke(_lastX, _lastY, e.Wheel.Y, wheelMods);
                         break;
                     case EventType.Textinput:
                     {
@@ -279,8 +300,15 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                         if (!string.IsNullOrEmpty(text)) TextEntered?.Invoke(text);
                         break;
                     }
+                    case EventType.Windowevent when (WindowEventID)e.Window.Event == WindowEventID.FocusGained:
+                        KeyDiag.Log("sdl focus-gained");
+                        break;
+                    case EventType.Windowevent when (WindowEventID)e.Window.Event == WindowEventID.FocusLost:
+                        KeyDiag.Log("sdl focus-lost");
+                        break;
                     case EventType.Keydown:
                     {
+                        KeyDiag.Log($"sdl keydown sc={e.Key.Keysym.Scancode} mod=0x{e.Key.Keysym.Mod:x}");
                         var mod = e.Key.Keysym.Mod;
                         var shift = (mod & (ushort)Keymod.Shift) != 0;
                         var ctrl = (mod & ((ushort)Keymod.Ctrl | (ushort)Keymod.Gui)) != 0; // Gui = Cmd (macOS)
@@ -293,6 +321,19 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                         {
                             Shortcut?.Invoke((char)('a' + (e.Key.Keysym.Scancode - Scancode.ScancodeA)), mods);
                             continue;
+                        }
+                        // Ctrl/Cmd + =/-/0 is page zoom, browser-style; keypad +/-/0 are the same
+                        // intent on other keys, so they normalise to the same three chords.
+                        if (ctrl)
+                        {
+                            var zoomCh = e.Key.Keysym.Scancode switch
+                            {
+                                Scancode.ScancodeEquals or Scancode.ScancodeKPPlus => '=',
+                                Scancode.ScancodeMinus or Scancode.ScancodeKPMinus => '-',
+                                Scancode.Scancode0 or Scancode.ScancodeKP0 => '0',
+                                _ => '\0',
+                            };
+                            if (zoomCh != '\0') { Shortcut?.Invoke(zoomCh, mods); continue; }
                         }
                         var ek = e.Key.Keysym.Scancode switch
                         {

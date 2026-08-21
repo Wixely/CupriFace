@@ -818,6 +818,35 @@ public sealed partial class CupriDocument : IDisposable
         }
     }
 
+    // The browser's zoom ladder. Discrete steps rather than a multiplier so that repeated in/out
+    // always returns exactly home (no 1×1.1÷1.1 drift), the jumps feel like a browser's, and the
+    // ends are the same MinZoom/MaxZoom the pinch obeys.
+    private static readonly float[] ZoomSteps =
+        { 0.5f, 0.67f, 0.75f, 0.8f, 0.9f, 1f, 1.1f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f, 4f };
+
+    /// <summary>One ladder step larger — a host's Ctrl/Cmd+= (or Ctrl+wheel-up). From a value the
+    /// ladder doesn't contain (a pinch can leave 1.37) it climbs to the next rung above. Honours
+    /// <see cref="PageZoomEnabled"/>, because it is the same affordance by another input.</summary>
+    public void ZoomIn() { if (PageZoomEnabled) Zoom = StepFrom(_zoom, +1); }
+
+    /// <summary>One ladder step smaller — Ctrl/Cmd+− (or Ctrl+wheel-down).</summary>
+    public void ZoomOut() { if (PageZoomEnabled) Zoom = StepFrom(_zoom, -1); }
+
+    /// <summary>Back to 1:1 — Ctrl/Cmd+0. Not gated: whatever zoomed the page, undoing it must
+    /// always be available.</summary>
+    public void ZoomReset() => Zoom = 1f;
+
+    private static float StepFrom(float current, int dir)
+    {
+        if (dir > 0)
+        {
+            foreach (var s in ZoomSteps) if (s > current + 0.0005f) return s;
+            return MaxZoom;
+        }
+        for (var i = ZoomSteps.Length - 1; i >= 0; i--) if (ZoomSteps[i] < current - 0.0005f) return ZoomSteps[i];
+        return MinZoom;
+    }
+
     /// <summary>Window-logical → document coordinates. Every public entry point that accepts a
     /// point from a host passes through this, so a zoomed page is still clicked where it looks.</summary>
     private float Zc(float v) => v / _zoom;
