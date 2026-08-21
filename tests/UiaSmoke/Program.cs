@@ -141,36 +141,51 @@ const ushort ScanTab = 0x0F, ScanCtrl = 0x1D, ScanEquals = 0x0D, ScanZero = 0x0B
 [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
 static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 
-// WHICH injection style reaches the window under test? Asked of the definitive witness: the
-// window's own key log (CUPRIFACE_KEY_DEBUG). Softer witnesses lied in turn across eight runs —
-// foreground [ok], thread focus [ok], GetAsyncKeyState registering presses, a WinForms window in
-// this process hearing everything — and the final twist was a STYLE split: one session delivers
-// scancode-style payload keys and not VK-style, another the reverse, and a leg typing in the
-// wrong style fails against a perfectly healthy window (run 8: the VK probe arrived, the
-// scancode legs typed into the void). So the canary probes each style separately with F13
-// (absent from real keyboards, ignored by the app) and counts the window's keydown lines; the
-// legs then type in a style the window demonstrably hears, and skip only when NEITHER works.
+// The wheel, sent raw. Run 9 proved wheel-UP end to end on the runner (one ladder rung, 46→50 in
+// the UIA rect) while four wheel-DOWN attempts moved nothing despite Ctrl arriving each time —
+// the down direction had ridden a library call whose negative-amount semantics we never
+// verified. This sends MOUSEEVENTF_WHEEL with ±WHEEL_DELTA directly; both directions are the
+// same code path with a sign.
+static void Wheel(int direction)
+{
+    var input = new MINPUT { type = 0, mouseData = unchecked((uint)(120 * direction)), dwFlags = 0x0800 };
+    SendInput(1, [input], System.Runtime.InteropServices.Marshal.SizeOf<MINPUT>());
+    Thread.Sleep(60);
+}
+
+[System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+static extern uint SendInput(uint nInputs, MINPUT[] pInputs, int cbSize);
+
+// WHICH injection style reaches the window under test — probed with the key CLASS the legs
+// actually need? Asked of the definitive witness: the window's own key log (CUPRIFACE_KEY_DEBUG).
+// Every softer witness lied in turn across nine runs — foreground [ok], thread focus [ok],
+// GetAsyncKeyState registering presses, a WinForms window in this process hearing everything —
+// and TWO final twists: sessions differ on which SendInput dialect they deliver (scancode vs
+// virtual-key), and the runner's input stack passes exotic keys while eating ordinary ones (F13
+// arrived; Tab, =, 0 never did, in either dialect). A canary probing F13 therefore declared a
+// keyboard alive that could not type. So the probe IS a Tab — the first key the legs press —
+// and its side effect (one focus move) lands before any leg records its baseline. The legs then
+// type in a dialect the window demonstrably hears, and skip only when neither delivers.
 static (bool Scan, bool Vk) StylesTheWindowHears(string keyLogPath)
 {
-    const ushort ScanF13 = 0x64;
-    int Lines()
+    int TabLines()
     {
-        try { return File.Exists(keyLogPath) ? File.ReadAllLines(keyLogPath).Count(l => l.Contains("keydown")) : 0; }
+        try { return File.Exists(keyLogPath) ? File.ReadAllLines(keyLogPath).Count(l => l.Contains("Tab")) : 0; }
         catch { return -1; /* mid-write — caller retries */ }
     }
     bool Probe(Action send)
     {
         for (var i = 0; i < 3; i++)
         {
-            var before = Lines();
+            var before = TabLines();
             if (before < 0) { Thread.Sleep(100); continue; }
             send();
-            if (Poll(() => Lines() > before, 800)) return true;
+            if (Poll(() => TabLines() > before, 800)) return true;
         }
         return false;
     }
-    var scan = Probe(() => TypeScan(ScanF13));
-    var vk = Probe(() => Keyboard.Type(VirtualKeyShort.F13));
+    var scan = Probe(() => TypeScan(ScanTab));
+    var vk = Probe(() => Keyboard.Type(VirtualKeyShort.TAB));
     return (scan, vk);
 }
 
@@ -365,7 +380,7 @@ try
                 using (Keyboard.Pressing(VirtualKeyShort.CONTROL))
                 {
                     Thread.Sleep(40);                  // let the modifier state land before the wheel
-                    FlaUI.Core.Input.Mouse.Scroll(direction);
+                    Wheel(direction);
                     Thread.Sleep(40);
                 }
                 if (Poll(done, 1500)) return true;
@@ -401,3 +416,5 @@ finally
 struct INPUT { public uint type; public KEYBDINPUT ki; public long pad1, pad2; }
 [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
 struct KEYBDINPUT { public ushort wVk, wScan; public uint dwFlags, time; public IntPtr dwExtraInfo; }
+[System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+struct MINPUT { public uint type; public int dx, dy; public uint mouseData, dwFlags, time; public IntPtr dwExtraInfo; public long pad; }
