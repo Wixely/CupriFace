@@ -300,7 +300,7 @@ public sealed class SkiaWindow : IDisposable
 
         // Being restored/refocused can invalidate what's on screen — repaint on the next frame.
         _window.StateChanged += _ => _forceRender = true;
-        _window.FocusChanged += _ => _forceRender = true;
+        _window.FocusChanged += f => { _forceRender = true; KeyDiag.Log(f ? "gl focus-gained" : "gl focus-lost"); };
 
         _input = _window.CreateInput();
         foreach (var mouse in _input.Mice)
@@ -321,6 +321,7 @@ public sealed class SkiaWindow : IDisposable
             kb.KeyChar += (k, ch) => { if (!Ctrl(k) && !char.IsControl(ch)) TextEntered?.Invoke(ch.ToString()); };
             kb.KeyDown += (k, key, _) =>
             {
+                KeyDiag.Log($"gl keydown key={key} ctrl={Ctrl(k)}");
                 var shift = k.IsKeyPressed(Key.ShiftLeft) || k.IsKeyPressed(Key.ShiftRight);
                 var mods = (shift ? KeyMods.Shift : 0) | (Ctrl(k) ? KeyMods.Ctrl : 0);
                 // Any Ctrl/Cmd + letter is forwarded as a chord (see the SDL window for why): the host

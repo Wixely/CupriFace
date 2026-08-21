@@ -17,6 +17,13 @@ if (args.Length != 1 || !File.Exists(args[0]))
 // CreateProcess wants a real Windows path; forward-slash relative paths reach it verbatim.
 var viewerPath = Path.GetFullPath(args[0]);
 
+// Ask the window to testify: every key/focus event either window hands the host goes to this
+// file, printed when the gate ends. On a machine reachable only through CI, this is the
+// difference between "the keyboard legs failed" and knowing whether the window ever heard a key
+// at all. Passed EXPLICITLY on the child's start info — not via this process's environment,
+// which is one more inheritance assumption this hunt does not need.
+var keyLogPath = Path.Combine(Path.GetTempPath(), $"cupri-keylog-{Environment.ProcessId}.txt");
+
 var failures = 0;
 void Check(string name, Func<(bool Ok, string Detail)> test)
 {
@@ -55,6 +62,17 @@ static bool Poll(Func<bool> condition, int timeoutMs = 5000)
 static string BringToFront(FlaUI.Core.AutomationElements.Window w)
 {
     var target = new IntPtr(w.Properties.NativeWindowHandle.Value);
+
+    // First, focus the way a person does: click the window. The runner taught us why this
+    // matters — its session delivers injected keys (the gate's own canary form hears them), yet
+    // programmatic SetForegroundWindow+SetFocus left the SDL window deaf. SDL routes keyboard
+    // events by its OWN focus bookkeeping, fed by real activation; a click produces that, an
+    // attached SetFocus evidently need not. Click the title strip: part of the drag region, so a
+    // single click with no move activates without touching any control.
+    var r = w.BoundingRectangle;
+    FlaUI.Core.Input.Mouse.Click(new System.Drawing.Point(r.Left + r.Width / 2, r.Top + 12));
+    Thread.Sleep(200);
+
     for (var attempt = 0; attempt < 20 && GetForegroundWindow() != target; attempt++)
     {
         Keyboard.Type(VirtualKeyShort.ALT);
@@ -91,63 +109,69 @@ static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttac
 static extern IntPtr SetFocus(IntPtr hWnd);
 [System.Runtime.InteropServices.DllImport("user32.dll")]
 static extern IntPtr GetFocus();
-[System.Runtime.InteropServices.DllImport("user32.dll")]
-static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
-// Does this session DELIVER injected keys to any window at all? Every softer witness lied in
-// turn on the hosted runner: foreground verifies [ok], thread focus verifies [ok], and
-// GetAsyncKeyState even REGISTERS the press — the input is synthesized into the key-state table
-// and then discarded before any window queue hears it. So the canary asks the only witness that
-// counts: a window this very process owns. Inject F13 (absent from real keyboards, ignored by
-// the app under test) at our own focused form and observe whether OUR KeyDown fires. If it does
-// not, the session delivers input to no one — the keyboard legs skip, saying so. If it does,
-// delivery works here, and a Viewer that then ignores keys is a REAL failure. An app-side
-// regression cannot touch this canary; it never involves the app.
-static bool SessionDeliversKeys()
+// Typing with SCANCODES, the way a physical keyboard does. FlaUI's Keyboard.Type injects
+// virtual-key-only input (scancode field zero) — WinForms and GLFW resolve keys from the VK and
+// never notice, but SDL resolves from the scancode bits and hears NOTHING for the key itself
+// (its modifier tracking takes another path, which is how "only Ctrl arrived" became the tell).
+// A gate that drives an SDL window must speak scancode.
+static void TypeScan(params ushort[] scans)
 {
-    var got = 0;
-    var handle = IntPtr.Zero;
-    using var shown = new ManualResetEventSlim(false);
-    var pump = new Thread(() =>
+    var inputs = new INPUT[scans.Length * 2];
+    for (var i = 0; i < scans.Length; i++)
     {
-        var f = new System.Windows.Forms.Form
-        {
-            Text = "cupri input canary",
-            ShowInTaskbar = false,
-            StartPosition = System.Windows.Forms.FormStartPosition.Manual,
-            Location = new System.Drawing.Point(0, 0),
-            Size = new System.Drawing.Size(160, 60),
-        };
-        f.KeyDown += (_, e) =>
-        {
-            if (e.KeyCode != System.Windows.Forms.Keys.F13) return;
-            Interlocked.Exchange(ref got, 1);
-            f.BeginInvoke(f.Close);
-        };
-        f.Shown += (_, _) => { handle = f.Handle; f.Activate(); shown.Set(); };
-        System.Windows.Forms.Application.Run(f);
-    });
-    pump.SetApartmentState(ApartmentState.STA);
-    pump.IsBackground = true;
-    pump.Start();
-
-    if (shown.Wait(5000))
-    {
-        SetForegroundWindow(handle);
-        Thread.Sleep(200);
-        for (var i = 0; i < 10 && Volatile.Read(ref got) == 0; i++)
-        {
-            Keyboard.Type(VirtualKeyShort.F13);
-            Thread.Sleep(100);
-        }
+        inputs[i] = ScanInput(scans[i], up: false);                          // downs in order…
+        inputs[^(i + 1)] = ScanInput(scans[i], up: true);                    // …ups in reverse
     }
-    if (Volatile.Read(ref got) == 0 && handle != IntPtr.Zero)
-        PostMessage(handle, 0x0010 /* WM_CLOSE */, IntPtr.Zero, IntPtr.Zero);
-    pump.Join(2000);
-    return Volatile.Read(ref got) == 1;
+    SendInput((uint)inputs.Length, inputs, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
+    Thread.Sleep(60);
 }
 
-using var app = FlaUI.Core.Application.Launch(viewerPath);
+static INPUT ScanInput(ushort scan, bool up) => new()
+{
+    type = 1, // INPUT_KEYBOARD
+    ki = new KEYBDINPUT { wScan = scan, dwFlags = 0x0008 /* SCANCODE */ | (up ? 0x0002u /* KEYUP */ : 0) },
+};
+
+const ushort ScanTab = 0x0F, ScanCtrl = 0x1D, ScanEquals = 0x0D, ScanZero = 0x0B;
+
+[System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
+// Can injected PAYLOAD keys reach the window under test? Asked of the definitive witness: the
+// window's own key log (CUPRIFACE_KEY_DEBUG). Softer witnesses lied in turn across seven runs —
+// foreground [ok], thread focus [ok], GetAsyncKeyState registering the press, even a WinForms
+// window in this process hearing everything — while the SDL window heard only MODIFIERS. That
+// split is the finding: modifier state arrives everywhere, but SendInput payload keys reach an
+// SDL window only in some sessions, under either injection style. So: inject F13 (absent from
+// real keyboards, ignored by the app) and read the window's log. A line means payload keys
+// deliver here and the chord legs run strict; silence means they cannot, and the legs skip
+// saying so — while the zoom claim is still proven for real through Ctrl+wheel, whose two
+// ingredients (modifier state, mouse input) deliver everywhere.
+static bool WindowHearsInjectedKeys(string keyLogPath)
+{
+    const ushort ScanF13 = 0x64;
+    for (var i = 0; i < 5; i++)
+    {
+        TypeScan(ScanF13);
+        Keyboard.Type(VirtualKeyShort.F13);   // both styles — either one counting is enough
+        Thread.Sleep(150);
+        // Match the KEY, not "any keydown": the focus dance taps Alt, and modifiers arriving is
+        // precisely the misleading signal this hunt kept mistaking for a working keyboard.
+        try { if (File.Exists(keyLogPath) && File.ReadAllText(keyLogPath).Contains("F13")) return true; }
+        catch { /* mid-write; try again */ }
+    }
+    return false;
+}
+
+var startInfo = new ProcessStartInfo(viewerPath) { UseShellExecute = false };
+startInfo.EnvironmentVariables["CUPRIFACE_KEY_DEBUG"] = keyLogPath;
+// The gate verifies ONE window deterministically: the SDL software window — what CI's GPU-less
+// runner always gets, and what every RDP/VM user gets. Without this, a local machine where GL
+// happens to work swaps the window under test mid-hunt (it did; the GL window then surfaced its
+// own, separate UIA focus gap — see ROADMAP). The GL window's UIA remains the stated caveat.
+startInfo.EnvironmentVariables["CUPRIFACE_SOFTWARE"] = "1";
+using var app = FlaUI.Core.Application.Launch(startInfo);
 try
 {
     using var automation = new UIA3Automation();
@@ -230,15 +254,16 @@ try
         return (applied, $"[{min}..{max}] {v} -> {range.Value.Value} (asked {target})");
     });
 
-    // The two keyboard legs. Blocking wherever the session can inject keys; where the OS itself
-    // registers none (today's hosted runner), they SKIP and say so — the chord path's proof is
-    // then the engine ladder tests plus the full-chain local pass, stated in ROADMAP rather than
-    // implied by a green that typed into the void.
-    var keysAlive = SessionDeliversKeys();
+    // The chord-driven legs. Blocking wherever injected payload keys actually reach the window
+    // under test — its own key log is the witness; where they don't (some sessions hand an SDL
+    // window only MODIFIERS, under either injection style), they SKIP and say so. The wheel-zoom
+    // leg below never skips: both of its ingredients deliver everywhere.
+    BringToFront(window);
+    var keysAlive = WindowHearsInjectedKeys(keyLogPath);
     void KeyboardCheck(string name, Func<(bool Ok, string Detail)> test)
     {
         if (!keysAlive)
-            Console.WriteLine($"SKIP  {name}  [this session delivers injected keys to no window - not even the gate's own canary form heard one]");
+            Console.WriteLine($"SKIP  {name}  [injected payload keys do not reach this window in this session - its own log heard none]");
         else Check(name, test);
     }
 
@@ -254,38 +279,68 @@ try
             catch { return false; }
         })?.Properties.AutomationId.ValueOrDefault;
         var before = FocusedId();
-        Keyboard.Type(VirtualKeyShort.TAB);
+        TypeScan(ScanTab);
         var moved = Poll(() => FocusedId() is { } now && now != before);
         return (moved, $"[{front}] focus {before ?? "(none)"} -> {FocusedId() ?? "(none)"}");
     });
 
-    KeyboardCheck("Ctrl+= zooms the page where an AT can see it, and Ctrl+0 undoes it", () =>
+    KeyboardCheck("Ctrl+= steps the zoom ladder from the keyboard", () =>
     {
-        // Zoom is only real if what assistive tech is TOLD moves with it: the engine scales the
-        // semantics tree's bounds, and this reads them back over the wire. A checkbox glyph has a
-        // fixed logical size, so one ladder step (×1.1) must widen its UIA rect by that ratio no
-        // matter how the surrounding content reflows.
+        var box = window.FindFirstDescendant(cf => cf.ByControlType(ControlType.CheckBox));
+        if (box is null) return (false, "no checkbox to measure");
+        var before = box.BoundingRectangle.Width;
+        var front = BringToFront(window);
+        // A synthetic chord occasionally evaporates even on a healthy desktop (~1 run in 4 here),
+        // so the leg does what a person does: press again, bounded. Three lost presses in a row
+        // is no longer injection luck — a genuinely broken path fails all three.
+        bool PressUntil(ushort scan, Func<bool> done)
+        {
+            for (var attempt = 0; attempt < 3 && !done(); attempt++)
+            {
+                TypeScan(ScanCtrl, scan);
+                if (Poll(done, 1500)) return true;
+            }
+            return done();
+        }
+        var grew = PressUntil(ScanEquals, () => box.BoundingRectangle.Width > before * 1.05);
+        var zoomed = box.BoundingRectangle.Width;
+        var restored = PressUntil(ScanZero, () => Math.Abs(box.BoundingRectangle.Width - before) <= 1);
+        return (grew && restored, $"[{front}] width {before:0} -> {zoomed:0} -> {box.BoundingRectangle.Width:0}");
+    });
+
+    Check("Ctrl+wheel zooms the page where an AT can see it, and zooms it back", () =>
+    {
+        // The zoom leg that never skips. Its two ingredients are the inputs proven to deliver in
+        // EVERY session this hunt visited: modifier state (the one thing the deaf runs still
+        // received) and mouse input (the focus click lands everywhere). Zoom is only real if what
+        // assistive tech is TOLD moves with it — the engine scales the semantics tree's bounds,
+        // and this reads them back over the wire: a checkbox glyph has a fixed logical size, so
+        // one ladder rung (×1.1) must widen its UIA rect by that ratio however content reflows.
         var box = window.FindFirstDescendant(cf => cf.ByControlType(ControlType.CheckBox));
         if (box is null) return (false, "no checkbox to measure");
         var before = box.BoundingRectangle.Width;
         if (before <= 0) return (false, "degenerate rect before zoom");
 
         var front = BringToFront(window);
-        // A synthetic chord occasionally evaporates even on a healthy desktop (~1 run in 4 here),
-        // so the leg does what a person does: press again, bounded. Three lost presses in a row
-        // is no longer injection luck — a genuinely broken path fails all three.
-        bool PressUntil(VirtualKeyShort key, Func<bool> done)
+        var r = window.BoundingRectangle;
+        FlaUI.Core.Input.Mouse.Position = new System.Drawing.Point(r.Left + r.Width / 2, r.Top + r.Height / 2);
+
+        bool WheelUntil(int direction, Func<bool> done)
         {
-            for (var attempt = 0; attempt < 3 && !done(); attempt++)
+            for (var attempt = 0; attempt < 4 && !done(); attempt++)
             {
-                using (Keyboard.Pressing(VirtualKeyShort.CONTROL)) Keyboard.Type(key);
+                SendInput(1, [ScanInput(ScanCtrl, up: false)], System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
+                Thread.Sleep(40);                      // let the modifier state land before the wheel
+                FlaUI.Core.Input.Mouse.Scroll(direction);
+                Thread.Sleep(40);
+                SendInput(1, [ScanInput(ScanCtrl, up: true)], System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
                 if (Poll(done, 1500)) return true;
             }
             return done();
         }
-        var grew = PressUntil(VirtualKeyShort.OEM_PLUS, () => box.BoundingRectangle.Width > before * 1.05);
+        var grew = WheelUntil(+1, () => box.BoundingRectangle.Width > before * 1.05);
         var zoomed = box.BoundingRectangle.Width;
-        var restored = PressUntil(VirtualKeyShort.KEY_0, () => Math.Abs(box.BoundingRectangle.Width - before) <= 1);
+        var restored = WheelUntil(-1, () => Math.Abs(box.BoundingRectangle.Width - before) <= 1);
 
         return (grew && restored,
             $"[{front}] width {before:0} -> {zoomed:0} -> {box.BoundingRectangle.Width:0}");
@@ -296,4 +351,19 @@ try
 finally
 {
     try { app.Kill(); } catch { /* already gone */ }
+    try
+    {
+        Console.WriteLine("--- what the window itself heard (CUPRIFACE_KEY_DEBUG) ---");
+        Console.WriteLine(File.Exists(keyLogPath) && new FileInfo(keyLogPath).Length > 0
+            ? File.ReadAllText(keyLogPath).TrimEnd()
+            : "(nothing - no key or focus event ever reached the SDL window)");
+        File.Delete(keyLogPath);
+    }
+    catch { /* diagnostics never fail the gate */ }
 }
+
+// Top-level rule: type declarations only after the last statement — so the interop shapes live here.
+[System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+struct INPUT { public uint type; public KEYBDINPUT ki; public long pad1, pad2; }
+[System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+struct KEYBDINPUT { public ushort wVk, wScan; public uint dwFlags, time; public IntPtr dwExtraInfo; }

@@ -7,6 +7,24 @@ using SkiaSharp;
 namespace CupriFace.Shell;
 
 /// <summary>
+/// CUPRIFACE_KEY_DEBUG=&lt;file.txt&gt;: append one line per keyboard/focus event a window hands the
+/// host — BOTH windows write here, because a diagnostic wired into one window once sent this
+/// project chasing a "silent" GL window that simply wasn't the window under test. Exists for the
+/// same reason as the frame dump: when a machine is reachable only through CI, the window must be
+/// able to testify about what it actually received — the hosted-runner keyboard hunt burned five
+/// blind runs before anything could say which link broke.
+/// </summary>
+internal static class KeyDiag
+{
+    private static readonly string? LogPath = Environment.GetEnvironmentVariable("CUPRIFACE_KEY_DEBUG");
+    public static void Log(string line)
+    {
+        if (LogPath is null) return;
+        try { File.AppendAllText(LogPath, line + Environment.NewLine); } catch { /* diagnostics never throw */ }
+    }
+}
+
+/// <summary>
 /// Cross-platform no-GPU window (DESIGN.md §7.5). Renders to a CPU <see cref="SKBitmap"/>
 /// and presents it through SDL's *software* renderer (a streaming texture), so it needs
 /// no OpenGL — works on Windows, macOS, and Linux, including over remote sessions. This is
@@ -282,8 +300,15 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                         if (!string.IsNullOrEmpty(text)) TextEntered?.Invoke(text);
                         break;
                     }
+                    case EventType.Windowevent when (WindowEventID)e.Window.Event == WindowEventID.FocusGained:
+                        KeyDiag.Log("sdl focus-gained");
+                        break;
+                    case EventType.Windowevent when (WindowEventID)e.Window.Event == WindowEventID.FocusLost:
+                        KeyDiag.Log("sdl focus-lost");
+                        break;
                     case EventType.Keydown:
                     {
+                        KeyDiag.Log($"sdl keydown sc={e.Key.Keysym.Scancode} mod=0x{e.Key.Keysym.Mod:x}");
                         var mod = e.Key.Keysym.Mod;
                         var shift = (mod & (ushort)Keymod.Shift) != 0;
                         var ctrl = (mod & ((ushort)Keymod.Ctrl | (ushort)Keymod.Gui)) != 0; // Gui = Cmd (macOS)

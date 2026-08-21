@@ -12,9 +12,6 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <InvariantGlobalization>true</InvariantGlobalization>
-    <!-- For the input-delivery canary only: a window THIS process owns, so "does this session
-         deliver injected keys to anyone at all" is answered by direct observation. -->
-    <UseWindowsForms>true</UseWindowsForms>
   </PropertyGroup>
 
   <ItemGroup>
