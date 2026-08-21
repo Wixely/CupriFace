@@ -131,6 +131,11 @@ internal sealed class AndroidPlayer : IVideoPlayer, ISurfaceSource
                 ApplyVolume();
                 if (_pendingSeek >= 0) { Safe(() => _mp?.SeekTo((int)(_pendingSeek * 1000))); _pendingSeek = -1; }
                 if (_playWhenReady) Safe(() => _mp?.Start());
+                // The gate's only window into playback: CI cannot see through a punched hole, but
+                // it can see that the clip resolved, the platform decoder accepted it and reported
+                // real dimensions. What remains unprovable without eyes is whether the pixels are
+                // visible — which is a z-order question, not a decode one.
+                Console.WriteLine($"cupri-gate: video ready {Natural?.W ?? 0}x{Natural?.H ?? 0}");
                 _backend.Invalidate();      // HostComposited flipped on → repaint punches the hole
             };
             _mp.Completion += (_, _) => { if (!_loop) Ended?.Invoke(); };

@@ -40,6 +40,10 @@ viewer.png
 
 # AOT publish output
 out-aot/
+
+# The android gate publishes APKs into out/; building one locally to hand a tester the same
+# artifact shouldn't leave 40 MB of native .so files one 'git add -A' away from the history.
+out/
 interactive-before.png
 interactive-after.png
 motion-t0.png

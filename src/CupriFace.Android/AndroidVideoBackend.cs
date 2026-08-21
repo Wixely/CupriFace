@@ -51,9 +51,13 @@ internal sealed class AndroidVideoBackend : IVideoBackend
             // it stays beneath the translucent GL surface the engine paints on.
             var view = new SurfaceView(_context);
             view.SetZOrderMediaOverlay(false);
+            // VISIBLE from birth, at 1x1: an INVISIBLE SurfaceView is never given a surface, so
+            // its holder callback never fires and no decoder is ever attached — which is exactly
+            // how the first version reached CI with a video that never opened. A 1x1 view in the
+            // corner shows nothing; SyncRects gives it a real rect on the next painted frame.
             var lp = new FrameLayout.LayoutParams(1, 1);
             view.LayoutParameters = lp;
-            view.Visibility = ViewStates.Invisible;      // nothing to show until it has a rect
+            view.Visibility = ViewStates.Visible;
             view.Holder!.AddCallback(new HolderCallback(player));
             player.View = view;
             _underlays.AddView(view, 0);
@@ -117,7 +121,9 @@ internal sealed class AndroidVideoBackend : IVideoBackend
 
             if (node is null || !node.LaidOut)
             {
-                _runOnUi(() => view.Visibility = ViewStates.Invisible);
+                // Parked off-screen rather than hidden: hiding a SurfaceView destroys its
+                // surface, which would tear down the decoder attached to it.
+                _runOnUi(() => Park(view));
                 continue;
             }
 
@@ -126,7 +132,7 @@ internal sealed class AndroidVideoBackend : IVideoBackend
             int pw = (int)(w * inputScale), ph = (int)(h * inputScale);
             if (pw <= 0 || ph <= 0)
             {
-                _runOnUi(() => view.Visibility = ViewStates.Invisible);
+                _runOnUi(() => Park(view));
                 continue;
             }
 
@@ -138,9 +144,17 @@ internal sealed class AndroidVideoBackend : IVideoBackend
                     lp.LeftMargin = px; lp.TopMargin = py;
                     view.LayoutParameters = lp;
                 }
-                view.Visibility = player.Ready ? ViewStates.Visible : ViewStates.Invisible;
             });
         }
+    }
+
+    // Off-screen and 1x1 — not hidden. See the note where the view is created: visibility is what
+    // decides whether a SurfaceView has a surface at all.
+    private static void Park(SurfaceView view)
+    {
+        if (view.LayoutParameters is not FrameLayout.LayoutParams lp) return;
+        lp.Width = 1; lp.Height = 1; lp.LeftMargin = -10; lp.TopMargin = -10;
+        view.LayoutParameters = lp;
     }
 
     // The element that owns this player, found by the surface key the document assigned it.
