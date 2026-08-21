@@ -44,29 +44,53 @@ static bool Poll(Func<bool> condition, int timeoutMs = 5000)
     return condition();
 }
 
-// SendInput delivers to the FOREGROUND window, and on Windows Server SetForegroundWindow is
-// routinely denied to a background process — the keys then land in the console, silently, and a
-// keyboard check "fails" while the code under test never saw a key. So: take foreground the
-// documented way (a synthetic Alt makes this thread the last-input owner, which unlocks the
-// call), and VERIFY with GetForegroundWindow rather than trusting the attempt. Callers put the
-// verdict in the failure detail, so a red gate says which side of the keyboard was broken.
-static bool BringToFront(FlaUI.Core.AutomationElements.Window w)
+// SendInput delivers to the window with KEYBOARD FOCUS in the FOREGROUND queue, and on a server
+// session both links break separately: SetForegroundWindow is denied to background processes
+// (the Alt tap makes this thread the last-input owner, which unlocks it), and — the subtler one,
+// observed on the CI runner — a window can BE foreground while its thread's focus was never
+// established, so injected keys evaporate. The cure for that half is documented too: attach this
+// thread's input state to the window's thread and call SetFocus directly. Every step is VERIFIED
+// (GetForegroundWindow, then GetFocus through the attachment) and the verdict string goes into
+// the failure detail, so a red gate names the broken link instead of shrugging.
+static string BringToFront(FlaUI.Core.AutomationElements.Window w)
 {
     var target = new IntPtr(w.Properties.NativeWindowHandle.Value);
-    for (var attempt = 0; attempt < 20; attempt++)
+    for (var attempt = 0; attempt < 20 && GetForegroundWindow() != target; attempt++)
     {
-        if (GetForegroundWindow() == target) return true;
         Keyboard.Type(VirtualKeyShort.ALT);
         SetForegroundWindow(target);
         Thread.Sleep(100);
     }
-    return GetForegroundWindow() == target;
+    if (GetForegroundWindow() != target) return "no-foreground";
+
+    var windowThread = GetWindowThreadProcessId(target, IntPtr.Zero);
+    var attached = AttachThreadInput(GetCurrentThreadId(), windowThread, true);
+    try
+    {
+        SetFocus(target);
+        return GetFocus() == target ? "ok"
+             : attached ? "foreground-but-no-focus" : "foreground-but-attach-denied";
+    }
+    finally
+    {
+        if (attached) AttachThreadInput(GetCurrentThreadId(), windowThread, false);
+    }
 }
 
 [System.Runtime.InteropServices.DllImport("user32.dll")]
 static extern IntPtr GetForegroundWindow();
 [System.Runtime.InteropServices.DllImport("user32.dll")]
 static extern bool SetForegroundWindow(IntPtr hWnd);
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr lpdwProcessId);
+[System.Runtime.InteropServices.DllImport("kernel32.dll")]
+static extern uint GetCurrentThreadId();
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+static extern IntPtr SetFocus(IntPtr hWnd);
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+static extern IntPtr GetFocus();
 
 using var app = FlaUI.Core.Application.Launch(viewerPath);
 try
@@ -156,7 +180,7 @@ try
         // Strict on purpose: the original version asserted "anything has focus after Tab", which
         // an earlier pattern action could satisfy — a keyboard check that never needed the
         // keyboard. This one requires focus to MOVE, so it fails when the keystroke doesn't land.
-        if (!BringToFront(window)) return (false, "could not take foreground - keys would go elsewhere");
+        var front = BringToFront(window);
         string? FocusedId() => window.FindAllDescendants().FirstOrDefault(e =>
         {
             try { return e.Properties.HasKeyboardFocus.ValueOrDefault; }
@@ -165,7 +189,7 @@ try
         var before = FocusedId();
         Keyboard.Type(VirtualKeyShort.TAB);
         var moved = Poll(() => FocusedId() is { } now && now != before);
-        return (moved, $"focus {before ?? "(none)"} -> {FocusedId() ?? "(none)"}");
+        return (moved, $"[{front}] focus {before ?? "(none)"} -> {FocusedId() ?? "(none)"}");
     });
 
     Check("Ctrl+= zooms the page where an AT can see it, and Ctrl+0 undoes it", () =>
@@ -179,7 +203,7 @@ try
         var before = box.BoundingRectangle.Width;
         if (before <= 0) return (false, "degenerate rect before zoom");
 
-        if (!BringToFront(window)) return (false, "could not take foreground - keys would go elsewhere");
+        var front = BringToFront(window);
         using (Keyboard.Pressing(VirtualKeyShort.CONTROL)) Keyboard.Type(VirtualKeyShort.OEM_PLUS);
         var grew = Poll(() => box.BoundingRectangle.Width > before * 1.05);
         var zoomed = box.BoundingRectangle.Width;
@@ -188,7 +212,7 @@ try
         var restored = Poll(() => Math.Abs(box.BoundingRectangle.Width - before) <= 1);
 
         return (grew && restored,
-            $"width {before:0} -> {zoomed:0} -> {box.BoundingRectangle.Width:0}");
+            $"[{front}] width {before:0} -> {zoomed:0} -> {box.BoundingRectangle.Width:0}");
     });
 
     return failures;
