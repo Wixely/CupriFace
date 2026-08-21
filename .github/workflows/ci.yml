@@ -641,10 +641,10 @@ jobs:
           done
           VID=$(adb logcat -d -s cupri:I | grep "cupri-gate: video ready" | tail -1 || true)
           if [ -z "$VID" ]; then
-            # This clip is PROVEN to play on real hardware (arm64 device, same commit: frames,
-            # working controls, advancing timeline). So a failure here is a statement about the
-            # EMULATOR, not about the code, and the log is the only thing that can say which:
-            # a missing decoder reads very differently from a surface that never arrived.
+            # A bare "failure" here is nearly useless: it cannot distinguish an emulator with no
+            # decoder from a surface that never arrived from a source that never resolved. That
+            # ambiguity once cost two days of fixing code that already worked, so spend a few
+            # seconds saying which it was. The platform's own log is the witness, not our guess.
             echo "--- what the platform said (decoder, surface, our own warnings) ---"
             adb logcat -d | grep -iE "cupri|MediaPlayer|MediaCodec|OMX|CCodec|Codec2|SurfaceView" \
               | tail -60 || echo "(the log had nothing to say, which is itself a finding)"
