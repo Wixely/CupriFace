@@ -149,12 +149,12 @@ static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 static void Wheel(int direction)
 {
     var input = new MINPUT { type = 0, mouseData = unchecked((uint)(120 * direction)), dwFlags = 0x0800 };
-    SendInput(1, [input], System.Runtime.InteropServices.Marshal.SizeOf<MINPUT>());
+    SendMouseInput(1, [input], System.Runtime.InteropServices.Marshal.SizeOf<MINPUT>());
     Thread.Sleep(60);
 }
 
-[System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
-static extern uint SendInput(uint nInputs, MINPUT[] pInputs, int cbSize);
+[System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true, EntryPoint = "SendInput")]
+static extern uint SendMouseInput(uint nInputs, MINPUT[] pInputs, int cbSize);
 
 // WHICH injection style reaches the window under test — probed with the key CLASS the legs
 // actually need? Asked of the definitive witness: the window's own key log (CUPRIFACE_KEY_DEBUG).
