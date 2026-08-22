@@ -55,6 +55,52 @@ public class FlexClampTests
     }
 
     [Fact]
+    public void Percentage_max_width_does_not_collapse_an_items_max_content_size()
+    {
+        // A px min/max-width is a real floor/ceiling on an item's max-content width. A PERCENTAGE is
+        // not — intrinsic sizing has no containing block to resolve it against, and resolving it
+        // against 0 says "max-width:0", which is how a wrapping strip ended up 0px wide with every
+        // child on its own line. The percentage still clamps in LayoutNode, which knows the basis.
+        using var doc = CupriDocument.Load(
+            "<body><div class='row'><div class='strip'>" +
+            "<div class='pg'></div><div class='pg'></div><div class='pg'></div>" +
+            "</div></div></body>",
+            """
+            body   { margin:0 }
+            .row   { display:flex; align-items:center; }
+            .strip { display:flex; flex-wrap:wrap; gap:4px; max-width:100%; }
+            .pg    { width:32px; height:32px; }
+            """);
+        doc.BuildFrame(600, 200);
+
+        var strip = TestDoc.Find(doc.Root, n => n.Element?.ClassList.Contains("strip") == true)!;
+        Assert.Equal(104f, strip.Width, 1);   // 3 × 32 + 2 × 4 gap, all on one line
+        Assert.Equal(32f, strip.Height, 1);   // ...and one line tall, not three
+    }
+
+    [Fact]
+    public void Percentage_max_width_still_clamps_against_a_real_containing_block()
+    {
+        // The other half: once there IS a basis, max-width:100% must bite. A 200px strip of five 32px
+        // slots does not fit in a 120px row, so it wraps — that is the phone case the rule exists for.
+        using var doc = CupriDocument.Load(
+            "<body><div class='row'><div class='strip'>" +
+            "<div class='pg'></div><div class='pg'></div><div class='pg'></div><div class='pg'></div>" +
+            "</div></div></body>",
+            """
+            body   { margin:0 }
+            .row   { width:120px; display:flex; align-items:flex-start; }
+            .strip { display:flex; flex-wrap:wrap; gap:4px; max-width:100%; }
+            .pg    { width:32px; height:32px; }
+            """);
+        doc.BuildFrame(600, 200);
+
+        var strip = TestDoc.Find(doc.Root, n => n.Element?.ClassList.Contains("strip") == true)!;
+        Assert.True(strip.Width <= 120.5f, $"strip is {strip.Width:F0}px wide, past its 120px ceiling");
+        Assert.True(strip.Height > 32f, "strip should have wrapped to a second line");
+    }
+
+    [Fact]
     public void Items_that_shrink_normally_are_unaffected()
     {
         // The ordinary path: no floor, so the row shrinks them to fit and they tile exactly.
