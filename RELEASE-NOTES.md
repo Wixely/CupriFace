@@ -36,6 +36,17 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   `ZoomOut()`, `ZoomReset()` beside the existing `Zoom` property. `PageZoomEnabled` gates in/out
   as it gates the pinch — but `ZoomReset()` always works, so a zoom can always be undone.
 
+- **Zoom is restorable, and the app owns the storage.** `CupriDocument.Zoom` was already
+  settable; it is now settable *meaningfully at startup* (assign it in the host's configure hook —
+  `DesktopHost.Run(app, doc => doc.Zoom = Prefs.Zoom)`, `ConfigureDocument` on Android — and the
+  first frame is already at that level, with no jump from 1), and a new **`ZoomChanged`** event
+  reports every settled level so an app knows when to save. It fires for a pinch, a chord, a wheel
+  notch or an assignment alike — the user-driven ones being exactly what an app cannot otherwise
+  see — carries the CLAMPED value so what you store round-trips, and stays quiet when a change
+  lands on the level already in force, so a key held at the limit does not hammer your saver.
+  **CupriFace deliberately does not persist anything itself**: it has no business choosing where
+  your app keeps settings.
+
 - **Video on Android**: `<cupri-video>` plays through the platform's own `MediaPlayer` under a
   `SurfaceView` beneath the punched hole — no codecs ship in the app, and the device's hardware
   decoders do the work.

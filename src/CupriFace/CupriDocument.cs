@@ -802,7 +802,12 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>Whole-document zoom, 1 = unzoomed. Clamped to
     /// <see cref="MinZoom"/>..<see cref="MaxZoom"/>. Layout happens at viewport/Zoom, so raising it
     /// makes everything bigger AND reflows the content to the narrower width — <c>@media</c>
-    /// queries see that narrower width, exactly as a browser's page zoom behaves.</summary>
+    /// queries see that narrower width, exactly as a browser's page zoom behaves.
+    ///
+    /// <para>Settable before the first frame, which is how an app restores a remembered level:
+    /// <c>DesktopHost.Run(app, doc =&gt; doc.Zoom = LoadMyZoom())</c> — the host's configure hook
+    /// runs after the document is built and before anything is laid out, so the first frame the
+    /// user sees is already at their zoom, with no visible jump from 1.</para></summary>
     public float Zoom
     {
         get => _zoom;
@@ -815,8 +820,26 @@ public sealed partial class CupriDocument : IDisposable
             _lastPresented = null;   // the retained damage list describes the old scale
             _lastList = null;
             Bump(true);
+            ZoomChanged?.Invoke(z);
         }
     }
+
+    /// <summary>Raised after <see cref="Zoom"/> settles at a new level, carrying the CLAMPED value —
+    /// so what an app stores is exactly what it can hand back.
+    ///
+    /// <para><b>Persistence is the app's, deliberately.</b> The engine has no idea where this app
+    /// keeps settings, and a UI toolkit that picks a file path for you is a toolkit you have to
+    /// fight later. Subscribe and store it wherever the rest of your preferences live:</para>
+    /// <code>
+    /// doc.Zoom = Prefs.Zoom;              // restore before the first frame
+    /// doc.ZoomChanged += z => Prefs.Zoom = z;   // remember every later change
+    /// </code>
+    /// <para>This fires for EVERY route to a new level — a pinch, Ctrl/Cmd +/−/0, Ctrl+wheel, or an
+    /// assignment — because the user-driven ones are exactly the changes an app cannot otherwise
+    /// see. It does NOT fire when a set lands on the level already in force (including a clamp that
+    /// collapses onto the current one), so a naive handler that writes to disk will not be called
+    /// in a loop by a user holding a zoom key at the limit.</para></summary>
+    public event Action<float>? ZoomChanged;
 
     // The browser's zoom ladder. Discrete steps rather than a multiplier so that repeated in/out
     // always returns exactly home (no 1×1.1÷1.1 drift), the jumps feel like a browser's, and the

@@ -304,4 +304,82 @@ public class PageZoomTests
         doc.ZoomReset();
         Assert.Equal(1f, doc.Zoom);
     }
+
+    // ---- restoring a remembered level, and telling the app when to remember ---------------------
+
+    [Fact]
+    public void A_zoom_set_before_the_first_frame_is_what_the_first_frame_uses()
+    {
+        // The startup case: an app reads its stored level and assigns it in the host's configure
+        // hook, before anything has been laid out. The very first frame must already be zoomed —
+        // if it laid out at 1 and corrected afterwards, every launch would open with a visible
+        // jump, which is worse than not remembering at all.
+        using var doc = CupriDocument.Load(Html, Css);
+        doc.Zoom = 2f;                       // no BuildFrame has run yet
+
+        doc.BuildFrame(800, 600);
+        Assert.Equal(400f, Find(doc, "page").Width, 1);   // laid out at viewport/2 on the FIRST frame
+    }
+
+    [Fact]
+    public void Every_route_to_a_new_level_tells_the_app_to_save_it()
+    {
+        // What makes persistence possible at all: zoom now changes from input the app never sees.
+        // A pinch, a chord and a wheel notch are all the user changing a preference, and an app
+        // that only knew about its own assignments would forget every one of them.
+        using var doc = CupriDocument.Load(Html, Css);
+        doc.BuildFrame(800, 600);
+
+        var seen = new List<float>();
+        doc.ZoomChanged += z => seen.Add(z);
+
+        doc.ZoomIn();                        // a chord or a wheel notch
+        doc.Zoom = 1.5f;                     // an assignment
+        Finger(doc, 1, Interaction.PointerPhase.Down, 300, 300);
+        Finger(doc, 2, Interaction.PointerPhase.Down, 500, 300);
+        Finger(doc, 1, Interaction.PointerPhase.Move, 200, 300);
+        Finger(doc, 2, Interaction.PointerPhase.Move, 600, 300);   // a pinch
+
+        Assert.True(seen.Count >= 3, $"a chord, an assignment and a pinch are three changes (saw {seen.Count})");
+        Assert.Equal(1.1f, seen[0], 3);
+        Assert.Equal(1.5f, seen[1], 3);
+        Assert.Equal(doc.Zoom, seen[^1], 3);   // the last value reported IS the level now in force
+    }
+
+    [Fact]
+    public void What_the_app_is_told_to_save_is_always_a_value_it_can_hand_back()
+    {
+        // The event carries the CLAMPED level, not the raw request. An app that stores 99 and
+        // restores it would be storing a number the engine will never be at.
+        using var doc = CupriDocument.Load(Html, Css);
+        float? saved = null;
+        doc.ZoomChanged += z => saved = z;
+
+        doc.Zoom = 99f;
+        Assert.Equal(CupriDocument.MaxZoom, saved);
+
+        using var restored = CupriDocument.Load(Html, Css);
+        restored.Zoom = saved!.Value;
+        Assert.Equal(CupriDocument.MaxZoom, restored.Zoom);   // round-trips exactly
+    }
+
+    [Fact]
+    public void Holding_a_zoom_key_at_the_limit_does_not_keep_waking_the_saver()
+    {
+        // A handler that writes to disk must not be called by a key the user is leaning on. No
+        // change in level, no notification — including the clamped presses at either end.
+        using var doc = CupriDocument.Load(Html, Css);
+        var writes = 0;
+        doc.ZoomChanged += _ => writes++;
+
+        for (var i = 0; i < 30; i++) doc.ZoomIn();
+        var atCeiling = writes;
+        for (var i = 0; i < 10; i++) doc.ZoomIn();       // already at MaxZoom
+
+        Assert.Equal(atCeiling, writes);
+        Assert.Equal(CupriDocument.MaxZoom, doc.Zoom);
+
+        doc.Zoom = doc.Zoom;                             // assigning the level already in force
+        Assert.Equal(atCeiling, writes);
+    }
 }
