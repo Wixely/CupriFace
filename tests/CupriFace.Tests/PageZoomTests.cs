@@ -382,4 +382,110 @@ public class PageZoomTests
         doc.Zoom = doc.Zoom;                             // assigning the level already in force
         Assert.Equal(atCeiling, writes);
     }
+
+    // ---- anchored zoom (Ctrl+wheel) --------------------------------------------------------------
+
+    private const string TallHtml =
+        "<body><div class='scroller'>" +
+        "<div class='row a'>a</div><div class='row b'>b</div><div class='row c'>c</div>" +
+        "<div class='row d'>d</div><div class='row e'>e</div><div class='row f'>f</div>" +
+        "<div class='row g'>g</div><div class='row h'>h</div></div></body>";
+    private const string TallCss =
+        "body{margin:0} .scroller{width:100%;height:200px;overflow:scroll} .row{height:100px}";
+
+    // Where a row is drawn on the GLASS, in host pixels — what the user's eye actually tracks.
+    private static float HostTopOf(CupriDocument doc, string cls)
+    {
+        var n = Find(doc, cls);
+        float y = 0;
+        for (var p = n; p is not null; p = p.Parent)
+        {
+            y += p.Y;
+            if (p.Parent is { IsScrollable: true } sp) y -= Math.Clamp(sp.ScrollY, 0, sp.MaxScrollY);
+        }
+        return y * doc.Zoom;
+    }
+
+    [Fact]
+    public void Zooming_at_a_pointer_keeps_what_is_under_it_where_it_was()
+    {
+        using var doc = CupriDocument.Load(TallHtml, TallCss);
+        doc.BuildFrame(400, 200);
+        Find(doc, "scroller").ScrollY = 250f;      // rows c/d are on screen
+        doc.BuildFrame(400, 200);
+
+        // Point at row 'd' and zoom in one rung there.
+        var dBefore = HostTopOf(doc, "d");
+        doc.ZoomIn(200, dBefore + 10);
+        doc.BuildFrame(400, 200);
+
+        Assert.True(doc.Zoom > 1f, "the ladder stepped");
+        Assert.Equal(dBefore, HostTopOf(doc, "d"), 1);   // …and 'd' did not move under the cursor
+    }
+
+    [Fact]
+    public void Zooming_at_a_pointer_WITHOUT_anchoring_would_have_moved_it()
+    {
+        // The test that proves the previous one is not vacuous: the unanchored call, from the same
+        // state, does move the row. If this ever stops being true the anchoring test is measuring
+        // nothing.
+        using var doc = CupriDocument.Load(TallHtml, TallCss);
+        doc.BuildFrame(400, 200);
+        Find(doc, "scroller").ScrollY = 250f;
+        doc.BuildFrame(400, 200);
+
+        var dBefore = HostTopOf(doc, "d");
+        doc.ZoomIn();                                     // no anchor
+        doc.BuildFrame(400, 200);
+
+        Assert.NotEqual(dBefore, HostTopOf(doc, "d"), 1);
+    }
+
+    [Fact]
+    public void Anchored_zoom_out_holds_the_same_row_too()
+    {
+        using var doc = CupriDocument.Load(TallHtml, TallCss);
+        doc.Zoom = 2f;
+        doc.BuildFrame(400, 200);
+        Find(doc, "scroller").ScrollY = 250f;
+        doc.BuildFrame(400, 200);
+
+        var dBefore = HostTopOf(doc, "d");
+        doc.ZoomOut(200, dBefore + 10);
+        doc.BuildFrame(400, 200);
+
+        Assert.True(doc.Zoom < 2f, "the ladder stepped down");
+        Assert.Equal(dBefore, HostTopOf(doc, "d"), 1);
+    }
+
+    [Fact]
+    public void An_app_that_owns_zoom_keeps_the_wheel_too()
+    {
+        using var doc = CupriDocument.Load(TallHtml, TallCss);
+        doc.BuildFrame(400, 200);
+        doc.PageZoomEnabled = false;
+
+        doc.ZoomIn(200, 100);
+        doc.ZoomOut(200, 100);
+        Assert.Equal(1f, doc.Zoom);
+    }
+
+    [Fact]
+    public void Anchoring_at_the_end_of_the_ladder_changes_nothing_at_all()
+    {
+        // At the ceiling there is no step to take, so there must be no scroll correction either —
+        // a wheel held at the limit must not creep the page.
+        using var doc = CupriDocument.Load(TallHtml, TallCss);
+        doc.Zoom = CupriDocument.MaxZoom;
+        doc.BuildFrame(400, 200);
+        var sc = Find(doc, "scroller");
+        sc.ScrollY = 100f;
+        doc.BuildFrame(400, 200);
+        var scrollBefore = sc.ScrollY;
+
+        for (var i = 0; i < 5; i++) { doc.ZoomIn(200, 100); doc.BuildFrame(400, 200); }
+
+        Assert.Equal(CupriDocument.MaxZoom, doc.Zoom);
+        Assert.Equal(scrollBefore, Find(doc, "scroller").ScrollY, 1);
+    }
 }

@@ -855,6 +855,52 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>One ladder step smaller — Ctrl/Cmd+− (or Ctrl+wheel-down).</summary>
     public void ZoomOut() { if (PageZoomEnabled) Zoom = StepFrom(_zoom, -1); }
 
+    /// <summary>One step larger, keeping whatever sits under (<paramref name="hostX"/>,
+    /// <paramref name="hostY"/>) where it is — Ctrl+wheel, which happens at a pointer.</summary>
+    public void ZoomIn(float hostX, float hostY) => ZoomStepAnchored(+1, hostX, hostY);
+
+    /// <summary>One step smaller, anchored at the pointer.</summary>
+    public void ZoomOut(float hostX, float hostY) => ZoomStepAnchored(-1, hostX, hostY);
+
+    // Zoom a step and then scroll so the thing the user was pointing at has not moved.
+    //
+    // The anchor is an ELEMENT, not a coordinate, and that is forced by what this feature IS. A
+    // magnifier could keep a pixel still, but this reflows: at a new zoom the text rewraps and
+    // every coordinate below the change means something else, so "the point that was at y=400"
+    // is not a promise the engine can keep. "The paragraph you were pointing at" is — re-found
+    // after the reflow by structural path, the same way flings and focus survive a rebuild.
+    private void ZoomStepAnchored(int dir, float hostX, float hostY)
+    {
+        if (!PageZoomEnabled) return;
+        var target = StepFrom(_zoom, dir);
+        if (MathF.Abs(target - _zoom) < 0.0005f) return;   // already at the end of the ladder
+
+        EnsureLaidOut();
+        var before = _zoom;
+        var anchor = HitTesting.HitTest(_root, Zc(hostX), Zc(hostY));
+        // Anchoring means scrolling something, so both the anchor and the scroller that carries it
+        // have to survive the reflow; without a scroller there is nothing to correct with.
+        var scroller = anchor;
+        while (scroller is not null && !scroller.IsScrollable) scroller = scroller.Parent;
+        var anchorPath = anchor is null ? null : PathOf(anchor);
+        var scrollPath = scroller is null ? null : PathOf(scroller);
+        var wasAtHost = anchor is null ? 0 : PaintedTopLeft(anchor).Y * before;   // host px, pre-zoom
+
+        Zoom = target;
+        if (anchorPath is null || scrollPath is null) return;
+
+        EnsureLaidOut();                                    // reflow at the new level
+        if (NodeAtPath(anchorPath) is not { } again || NodeAtPath(scrollPath) is not { IsScrollable: true } sc)
+            return;                                         // the anchor did not survive; leave the scroll alone
+
+        // Painted top in host pixels now, versus where it sat before. Scrolling by d moves painted
+        // content up by d, so the correction is simply the difference.
+        var nowAtHost = PaintedTopLeft(again).Y * _zoom;
+        var delta = (nowAtHost - wasAtHost) / _zoom;        // back into document px, which scroll is in
+        sc.ScrollY = Math.Clamp(sc.ScrollY + delta, 0, sc.MaxScrollY);
+        Bump(true);
+    }
+
     /// <summary>Back to 1:1 — Ctrl/Cmd+0. Not gated: whatever zoomed the page, undoing it must
     /// always be available.</summary>
     public void ZoomReset() => Zoom = 1f;

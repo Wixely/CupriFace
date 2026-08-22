@@ -47,6 +47,11 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   **CupriFace deliberately does not persist anything itself**: it has no business choosing where
   your app keeps settings.
 
+- **Ctrl+wheel zooms at the pointer.** `ZoomIn(hostX, hostY)` / `ZoomOut(hostX, hostY)` keep
+  whatever you are pointing at where it is; the parameterless overloads still zoom from the origin
+  for keyboard chords. Because this is reflow zoom rather than a magnifier, the anchor is the
+  *element* under the cursor re-found after the rewrap, not a pixel coordinate.
+
 - **Video on Android**: `<cupri-video>` plays through the platform's own `MediaPlayer` under a
   `SurfaceView` beneath the punched hole — no codecs ship in the app, and the device's hardware
   decoders do the work.

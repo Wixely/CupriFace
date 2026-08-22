@@ -171,7 +171,14 @@ public static class DesktopHost
             {
                 // Ctrl+wheel is zoom — one ladder rung per notch, as every browser has it. A plain
                 // wheel scrolls. The split lives here so the engine never learns chord conventions.
-                if (mods.HasFlag(KeyMods.Ctrl)) { if (dy > 0) doc.ZoomIn(); else if (dy < 0) doc.ZoomOut(); dirty = true; }
+                // Anchored at the pointer, because a wheel zoom HAS a pointer — the user is
+                // pointing at the thing they want to look at more closely.
+                if (mods.HasFlag(KeyMods.Ctrl))
+                {
+                    if (dy > 0) doc.ZoomIn(x / scale, y / scale);
+                    else if (dy < 0) doc.ZoomOut(x / scale, y / scale);
+                    dirty = true;
+                }
                 else Mark(doc.DispatchWheel(x / scale, y / scale, -dy * 50f)); // wheel up → scroll up
             };
             window.TextEntered += t => Mark(doc.DispatchKey(t, EditKey.None));
@@ -304,7 +311,14 @@ public static class DesktopHost
             {
                 // Ctrl+wheel is zoom — one ladder rung per notch, as every browser has it. A plain
                 // wheel scrolls. The split lives here so the engine never learns chord conventions.
-                if (mods.HasFlag(KeyMods.Ctrl)) { if (dy > 0) doc.ZoomIn(); else if (dy < 0) doc.ZoomOut(); dirty = true; }
+                // Anchored at the pointer, because a wheel zoom HAS a pointer — the user is
+                // pointing at the thing they want to look at more closely.
+                if (mods.HasFlag(KeyMods.Ctrl))
+                {
+                    if (dy > 0) doc.ZoomIn(x / scale, y / scale);
+                    else if (dy < 0) doc.ZoomOut(x / scale, y / scale);
+                    dirty = true;
+                }
                 else Mark(doc.DispatchWheel(x / scale, y / scale, -dy * 50f)); // wheel up → scroll up
             };
             window.TextEntered += t => Mark(doc.DispatchKey(t, EditKey.None));
