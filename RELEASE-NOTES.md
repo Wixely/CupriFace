@@ -55,3 +55,13 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 - **Video on Android**: `<cupri-video>` plays through the platform's own `MediaPlayer` under a
   `SurfaceView` beneath the punched hole — no codecs ship in the app, and the device's hardware
   decoders do the work.
+
+### Fixed
+
+- **A percentage `max-width` no longer collapses a shrink-to-fit element to nothing.** Intrinsic
+  sizing has no containing block, so `max-width:100%` was resolved against 0 and read as
+  `max-width:0` — an auto-width flex item carrying one was handed 0px, and anything inside it that
+  could wrap wrapped onto its own line. `<cupri-pagination>` in a flex row came out as a vertical
+  column of page numbers. Percentage min/max-width are now ignored during intrinsic sizing (px
+  still applies) and clamp only where the basis is actually known. **Nothing to do**; if you worked
+  around it by dropping a percentage `max-width`, you can put it back.
