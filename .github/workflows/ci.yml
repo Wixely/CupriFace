@@ -1010,6 +1010,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write   # the default GITHUB_TOKEN is read-only; creating a release needs write
+      packages: write   # …and pushing the nupkgs to GitHub Packages needs this on top
     steps:
       # Checkout FIRST: it cleans the working directory, which would delete downloaded artifacts.
       - uses: actions/checkout@v4
@@ -1090,6 +1091,24 @@ jobs:
           fi
           ls -l dist
 
+      # Attaching nupkgs to a release makes them downloadable; it does not make them INSTALLABLE.
+      # GitHub Packages is a real NuGet feed, so a consumer adds one source and gets `dotnet add
+      # package CupriFace` with version resolution and restore, instead of downloading a file and
+      # wiring up a local folder source.
+      - name: Publish the packages to GitHub Packages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # --skip-duplicate matters more here than anywhere else in this job: GitHub Packages
+          # REFUSES to overwrite a published version, so without it, re-running a tag (which this
+          # job is otherwise built to survive) would fail on the first package every time.
+          dotnet nuget push 'dist/*.nupkg' \
+            --source "https://nuget.pkg.github.com/${GITHUB_REPOSITORY_OWNER}/index.json" \
+            --api-key "$GH_TOKEN" \
+            --skip-duplicate
+          echo "packages pushed to GitHub Packages for $GITHUB_REPOSITORY_OWNER"
+
       - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -1126,7 +1145,18 @@ jobs:
           | `CupriFace.Android` | The Android host — subclass `CupriActivity`, return your app. Touch, IME, TalkBack. Needs the `android` workload; runs CoreCLR (the package pins it). |
           | `CupriFace.Media` | Optional: WebM (VP9 + Opus) playback for `<cupri-video>`, decoders included for every desktop RID. |
 
-          Not on nuget.org yet: download the `.nupkg` and add its folder as a local source.
+          These are also published to **GitHub Packages**, which is a real NuGet feed — so rather
+          than downloading a file, add the source once and install normally:
+
+          ```
+          dotnet nuget add source https://nuget.pkg.github.com/Wixely/index.json \
+            --name cupriface --username <your-github-username> --password <a-PAT-with-read:packages>
+          dotnet add package CupriFace
+          ```
+
+          GitHub Packages requires authentication even for public packages — that is GitHub's rule,
+          not ours; any personal access token with `read:packages` will do. The `.nupkg` files are
+          still attached below if you would rather use a local folder source. Not on nuget.org yet.
           EOF
 
           # Per-release notes come from RELEASE-NOTES.md, not from this heredoc: a breaking change
