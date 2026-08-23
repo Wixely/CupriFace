@@ -76,6 +76,16 @@ public sealed class AndroidHost : IDisposable
     /// it so the band behind the transparent status bar belongs to the app.</summary>
     internal SkiaSharp.SKColor AppBackground => _app.Transparent ? SkiaSharp.SKColors.Black : _app.Background;
 
+    /// <summary>The running app's identity — what the OS shows for the TASK rather than for the
+    /// window: the recents card's label and thumbnail badge. Changes when an app is pushed or
+    /// popped, which is why it is read through the host and not captured once.</summary>
+    internal (string Title, byte[]? Icon) AppIdentity => (_app.Title, _app.Icon);
+
+    /// <summary>Raised on the UI thread once a pushed/popped app is running, so the activity can
+    /// re-read <see cref="AppIdentity"/>. The background has its own event because it changes for
+    /// reasons other than a swap (dark mode); this one fires only on a swap.</summary>
+    public event Action? AppChanged;
+
     /// <summary>Raised on the UI thread when the PAGE's own background colour changes — the app
     /// switching to dark mode, or a different app being pushed. The activity paints the window and
     /// the inset strips with it, so the surfaces the document does not draw stop being white.</summary>
@@ -210,6 +220,7 @@ public sealed class AndroidHost : IDisposable
         old.Dispose();
         _doc.InvalidateRetainedFrame();
         Log($"app switched to '{next.Title}'");
+        RunOnUi(() => AppChanged?.Invoke());   // the recents card names the app you are IN, not the one you launched
         MarkDirty();
     }
 

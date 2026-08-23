@@ -52,6 +52,11 @@ public partial class Interop
         _bg = _app.Background;
         _transparent = _app.Transparent;
 
+        // The tab icon, from the app's own bytes — the same CupriApp.Icon the desktop host puts on
+        // the window. index.html deliberately ships without a hard-coded copy: a second, hand-pasted
+        // base64 of the logo is a duplicate that drifts the moment the real asset changes.
+        if (_app.IconDataUri is { } favicon) SetFavicon(favicon);
+
         // External links open in a new browser tab (window.open). Internal routing + #anchors are handled
         // by the app / engine — same split as the desktop host.
         _doc.Navigated += e => { if (e.External) OpenUrl(e.Href); };
@@ -366,6 +371,10 @@ public partial class Interop
 
     // Open an external link in a new tab (JS window.open). Wired from the app's Navigated handler.
     [JSImport("navigate", "cupri")] internal static partial void OpenUrl(string href);
+
+    // Point the page's <link rel="icon"> at a data URI. The tab icon is this host's answer to the
+    // window icon a desktop host sets from the same CupriApp.Icon bytes.
+    [JSImport("favicon", "cupri")] internal static partial void SetFavicon(string dataUri);
 
     // Clipboard bridge for the context menu (the browser clipboard is async, so it lives in JS).
     [JSImport("clipboardWrite", "cupri")] internal static partial void ClipboardWrite(string text);

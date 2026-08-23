@@ -47,6 +47,13 @@ takes pointer and key events with no display attached. That also makes UI genuin
   every consumer via its buildTransitive targets. This is a correctness requirement, not a
   preference: Mono 10.0.11 miscompiles the engine on Android (forensics in the repo,
   `samples/AndroidProbe/MONO-CRASH.md`).
+- **App icons come in two kinds, and CupriFace only owns one of them.** Override `CupriApp.Icon`
+  with PNG/JPEG bytes and every host adapts it to its own *runtime* icon: the desktop window and
+  taskbar, the browser tab's favicon, the Android recents card. The **launcher** icon is not
+  CupriFace's to set — the OS reads it out of the built file before your code exists, so it stays
+  an SDK concern: `<ApplicationIcon>app.ico</ApplicationIcon>` for a Windows `.exe`,
+  `Resources/mipmap-*/ic_launcher.png` plus `[Application(Icon = "@mipmap/ic_launcher")]` for an
+  APK. No runtime API can reach either one.
 - CSS support is a real but **documented subset** — the cascade, flexbox, grid, transforms and
   animations are there; the modern long tail is not.
 - Pre-1.0: the API is expected to change.
