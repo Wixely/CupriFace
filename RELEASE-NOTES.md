@@ -64,3 +64,14 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   media type sniffed rather than assumed. **Nothing to do** — apps without an `Icon` are unchanged.
   Note this is the icon of a *running* app; a Windows `.exe` icon and an Android *launcher* icon are
   read out of the built file before your code exists and remain build settings (see `PACKAGE.md`).
+
+### Fixed
+
+- **A percentage height inside a fixed-height block resolves against that block** ([#55]). The block
+  layout path passed its own containing block down to its children instead of itself, so
+  `height:100%` on the fill of an `18px` meter resolved against the *grandparent* — at the top of a
+  page, the viewport — and came out 200px, painting over everything below it. Flex and grid parents
+  were always correct. **Nothing to do**; if you made a track `display:flex` purely to get this
+  right, plain block now works too.
+
+[#55]: https://github.com/Wixely/CupriFace/issues/55
