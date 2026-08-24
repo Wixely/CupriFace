@@ -77,6 +77,16 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **Custom properties on `:root` and `html` now inherit** ([#53]). The render tree starts at
+  `<body>`, so rules on the document element matched nothing: a palette declared the conventional
+  way silently vanished and every `var()` behaved as if the token were undefined. The document
+  element now participates in *inheritance* — custom properties, `color` and the other inherited
+  text properties declared on `:root`/`html` flow into `body` and below. It is still not a layout
+  box: `html { background: … }` and friends stay inert; declare those on `body`. **Nothing to do**;
+  a palette moved to `body` as a workaround can move back.
+
+[#53]: https://github.com/Wixely/CupriFace/issues/53
+
 - **A percentage height inside a fixed-height block resolves against that block** ([#55]). The block
   layout path passed its own containing block down to its children instead of itself, so
   `height:100%` on the fill of an `18px` meter resolved against the *grandparent* — at the top of a
