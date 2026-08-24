@@ -13,6 +13,20 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- **`transform-origin: bottom center` parses** ([#63]) — and every other keyword-plus-`center`
+  pair (`top center`, `center left`, …). The keyword-order swap required BOTH words to name an
+  axis, and `center` names none: the pair fell through to positional reading, `bottom` became an
+  X of 100%, and the origin silently came out right-middle — for a `scaleY`, indistinguishable
+  from unset, i.e. the exact symptom [#54] had just fixed. All spellings of the same origin now
+  agree (`bottom` == `bottom center` == `center bottom` == `50% 100%`). **Nothing to do**; a
+  single-keyword workaround can stay or revert, they are identical.
+
+[#63]: https://github.com/Wixely/CupriFace/issues/63
+
 ## v0.2.12
 
 ### Added
