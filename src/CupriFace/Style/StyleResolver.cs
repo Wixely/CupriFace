@@ -347,6 +347,9 @@ public sealed class StyleResolver
                 case "line-height": s.LineHeight = ParseLineHeight(v); break;
                 case "text-align": s.TextAlign = v.ToLowerInvariant() switch { "center" => TextAlign.Center, "right" => TextAlign.Right, _ => TextAlign.Left }; break;
                 case "white-space": s.WhiteSpace = v.ToLowerInvariant() is "nowrap" or "pre" ? WhiteSpaceMode.NoWrap : WhiteSpaceMode.Normal; break;
+                case "word-break": s.WordBreakAll = v.Trim().ToLowerInvariant() == "break-all"; break;
+                case "overflow-wrap" or "word-wrap":
+                    s.OverflowWrapBreak = v.Trim().ToLowerInvariant() is "break-word" or "anywhere"; break;
                 case "cursor": s.Cursor = ParseCursor(v); break;
                 case "font-style":
                     s.FontStyle = v.Trim().ToLowerInvariant() switch

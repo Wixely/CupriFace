@@ -163,4 +163,4 @@ public sealed class TextLine
 public readonly record struct InlineRect(float X, float Y, float W, float H);
 
 /// <summary>The inputs that determine a text node's wrapped layout — its cache key (see RenderNode.Lines).</summary>
-public readonly record struct TextLayoutKey(string Text, float MaxW, float Size, int Weight, string Family, float LineH, Style.WhiteSpaceMode Wrap, Style.FontSlant Slant);
+public readonly record struct TextLayoutKey(string Text, float MaxW, float Size, int Weight, string Family, float LineH, Style.WhiteSpaceMode Wrap, Style.FontSlant Slant, bool BreakAll, bool BreakWord);
