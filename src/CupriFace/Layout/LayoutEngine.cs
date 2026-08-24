@@ -968,7 +968,8 @@ public sealed class LayoutEngine
 
         // Reuse the wrapped lines when nothing that affects them changed (the common case each frame during
         // an animation that isn't resizing this text) — skips the split/measure/TextLine allocations.
-        var key = new TextLayoutKey(text, maxWidth, s.FontSize, s.FontWeight, s.FontFamily, lh, s.WhiteSpace, s.FontStyle);
+        var key = new TextLayoutKey(text, maxWidth, s.FontSize, s.FontWeight, s.FontFamily, lh, s.WhiteSpace, s.FontStyle,
+            s.WordBreakAll, s.OverflowWrapBreak);
         if (node.Lines is not null && node.TextKey == key) return new Size(node.TextW, node.TextH);
 
         var lines = new List<TextLine>();
@@ -999,21 +1000,81 @@ public sealed class LayoutEngine
             lineW = 0;
         }
 
+        // Mid-token breaking (issue #59): break-all fills every line before wrapping; break-word
+        // (overflow-wrap) is the emergency break for a token wider than the whole line — a 62-char
+        // address in a 260px box. Both guarantee at least one code point per line, so a sliver-thin
+        // container cannot loop forever. Without either, a too-wide token overflows its own line,
+        // exactly as before.
+        var breakAll = s.WordBreakAll;
+        var breakWord = breakAll || s.OverflowWrapBreak;
+
         foreach (var word in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
         {
-            var ww = _fonts.MeasureText(s, word);
-            var prospective = sb.Length == 0 ? ww : lineW + spaceW + ww;
-            if (sb.Length > 0 && prospective > maxWidth) Flush();
-            if (sb.Length > 0) { sb.Append(' '); lineW += spaceW; }
-            sb.Append(word);
-            lineW += ww;
+            var rest = word;
+            while (rest.Length > 0)
+            {
+                var ww = _fonts.MeasureText(s, rest);
+                var joinW = sb.Length > 0 ? spaceW : 0f;
+                if (lineW + joinW + ww <= maxWidth || (sb.Length == 0 && ww <= maxWidth))
+                {
+                    if (sb.Length > 0) { sb.Append(' '); lineW += spaceW; }
+                    sb.Append(rest);
+                    lineW += ww;
+                    break;
+                }
+
+                // Doesn't fit. break-all: pack the remainder of THIS line with the token's head
+                // before wrapping — that is the property's whole point versus break-word.
+                if (breakAll)
+                {
+                    var head = LongestFittingPrefix(s, rest, maxWidth - lineW - joinW);
+                    if (head == 0 && sb.Length == 0) head = NextCodePoint(rest);
+                    if (head > 0)
+                    {
+                        if (sb.Length > 0) sb.Append(' ');
+                        sb.Append(rest.AsSpan(0, head));
+                        rest = rest[head..];
+                    }
+                    Flush();
+                    continue;
+                }
+
+                if (sb.Length > 0) { Flush(); continue; }   // normal wrap: the token starts the next line
+
+                // Alone on its line and still too wide.
+                if (!breakWord) { sb.Append(rest); lineW += ww; break; }   // overflow, the old behaviour
+                var h = LongestFittingPrefix(s, rest, maxWidth);
+                if (h == 0) h = NextCodePoint(rest);
+                sb.Append(rest.AsSpan(0, h));
+                Flush();
+                rest = rest[h..];
+            }
         }
-        Flush();
+        if (sb.Length > 0 || lines.Count == 0) Flush();   // the open line; empty text still gets one
 
         node.Lines = lines;
         node.TextKey = key; node.TextW = maxWidth; node.TextH = lines.Count * lh;
         return new Size(node.TextW, node.TextH);
     }
+
+    /// <summary>Longest prefix of <paramref name="token"/> that fits <paramref name="avail"/>,
+    /// never splitting a surrogate pair; 0 when not even the first code point fits. Each candidate
+    /// is measured as a whole prefix, so kerning/shaping see the real run. Linear with an early
+    /// exit — prefix widths grow monotonically, and only overlong tokens ever pay this.</summary>
+    private int LongestFittingPrefix(ComputedStyle s, string token, float avail)
+    {
+        var best = 0;
+        for (var i = 1; i <= token.Length; i++)
+        {
+            if (i < token.Length && char.IsLowSurrogate(token[i])) continue;   // inside a pair: not a cut
+            if (_fonts.MeasureText(s, token[..i]) > avail) break;
+            best = i;
+        }
+        return best;
+    }
+
+    // The forced-progress unit: one code point, which is two chars when a surrogate pair leads.
+    private static int NextCodePoint(string t) => t.Length > 1 && char.IsHighSurrogate(t[0]) ? 2 : 1;
 
     // ---- intrinsic sizing ----------------------------------------------------
     /// <summary>Preferred (max-content) border-box width: the width the node wants if

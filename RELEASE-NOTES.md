@@ -15,6 +15,19 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ## Unreleased
 
+### Added
+
+- **`word-break: break-all` and `overflow-wrap: break-word|anywhere`** (plus the legacy
+  `word-wrap` alias) — mid-token line breaking ([#59]). A long unbreakable token (a 62-char
+  bech32 address, a hash, a URL) used to force its container into horizontal overflow with no
+  recourse; now `overflow-wrap` breaks it only when it cannot fit a line of its own, and
+  `break-all` packs every line full. Breaks never split a surrogate pair, never lose a character,
+  and a sliver-thin container still terminates (one code point per line). Both properties inherit,
+  as in CSS. Applies to text in block flow; mid-token breaking inside an inline formatting context
+  (text mixed with `<b>`/`<span>` runs) is not yet wired.
+
+[#59]: https://github.com/Wixely/CupriFace/issues/59
+
 ### Fixed
 
 - **`transform-origin: bottom center` parses** ([#63]) — and every other keyword-plus-`center`

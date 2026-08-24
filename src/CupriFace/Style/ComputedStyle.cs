@@ -126,6 +126,13 @@ public sealed class ComputedStyle
     public float LineHeight = 1.2f; // multiple of font-size
     public TextAlign TextAlign = TextAlign.Left;
     public WhiteSpaceMode WhiteSpace = WhiteSpaceMode.Normal; // inherited
+    // Mid-token line breaking (inherited, like all text-wrapping behaviour). Two flags because they
+    // are two CSS properties that cascade independently: WordBreakAll is `word-break: break-all`
+    // (break between ANY two characters once the line is full); OverflowWrapBreak is
+    // `overflow-wrap` / legacy `word-wrap` `break-word`/`anywhere` (break inside a token only when
+    // it cannot fit on a line of its own — the emergency break for a 62-char address).
+    public bool WordBreakAll;      // inherited
+    public bool OverflowWrapBreak; // inherited
     public CursorType Cursor = CursorType.Auto; // inherited; Auto = unspecified (document infers one)
     public FontSlant FontStyle = FontSlant.Normal; // inherited
     // Real CSS doesn't inherit text-decoration; it propagates to in-flow descendants, which a browser
@@ -145,6 +152,8 @@ public sealed class ComputedStyle
         LineHeight = parent.LineHeight;
         TextAlign = parent.TextAlign;
         WhiteSpace = parent.WhiteSpace;
+        WordBreakAll = parent.WordBreakAll;
+        OverflowWrapBreak = parent.OverflowWrapBreak;
         Cursor = parent.Cursor;
         FontStyle = parent.FontStyle;
         Decorations = parent.Decorations;
