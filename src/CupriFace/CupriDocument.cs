@@ -87,6 +87,21 @@ public sealed partial class CupriDocument : IDisposable
     // Each <cupri-virtual> list's scroll offset by its data-repeat path, so the next rebuild windows it to
     // the rows in view. Updated when a virtual list scrolls (which then rebuilds to re-window).
     private readonly Dictionary<string, double> _virtualScroll = new();
+    // Measured row pitches (margin-box heights) per <cupri-virtual>, keyed like _virtualScroll and
+    // index-aligned with the bound collection; ≤0 = never measured, so windowing falls back to the
+    // item-height estimate. Filled by CaptureVirtualHeights after every layout; cleared when the
+    // list's content width changes — rows are wrap-sized, so a resize invalidates every pitch (#67).
+    private readonly Dictionary<string, List<float>> _virtualHeights = new();
+    private readonly Dictionary<string, float> _virtualWidth = new();
+    // Whether each virtual list sat at its bottom last frame — anchor="bottom" pins only while the
+    // user is actually there, so one scroll up releases the pin until they return.
+    private readonly Dictionary<string, bool> _virtualAtBottom = new();
+    // Scroll offsets decided while BINDING (bottom anchoring, prepend compensation): the node they
+    // belong to is only built afterwards — applied and synced into _virtualScroll after RestoreScroll.
+    // Keys the binder pinned to the bottom also land in _virtualPinned, so the capture pass can snap
+    // them to the REAL bottom once the layout knows it exactly.
+    private readonly Dictionary<string, double> _pendingVirtualScroll = new();
+    private readonly HashSet<string> _virtualPinned = new();
     // Scroll/resize state keyed by structural path, kept BEYOND the lifetime of any one tree: a
     // `display:none` page builds no children, so what it had cannot be captured when it is hidden.
     private readonly Dictionary<string, NodeState> _scrollMemory = new();
@@ -505,7 +520,13 @@ public sealed partial class CupriDocument : IDisposable
         Mark("parse-html");
 
         if (_model is not null)
-            BindingEngine.Apply(dom, _model, key => _virtualScroll.GetValueOrDefault(key)); // window each <cupri-virtual>
+            BindingEngine.Apply(dom, _model,                              // window each <cupri-virtual>
+                key => new BindingEngine.VirtualListState(
+                    _virtualScroll.GetValueOrDefault(key),
+                    _virtualHeights.GetValueOrDefault(key),
+                    _virtualAtBottom.GetValueOrDefault(key),
+                    Known: _virtualScroll.ContainsKey(key) || _virtualAtBottom.ContainsKey(key)),
+                (key, y) => { _pendingVirtualScroll[key] = y; _virtualPinned.Add(key); });
         Mark("bind");
 
         // Expand custom elements after binding so components see concrete attribute values.
@@ -595,6 +616,16 @@ public sealed partial class CupriDocument : IDisposable
         _root = new StyleResolver(_rules, _viewportWidth, _viewportHeight).BuildTree(dom);
         _layoutDirty = true; // fresh tree: no geometry until the next layout
         RestoreScroll(scroll);
+        // Scroll offsets the BINDER chose (a bottom-anchored list opening at / following its tail,
+        // or a prepend's compensation): the node exists only now. Overrides whatever RestoreScroll
+        // carried, and syncs _virtualScroll so the next wheel tick measures drift against the same
+        // number instead of immediately re-windowing.
+        foreach (var (vkey, vy) in _pendingVirtualScroll)
+        {
+            if (FindByVirtualKey(_root, vkey) is { } vn) vn.ScrollY = (float)vy;
+            _virtualScroll[vkey] = vy;
+        }
+        _pendingVirtualScroll.Clear();
         _dom = dom;
         if (float.IsFinite(_lastHitX) && float.IsFinite(_lastHitY))
         {
@@ -1145,6 +1176,7 @@ public sealed partial class CupriDocument : IDisposable
             Rebuild();
         }
         _layout.Layout(_root, width, height);
+        CaptureVirtualHeights(_root); // measured pitches + scroll anchoring, before anything reads offsets
         _laidOutWidth = width; _laidOutHeight = height; _layoutDirty = false;
         ScrollCaretIntoView();  // after layout, before paint: keep the caret visible in a scrolled field
         ScrollCaretIntoViewX(); // and horizontally, in a single-line (nowrap) field
@@ -4046,12 +4078,125 @@ public sealed partial class CupriDocument : IDisposable
     private bool RewindowVirtual(RenderNode n)
     {
         if (n.Element?.GetAttribute("data-virtual-key") is not { Length: > 0 } key) return false;
-        var itemH = double.TryParse(n.Element.GetAttribute("item-height"),
-            System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var h) && h > 0 ? h : 40;
-        if (Math.Abs(n.ScrollY - _virtualScroll.GetValueOrDefault(key)) < itemH * 2) return false;
-        _virtualScroll[key] = n.ScrollY;
+        // Threshold ONE estimated row (the window carries a six-row buffer each side): with variable
+        // pitches drift is pixels, not rows, and rebuilding a windowed list costs ~a millisecond.
+        // Clamped — a follow-tail restore parks ScrollY at float.MaxValue until layout clamps it,
+        // and storing that raw would poison every later drift comparison.
+        var itemH = VirtualItemH(n.Element);
+        var scrollY = Math.Clamp(n.ScrollY, 0, n.MaxScrollY);
+        if (Math.Abs(scrollY - _virtualScroll.GetValueOrDefault(key)) < itemH) return false;
+        _virtualScroll[key] = scrollY;
+        // The pin question ("is the user at the bottom?") must be answered from where they ARE:
+        // this rebuild IS the scroll that may have just left the bottom, and the per-frame capture
+        // has not run since — a stale true would pin the wheel-up straight back down (#67).
+        _virtualAtBottom[key] = scrollY >= n.MaxScrollY - 1f;
         Rebuild();
+        // The caller is mid-gesture — a fling step, a scrollbar drag — and the very next thing it
+        // touches is the FRESH tree's geometry (IsScrollable, MaxScrollY), which an unlaid tree
+        // reports as zero: a fling died on the first re-window it crossed because the rebuilt
+        // scroller "wasn't scrollable" for one frame. Lay the new tree out before returning.
+        EnsureLaidOut();
         return true;
+    }
+
+    private static double VirtualItemH(AngleSharp.Dom.IElement el) =>
+        double.TryParse(el.GetAttribute("item-height"), System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out var h) && h > 0 ? h : 40;
+
+    // ---- variable-height virtualisation (#67) ------------------------------------------------
+
+    /// <summary>After layout: record each materialised virtual row's real pitch (margin-box height)
+    /// into the per-list cache, and keep the scroll HONEST while doing it. A row measured for the
+    /// first time ABOVE the viewport top changes what the spacer above should have been — everything
+    /// on screen would jump by the difference — so the offset shifts by the same amount in the same
+    /// frame (scroll anchoring). Runs every frame; a fixed-height list measures pitch == estimate
+    /// everywhere and every correction is zero.</summary>
+    private void CaptureVirtualHeights(RenderNode n)
+    {
+        if (n.Element?.GetAttribute("data-virtual-key") is { Length: > 0 } key && n.Style.Overflow == OverflowMode.Scroll)
+            CaptureVirtualList(n, key);
+        foreach (var c in n.Children) CaptureVirtualHeights(c);
+    }
+
+    private void CaptureVirtualList(RenderNode n, string key)
+    {
+        if (!_virtualHeights.TryGetValue(key, out var pitches)) _virtualHeights[key] = pitches = new List<float>();
+
+        // Pitches are wrap-determined: a different content width re-wraps every bubble, so the whole
+        // cache is stale, not just the visible rows.
+        var width = n.ContentBoxWidth;
+        if (_virtualWidth.TryGetValue(key, out var w0) && MathF.Abs(w0 - width) > 0.5f) pitches.Clear();
+        _virtualWidth[key] = width;
+
+        var est = (float)VirtualItemH(n.Element!);
+        var scrollY = Math.Clamp(n.ScrollY, 0, n.MaxScrollY);
+        var idx = int.TryParse(n.Element!.GetAttribute("data-virtual-first"), out var f) ? f : 0;
+        var delta = 0f;
+        foreach (var row in n.Children)
+        {
+            if (row.Element is null || row.Style.Display == DisplayType.None
+                || row.Style.Position is PositionType.Absolute or PositionType.Fixed
+                || row.Element.HasAttribute("data-virtual-spacer")) continue;
+            var pitch = row.MarginTop + row.Height + row.MarginBottom;
+            while (pitches.Count <= idx) pitches.Add(0f);
+            if (MathF.Abs(pitches[idx] - pitch) > 0.01f)
+            {
+                // What the current spacer assumed for this row: its previous measurement, else the
+                // estimate. A row wholly above the viewport top has its size error baked into what
+                // the user is looking at — compensate so the visible content stays put.
+                var assumed = pitches[idx] > 0 ? pitches[idx] : est;
+                if (row.Y - n.ContentTopInset + pitch <= scrollY + 0.5f) delta += pitch - assumed;
+                pitches[idx] = pitch;
+            }
+            idx++;
+        }
+
+        if (_virtualPinned.Remove(key))
+        {
+            // The binder pinned this list to its (estimate-based) bottom; the layout knows the real
+            // one — snap exactly, so the last row sits flush and AtBottom below records true.
+            n.ScrollY = n.MaxScrollY;
+            _virtualScroll[key] = n.ScrollY;
+        }
+        else if (MathF.Abs(delta) > 0.01f)
+        {
+            n.ScrollY = Math.Clamp(scrollY + delta, 0, n.MaxScrollY);
+            if (_virtualScroll.TryGetValue(key, out var stored)) _virtualScroll[key] = stored + delta;
+        }
+
+        // Recorded, not enforced: the pin itself belongs to the binder (anchor="bottom") and the
+        // restore path (data-follow-tail) — this is only the "was the user at the bottom" fact.
+        _virtualAtBottom[key] = Math.Clamp(n.ScrollY, 0, n.MaxScrollY) >= n.MaxScrollY - 1f;
+    }
+
+    /// <summary>Tell the engine that <paramref name="count"/> rows were inserted into a virtualised
+    /// collection at <paramref name="index"/> — the "load older history" prepend in a chat log —
+    /// BEFORE calling <see cref="Refresh"/>. The measured-pitch cache shifts to stay index-aligned,
+    /// and when the insertion lands above the viewport the scroll offset advances by the inserted
+    /// rows' estimated extent, so the content on screen stays put instead of leaping down by the new
+    /// rows. Appends need no call: existing indices do not move.</summary>
+    public void VirtualListInserted(string repeatPath, int index, int count)
+    {
+        if (count <= 0 || index < 0) return;
+        var est = 40.0;
+        if (_root is not null && FindByVirtualKey(_root, repeatPath) is { Element: { } el }) est = VirtualItemH(el);
+
+        var pitches = _virtualHeights.GetValueOrDefault(repeatPath);
+        if (pitches is not null && index <= pitches.Count)
+            for (var k = 0; k < count; k++) pitches.Insert(index, 0f);
+
+        // Above the viewport ⇔ the content prefix up to the insertion point fits inside the current
+        // offset (at the very top — the usual prepend — index 0 always qualifies).
+        var scrollY = _virtualScroll.GetValueOrDefault(repeatPath);
+        double prefix = 0;
+        for (var i = 0; i < index; i++)
+            prefix += pitches is not null && i < pitches.Count && pitches[i] > 0 ? pitches[i] : est;
+        if (prefix <= scrollY + 0.5)
+        {
+            var compensated = scrollY + count * est;
+            _virtualScroll[repeatPath] = compensated;         // the next bind windows against this
+            _pendingVirtualScroll[repeatPath] = compensated;  // …and the rebuilt node starts here
+        }
     }
 
     // Toggle data-hover on the hovered element + ancestors, then re-resolve styles (no full rebuild).

@@ -13,6 +13,26 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Added
+
+- **`<cupri-virtual>` rows may be any height — and it can be a chat log** ([#67]). `item-height`
+  is now the ESTIMATED row pitch, not a requirement: each materialised row's real height is
+  measured back into a per-list cache and replaces the estimate, with the scroll offset anchored
+  in the same frame so measurement never makes the visible content jump. New `anchor="bottom"`
+  opens the list at its bottom and follows appended rows while the user is there (one scroll up
+  releases it; returning re-engages it), and new **`CupriDocument.VirtualListInserted(path,
+  index, count)`** is the prepend hook — call it before `Refresh` when loading older history and
+  the content on screen stays put. Measured: appending to a 5,000-row wrap-height chat costs
+  ~3ms where the unvirtualised path costs ~660ms. Fixed-height lists behave exactly as before
+  (estimate == measured ⇒ every correction is zero). Keep the estimate near a typical row; the
+  cache re-measures automatically when the list's width changes. Also fixed while there: a fling
+  died on the first re-window it crossed (the rebuilt scroller was unlaid for one frame and
+  reported itself unscrollable).
+
+[#67]: https://github.com/Wixely/CupriFace/issues/67
+
 ## v0.3.0
 
 ### Added
