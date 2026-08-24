@@ -65,7 +65,26 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   Note this is the icon of a *running* app; a Windows `.exe` icon and an Android *launcher* icon are
   read out of the built file before your code exists and remain build settings (see `PACKAGE.md`).
 
+- **`transform-origin`** ([#54]) — keywords (`left`/`center`/`right`, `top`/`center`/`bottom`, in
+  either order), percentages and lengths, one or two values. Transforms previously always pivoted
+  about the border-box centre, so `scaleY` on a bar grew it equally up *and* down; `transform-origin:
+  bottom` now anchors it to a baseline, which is what an animated bar chart needs (layout properties
+  deliberately do not animate, so `transform` is the only route to one). The initial value is
+  `50% 50%`, so **anything not naming an origin behaves exactly as before**. Hit-testing pivots about
+  the same point as the paint, so a re-anchored element stays clickable where it is drawn.
+
+[#54]: https://github.com/Wixely/CupriFace/issues/54
+
 ### Fixed
+
+- **A percentage height inside a fixed-height block resolves against that block** ([#55]). The block
+  layout path passed its own containing block down to its children instead of itself, so
+  `height:100%` on the fill of an `18px` meter resolved against the *grandparent* — at the top of a
+  page, the viewport — and came out 200px, painting over everything below it. Flex and grid parents
+  were always correct. **Nothing to do**; if you made a track `display:flex` purely to get this
+  right, plain block now works too.
+
+[#55]: https://github.com/Wixely/CupriFace/issues/55
 
 - **A percentage `max-width` no longer collapses a shrink-to-fit element to nothing.** Intrinsic
   sizing has no containing block, so `max-width:100%` was resolved against 0 and read as

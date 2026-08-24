@@ -183,12 +183,17 @@ public sealed class Painter
         var faded = s.Opacity < 1f;
         if (faded) list.Add(new PushOpacity(Math.Clamp(s.Opacity, 0f, 1f), absX, absY, node.Width, node.Height));
 
-        // Transform wraps the node's whole subtree, applied around its centre.
+        // Transform wraps the node's whole subtree, applied around transform-origin — resolved
+        // against the BORDER box, which is what the origin's percentages refer to. The initial
+        // value is 50% 50%, so an element that says nothing still turns about its centre.
         var transformed = s.HasTransform;
         if (transformed)
+        {
+            var (pivotX, pivotY) = s.TransformPivot(node.Width, node.Height);
             list.Add(new PushTransform(
-                absX + node.Width / 2f, absY + node.Height / 2f,
+                absX + pivotX, absY + pivotY,
                 s.TranslateX, s.TranslateY, s.ScaleX, s.ScaleY, s.RotateDeg));
+        }
 
         // Box shadow: outset (drop) shadows paint BEHIND the background.
         if (s.BoxShadow is { Count: > 0 } shadows)
