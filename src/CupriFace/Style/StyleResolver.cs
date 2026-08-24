@@ -894,10 +894,14 @@ public sealed class StyleResolver
         var parts = v.ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (parts.Length == 0) return;
 
-        // Vertical keywords are legal in EITHER slot, so `top left` means the same as `left top`.
-        // Detect that ordering before assigning, otherwise `top left` anchors to the wrong corner
-        // while looking perfectly reasonable in the stylesheet.
-        if (parts.Length >= 2 && IsVerticalKeyword(parts[0]) && IsHorizontalKeyword(parts[1]))
+        // Keywords are legal in EITHER order (`top left` == `left top`, `bottom center` ==
+        // `center bottom`), so detect a swapped pair before assigning positionally. The pair is
+        // swapped whenever EITHER end says so: a vertical keyword first, or a horizontal keyword
+        // second. Requiring both misread the most common chart form of all, `bottom center` (#63) —
+        // its second word names no axis, so it fell through to positional, `bottom` was read as an
+        // X of 100%, and the origin came out right-middle: for a scaleY, indistinguishable from
+        // unset, which is precisely the symptom #54 had just fixed.
+        if (parts.Length >= 2 && (IsVerticalKeyword(parts[0]) || IsHorizontalKeyword(parts[1])))
             (parts[0], parts[1]) = (parts[1], parts[0]);
 
         // A lone vertical keyword sets Y and leaves X centred — `transform-origin: bottom` is the

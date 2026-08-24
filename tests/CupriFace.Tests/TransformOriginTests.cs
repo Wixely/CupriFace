@@ -37,6 +37,14 @@ public class TransformOriginTests
     // vertical keyword FIRST — legal CSS, and the reversed pair must not be read as (x, y)
     [InlineData("transform-origin: top left", 0f, 0f)]
     [InlineData("transform-origin: bottom right", 40f, 20f)]
+    // a keyword paired with `center` — the most common chart form (#63). `center` names no axis,
+    // so only the OTHER word can say which slot it fills; requiring both to agree read `bottom
+    // center` positionally, made `bottom` an X of 100%, and silently centred the Y again.
+    [InlineData("transform-origin: bottom center", 20f, 20f)]
+    [InlineData("transform-origin: top center", 20f, 0f)]
+    [InlineData("transform-origin: center bottom", 20f, 20f)]
+    [InlineData("transform-origin: center left", 0f, 10f)]
+    [InlineData("transform-origin: center right", 40f, 10f)]
     // a lone vertical keyword sets Y and leaves X centred (the bar-chart case)
     [InlineData("transform-origin: bottom", 20f, 20f)]
     [InlineData("transform-origin: top", 20f, 0f)]
@@ -87,6 +95,34 @@ public class TransformOriginTests
         // ...and they must actually differ in height, or a flat baseline would prove nothing.
         Assert.True(tops[0] > tops[1] && tops[1] > tops[2],
             $"expected increasing heights, got tops {tops[0]}, {tops[1]}, {tops[2]}");
+    }
+
+    [Fact]
+    public void All_three_bottom_spellings_paint_the_same_bar()
+    {
+        // Issue #63's repro shape: `bottom`, `bottom center` and `50% 100%` are the same origin,
+        // so three quarter-scale bars anchored by each must paint identically — same bottom edge,
+        // same top edge. The middle spelling used to float centred while its neighbours sat on
+        // the baseline, which read as #54 having regressed.
+        using var t = new TestDoc(
+            "<body><div class='plot'><div class='bar a'></div><div class='bar b'></div><div class='bar c'></div></div></body>",
+            """
+            body  { margin:0 }
+            .plot { display:flex; align-items:flex-end; gap:10px; height:50px; }
+            .bar  { width:14px; height:50px; background:#0000ff; transform: scaleY(0.25); }
+            .a { transform-origin: bottom; }
+            .b { transform-origin: bottom center; }
+            .c { transform-origin: 50% 100%; }
+            """,
+            width: 100, height: 60);
+
+        using var bmp = t.Render(SKColors.White);
+        var columns = new[] { 7, 31, 55 };
+        var bottoms = columns.Select(x => BottomOfColumn(bmp, x)).ToArray();
+        var tops = columns.Select(x => TopOfColumn(bmp, x)).ToArray();
+
+        Assert.All(bottoms, b => Assert.InRange(b, 47, 50));   // all on the baseline
+        Assert.All(tops, tp => Assert.InRange(tp, 36, 39));    // all the same quarter height
     }
 
     [Fact]
