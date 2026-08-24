@@ -86,7 +86,23 @@ public sealed class StyleResolver
     {
         var body = document.Body ?? throw new InvalidOperationException("Document has no <body>.");
         var root = new RenderNode { Tag = "body", Element = body };
-        ResolveStyle(root, parent: null);
+
+        // The render tree starts at <body>, so <html> is never a node — but `:root { --token: … }`
+        // is THE conventional place for a stylesheet's palette, and CSS says custom properties (and
+        // the inherited text properties) flow from the document element down. Resolve a style for
+        // the document element off to the side and hand it to body as its inheritance parent: the
+        // rules land in the normal buckets (`html` by tag, `:root` keyless — AngleSharp matches it
+        // against the document element natively), so cascade, @media and var() all behave. The
+        // document element is an inheritance ENVIRONMENT here, not a box: its layout and paint
+        // properties (width, background, …) are resolved but never consumed — declare those on body.
+        ComputedStyle? env = null;
+        if (document.DocumentElement is { } html)
+        {
+            var envNode = new RenderNode { Tag = "html", Element = html };
+            ResolveStyle(envNode, parent: null);
+            env = envNode.Style;
+        }
+        ResolveStyle(root, env);
         BuildChildren(root, body);
         return root;
     }
