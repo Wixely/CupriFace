@@ -55,3 +55,12 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 - **Video on Android**: `<cupri-video>` plays through the platform's own `MediaPlayer` under a
   `SurfaceView` beneath the punched hole — no codecs ship in the app, and the device's hardware
   decoders do the work.
+
+- **`CupriApp.Icon` now reaches every host, not just the desktop window.** The web hosts point the
+  page's `<link rel="icon">` at it during boot (so a sample's `index.html` no longer carries a
+  hand-pasted base64 copy of the logo that could drift), and the Android host badges the **recents
+  card** with it — label and icon following a pushed/popped app, so the task switcher names the app
+  you are actually in. New `CupriApp.IconDataUri` gives any host the bytes as a `data:` URI with the
+  media type sniffed rather than assumed. **Nothing to do** — apps without an `Icon` are unchanged.
+  Note this is the icon of a *running* app; a Windows `.exe` icon and an Android *launcher* icon are
+  read out of the built file before your code exists and remain build settings (see `PACKAGE.md`).

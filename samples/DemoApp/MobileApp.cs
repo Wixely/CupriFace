@@ -22,6 +22,11 @@ public sealed class MobileApp : CupriApp
     protected override CupriSource MarkupSource => Assets.MobileApp.Html;
     protected override CupriSource StyleSource => Assets.MobileApp.Css;
     public override string Title => "CupriFace Mobile";
+    // Same logo the Showcase uses. Hosts adapt it: the desktop dev-loop window puts it on the
+    // title bar and taskbar, Android on the recents card. The LAUNCHER icon is a different thing
+    // entirely — the system reads that out of the APK before this code exists (PACKAGE.md spells
+    // out the split), so it cannot come from here.
+    public override byte[] Icon => EmbeddedAsset("Assets/logo-512.png").ReadBytes();
     public override int Width => 400;      // the desktop dev-loop window; phones ignore this
     public override int Height => 800;
     public override object? Model => _model;
