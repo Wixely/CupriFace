@@ -47,6 +47,15 @@ public abstract class CupriActivity : global::Android.App.Activity
         ActionBar?.Hide();
 
         _host = new AndroidHost(this, CreateApp(), ConfigureDocument);
+
+        // The recents card: the app's own title and icon instead of the Activity label and the
+        // launcher icon. Re-applied on a push/pop, because the card should name the app you are
+        // actually in — open the Showcase from MobileApp's About page and the task switcher says
+        // so. This is the RUNTIME icon (CupriApp.Icon); the launcher icon is an APK resource that
+        // the system reads long before any of this runs.
+        ApplyTaskDescription();
+        _host.AppChanged += ApplyTaskDescription;
+
         _host.FullscreenRequested += cmd => SetImmersive(cmd switch
         {
             Interaction.WindowCommand.EnterFullscreen => true,
@@ -130,6 +139,44 @@ public abstract class CupriActivity : global::Android.App.Activity
             _pump?.PostDelayed(_pumpTick!, 250);
         });
         _pump.PostDelayed(_pumpTick, 250);
+    }
+
+    /// <summary>Label + badge for the task switcher, taken from the running <see cref="CupriApp"/>.</summary>
+    private void ApplyTaskDescription()
+    {
+        if (_host is null) return;
+        var (label, iconBytes) = _host.AppIdentity;
+
+        var icon = iconBytes is { Length: > 0 }
+            ? global::Android.Graphics.BitmapFactory.DecodeByteArray(iconBytes, 0, iconBytes.Length)
+            : null;
+
+        // A TaskDescription is parcelled to the system server, so its bitmap rides a binder
+        // transaction with a ~1 MB ceiling — and an app icon is authored for the launcher, where
+        // 512² is normal. That decodes to 1 MB of ARGB on its own, which is the transaction limit
+        // rather than a safe distance below it. Scale to the size the launcher itself asks for.
+        if (icon is not null)
+        {
+            var target = (GetSystemService(ActivityService) as global::Android.App.ActivityManager)
+                ?.LauncherLargeIconSize ?? 192;
+            if (target > 0 && (icon.Width > target || icon.Height > target))
+            {
+                var scaled = global::Android.Graphics.Bitmap.CreateScaledBitmap(icon, target, target, filter: true);
+                if (scaled is not null && !ReferenceEquals(scaled, icon)) { icon.Recycle(); icon = scaled; }
+            }
+        }
+
+        // Opaque, always — the platform rejects a primary colour with alpha, so drop the app's
+        // (a transparent app reports black here anyway) rather than pass it through.
+        var bg = _host.AppBackground;
+        var primary = new global::Android.Graphics.Color(bg.Red, bg.Green, bg.Blue);
+
+#pragma warning disable CA1422, CS0618 // The (label, Bitmap, colour) constructor is deprecated at API 33 in
+                                       // favour of TaskDescription.Builder — which can only take an icon as a
+                                       // RESOURCE id. A bitmap decoded at runtime has no resource id, so this
+                                       // remains the only route for one, deprecated or not.
+        SetTaskDescription(new global::Android.App.ActivityManager.TaskDescription(label, icon, primary));
+#pragma warning restore CA1422, CS0618
     }
 
     protected override void OnResume()

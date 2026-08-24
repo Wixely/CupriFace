@@ -52,9 +52,27 @@ public abstract class CupriApp
     protected CupriSource EmbeddedAsset(string logicalName) => CupriSource.Embedded(GetType().Assembly, logicalName);
 
     /// <summary>Optional application icon as raw image-file bytes (PNG/JPEG). Hosts adapt it to their
-    /// platform: the desktop windows decode it and set the OS window/taskbar icon; web hosts bake a
-    /// favicon into their page. Typically an embedded resource: <c>EmbeddedAsset("Assets/logo.png").ReadBytes()</c>.</summary>
+    /// platform: the desktop windows decode it and set the OS window/taskbar icon, the web hosts point
+    /// the page's favicon at it, and the Android host badges the recents card with it. Typically an
+    /// embedded resource: <c>EmbeddedAsset("Assets/logo.png").ReadBytes()</c>.
+    ///
+    /// This is the icon of a RUNNING app. The icon of an installed one — a Windows <c>.exe</c>, an
+    /// Android launcher entry — is read out of the built file before any of this code exists, so it
+    /// is set by the build (<c>ApplicationIcon</c>, an <c>ic_launcher</c> resource), never here.</summary>
     public virtual byte[]? Icon => null;
+
+    /// <summary>The <see cref="Icon"/> encoded as a <c>data:</c> URI, or null when there is no icon.
+    /// The media type is sniffed from the bytes rather than assumed, so a JPEG is not announced as a
+    /// PNG. Web hosts hand this straight to <c>&lt;link rel="icon"&gt;</c>.</summary>
+    public string? IconDataUri
+    {
+        get
+        {
+            if (Icon is not { Length: > 3 } bytes) return null;   // virtual: read once, it may hit a resource stream
+            var png = bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47;
+            return $"data:{(png ? "image/png" : "image/jpeg")};base64,{Convert.ToBase64String(bytes)}";
+        }
+    }
 
     public virtual string Title => "CupriFace App";
     public virtual int Width => 800;

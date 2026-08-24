@@ -99,6 +99,13 @@ try {
         // External link (http/mailto/…): open in a new tab. Internal hrefs route inside the app;
         // #anchors are scrolled by the engine.
         navigate: href => { window.open(href, '_blank', 'noopener'); },
+        // Tab icon, from CupriApp.Icon. The page carries no favicon of its own, so create the link
+        // element on first use rather than assuming index.html declared one.
+        favicon: uri => {
+            let link = document.querySelector("link[rel='icon']");
+            if (!link) { link = document.createElement('link'); link.rel = 'icon'; document.head.appendChild(link); }
+            link.href = uri;
+        },
         // Context-menu clipboard (async browser clipboard). Paste reads then feeds the engine.
         clipboardWrite: text => navigator.clipboard.writeText(text).catch(() => {}),
         clipboardPaste: () => navigator.clipboard.readText().then(t => { if (t) I.KeyChar(t); }).catch(() => {}),
