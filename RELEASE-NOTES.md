@@ -68,12 +68,22 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 - **`transform-origin`** ([#54]) — keywords (`left`/`center`/`right`, `top`/`center`/`bottom`, in
   either order), percentages and lengths, one or two values. Transforms previously always pivoted
   about the border-box centre, so `scaleY` on a bar grew it equally up *and* down; `transform-origin:
-  bottom` now anchors it to a baseline, which is what an animated bar chart needs (layout properties
-  deliberately do not animate, so `transform` is the only route to one). The initial value is
-  `50% 50%`, so **anything not naming an origin behaves exactly as before**. Hit-testing pivots about
-  the same point as the paint, so a re-anchored element stays clickable where it is drawn.
+  bottom` now anchors it to a baseline, which is what an animated bar chart needs. The initial value
+  is `50% 50%`, so **anything not naming an origin behaves exactly as before**. Hit-testing pivots
+  about the same point as the paint, so a re-anchored element stays clickable where it is drawn.
 
 [#54]: https://github.com/Wixely/CupriFace/issues/54
+
+- **`@keyframes` can animate `width` and `height`** ([#56]). The keyframe declarations were always
+  parsed — the interpolation only ever read transform and opacity out of them, so a keyframed bar
+  held its start size for the whole run while the engine reported the animation active. Width and
+  height now lerp to a definite length that the frame's layout honours (the same road a
+  `transition: height` already took), so the element **and everything below it** reflow as it
+  moves. Same-unit px or % pairs interpolate; a non-interpolable pair (auto, mixed units) flips at
+  the midpoint, as in CSS. `transition: width` needed no fix — transitions start on a target-value
+  *change* (hover, class, model), which a clock-only harness never triggers; now pinned by a test.
+
+[#56]: https://github.com/Wixely/CupriFace/issues/56
 
 ### Fixed
 

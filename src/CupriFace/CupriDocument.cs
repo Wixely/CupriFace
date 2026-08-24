@@ -723,8 +723,9 @@ public sealed partial class CupriDocument : IDisposable
     }
 
     /// <summary>Advance @keyframes animations and in-flight CSS transitions to the given elapsed time.
-    /// Mostly paint-only; a <c>transition: height</c> writes a definite height that the following layout
-    /// honours, so the element and its siblings reflow. Returns true if anything animated this frame.</summary>
+    /// Mostly paint-only; a <c>transition: height</c> — or a width/height <c>@keyframes</c> — writes a
+    /// definite size that the following layout honours, so the element and its siblings reflow.
+    /// Returns true if anything animated this frame.</summary>
     public bool Animate(double timeSeconds)
     {
         var any = false;
