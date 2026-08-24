@@ -72,10 +72,24 @@ public sealed class ComputedStyle
     // Background gradient (CSS linear-gradient()/radial-gradient()); painted over Background. Not inherited.
     public Gradient? BackgroundGradient;
 
-    // Transform (applied around the border-box centre at paint time)
+    // Transform (applied around TransformOrigin within the border box at paint time)
     public bool HasTransform;
     public float TranslateX, TranslateY, RotateDeg;
     public float ScaleX = 1f, ScaleY = 1f;
+
+    // transform-origin — the transform's fixed point, resolved against the border box. The CSS
+    // initial value is `50% 50%`, so the default keeps the centre behaviour every transform had
+    // before this was honoured. NOT inherited (deliberately absent from InheritFrom): an origin is
+    // a property of one element's own box, and inheriting it would silently re-anchor children.
+    public Length TransformOriginX = new(LengthUnit.Percent, 50f);
+    public Length TransformOriginY = new(LengthUnit.Percent, 50f);
+
+    /// <summary>The transform's fixed point as an offset inside a border box of the given size.
+    /// Painting and hit-testing must pivot about the SAME point — an element that paints anchored
+    /// to its bottom edge but tests as if anchored to its centre is clickable where it isn't drawn
+    /// — so both go through here rather than each computing a pivot of their own.</summary>
+    public (float X, float Y) TransformPivot(float width, float height) =>
+        (TransformOriginX.Resolve(width, width / 2f), TransformOriginY.Resolve(height, height / 2f));
 
     // Animation
     public string? AnimationName;

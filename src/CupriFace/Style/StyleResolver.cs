@@ -317,6 +317,7 @@ public sealed class StyleResolver
                 case "background-color": if (Colors.TryParse(v, out var bgc)) s.Background = bgc; break;
                 case "opacity": s.Opacity = Math.Clamp(ParseNum(v), 0f, 1f); break;
                 case "transform": ParseTransform(s, v); break;
+                case "transform-origin": ParseTransformOrigin(s, v); break;
                 case "animation": ParseAnimation(s, v); break;
                 case "animation-name": s.AnimationName = v; break;
                 case "animation-duration": s.AnimationDuration = ParseSeconds(v); break;
@@ -836,6 +837,47 @@ public sealed class StyleResolver
             }
         }
     }
+
+    /// <summary>
+    /// <c>transform-origin: [ left | center | right | &lt;length-percentage&gt; ]
+    ///                      [ top | center | bottom | &lt;length-percentage&gt; ]?</c>
+    /// — the transform's fixed point. A third (z) value is accepted and ignored; this is a 2D engine.
+    /// </summary>
+    private static void ParseTransformOrigin(ComputedStyle s, string v)
+    {
+        var parts = v.ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length == 0) return;
+
+        // Vertical keywords are legal in EITHER slot, so `top left` means the same as `left top`.
+        // Detect that ordering before assigning, otherwise `top left` anchors to the wrong corner
+        // while looking perfectly reasonable in the stylesheet.
+        if (parts.Length >= 2 && IsVerticalKeyword(parts[0]) && IsHorizontalKeyword(parts[1]))
+            (parts[0], parts[1]) = (parts[1], parts[0]);
+
+        // A lone vertical keyword sets Y and leaves X centred — `transform-origin: bottom` is the
+        // common bar-chart case, and reading it as an X offset would anchor the wrong axis.
+        if (parts.Length == 1 && IsVerticalKeyword(parts[0]))
+        {
+            s.TransformOriginY = OriginComponent(parts[0]);
+            s.TransformOriginX = new Length(LengthUnit.Percent, 50f);
+            return;
+        }
+
+        s.TransformOriginX = OriginComponent(parts[0]);
+        s.TransformOriginY = parts.Length >= 2 ? OriginComponent(parts[1]) : new Length(LengthUnit.Percent, 50f);
+    }
+
+    private static bool IsHorizontalKeyword(string p) => p is "left" or "right";
+    private static bool IsVerticalKeyword(string p) => p is "top" or "bottom";
+
+    /// <summary>One <c>transform-origin</c> component: an edge/centre keyword, or a length/percentage.</summary>
+    private static Length OriginComponent(string p) => p switch
+    {
+        "left" or "top" => Length.Zero,
+        "center" or "centre" => new Length(LengthUnit.Percent, 50f),
+        "right" or "bottom" => new Length(LengthUnit.Percent, 100f),
+        _ => ParseLen(p),
+    };
 
     private static void ParseFlexShorthand(ComputedStyle s, string v)
     {

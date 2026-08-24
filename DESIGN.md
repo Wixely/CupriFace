@@ -569,8 +569,8 @@ headless environment can't run — see caveats).
   managed **block + flexbox + CSS grid** (grow/shrink, justify/align, gap, **wrap**,
   **max-content**, **absolute/relative**; grid `fr`/`px`/`%`/`repeat()`/`minmax()`,
   column **and row spans**, `align/justify-items`); box model + `overflow` clip;
-  **`transform`** (translate/scale/rotate) + **`@keyframes` animation**; **`@media`**
-  queries + **`calc()`**.
+  **`transform`** (translate/scale/rotate, about **`transform-origin`**) + **`@keyframes`
+  animation**; **`@media`** queries + **`calc()`**.
 - **Text** — HarfBuzz shaping (kerning/ligatures, Greek/Cyrillic/Arabic) + **simplified
   bidi** reordering for mixed LTR/RTL; word-wrap, baseline, text-align.
 - **Paint / threading** — immutable **DisplayList** snapshot + Skia rasteriser, driven

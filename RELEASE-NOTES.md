@@ -55,3 +55,13 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 - **Video on Android**: `<cupri-video>` plays through the platform's own `MediaPlayer` under a
   `SurfaceView` beneath the punched hole — no codecs ship in the app, and the device's hardware
   decoders do the work.
+
+- **`transform-origin`** ([#54]) — keywords (`left`/`center`/`right`, `top`/`center`/`bottom`, in
+  either order), percentages and lengths, one or two values. Transforms previously always pivoted
+  about the border-box centre, so `scaleY` on a bar grew it equally up *and* down; `transform-origin:
+  bottom` now anchors it to a baseline, which is what an animated bar chart needs (layout properties
+  deliberately do not animate, so `transform` is the only route to one). The initial value is
+  `50% 50%`, so **anything not naming an origin behaves exactly as before**. Hit-testing pivots about
+  the same point as the paint, so a re-anchored element stays clickable where it is drawn.
+
+[#54]: https://github.com/Wixely/CupriFace/issues/54
