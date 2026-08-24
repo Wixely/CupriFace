@@ -24,15 +24,32 @@ public static partial class BindingEngine
     [GeneratedRegex(@"^\s*\{\{\s*([^}]+?)\s*\}\}\s*$")]
     private static partial Regex PureBinding();
 
+    /// <summary>A <c>&lt;cupri-virtual&gt;</c> list's bind-time state, supplied by the document: the
+    /// scroll offset to window at, the measured row pitches (index-aligned margin-box heights; ≤0 =
+    /// never measured, fall back to the item-height estimate), whether the list sat pinned at its
+    /// bottom, and whether the document has seen the list at all (an unknown bottom-anchored list
+    /// opens AT the bottom).</summary>
+    public readonly record struct VirtualListState(double ScrollY, IReadOnlyList<float>? Heights, bool AtBottom, bool Known);
+
     /// <summary>Apply model → view binding. <paramref name="scrollFor"/> (optional) returns a virtual
     /// list's current scroll offset by its <c>data-repeat</c> path, so a <c>data-repeat</c> inside a
     /// <c>&lt;cupri-virtual&gt;</c> is windowed to just the visible rows (+ spacers) instead of every item.</summary>
     public static void Apply(IDocument document, object model, Func<string, double>? scrollFor = null)
+        => Apply(document, model,
+            scrollFor is null ? null : key => new VirtualListState(scrollFor(key), null, false, true), null);
+
+    /// <summary>Full form: <paramref name="stateFor"/> supplies each virtual list's scroll offset,
+    /// measured heights and bottom-pin state; <paramref name="scrollOverride"/> reports back a scroll
+    /// offset the WINDOWING chose (bottom anchoring) — the render node it belongs to does not exist
+    /// yet, so the document applies it once the tree is built.</summary>
+    public static void Apply(IDocument document, object model,
+        Func<string, VirtualListState>? stateFor, Action<string, double>? scrollOverride)
     {
-        if (document.Body is { } body) Process(body, model, scrollFor);
+        if (document.Body is { } body) Process(body, model, stateFor, scrollOverride);
     }
 
-    private static void Process(IElement element, object? context, Func<string, double>? scrollFor)
+    private static void Process(IElement element, object? context,
+        Func<string, VirtualListState>? stateFor, Action<string, double>? scrollOverride)
     {
         // Repeat directive expands this element once per collection item.
         var repeatPath = element.GetAttribute("data-repeat");
@@ -43,15 +60,15 @@ public static partial class BindingEngine
             if (parent is not null && Resolve(context, repeatPath) is IEnumerable seq and not string)
             {
                 var items = seq.Cast<object?>().ToList();
-                var (first, last) = Window(parent, repeatPath, items.Count, scrollFor);
-                if (first > 0) parent.InsertBefore(Spacer(parent, first * ItemH(parent)), element);        // rows above
+                var (first, last, above, below) = Window(parent, repeatPath, items.Count, stateFor, scrollOverride);
+                if (above > 0.01) parent.InsertBefore(Spacer(parent, above), element);        // rows above
                 for (var i = first; i < last; i++)
                 {
                     var clone = (IElement)element.Clone(deep: true);
-                    ProcessSubtree(clone, items[i], scrollFor);
+                    ProcessSubtree(clone, items[i], stateFor, scrollOverride);
                     parent.InsertBefore(clone, element);
                 }
-                if (last < items.Count) parent.InsertBefore(Spacer(parent, (items.Count - last) * ItemH(parent)), element); // below
+                if (below > 0.01) parent.InsertBefore(Spacer(parent, below), element); // below
             }
             element.Remove();
             return;
@@ -64,26 +81,68 @@ public static partial class BindingEngine
         {
             switch (child)
             {
-                case IElement childEl: Process(childEl, context, scrollFor); break;
+                case IElement childEl: Process(childEl, context, stateFor, scrollOverride); break;
                 case IText text: BindText(text, context); break;
             }
         }
     }
 
-    // Full range [0,count), unless the repeat's parent is <cupri-virtual> — then just the rows visible at the
-    // container's current scroll offset, padded by a few for smooth scrolling. Spacer divs (below) preserve
-    // the full scroll extent so the scrollbar and offsets stay correct.
-    private static (int First, int Last) Window(IElement parent, string repeatPath, int count, Func<string, double>? scrollFor)
+    // Full range [0,count), unless the repeat's parent is <cupri-virtual> — then just the rows visible
+    // at the container's current scroll offset, padded by a few for smooth scrolling, plus the two
+    // spacer heights standing in for everything outside the window (they preserve the scroll extent).
+    // Row pitches come from the document's measured cache where a row has ever been materialised, and
+    // fall back to the item-height ESTIMATE where it hasn't — which is what makes variable-height rows
+    // (a chat log's bubbles) virtualisable: the estimate only has to be in the right neighbourhood,
+    // and measurement replaces it the first time a row is seen (#67). Prefix walks, not division —
+    // with variable pitches there is no single row height to divide by.
+    private static (int First, int Last, double Above, double Below) Window(IElement parent, string repeatPath,
+        int count, Func<string, VirtualListState>? stateFor, Action<string, double>? scrollOverride)
     {
-        if (count == 0 || !parent.LocalName.Equals("cupri-virtual", StringComparison.OrdinalIgnoreCase)) return (0, count);
+        if (count == 0 || !parent.LocalName.Equals("cupri-virtual", StringComparison.OrdinalIgnoreCase))
+            return (0, count, 0, 0);
         parent.SetAttribute("data-virtual-key", repeatPath);
-        var itemH = ItemH(parent);
+
+        var est = ItemH(parent);
         var viewH = Dbl(parent.GetAttribute("height"), 300);
-        var scrollY = scrollFor?.Invoke(repeatPath) ?? 0;
-        const int buffer = 4;
-        var first = Math.Max(0, (int)Math.Floor(scrollY / itemH) - buffer);
-        var last = Math.Min(count, first + (int)Math.Ceiling(viewH / itemH) + 2 * buffer);
-        return (first, last);
+        var state = stateFor?.Invoke(repeatPath) ?? new VirtualListState(0, null, false, true);
+        var heights = state.Heights;
+        double H(int i) => heights is not null && i < heights.Count && heights[i] > 0 ? heights[i] : est;
+
+        double total = 0;
+        for (var i = 0; i < count; i++) total += H(i);
+
+        // anchor="bottom" (a chat log): open at the bottom, and stay pinned there while rows append —
+        // but only while the user actually sat at the bottom (recorded by the document each frame, so
+        // one scroll up releases the pin). The chosen offset is reported back through scrollOverride;
+        // the node it belongs to is only built after this bind, and the layout then snaps it to the
+        // REAL bottom (this one is estimate-based for any never-measured row).
+        var scrollY = state.ScrollY;
+        if (parent.GetAttribute("anchor") == "bottom" && (state.AtBottom || !state.Known))
+        {
+            scrollY = Math.Max(0, total - viewH);
+            scrollOverride?.Invoke(repeatPath, scrollY);
+        }
+
+        const int buffer = 6;
+        var firstVisible = 0;
+        double acc = 0;
+        while (firstVisible < count - 1 && acc + H(firstVisible) <= scrollY) { acc += H(firstVisible); firstVisible++; }
+        var first = Math.Max(0, firstVisible - buffer);
+
+        var last = firstVisible;
+        var covered = acc;                       // the first visible row's top
+        while (last < count && covered < scrollY + viewH) { covered += H(last); last++; }
+        last = Math.Min(count, last + buffer);
+
+        double above = 0;
+        for (var i = 0; i < first; i++) above += H(i);
+        double below = 0;
+        for (var i = last; i < count; i++) below += H(i);
+
+        // The capture pass (CupriDocument.CaptureVirtualHeights) maps the materialised rows back to
+        // their data indices through this stamp.
+        parent.SetAttribute("data-virtual-first", first.ToString(CultureInfo.InvariantCulture));
+        return (first, last, above, below);
     }
 
     private static double ItemH(IElement virt) => Dbl(virt.GetAttribute("item-height"), 40);
@@ -93,17 +152,19 @@ public static partial class BindingEngine
         var sp = parent.Owner!.CreateElement("div");
         sp.SetAttribute("style", $"height:{h.ToString("0.##", CultureInfo.InvariantCulture)}px");
         sp.SetAttribute("aria-hidden", "true");
+        sp.SetAttribute("data-virtual-spacer", "");   // the capture pass skips it when mapping rows to indices
         return sp;
     }
 
-    private static void ProcessSubtree(IElement element, object? context, Func<string, double>? scrollFor)
+    private static void ProcessSubtree(IElement element, object? context,
+        Func<string, VirtualListState>? stateFor, Action<string, double>? scrollOverride)
     {
         BindAttributes(element, context);
         foreach (var child in element.ChildNodes.ToArray())
         {
             switch (child)
             {
-                case IElement childEl: Process(childEl, context, scrollFor); break;
+                case IElement childEl: Process(childEl, context, stateFor, scrollOverride); break;
                 case IText text: BindText(text, context); break;
             }
         }

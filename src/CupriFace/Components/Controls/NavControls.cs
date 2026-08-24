@@ -182,8 +182,14 @@ public sealed class BoardComponent : ComponentBase
 /// <c>&lt;cupri-virtual height="300" item-height="40"&gt;&lt;div data-repeat="Items"&gt;{{.}}&lt;/div&gt;&lt;/cupri-virtual&gt;</c>
 /// — a scrolling list that only builds the rows currently in view (plus a small buffer); spacer divs keep
 /// the full scroll height so the scrollbar and offsets are correct. So a list of thousands stays cheap —
-/// only ~a screenful is ever in the DOM. Rows must be a fixed <c>item-height</c> (px) tall; scrolling
-/// re-windows. The windowing happens in the binder (see BindingEngine); this just styles the scroll box.
+/// only ~a screenful is ever in the DOM. <c>item-height</c> is the ESTIMATED row pitch: rows may be any
+/// height (a chat log's bubbles) — each materialised row's real height is measured back into a per-list
+/// cache and replaces the estimate, with the scroll offset anchored so nothing on screen jumps (#67).
+/// Keep the estimate near a typical row. <c>anchor="bottom"</c> makes it a chat log: it opens at the
+/// bottom and follows appended rows while the user is at the bottom — one scroll up releases it, and
+/// returning to the bottom re-engages it. For prepended history ("load older"), tell the engine before
+/// refreshing: <see cref="CupriDocument.VirtualListInserted"/>. The windowing happens in the binder
+/// (see BindingEngine); this just styles the scroll box.
 /// </summary>
 public sealed class VirtualListComponent : ComponentBase
 {
@@ -195,6 +201,10 @@ public sealed class VirtualListComponent : ComponentBase
     {
         el.SetAttribute("role", "list");
         el.ClassList.Add("cupri-virtual");
+        // anchor="bottom" rides the engine's existing tail-follow contract (CaptureScroll records
+        // at-bottom per rebuild; RestoreScroll re-pins to the NEW bottom) — the binder handles the
+        // windowing half by reading the raw anchor attribute, which is why nothing is translated.
+        if (Str(el, "anchor", "") == "bottom") el.SetAttribute("data-follow-tail", "");
         var extra = el.GetAttribute("style") is { Length: > 0 } s ? ";" + s : "";
         el.SetAttribute("style", $"height:{Str(el, "height", "300")}px;overflow:scroll{extra}");
     }
