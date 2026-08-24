@@ -690,11 +690,18 @@ public sealed class LayoutEngine
     {
         var s = node.Style;
         var items = InFlowChildren(node);
-        var templates = s.GridTemplateColumns ?? new List<TrackSize> { new(TrackKind.Fraction, 1) };
-        var nCols = Math.Max(1, templates.Count);
-
         var colGap = s.ColumnGap;
         var rowGap = s.RowGap;
+
+        // repeat(auto-fill|auto-fit, …) could not expand at parse time — its count IS the container
+        // width — so the template materialises here, and everything downstream sizes and places
+        // against real tracks exactly as it would for an explicit template.
+        var templates = s.GridTemplateColumns;
+        if (s.GridRepeatColumns is { } repC)
+            templates = MaterialiseAutoRepeat(repC, templates, contentW, colGap, items.Count);
+        templates ??= new List<TrackSize> { new(TrackKind.Fraction, 1) };
+        var nCols = Math.Max(1, templates.Count);
+
         var colWidths = ResolveTracks(templates, contentW, colGap);
 
         var colX = new float[nCols];
@@ -769,9 +776,12 @@ public sealed class LayoutEngine
         }
 
         // Explicit row tracks / grid-auto-rows override content heights.
+        var rowTemplates = s.GridTemplateRows;
+        if (s.GridRepeatRows is { } repR)
+            rowTemplates = MaterialiseAutoRepeat(repR, rowTemplates, contentH, rowGap, items.Count);
         for (var r = 0; r < nRows; r++)
         {
-            if (s.GridTemplateRows is { } rows && r < rows.Count && rows[r].Kind != TrackKind.Fraction)
+            if (rowTemplates is { } rows && r < rows.Count && rows[r].Kind != TrackKind.Fraction)
                 rowHeights[r] = ResolveTrack(rows[r], contentH);
             else if (s.GridAutoRows is { } auto && auto.Kind != TrackKind.Fraction)
                 rowHeights[r] = ResolveTrack(auto, contentH);
@@ -829,6 +839,51 @@ public sealed class LayoutEngine
         if (p.EndName is { } en && names is not null && names.TryGetValue(en, out var el) && start is { } st)
             return Math.Max(1, el - st);
         return p.Span;
+    }
+
+    /// <summary>Expand a template's <c>repeat(auto-fill|auto-fit, …)</c> into real tracks: the
+    /// largest repetition count whose MINIMUM widths (the minmax() floor, fixed sizes, resolved
+    /// percentages) fit the container, always at least one — so the tracks then share space via
+    /// their maxima (the usual <c>1fr</c>) exactly like an explicit template. auto-fit additionally
+    /// collapses repetitions beyond the item count, so leftover space goes to occupied tracks
+    /// instead of to empty columns (approximate: items are counted, not placed — explicit
+    /// placements and spans are rare inside an auto grid).</summary>
+    private static List<TrackSize> MaterialiseAutoRepeat(GridAutoRepeat rep, List<TrackSize>? fixedTracks,
+        float available, float gap, int itemCount)
+    {
+        fixedTracks ??= new List<TrackSize>();
+        float MinOf(TrackSize t) => t.Kind switch
+        {
+            TrackKind.Px => t.Value,
+            TrackKind.Percent => t.Value / 100f * available,
+            _ => t.MinPx, // fr/auto: the minmax() floor (0 = no measurable minimum)
+        };
+
+        float fixedMin = 0, patternMin = 0;
+        foreach (var t in fixedTracks) fixedMin += MinOf(t);
+        foreach (var t in rep.Pattern) patternMin += MinOf(t);
+
+        // A pattern with no measurable floor (bare 1fr/auto — which CSS forbids in an auto repeat
+        // anyway) implies no count; one repetition is the honest answer. Otherwise: the largest N
+        // with fixedMin + N·patternMin + gap·(tracks − 1) ≤ available. Iterated rather than solved
+        // in closed form — the gap term's −1 breeds off-by-ones, and N is tiny.
+        var count = 1;
+        if (patternMin > 0)
+            while (count < 1000)
+            {
+                var n = count + 1;
+                var totalTracks = fixedTracks.Count + n * rep.Pattern.Count;
+                if (fixedMin + n * patternMin + gap * Math.Max(0, totalTracks - 1) > available + 0.5f) break;
+                count = n;
+            }
+
+        if (rep.Fit) count = Math.Clamp(itemCount, 1, count);
+
+        var outTracks = new List<TrackSize>(fixedTracks.Count + count * rep.Pattern.Count);
+        for (var i = 0; i < rep.InsertAt && i < fixedTracks.Count; i++) outTracks.Add(fixedTracks[i]);
+        for (var r = 0; r < count; r++) outTracks.AddRange(rep.Pattern);
+        for (var i = rep.InsertAt; i < fixedTracks.Count; i++) outTracks.Add(fixedTracks[i]);
+        return outTracks;
     }
 
     private static float[] ResolveTracks(List<TrackSize> tracks, float available, float gap)

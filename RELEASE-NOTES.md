@@ -96,6 +96,18 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 [#55]: https://github.com/Wixely/CupriFace/issues/55
 
+- **Grid `repeat(auto-fill|auto-fit, …)` templates work** ([#51]). The repeat expander only took a
+  numeric count, so the standard responsive-card idiom fell through the track parser as one bogus
+  0px track — every item collapsed to its padding and stacked in a single column, silently. The
+  count is now computed per layout pass from the container width and the pattern's minimum (the
+  `minmax()` floor, fixed sizes, resolved percentages), then the template materialises and sizes
+  exactly like an explicit one; `auto-fit` additionally collapses repetitions beyond the item
+  count so leftover space goes to occupied tracks. Fixed alongside: a **numeric** repeat whose
+  pattern contained `minmax(…)` was cut at the inner `)` — `repeat(3, minmax(200px, 1fr))` now
+  parses too. Not supported: `[name]` line names declared after an auto repeat.
+
+[#51]: https://github.com/Wixely/CupriFace/issues/51
+
 - **A percentage `max-width` no longer collapses a shrink-to-fit element to nothing.** Intrinsic
   sizing has no containing block, so `max-width:100%` was resolved against 0 and read as
   `max-width:0` — an auto-width flex item carrying one was handed 0px, and anything inside it that
