@@ -190,7 +190,16 @@ public sealed class LayoutEngine
             usedH = LayoutGrid(node, contentW, providedH);
         }
         else
-            usedH = LayoutBlock(node, contentW, cbH);
+        {
+            // The children's containing block is THIS node, not its parent — so a percentage height on a
+            // child resolves against the height we were given, exactly as the flex and grid paths above
+            // already do. Passing cbH straight down handed the children the GRANDparent's height (at the
+            // top of a page, the viewport): `height:100%` on the fill of an 18px meter came out 200px and
+            // painted over everything below it. Auto keeps forwarding cbH — a height that depends on
+            // content is no basis for a percentage, and that is the pre-existing behaviour on all paths.
+            var providedH = forceContentH ?? (s.Height.IsDefinite ? s.Height.Resolve(cbH) : cbH);
+            usedH = LayoutBlock(node, contentW, providedH);
+        }
 
         // Natural border-box height (content-sized, before any explicit/resize/transition constraint) —
         // the target a `transition: height` uses when the CSS height is `auto`.

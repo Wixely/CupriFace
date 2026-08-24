@@ -74,3 +74,14 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   the same point as the paint, so a re-anchored element stays clickable where it is drawn.
 
 [#54]: https://github.com/Wixely/CupriFace/issues/54
+
+### Fixed
+
+- **A percentage height inside a fixed-height block resolves against that block** ([#55]). The block
+  layout path passed its own containing block down to its children instead of itself, so
+  `height:100%` on the fill of an `18px` meter resolved against the *grandparent* — at the top of a
+  page, the viewport — and came out 200px, painting over everything below it. Flex and grid parents
+  were always correct. **Nothing to do**; if you made a track `display:flex` purely to get this
+  right, plain block now works too.
+
+[#55]: https://github.com/Wixely/CupriFace/issues/55
