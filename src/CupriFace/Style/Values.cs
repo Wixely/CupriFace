@@ -58,6 +58,19 @@ public readonly struct TrackSize
     public static readonly TrackSize Auto = new(TrackKind.Auto, 0);
 }
 
+/// <summary>A grid template's <c>repeat(auto-fill|auto-fit, …)</c>: the repeated pattern, the index
+/// in the fixed track list where the repetitions slot in, and whether repetitions beyond the item
+/// count collapse (auto-fit). The COUNT depends on the container size, so it cannot be expanded at
+/// parse time — LayoutGrid materialises the real track list per layout pass.</summary>
+public sealed class GridAutoRepeat
+{
+    public readonly List<TrackSize> Pattern;
+    public readonly int InsertAt;
+    public readonly bool Fit;
+    public GridAutoRepeat(List<TrackSize> pattern, int insertAt, bool fit)
+    { Pattern = pattern; InsertAt = insertAt; Fit = fit; }
+}
+
 /// <summary>Grid item placement along one axis: an optional 1-based start line and a span, or named
 /// grid lines (resolved against the container's template line names at layout time).</summary>
 public readonly struct GridPlacement

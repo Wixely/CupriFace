@@ -87,6 +87,16 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **Custom properties on `:root` and `html` now inherit** ([#53]). The render tree starts at
+  `<body>`, so rules on the document element matched nothing: a palette declared the conventional
+  way silently vanished and every `var()` behaved as if the token were undefined. The document
+  element now participates in *inheritance* — custom properties, `color` and the other inherited
+  text properties declared on `:root`/`html` flow into `body` and below. It is still not a layout
+  box: `html { background: … }` and friends stay inert; declare those on `body`. **Nothing to do**;
+  a palette moved to `body` as a workaround can move back.
+
+[#53]: https://github.com/Wixely/CupriFace/issues/53
+
 - **A percentage height inside a fixed-height block resolves against that block** ([#55]). The block
   layout path passed its own containing block down to its children instead of itself, so
   `height:100%` on the fill of an `18px` meter resolved against the *grandparent* — at the top of a
@@ -95,6 +105,18 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   right, plain block now works too.
 
 [#55]: https://github.com/Wixely/CupriFace/issues/55
+
+- **Grid `repeat(auto-fill|auto-fit, …)` templates work** ([#51]). The repeat expander only took a
+  numeric count, so the standard responsive-card idiom fell through the track parser as one bogus
+  0px track — every item collapsed to its padding and stacked in a single column, silently. The
+  count is now computed per layout pass from the container width and the pattern's minimum (the
+  `minmax()` floor, fixed sizes, resolved percentages), then the template materialises and sizes
+  exactly like an explicit one; `auto-fit` additionally collapses repetitions beyond the item
+  count so leftover space goes to occupied tracks. Fixed alongside: a **numeric** repeat whose
+  pattern contained `minmax(…)` was cut at the inner `)` — `repeat(3, minmax(200px, 1fr))` now
+  parses too. Not supported: `[name]` line names declared after an auto repeat.
+
+[#51]: https://github.com/Wixely/CupriFace/issues/51
 
 - **A percentage `max-width` no longer collapses a shrink-to-fit element to nothing.** Intrinsic
   sizing has no containing block, so `max-width:100%` was resolved against 0 and read as

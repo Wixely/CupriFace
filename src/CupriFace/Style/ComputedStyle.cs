@@ -43,6 +43,9 @@ public sealed class ComputedStyle
     public List<TrackSize>? GridTemplateColumns;
     public List<TrackSize>? GridTemplateRows;
     public TrackSize? GridAutoRows;
+    // repeat(auto-fill|auto-fit, …): the COUNT depends on the container size, so it cannot expand
+    // at parse time — the pattern and its slot in the fixed tracks wait for LayoutGrid.
+    public GridAutoRepeat? GridRepeatColumns, GridRepeatRows;
     public Dictionary<string, int>? GridColumnLines, GridRowLines; // [name] → 1-based grid line
 
     // Grid item
