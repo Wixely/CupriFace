@@ -12,8 +12,6 @@ namespace CupriFace.Style;
 /// </summary>
 public sealed class StyleResolver
 {
-    private static readonly Regex _repeat = new(@"repeat\(\s*(\d+)\s*,\s*([^)]+)\)",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex _var = new(@"var\(\s*(--[\w-]+)\s*(?:,\s*([^)]*))?\)", RegexOptions.Compiled);
 
     /// <summary>Resolve var(--token[, fallback]) against the cascaded custom properties.</summary>
@@ -297,8 +295,8 @@ public sealed class StyleResolver
                 case "flex-basis": s.FlexBasis = ParseLen(v); break;
                 case "flex": ParseFlexShorthand(s, v); break;
 
-                case "grid-template-columns": s.GridTemplateColumns = ParseTemplate(v, out s.GridColumnLines); break;
-                case "grid-template-rows": s.GridTemplateRows = ParseTemplate(v, out s.GridRowLines); break;
+                case "grid-template-columns": s.GridTemplateColumns = ParseTemplate(v, out s.GridColumnLines, out s.GridRepeatColumns); break;
+                case "grid-template-rows": s.GridTemplateRows = ParseTemplate(v, out s.GridRowLines, out s.GridRepeatRows); break;
                 case "grid-auto-rows": s.GridAutoRows = ParseTrack(v); break;
                 case "grid-column": s.GridColumn = ParsePlacement(v); break;
                 case "grid-row": s.GridRow = ParsePlacement(v); break;
@@ -501,20 +499,18 @@ public sealed class StyleResolver
     }
 
     // ---- grid parsers --------------------------------------------------------
-    private static List<TrackSize> ParseTracks(string v) => ParseTemplate(v, out _);
+    private static List<TrackSize> ParseTracks(string v) => ParseTemplate(v, out _, out _);
 
-    /// <summary>Parse a grid template into tracks plus any <c>[name]</c> line names → 1-based line index.</summary>
-    private static List<TrackSize> ParseTemplate(string v, out System.Collections.Generic.Dictionary<string, int>? lineNames)
+    /// <summary>Parse a grid template into tracks plus any <c>[name]</c> line names → 1-based line
+    /// index. A numeric <c>repeat(n, …)</c> expands inline; <c>repeat(auto-fill|auto-fit, …)</c>
+    /// comes out through <paramref name="autoRepeat"/> because its count is a function of the
+    /// container size, which only layout knows. Line names declared AFTER an auto repeat would
+    /// mis-number once it materialises — that combination is not supported.</summary>
+    private static List<TrackSize> ParseTemplate(string v,
+        out System.Collections.Generic.Dictionary<string, int>? lineNames, out GridAutoRepeat? autoRepeat)
     {
         lineNames = null;
-        // Expand repeat(n, tracklist) → the tracklist repeated n times.
-        v = _repeat.Replace(v, m =>
-        {
-            var count = int.Parse(m.Groups[1].Value);
-            var inner = m.Groups[2].Value.Trim();
-            return string.Join(' ', Enumerable.Repeat(inner, count));
-        });
-
+        autoRepeat = null;
         var tracks = new List<TrackSize>();
         foreach (var tok in SplitTopLevel(v))
         {
@@ -524,9 +520,43 @@ public sealed class StyleResolver
                 foreach (var name in tok[1..^1].Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                     (lineNames ??= new())[name] = line;
             }
+            else if (tok.StartsWith("repeat(", StringComparison.OrdinalIgnoreCase) && tok.EndsWith(')'))
+            {
+                // SplitTopLevel kept the whole call as one token, so the pattern may itself contain
+                // minmax(a, b) — split the count from the pattern at the first TOP-LEVEL comma (a
+                // regex that stopped at the first ')' mangled every nested track function).
+                var inner = tok[7..^1];
+                var comma = TopLevelComma(inner);
+                if (comma < 0) continue;
+                var countStr = inner[..comma].Trim().ToLowerInvariant();
+                var pattern = new List<TrackSize>();
+                foreach (var p in SplitTopLevel(inner[(comma + 1)..])) pattern.Add(ParseTrack(p));
+                if (pattern.Count == 0) continue;
+
+                if (int.TryParse(countStr, out var count))
+                    for (var r = 0; r < count; r++) tracks.AddRange(pattern);
+                else if (countStr is "auto-fill" or "auto-fit")
+                    // Deferred to LayoutGrid. At most one per template (as in CSS) — a second is dropped.
+                    autoRepeat ??= new GridAutoRepeat(pattern, tracks.Count, countStr == "auto-fit");
+            }
             else tracks.Add(ParseTrack(tok));
         }
         return tracks;
+    }
+
+    /// <summary>Index of the first comma at paren depth 0, or −1 — <c>repeat()</c>'s count/pattern
+    /// separator, which a comma inside a nested <c>minmax(a, b)</c> must not be mistaken for.</summary>
+    private static int TopLevelComma(string v)
+    {
+        var depth = 0;
+        for (var i = 0; i < v.Length; i++)
+        {
+            var c = v[i];
+            if (c == '(') depth++;
+            else if (c == ')') depth = Math.Max(0, depth - 1);
+            else if (c == ',' && depth == 0) return i;
+        }
+        return -1;
     }
 
     /// <summary>Split on spaces but keep parenthesised groups (minmax(...)) and [name] lists intact.</summary>
