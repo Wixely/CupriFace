@@ -16,6 +16,12 @@ mergeInto(LibraryManager.library, {
         if (c.style.cursor !== name) c.style.cursor = name;
     },
     js_navigate: (p, len) => { window.open(UTF16ToString(p), "_blank", "noopener"); },
+    // Tab icon from CupriApp.Icon. index.html declares no <link rel="icon">, so create one.
+    js_favicon: (p, len) => {
+        let link = document.querySelector("link[rel='icon']");
+        if (!link) { link = document.createElement("link"); link.rel = "icon"; document.head.appendChild(link); }
+        link.href = UTF16ToString(p);
+    },
     js_clip_write: (p, len) => { navigator.clipboard.writeText(UTF16ToString(p)).catch(() => {}); },
     js_clip_paste: () => {
         navigator.clipboard.readText()
