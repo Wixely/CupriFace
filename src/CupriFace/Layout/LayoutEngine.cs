@@ -1000,8 +1000,15 @@ public sealed class LayoutEngine
         // Respect the node's own min/max-width (content-box floors/ceilings) so an auto-width control
         // that only sets min-width (e.g. a picker trigger) reports its true footprint to flex/intrinsic
         // sizing — otherwise it under-reports and the next flex item overlaps it.
-        if (s.MinWidth.IsDefinite) baseW = MathF.Max(baseW, s.MinWidth.Resolve(0) + PadBorderX(s));
-        if (s.MaxWidth.IsDefinite) baseW = MathF.Min(baseW, s.MaxWidth.Resolve(0) + PadBorderX(s));
+        //
+        // Px only. There is no containing block here, so a percentage has nothing to resolve against —
+        // and resolving it against 0 does not mean "unconstrained", it means max-width:0. That is what
+        // flattened the pagination strip into a vertical column: max-width:100% reported a max-content
+        // width of 0, so the row handed it 0px and every page slot wrapped onto its own line. A
+        // percentage max-width cannot constrain max-content anyway (CSS agrees); the real clamp happens
+        // in LayoutNode, which does know the containing block.
+        if (s.MinWidth.Unit == LengthUnit.Px) baseW = MathF.Max(baseW, s.MinWidth.Value + PadBorderX(s));
+        if (s.MaxWidth.Unit == LengthUnit.Px) baseW = MathF.Min(baseW, s.MaxWidth.Value + PadBorderX(s));
         return baseW;
     }
 

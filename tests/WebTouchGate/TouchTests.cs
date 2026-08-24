@@ -77,9 +77,16 @@ public class TouchTests(WebHostFixture host)
                 clientX: 200, clientY: y, bubbles: true, cancelable: true, isPrimary: true,
                 buttons: t === 'pointerup' ? 0 : 1 }));
               const start = hash();
+              // The swipe must be SHORTER than the shortest page's scroll range (~535px: the
+              // controls section at this width). A swipe longer than the range exhausts the scroll
+              // while the finger is still down, and the only post-release motion is a rubber-band
+              // settle that is over before the first hash sample lands (a hash is toDataURL on a
+              // 1082x2202 canvas plus a Playwright round-trip) — which the momentum assertion
+              // below then misreads as "the fling never ran". ~196px of leftover range is what
+              // this gate provably passes with; 320px of travel leaves ~215px on the shortest page.
               ev('pointerdown', 760); await wait(16);
-              for (let y = 760; y >= 200; y -= 35) { ev('pointermove', y); await wait(14); }
-              ev('pointerup', 200);
+              for (let y = 760; y >= 440; y -= 35) { ev('pointermove', y); await wait(14); }
+              ev('pointerup', 440);
               return start !== hash();
             }
             """);

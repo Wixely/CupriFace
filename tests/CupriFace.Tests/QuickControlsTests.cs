@@ -124,6 +124,25 @@ public class QuickControlsTests
         Assert.Equal(w1, WidthAt(20), 3);   // last
     }
 
+    [Fact]
+    public void Pagination_in_a_flex_row_stays_on_one_line()
+    {
+        // The strip carries max-width:100% so it can drop to a second line on a phone. Inside a flex
+        // row that used to collapse it: intrinsic sizing resolved the percentage against no containing
+        // block, read 0, and handed the strip 0px — so every slot wrapped onto its own line and the
+        // showcase's page navigator came out as a vertical column of numbers.
+        var m = new PageModel { Page = 1 };
+        using var t = new TestDoc(
+            "<body><div class='row'><span>Page</span>" +
+            "<cupri-pagination page=\"{{Page}}\" pages=\"12\"></cupri-pagination></div></body>",
+            ".row { display:flex; align-items:center; gap:14px; }",
+            m, components: true, width: 640, height: 120);
+
+        var strip = t.FindClass("cupri-pagination");
+        Assert.True(strip.Width > 200, $"strip collapsed to {strip.Width:F0}px wide");
+        Assert.True(strip.Height < 40, $"strip is {strip.Height:F0}px tall — the slots stacked vertically");
+    }
+
     // ---- Search --------------------------------------------------------------
     private sealed class SearchModel { public string Query { get; set; } = ""; }
 
