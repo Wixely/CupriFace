@@ -48,6 +48,9 @@ public static unsafe partial class Interop
     [DllImport("js", EntryPoint = "js_navigate")]
     private static extern void JsNavigate(char* utf16, int len);
 
+    [DllImport("js", EntryPoint = "js_favicon")]
+    private static extern void JsFavicon(char* utf16, int len);
+
     [DllImport("js", EntryPoint = "js_clip_write")]
     private static extern void JsClipWrite(char* utf16, int len);
 
@@ -63,6 +66,7 @@ public static unsafe partial class Interop
     // Synchronous JS calls inside the fixed scope — the pointer is only valid for the call.
     private static void SendCursor(string s) { fixed (char* p = s) JsCursor(p, s.Length); }
     private static void SendNavigate(string s) { fixed (char* p = s) JsNavigate(p, s.Length); }
+    private static void SendFavicon(string s) { fixed (char* p = s) JsFavicon(p, s.Length); }
     private static void SendClipWrite(string s) { fixed (char* p = s) JsClipWrite(p, s.Length); }
     private static void SendA11y(string s) { fixed (char* p = s) JsA11y(p, s.Length); }
 
@@ -127,6 +131,10 @@ public static unsafe partial class Interop
             }
             _bg = _app.Background;
             _transparent = _app.Transparent;
+
+            // Tab icon from CupriApp.Icon, exactly as the Mono host does it — index.html carries no
+            // hard-coded copy, so the logo has one home (Assets/logo-512.png).
+            if (_app.IconDataUri is { } favicon) SendFavicon(favicon);
 
             _doc.Navigated += e => { if (e.External) SendNavigate(e.Href); };
             // Video: the browser decodes into underlaid <video> elements (no codecs in the wasm
