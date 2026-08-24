@@ -7,9 +7,10 @@ public sealed record Keyframe(float Offset, Dictionary<string, string> Declarati
 
 /// <summary>
 /// Parses <c>@keyframes</c> blocks and applies time-sampled animation overrides to the
-/// render tree. Animatable properties: transform + opacity (interpolated between the
-/// bracketing keyframes). Transform/opacity don't affect layout, so animation re-paints
-/// without re-laying-out (DESIGN.md §7.3).
+/// render tree. Animatable properties: transform + opacity (paint-only), and width +
+/// height — those write a definite length that the frame's layout honours, the same road
+/// a <c>transition: height</c> takes. Layout always follows Animate (host order:
+/// Animate → BuildFrame), so an animated size reflows the element and its siblings.
 /// </summary>
 public static partial class Animation
 {
@@ -106,6 +107,26 @@ public static partial class Animation
         }
         if (a.Declarations.ContainsKey("opacity") || b.Declarations.ContainsKey("opacity"))
             s.Opacity = Lerp(from.Opacity, to.Opacity, local);
+
+        // Layout properties: the declarations were already parsed into `from`/`to` (width included) —
+        // they were just never read. Write the interpolated value as a definite length and the frame's
+        // layout picks it up; this was the gap that held a keyframed bar at its start width for the
+        // whole run while the engine reported the animation active (#56).
+        if (a.Declarations.ContainsKey("width") || b.Declarations.ContainsKey("width"))
+            s.Width = LerpLength(from.Width, to.Width, local);
+        if (a.Declarations.ContainsKey("height") || b.Declarations.ContainsKey("height"))
+            s.Height = LerpLength(from.Height, to.Height, local);
+    }
+
+    // Same-unit px or % pairs interpolate; anything else — auto (an endpoint that omitted the
+    // property), mixed units — flips at the midpoint, which is CSS's behaviour for a
+    // non-interpolable pair. A % stays a % and resolves in layout, where the containing block is
+    // actually known.
+    private static Length LerpLength(Length a, Length b, float t)
+    {
+        if (a.Unit == b.Unit && a.Unit is LengthUnit.Px or LengthUnit.Percent)
+            return new Length(a.Unit, Lerp(a.Value, b.Value, t));
+        return t < 0.5f ? a : b;
     }
 
     private static float Lerp(float a, float b, float t) => a + (b - a) * t;
