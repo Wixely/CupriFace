@@ -13,6 +13,31 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Added
+
+- **`white-space: pre | pre-wrap | pre-line`** ([#69]) — preserved newlines in text (bound values
+  included) are HARD line breaks, so a multi-line string renders as multiple lines from one value:
+  `pre` also keeps spaces verbatim and never wraps (code blocks, indentation intact); `pre-wrap`
+  keeps spaces and wraps long lines (chat, logs — and `overflow-wrap` works inside it); `pre-line`
+  keeps the newlines but collapses runs of spaces. Blank lines keep their height. The default
+  stays CSS-correct (newlines collapse), so nothing changes for markup that says nothing. If you
+  split multi-line values across a nested `data-repeat` as a workaround, one `white-space:
+  pre-wrap` replaces it. Note: `pre` previously behaved as `nowrap`; it now means what CSS says.
+  Limit: hard breaks apply to text in block flow — inside an inline run mixed with `<b>`/`<span>`
+  they degrade to collapse.
+
+### Fixed
+
+- **A no-break space is no longer collapsed** ([#69]). `&nbsp;` was treated as collapsible
+  whitespace (an element containing only `&nbsp;` laid out at height 0, and runs of them folded
+  to one space) because .NET's `char.IsWhiteSpace` counts U+00A0 and CSS does not. It now rides
+  through normalisation like any other glyph: it occupies space, keeps a line's height, and is
+  never a wrap point.
+
+[#69]: https://github.com/Wixely/CupriFace/issues/69
+
 ## v0.4.0
 
 ### Added

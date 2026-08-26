@@ -574,7 +574,9 @@ headless environment can't run — see caveats).
   animation**; **`@media`** queries + **`calc()`**.
 - **Text** — HarfBuzz shaping (kerning/ligatures, Greek/Cyrillic/Arabic) + **simplified
   bidi** reordering for mixed LTR/RTL; word-wrap, mid-token breaking (**`word-break:
-  break-all`**, **`overflow-wrap: break-word|anywhere`**), baseline, text-align.
+  break-all`**, **`overflow-wrap: break-word|anywhere`**), **`white-space`**
+  (`nowrap`/`pre`/`pre-wrap`/`pre-line` — preserved newlines are hard breaks),
+  baseline, text-align.
 - **Paint / threading** — immutable **DisplayList** snapshot + Skia rasteriser, driven
   across a real **render thread** (`ThreadedRenderer`, §7.2) decoupled from the UI thread.
 - **Binding** — `{{path}}` interpolation, attribute + **two-way** binding, `data-repeat`;

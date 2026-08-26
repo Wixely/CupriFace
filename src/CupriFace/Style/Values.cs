@@ -91,8 +91,11 @@ public enum PositionType { Static, Relative, Absolute, Fixed, Sticky }
 public enum OverflowMode { Visible, Hidden, Scroll }
 
 /// <summary>CSS <c>white-space</c> (the supported subset). <c>NoWrap</c> lays text out on a single
-/// line that overflows instead of wrapping — used by single-line text fields.</summary>
-public enum WhiteSpaceMode { Normal, NoWrap }
+/// line that overflows instead of wrapping — used by single-line text fields. The preserved modes
+/// (#69) treat every <c>\n</c> in the text as a HARD line break: <c>Pre</c> also keeps spaces
+/// verbatim and never wraps (code); <c>PreWrap</c> keeps spaces and wraps long lines (chat, logs);
+/// <c>PreLine</c> collapses runs of spaces but keeps the newlines.</summary>
+public enum WhiteSpaceMode { Normal, NoWrap, Pre, PreWrap, PreLine }
 
 /// <summary>CSS <c>font-style</c>. Selects the face's slant; a family with no italic/oblique face
 /// falls back to whatever the platform matches (usually upright), the same as a browser.</summary>
