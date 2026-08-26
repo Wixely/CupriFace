@@ -5,6 +5,13 @@ name: Codecs
 # DllImport name on every OS and the nupkg ships runtimes/<rid>/native/<lib> the Skia way.
 # Pinned tags; decode-only configure keeps the output small. Runs when this file changes (or on
 # demand); the artifacts feed the CupriFace.Media pack and local development.
+#
+# RELEASES DEPEND ON THESE ARTIFACTS, and they are mortal: retention is 14 days, and a storage
+# sweep can delete them early — v0.5.0 shipped a 25KB CupriFace.Media (no decoders, green run)
+# because the sweep that introduced the retention limit also emptied the run the release then
+# fetched from. If the latest green run here is stale or bare, RE-RUN THIS WORKFLOW before
+# tagging; the release job now fails loudly when it finds no natives at all instead of packing
+# a hollow nupkg.
 
 on:
   workflow_dispatch:

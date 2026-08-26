@@ -1071,6 +1071,15 @@ jobs:
               || echo "::warning::codec native missing for $rid"
           done
           find native -type f -print0 | xargs -0 ls -l || true
+          # One RID missing is a warning (that leg failed upstream; the others still ship). ALL of
+          # them missing means the source run has no artifacts at all — expired, or deleted by a
+          # storage sweep, which is exactly how v0.5.0 first shipped a 25KB CupriFace.Media with no
+          # decoders under a fully green run. A hollow media package must be a red release, not a
+          # warning scrolled past: re-run the Codecs workflow and retag.
+          if [ -z "$(find native -type f -name 'cupricodecs*' -print -quit)" ]; then
+            echo "::error::no codec natives for ANY rid — the latest green Codecs run ($RUN) has no artifacts; re-run Codecs, then retag"
+            exit 1
+          fi
 
       # The libraries themselves, so people can build against CupriFace rather than only run the
       # demo. Tag is v0.1.0; NuGet wants 0.1.0. The Android host needs its workload to pack.
