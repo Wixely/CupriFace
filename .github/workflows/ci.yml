@@ -290,6 +290,7 @@ jobs:
             publish/${{ matrix.rid }}/Viewer
             publish/${{ matrix.rid }}/Viewer.exe
           if-no-files-found: error
+          retention-days: 3
 
   # The NativeAOT-LLVM web host, built on BOTH hosts. Resolving a package path is not the same as
   # linking a wasm module, so this is the job that actually proves the ILC host RID is portable —
@@ -1000,6 +1001,7 @@ jobs:
           name: androidviewer-apk
           path: out/arm64/*-Signed.apk
           if-no-files-found: error
+          retention-days: 3
 
   # Attach the standalone executables to a GitHub Release when a v* tag is pushed. Workflow
   # artifacts expire and need a login to fetch; a Release is permanent and public. Gated on the

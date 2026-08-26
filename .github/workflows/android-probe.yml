@@ -228,3 +228,4 @@ jobs:
           name: android-probe-apk
           path: out/arm64/*-Signed.apk
           if-no-files-found: warn
+          retention-days: 7
