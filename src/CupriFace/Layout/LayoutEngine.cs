@@ -383,7 +383,10 @@ public sealed class LayoutEngine
             var sw = _fonts.MeasureText(st, " ");
             var lh = FontService.LineHeightPx(st);
             if (node.WsBefore) wsPending = true;
-            var words = (node.Text ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            // '\n' splits too: preserved-mode text inside an inline formatting context (mixed with
+            // <b>/<span> runs) degrades to collapsed flow rather than handing the shaper a literal
+            // newline. Hard breaks inside an IFC are not wired yet — the block path is (#69).
+            var words = (node.Text ?? "").Split(SpaceOrNewline, StringSplitOptions.RemoveEmptyEntries);
             for (var w = 0; w < words.Length; w++)
             {
                 toks.Add(new InlineTok
@@ -1008,54 +1011,133 @@ public sealed class LayoutEngine
         var breakAll = s.WordBreakAll;
         var breakWord = breakAll || s.OverflowWrapBreak;
 
-        foreach (var word in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        // Greedy word wrap over a run whose spaces are collapsed (normal text, and pre-line's
+        // segments — those were space-collapsed at build time).
+        void WrapCollapsed(string run)
         {
-            var rest = word;
-            while (rest.Length > 0)
+            foreach (var word in run.Split(' ', StringSplitOptions.RemoveEmptyEntries))
             {
-                var ww = _fonts.MeasureText(s, rest);
-                var joinW = sb.Length > 0 ? spaceW : 0f;
-                if (lineW + joinW + ww <= maxWidth || (sb.Length == 0 && ww <= maxWidth))
+                var rest = word;
+                while (rest.Length > 0)
                 {
-                    if (sb.Length > 0) { sb.Append(' '); lineW += spaceW; }
-                    sb.Append(rest);
-                    lineW += ww;
-                    break;
-                }
-
-                // Doesn't fit. break-all: pack the remainder of THIS line with the token's head
-                // before wrapping — that is the property's whole point versus break-word.
-                if (breakAll)
-                {
-                    var head = LongestFittingPrefix(s, rest, maxWidth - lineW - joinW);
-                    if (head == 0 && sb.Length == 0) head = NextCodePoint(rest);
-                    if (head > 0)
+                    var ww = _fonts.MeasureText(s, rest);
+                    var joinW = sb.Length > 0 ? spaceW : 0f;
+                    if (lineW + joinW + ww <= maxWidth || (sb.Length == 0 && ww <= maxWidth))
                     {
-                        if (sb.Length > 0) sb.Append(' ');
-                        sb.Append(rest.AsSpan(0, head));
-                        rest = rest[head..];
+                        if (sb.Length > 0) { sb.Append(' '); lineW += spaceW; }
+                        sb.Append(rest);
+                        lineW += ww;
+                        break;
                     }
+
+                    // Doesn't fit. break-all: pack the remainder of THIS line with the token's head
+                    // before wrapping — that is the property's whole point versus break-word.
+                    if (breakAll)
+                    {
+                        var head = LongestFittingPrefix(s, rest, maxWidth - lineW - joinW);
+                        if (head == 0 && sb.Length == 0) head = NextCodePoint(rest);
+                        if (head > 0)
+                        {
+                            if (sb.Length > 0) sb.Append(' ');
+                            sb.Append(rest.AsSpan(0, head));
+                            rest = rest[head..];
+                        }
+                        Flush();
+                        continue;
+                    }
+
+                    if (sb.Length > 0) { Flush(); continue; }   // normal wrap: the token starts the next line
+
+                    // Alone on its line and still too wide.
+                    if (!breakWord) { sb.Append(rest); lineW += ww; break; }   // overflow, the old behaviour
+                    var h = LongestFittingPrefix(s, rest, maxWidth);
+                    if (h == 0) h = NextCodePoint(rest);
+                    sb.Append(rest.AsSpan(0, h));
                     Flush();
-                    continue;
+                    rest = rest[h..];
                 }
-
-                if (sb.Length > 0) { Flush(); continue; }   // normal wrap: the token starts the next line
-
-                // Alone on its line and still too wide.
-                if (!breakWord) { sb.Append(rest); lineW += ww; break; }   // overflow, the old behaviour
-                var h = LongestFittingPrefix(s, rest, maxWidth);
-                if (h == 0) h = NextCodePoint(rest);
-                sb.Append(rest.AsSpan(0, h));
-                Flush();
-                rest = rest[h..];
             }
         }
+
+        // pre-wrap: spaces are CONTENT. Tokenise a segment into runs of spaces and words; break
+        // only before a word; a space run that overflows the line hangs off its end, as CSS says.
+        // Leading spaces start the line — that is a code block's indentation surviving the wrap.
+        void WrapPreserving(string seg)
+        {
+            var i = 0;
+            while (i < seg.Length)
+            {
+                var isSpace = seg[i] == ' ';
+                var j = i;
+                while (j < seg.Length && (seg[j] == ' ') == isSpace) j++;
+                var tok = seg[i..j];
+                i = j;
+                var w = _fonts.MeasureText(s, tok);
+                if (isSpace)
+                {
+                    sb.Append(tok);
+                    lineW += w;
+                    continue;
+                }
+                if (sb.Length > 0 && lineW + w > maxWidth) Flush();
+                if (breakWord && sb.Length == 0 && w > maxWidth)
+                {
+                    // The #59 emergency break, inside a preserved segment: a token wider than the
+                    // whole line splits at the last fitting code point.
+                    var rest = tok;
+                    while (_fonts.MeasureText(s, rest) > maxWidth)
+                    {
+                        var h = LongestFittingPrefix(s, rest, maxWidth);
+                        if (h == 0) h = NextCodePoint(rest);
+                        sb.Append(rest.AsSpan(0, h));
+                        Flush();
+                        rest = rest[h..];
+                        if (rest.Length == 0) break;
+                    }
+                    if (rest.Length > 0) { sb.Append(rest); lineW += _fonts.MeasureText(s, rest); }
+                    continue;
+                }
+                sb.Append(tok);
+                lineW += w;
+            }
+        }
+
+        // white-space pre / pre-wrap / pre-line (#69): the text arrives with its newlines intact
+        // (BuildChildren normalises per mode), and every '\n' is a HARD break — including the empty
+        // segment between two of them, which is a blank line at full line height. pre never wraps
+        // (code); pre-wrap wraps long segments with spaces kept verbatim; pre-line's segments wrap
+        // like ordinary text.
+        if (s.WhiteSpace is WhiteSpaceMode.Pre or WhiteSpaceMode.PreWrap or WhiteSpaceMode.PreLine)
+        {
+            foreach (var seg in text.Split('\n'))
+            {
+                if (s.WhiteSpace == WhiteSpaceMode.Pre)
+                {
+                    sb.Append(seg);
+                    lineW += seg.Length == 0 ? 0 : _fonts.MeasureText(s, seg);
+                }
+                else if (s.WhiteSpace == WhiteSpaceMode.PreWrap) WrapPreserving(seg);
+                else WrapCollapsed(seg);
+                Flush();                                    // the hard break itself
+            }
+            node.Lines = lines;
+            node.TextKey = key;
+            // pre can overflow sideways (it never wraps): report a width clamped to the box, like
+            // nowrap does, so the container does not grow unbounded.
+            node.TextW = s.WhiteSpace == WhiteSpaceMode.Pre ? MathF.Min(longest, maxWidth) : maxWidth;
+            node.TextH = lines.Count * lh;
+            return new Size(node.TextW, node.TextH);
+        }
+
+        WrapCollapsed(text);
         if (sb.Length > 0 || lines.Count == 0) Flush();   // the open line; empty text still gets one
 
         node.Lines = lines;
         node.TextKey = key; node.TextW = maxWidth; node.TextH = lines.Count * lh;
         return new Size(node.TextW, node.TextH);
     }
+
+    private static readonly char[] SpaceOrNewline = [' ', '\n'];
 
     /// <summary>Longest prefix of <paramref name="token"/> that fits <paramref name="avail"/>,
     /// never splitting a surrogate pair; 0 when not even the first code point fits. Each candidate
@@ -1083,7 +1165,18 @@ public sealed class LayoutEngine
     {
         var s = node.Style;
         if (node.IsText)
-            return _fonts.MeasureText(s, node.Text ?? "");
+        {
+            var t = node.Text ?? "";
+            // Preserved white-space keeps '\n' in the text: max-content is the LONGEST LINE, not
+            // the whole string shaped as one run (which would hand the shaper literal newlines).
+            if (t.Contains('\n'))
+            {
+                float mx = 0;
+                foreach (var seg in t.Split('\n')) mx = MathF.Max(mx, seg.Length == 0 ? 0 : _fonts.MeasureText(s, seg));
+                return mx;
+            }
+            return _fonts.MeasureText(s, t);
+        }
 
         float baseW;
         if (s.Width.Unit == LengthUnit.Px)

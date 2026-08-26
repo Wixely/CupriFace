@@ -158,7 +158,13 @@ public sealed class StyleResolver
 
                 case IText t:
                     var text = t.Text;
-                    if (string.IsNullOrWhiteSpace(text)) // whitespace-only: a separator, not a node
+                    // Whitespace-only text is a SEPARATOR, not a node — except where the parent
+                    // preserves whitespace (pre/pre-wrap: a blank line IS content), and except when
+                    // it contains a no-break space, which CSS does not count as collapsible at all:
+                    // an element whose only content is &nbsp; must keep its height (#69).
+                    var ws = parentNode.Style.WhiteSpace;
+                    var preserveAll = ws is WhiteSpaceMode.Pre or WhiteSpaceMode.PreWrap;
+                    if (text.Length == 0 || (!preserveAll && IsAllCollapsible(text)))
                     {
                         if (prev is not null) prev.WsAfter = true;
                         pendingWs = true;
@@ -166,9 +172,9 @@ public sealed class StyleResolver
                     }
                     var textNode = new RenderNode
                     {
-                        Tag = "#text", Text = CollapseWhitespace(text),
-                        WsBefore = pendingWs || char.IsWhiteSpace(text[0]),
-                        WsAfter = char.IsWhiteSpace(text[^1]),
+                        Tag = "#text", Text = NormalizeText(text, ws),
+                        WsBefore = pendingWs || IsCollapsible(text[0]),
+                        WsAfter = IsCollapsible(text[^1]),
                     };
                     parentNode.AddChild(textNode);
                     // Text inherits the parent's computed style directly.
@@ -180,20 +186,47 @@ public sealed class StyleResolver
         }
     }
 
-    private static string CollapseWhitespace(string s)
+    // The COLLAPSIBLE whitespace set — deliberately not char.IsWhiteSpace, which also matches the
+    // no-break space (U+00A0): CSS collapses DOCUMENT whitespace, but &nbsp; exists precisely to
+    // occupy space, so it rides through normalisation like any other glyph (#69).
+    private static bool IsCollapsible(char c) => c is ' ' or '\t' or '\n' or '\r' or '\f';
+
+    private static bool IsAllCollapsible(string s)
     {
+        foreach (var c in s) if (!IsCollapsible(c)) return false;
+        return true;
+    }
+
+    /// <summary>Per-mode text normalisation (#69). Normal/nowrap collapse every collapsible run to
+    /// one space; pre-line keeps newlines — a run containing one becomes exactly one <c>'\n'</c> —
+    /// and collapses the rest; pre/pre-wrap keep everything verbatim, with line endings normalised
+    /// to <c>'\n'</c>. Leading/trailing runs are trimmed in the collapsing modes (including the
+    /// pre-line newline: the run around a bound <c>{{value}}</c> is usually markup indentation, and
+    /// a blank first line from source formatting is never what the author meant); the preserving
+    /// modes keep their edges, because a code block's leading newline is the author's to spend.</summary>
+    private static string NormalizeText(string s, WhiteSpaceMode mode)
+    {
+        if (mode is WhiteSpaceMode.Pre or WhiteSpaceMode.PreWrap)
+            return s.Contains('\r') ? s.Replace("\r\n", "\n").Replace('\r', '\n') : s;
+
         var sb = new System.Text.StringBuilder(s.Length);
-        var prevSpace = false;
+        bool run = false, runHadNewline = false;
         foreach (var ch in s)
         {
-            if (char.IsWhiteSpace(ch))
+            if (IsCollapsible(ch))
             {
-                if (!prevSpace) sb.Append(' ');
-                prevSpace = true;
+                run = true;
+                if (ch is '\n' or '\r') runHadNewline = true;
+                continue;
             }
-            else { sb.Append(ch); prevSpace = false; }
+            if (run)
+            {
+                if (sb.Length > 0) sb.Append(mode == WhiteSpaceMode.PreLine && runHadNewline ? '\n' : ' ');
+                run = false; runHadNewline = false;
+            }
+            sb.Append(ch);
         }
-        return sb.ToString().Trim();
+        return sb.ToString();
     }
 
     private void ResolveStyle(RenderNode node, ComputedStyle? parent)
@@ -346,7 +379,16 @@ public sealed class StyleResolver
                 case "font-family": s.FontFamily = v.Split(',')[0].Trim().Trim('"', '\''); break;
                 case "line-height": s.LineHeight = ParseLineHeight(v); break;
                 case "text-align": s.TextAlign = v.ToLowerInvariant() switch { "center" => TextAlign.Center, "right" => TextAlign.Right, _ => TextAlign.Left }; break;
-                case "white-space": s.WhiteSpace = v.ToLowerInvariant() is "nowrap" or "pre" ? WhiteSpaceMode.NoWrap : WhiteSpaceMode.Normal; break;
+                case "white-space":
+                    s.WhiteSpace = v.Trim().ToLowerInvariant() switch
+                    {
+                        "nowrap" => WhiteSpaceMode.NoWrap,
+                        "pre" => WhiteSpaceMode.Pre,
+                        "pre-wrap" => WhiteSpaceMode.PreWrap,
+                        "pre-line" => WhiteSpaceMode.PreLine,
+                        _ => WhiteSpaceMode.Normal,
+                    };
+                    break;
                 case "word-break": s.WordBreakAll = v.Trim().ToLowerInvariant() == "break-all"; break;
                 case "overflow-wrap" or "word-wrap":
                     s.OverflowWrapBreak = v.Trim().ToLowerInvariant() is "break-word" or "anywhere"; break;
