@@ -42,7 +42,7 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
-- **`<cupri-virtual>` rows may be any height — and it can be a chat log** ([#67]). `item-height`
+- **`<cupri-virtual>` rows may be any height — and it can be a chat log** ([#66], [#67]). `item-height`
   is now the ESTIMATED row pitch, not a requirement: each materialised row's real height is
   measured back into a per-list cache and replaces the estimate, with the scroll offset anchored
   in the same frame so measurement never makes the visible content jump. New `anchor="bottom"`
@@ -56,6 +56,7 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   died on the first re-window it crossed (the rebuilt scroller was unlaid for one frame and
   reported itself unscrollable).
 
+[#66]: https://github.com/Wixely/CupriFace/issues/66
 [#67]: https://github.com/Wixely/CupriFace/issues/67
 
 ## v0.3.0
