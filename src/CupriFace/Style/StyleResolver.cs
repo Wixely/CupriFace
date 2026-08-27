@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using AngleSharp.Dom;
 using CupriFace.Dom;
@@ -248,8 +249,11 @@ public sealed class StyleResolver
         if (inlineDecls is not null) CollectCustomProps(style, inlineDecls);
 
         // Pass 2: normal properties, with var() resolved against the final tokens.
-        if (rules is not null) foreach (var rule in rules) Apply(style, rule.Declarations);
-        if (inlineDecls is not null) Apply(style, inlineDecls);
+        if (rules is not null)
+            foreach (var rule in rules)
+                SawViewportUnit |= Apply(style, rule.Declarations, _viewportWidth, _viewportHeight);
+        if (inlineDecls is not null)
+            SawViewportUnit |= Apply(style, inlineDecls, _viewportWidth, _viewportHeight);
     }
 
     private static void CollectCustomProps(ComputedStyle style, Dictionary<string, string> decls)
@@ -288,16 +292,28 @@ public sealed class StyleResolver
         }
     }
 
-    /// <summary>Apply a declaration block onto a style (used by the animation system).</summary>
-    public static void ApplyDeclarations(ComputedStyle s, Dictionary<string, string> decls) => Apply(s, decls);
+    /// <summary>Apply a declaration block onto a style (used by the animation system). The viewport
+    /// is optional because a keyframe block is parsed without one; viewport units left unresolved
+    /// become <c>auto</c> rather than a definite zero (see <see cref="SubstituteViewportUnits"/>).</summary>
+    public static void ApplyDeclarations(ComputedStyle s, Dictionary<string, string> decls,
+        float viewportWidth = 0f, float viewportHeight = 0f) => Apply(s, decls, viewportWidth, viewportHeight);
 
-    private static void Apply(ComputedStyle s, Dictionary<string, string> decls)
+    /// <summary>True once any declaration this resolver applied used a viewport-relative length.
+    /// The document watches this: such a document must re-resolve when the viewport changes, the
+    /// same way an <c>@media</c> one does, or its lengths stay pinned to the size they were first
+    /// resolved at.</summary>
+    public bool SawViewportUnit { get; private set; }
+
+    /// <summary>Returns whether any declaration in the block used a viewport-relative length.</summary>
+    private static bool Apply(ComputedStyle s, Dictionary<string, string> decls, float vw, float vh)
     {
+        var sawViewportUnit = false;
         foreach (var (propRaw, valueRaw) in decls)
         {
             var prop = propRaw.ToLowerInvariant();
             if (prop.StartsWith("--", StringComparison.Ordinal)) continue; // custom props: pass 1
-            var v = ResolveVars(valueRaw.Trim(), s.CustomProps);
+            var v = SubstituteViewportUnits(ResolveVars(valueRaw.Trim(), s.CustomProps), vw, vh, out var usedVp);
+            sawViewportUnit |= usedVp;
             switch (prop)
             {
                 case "display": s.Display = ParseDisplay(v); break;
@@ -406,6 +422,7 @@ public sealed class StyleResolver
                 case "text-decoration" or "text-decoration-line": s.Decorations = ParseDecorations(v); break;
             }
         }
+        return sawViewportUnit;
     }
 
     // "underline", "line-through overline", "none", … → flags. Unknown words are ignored, so the
@@ -484,6 +501,62 @@ public sealed class StyleResolver
         _ => AlignItems.Stretch,
     };
 
+    /// <summary>Rewrite viewport-relative lengths to px BEFORE any property parser sees them.
+    ///
+    /// Done here, once, for two reasons. Every length-bearing property gets them for free —
+    /// width/height, insets, padding, margins, gaps, grid tracks, shadows, transforms — and so do
+    /// <c>calc()</c> terms, because calc is parsed downstream of this. And unlike <c>%</c>, a
+    /// viewport unit is absolute the moment the viewport is known: it does not depend on the
+    /// containing block, so it needs no layout-time basis and can be folded in at style time. The
+    /// resolver is rebuilt with the live viewport on every frame, so a resize re-resolves.
+    ///
+    /// <c>dvh</c>/<c>svh</c>/<c>lvh</c> (and the vw forms) are treated as plain <c>vh</c>/<c>vw</c>:
+    /// a CupriFace surface has no browser chrome that grows or shrinks, so the dynamic, small and
+    /// large viewports are all the same box.
+    ///
+    /// With no viewport (a keyframe block), the token is left alone and <see cref="ParseLen"/>
+    /// turns it into <c>auto</c> — never a definite zero. That mattered: <c>height:100vh</c> was
+    /// parsed as a definite <c>0px</c>, which under <c>overflow:hidden</c> clipped an entire
+    /// populated subtree away and rendered a black screen (#71).</summary>
+    private static string SubstituteViewportUnits(string value, float vw, float vh, out bool used)
+    {
+        used = false;
+        // Fast path: the overwhelming majority of declarations have no viewport unit, and this
+        // runs for every declaration of every element on every rebuild.
+        if (value.IndexOf('v') < 0 && value.IndexOf('V') < 0) return value;
+
+        // No viewport (a keyframe block): report the usage but leave the token, so ParseLen makes
+        // it auto rather than a definite zero.
+        if (vw <= 0f || vh <= 0f)
+        {
+            used = ViewportUnitPattern.IsMatch(value);
+            return value;
+        }
+
+        var found = false;
+        var result = ViewportUnitPattern.Replace(value, m =>
+        {
+            found = true;
+            if (!CssNumber.TryParse(m.Groups[1].Value, out var n)) return m.Value;
+            var basis = m.Groups[2].Value.ToLowerInvariant() switch
+            {
+                "vmin" => MathF.Min(vw, vh),
+                "vmax" => MathF.Max(vw, vh),
+                var u when u.EndsWith('w') => vw,
+                _ => vh,
+            };
+            return (n / 100f * basis).ToString("0.####", CultureInfo.InvariantCulture) + "px";
+        });
+        used = found;
+        return result;
+    }
+
+    // Longer units first so vmin/vmax and the d/s/l forms win over a bare vh/vw. The trailing
+    // boundary keeps `12vhx` (and identifiers) from matching.
+    private static readonly Regex ViewportUnitPattern = new(
+        @"(-?(?:\d+\.?\d*|\.\d+))(vmin|vmax|dvh|svh|lvh|dvw|svw|lvw|vh|vw)\b",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     private static Length ParseLen(string v)
     {
         v = v.Trim();
@@ -499,7 +572,12 @@ public sealed class StyleResolver
             v.Equals("fit-content", StringComparison.OrdinalIgnoreCase)) return Length.Auto;
         if (v.StartsWith("calc(", StringComparison.OrdinalIgnoreCase)) return ParseCalc(v);
         if (v.EndsWith('%') && CssNumber.TryParse(v[..^1], out var pct)) return new Length(LengthUnit.Percent, pct);
-        return new Length(LengthUnit.Px, ParsePx(v));
+        // A unit we cannot read must not fall through to a DEFINITE 0px. That is the same trap the
+        // intrinsic keywords above are guarded against, and it is what made an unsupported
+        // `height:100vh` collapse a full-screen container to nothing: with `overflow:hidden` the
+        // zero-height clip hid an entire populated subtree, so the app painted a complete display
+        // list into a black screen (#71). Auto is the honest answer for a length we do not know.
+        return TryParsePx(v, out var px) ? new Length(LengthUnit.Px, px) : Length.Auto;
     }
 
     // Simple calc(): sum of signed px and % terms, e.g. calc(100% - 40px), calc(50% + 8px).
@@ -535,12 +613,16 @@ public sealed class StyleResolver
         return new LengthEdges { Top = t, Right = r, Bottom = b, Left = l };
     }
 
-    private static float ParsePx(string v, float fallback = 0f)
+    private static float ParsePx(string v, float fallback = 0f) => TryParsePx(v, out var px) ? px : fallback;
+
+    /// <summary>The px parse, but able to say "that is not a length I understand" — which
+    /// <see cref="ParseLen"/> needs in order to answer <c>auto</c> instead of a definite zero.</summary>
+    private static bool TryParsePx(string v, out float px)
     {
         v = v.Trim().ToLowerInvariant();
         if (v.EndsWith("px")) v = v[..^2];
-        else if (v.EndsWith("rem") || v.EndsWith("em")) { if (CssNumber.TryParse(v.TrimEnd('r', 'e', 'm'), out var em)) return em * 16f; }
-        return CssNumber.TryParse(v, out var px) ? px : fallback;
+        else if (v.EndsWith("rem") || v.EndsWith("em")) { if (CssNumber.TryParse(v.TrimEnd('r', 'e', 'm'), out var em)) { px = em * 16f; return true; } }
+        return CssNumber.TryParse(v, out px);
     }
 
     private static float ParseNum(string v) => CssNumber.TryParse(v.Trim(), out var n) ? n : 0f;

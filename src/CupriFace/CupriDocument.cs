@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Globalization;
 using AngleSharp.Dom;
 using AngleSharp.Html.Parser;
@@ -46,6 +46,10 @@ public sealed partial class CupriDocument : IDisposable
     private float _laidOutWidth, _laidOutHeight;
     private bool _layoutDirty = true;
     private bool _hasMedia;
+    // Set once any resolved declaration used vh/vw/vmin/vmax. Such a document must re-resolve when
+    // the viewport changes, exactly as an @media one does — without this its viewport lengths stay
+    // pinned to whatever size they were first resolved at (the default, before any host laid out).
+    private bool _hasViewportUnits;
     private readonly Style.TransitionEngine _transitions = new();
 
     // Hover + drag + text-focus state
@@ -613,7 +617,9 @@ public sealed partial class CupriDocument : IDisposable
         _hoverChain.Clear();
         _activeChain.Clear();   // same reason as hover: the fresh DOM carries no data-active, and a
                                 // stale chain would hand ClearActive() dead elements on pointer-up
-        _root = new StyleResolver(_rules, _viewportWidth, _viewportHeight).BuildTree(dom);
+        var resolver = new StyleResolver(_rules, _viewportWidth, _viewportHeight);
+        _root = resolver.BuildTree(dom);
+        _hasViewportUnits |= resolver.SawViewportUnit;
         _layoutDirty = true; // fresh tree: no geometry until the next layout
         RestoreScroll(scroll);
         // Scroll offsets the BINDER chose (a bottom-anchored list opening at / following its tail,
@@ -1167,9 +1173,11 @@ public sealed partial class CupriDocument : IDisposable
         // every test speaking one coordinate space.
         float width = hostWidth / _zoom, height = hostHeight / _zoom;
         var t0 = Stopwatch.GetTimestamp();
-        // @media depends on the viewport size — re-resolve styles when either axis changes
-        // (height-qualified queries are how phone landscape and a desktop window are told apart).
-        if (_hasMedia && (Math.Abs(width - _viewportWidth) > 0.5f || Math.Abs(height - _viewportHeight) > 0.5f))
+        // @media and viewport units both depend on the viewport size — re-resolve styles when
+        // either axis changes (height-qualified queries are how phone landscape and a desktop
+        // window are told apart; vh/vw are resolved to px at style time and must be re-folded).
+        if ((_hasMedia || _hasViewportUnits)
+            && (Math.Abs(width - _viewportWidth) > 0.5f || Math.Abs(height - _viewportHeight) > 0.5f))
         {
             _viewportWidth = width;
             _viewportHeight = height;
@@ -4248,7 +4256,9 @@ public sealed partial class CupriDocument : IDisposable
         // Restyle (hover/active) rebuilds the tree too, so preserve scroll offsets — otherwise any
         // mouse move over the page snaps a scrolled field back to the top.
         var scroll = CaptureScroll();
-        _root = new StyleResolver(_rules, _viewportWidth, _viewportHeight).BuildTree(_dom);
+        var resolver = new StyleResolver(_rules, _viewportWidth, _viewportHeight);
+        _root = resolver.BuildTree(_dom);
+        _hasViewportUnits |= resolver.SawViewportUnit;
         _layoutDirty = true; // fresh tree: no geometry until the next layout
         RestoreScroll(scroll);
         _transitions.Detect(_root, _laidOutWidth, _laidOutHeight); // hover/focus/class change → (re)start any transitions that flipped

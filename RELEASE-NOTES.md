@@ -13,6 +13,27 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- **Viewport units (`vh`/`vw`/`vmin`/`vmax`) now work** ([#71]) — they were not parsed at all, so
+  a viewport length fell through to the px parser, whose fallback is `0`. `height:100vh` became a
+  DEFINITE `0px`: a full-screen container collapsed, and with `overflow:hidden` its zero-height
+  clip hid the whole subtree, so an app with a complete display list painted a **blank screen**.
+  The `dvh`/`svh`/`lvh` (and `dvw`/`svw`/`lvw`) forms are accepted as synonyms — a CupriFace
+  surface has no browser chrome that grows or shrinks, so all three viewports are the same box.
+  They work anywhere a length does, `calc(100vh - 64px)` and `var()` tokens included, and a
+  document that uses them now re-resolves when the viewport changes, as an `@media` one does.
+  If you worked around this with `height:100%` or a hard-coded pixel height, `100vh` now does what
+  it says — check any layout that was compensating for the old behaviour.
+
+- **An unreadable length is `auto`, not a definite `0px`** — the general defence behind the above.
+  A unit the parser cannot read (`20q`, a future CSS unit) no longer silently collapses the box it
+  is on and clips the subtree away; it is treated as `auto`, which is the honest answer.
+
+[#71]: https://github.com/Wixely/CupriFace/issues/71
+
 ## v0.5.0
 
 ### Added
