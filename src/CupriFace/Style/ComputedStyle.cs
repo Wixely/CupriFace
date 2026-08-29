@@ -23,6 +23,14 @@ public sealed class ComputedStyle
     public LengthEdges Margin = LengthEdges.Zero;
     public LengthEdges Padding = LengthEdges.Zero;
 
+    /// <summary><c>box-sizing: border-box</c> — a declared width/height (and min/max) describes the
+    /// BORDER box, so padding and borders come out of it rather than being added on top. CSS
+    /// defaults to content-box, which this keeps, but almost every real stylesheet flips it
+    /// globally: without it a full-bleed <c>width:100%</c> container with padding overflows its
+    /// parent by twice that padding, and anything centred inside is silently pushed off-centre
+    /// (#76).</summary>
+    public bool BorderBox;
+
     // Absolute positioning insets
     public Length Top = Length.Auto, Right = Length.Auto, Bottom = Length.Auto, Left = Length.Auto;
 

@@ -327,6 +327,10 @@ controls handle their own state.
 - **Theme via CSS variables.** Many components read these with sensible fallbacks, so define them
   once (e.g. on `body`) to retheme surfaces/text/borders:
   `--cupri-text`, `--cupri-muted`, `--cupri-surface`, `--cupri-border`, `--cupri-hover`.
+  **Setting `color` alone is not enough.** The text inputs draw their value with `--cupri-text` and
+  their placeholder with `--cupri-muted` rather than inheriting `color`. A dark theme that sets only
+  `body { color: … }` therefore leaves the value on its light-theme near-black default, so text
+  looks like it dims as you type — which reads as a disabled field rather than a theming gap.
   The default accent is copper `#B87333` (hence *Cupri*). Controls that don't read a variable can
   still be restyled through their class hooks.
 - `@media (width ...)` is supported and re‑resolves on viewport change, so layouts can be responsive.
@@ -448,6 +452,7 @@ static config unless noted.
 | `<cupri-button>` | Themed button | `variant` (`primary`\|`ghost`) | — | label text/HTML | `button` |
 | `<cupri-icon-button>` | Icon‑only button | `icon` | — | — | `button` |
 | `<cupri-textfield>` | Single‑line text input | `value`, `placeholder` | `value` | — | `textbox` |
+|  ↳ *draws its value with* `var(--cupri-text, …)` *and its placeholder with* `var(--cupri-muted, …)` — **not** the inherited `color`, so a dark theme must set those variables or the typed value stays near-black. | | | | | |
 | `<cupri-number>` | Numeric field + `−/+` steppers | `value`, `min`, `max`, `step` | `value` | — | `spinbutton` |
 | `<cupri-textarea>` | Multi‑line text input | `value`, `placeholder`, `follow-tail` | `value` | — | `textbox` (`aria-multiline`) |
 | `<cupri-select>` | Dropdown picker | `value`, `open` | `value` (and `open`) | `<cupri-option value="…">Label</cupri-option>` | `combobox` |

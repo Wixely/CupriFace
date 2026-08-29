@@ -20,7 +20,7 @@ public sealed class TimePickerComponent : ComponentBase
                             border:2px var(--cupri-border, #cbd2dc); border-radius:8px;
                             color:var(--cupri-text, #1e2430); font-size:15px; }
         .cupri-tp-trigger[data-hover] { border:2px #98a2b3; }
-        .cupri-tp-ph { color:#98a2b3; }
+        .cupri-tp-ph { color:var(--cupri-muted, #98a2b3); }
         .cupri-tp-popup { position:fixed; display:flex; gap:6px; background:var(--cupri-surface, white);
                           border-radius:10px; padding:8px; z-index:30; border:1px var(--cupri-border, #e6e9f0);
                           box-shadow:0 10px 28px #00000026; }
