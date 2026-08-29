@@ -283,14 +283,25 @@ jobs:
         if: runner.os == 'Windows'
         run: dotnet run --project tests/UiaSmoke -c Release -- publish/${{ matrix.rid }}/Viewer.exe
 
+      # Uploaded ONLY on a tag, because the release job in the same run is the only thing that ever
+      # downloads it. On an ordinary push these are ~150 MB per run that nothing reads and that the
+      # storage quota pays for regardless: eleven runs of the four build artifacts had reached
+      # 1.7 GB — 95% of the repo's Actions storage — while the six artifacts a release actually
+      # depends on came to 4 MB. The build itself still runs on every push; it is the gate, and the
+      # accessibility smoke tests above execute this exact published binary, which proves it exists
+      # far better than `if-no-files-found` did.
+      #
+      # One day of retention, not three: the release job consumes this within the same run, and the
+      # binaries it packages live on permanently as release assets.
       - uses: actions/upload-artifact@v4
+        if: startsWith(github.ref, 'refs/tags/v')
         with:
           name: viewer-${{ matrix.rid }}
           path: |
             publish/${{ matrix.rid }}/Viewer
             publish/${{ matrix.rid }}/Viewer.exe
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 1
 
   # The NativeAOT-LLVM web host, built on BOTH hosts. Resolving a package path is not the same as
   # linking a wasm module, so this is the job that actually proves the ILC host RID is portable —
@@ -996,12 +1007,16 @@ jobs:
           echo "### TalkBack bridge assertions all green" >> $GITHUB_STEP_SUMMARY
           echo "switch round-trip via dump bounds; list window followed a fling ($ROWS rows exposed)" >> $GITHUB_STEP_SUMMARY
 
+      # Tag-only, for the same reason as the viewer uploads: the release job is its only reader,
+      # and the emulator gate above has already installed and driven this APK, so a push that
+      # produced no APK cannot reach here green.
       - uses: actions/upload-artifact@v4
+        if: startsWith(github.ref, 'refs/tags/v')
         with:
           name: androidviewer-apk
           path: out/arm64/*-Signed.apk
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 1
 
   # Attach the standalone executables to a GitHub Release when a v* tag is pushed. Workflow
   # artifacts expire and need a login to fetch; a Release is permanent and public. Gated on the
