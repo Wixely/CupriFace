@@ -69,9 +69,25 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Same embedded sans faces as the Mono host (see WebWasm.csproj) — one copy in the repo. -->
-    <EmbeddedResource Include="../WebWasm/Assets/fonts/*.ttf" LogicalName="fonts.%(Filename)%(Extension)" />
+    <!-- Same embedded sans faces the Mono host uses — one copy in the repo, now living with
+         CupriFace.Web, which is the host that owns this problem. This project cannot reference that
+         package (NativeAOT-LLVM is Emscripten, not the Mono wasm runtime, so its [JSExport] surface
+         is unusable here), so it embeds the same two files from source.
+
+         This wildcard is why moving the fonts broke the NativeAOT-LLVM gate and nothing else: an
+         Include that names no font is invisible to a search for "NotoSans", and an EmbeddedResource
+         that matches nothing is not an error — the app just boots with no sans face and dies on the
+         null stream. Exactly the silent failure #73 is about, one host over. -->
+    <EmbeddedResource Include="../../src/CupriFace.Web/Assets/*.ttf" LogicalName="fonts.%(Filename)%(Extension)" />
   </ItemGroup>
+
+  <!-- …and make the wildcard fail loudly if it ever stops matching. Program.cs reads these two by
+       logical name and dereferences the stream, so "no fonts embedded" is a null-reference crash at
+       first paint, discovered by a browser gate rather than by the build that caused it. -->
+  <Target Name="AssertFontsEmbedded" BeforeTargets="CoreCompile">
+    <Error Condition="'@(EmbeddedResource->WithMetadataValue('Extension', '.ttf'))' == ''"
+           Text="No .ttf embedded: the sans faces this host loads at startup were not found. They live in src/CupriFace.Web/Assets; if they moved again, update the EmbeddedResource glob above." />
+  </Target>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\CupriFace\CupriFace.csproj" />
