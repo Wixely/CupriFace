@@ -40,6 +40,7 @@ public static unsafe partial class Interop
     private static SKColor _bg;
     private static bool _transparent;
     private static float _scale = 1f;
+    private static (bool, bool, bool, float, float) _lastTextInput;
     private static SKBitmap? _bitmap;
     private static SKBitmap? _straight;
     private static readonly Stopwatch _clock = Stopwatch.StartNew();
@@ -74,6 +75,13 @@ public static unsafe partial class Interop
 
     [DllImport("js", EntryPoint = "js_window_command")]
     private static extern void JsWindowCommand(int command); // 0 toggle / 1 enter / 2 exit fullscreen
+
+    // Where the caret is, and what kind of field it is in. The JS half moves the hidden textarea
+    // there so an IME's candidate window opens AT the field rather than at the page origin, and
+    // sets inputmode so a touch keyboard offers digits for a numeric field. ints, not bools: the
+    // C ABI this host talks over has no bool.
+    [DllImport("js", EntryPoint = "js_text_input")]
+    private static extern void JsTextInput(int focused, int numeric, int multiline, double x, double y);
 
     // Synchronous JS calls inside the fixed scope — the pointer is only valid for the call.
     private static void SendCursor(string s) { fixed (char* p = s) JsCursor(p, s.Length); }
@@ -271,6 +279,21 @@ public static unsafe partial class Interop
         LlvmBrowserVideoBackend.SyncRects(_doc, _scale);
 
         if (!animating) SendA11y(_doc.BuildAriaHtml(p.LogicalWidth, p.LogicalHeight));
+
+        // IME placement, on the same input-driven cadence as the mirror above and only when it
+        // actually changed — the caret's BOTTOM is where a candidate window belongs.
+        if (!animating)
+        {
+            var ti = _doc.GetTextInputState();
+            var r = ti.CaretRect ?? default;
+            var cur = (ti.Focused, ti.Numeric, ti.Multiline, r.X, r.Y);
+            if (cur != _lastTextInput)
+            {
+                _lastTextInput = cur;
+                JsTextInput(ti.Focused ? 1 : 0, ti.Numeric ? 1 : 0, ti.Multiline ? 1 : 0,
+                            r.X * _scale, (r.Y + r.H) * _scale);
+            }
+        }
         return true;
     }
 

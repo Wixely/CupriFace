@@ -33,6 +33,18 @@ mergeInto(LibraryManager.library, {
         const el = globalThis.__cupri.a11y;
         if (el.innerHTML !== html) el.innerHTML = html;
     },
+    // Put the hidden textarea where the caret is, so an IME's candidate window opens AT the field
+    // instead of at the page's top-left, and tell a touch keyboard which layout to offer. The
+    // coordinates arrive in canvas pixels; the textarea is positioned in the page, so the canvas's
+    // own offset goes back on. Mirrors the Mono host's `textInput` import exactly.
+    js_text_input: (focused, numeric, multiline, x, y) => {
+        const kbd = globalThis.__cupri.kbd;
+        if (!kbd) return;
+        const r = globalThis.__cupri.canvas.getBoundingClientRect();
+        kbd.style.left = Math.round(r.left + window.scrollX + x) + "px";
+        kbd.style.top = Math.round(r.top + window.scrollY + y) + "px";
+        kbd.inputMode = focused ? (numeric ? "numeric" : "text") : "none";
+    },
 
     // ---- Video underlay: the BROWSER decodes; the engine punches a transparent hole where the
     // element shows and paints its own controls on top (same design as the Mono host's main.js).
