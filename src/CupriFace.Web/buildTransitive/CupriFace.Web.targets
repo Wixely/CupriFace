@@ -2,24 +2,51 @@
   <!--
     The AOT workaround, kept HERE rather than in every app that publishes with -p:Aot=true.
 
-    Mono's WASM AOT mis-compiles an indirect call inside CupriFace method bodies, trapping at boot
-    with "function signature mismatch". Retested on SDK 10.0.302 (2026-08): the symbolised fault is
-    within SliderComponent.Expand's own AOT body (its first AngleSharp IElement call) — NOT the
-    registry→component interface dispatch, so devirtualising the call site does not help (verified:
-    the trap stays at the same frame with the caller changed). Interface calls made BEFORE
-    expansion (ICupriComponent.Tag during Register) dispatch fine, so it is signature-specific Mono
-    codegen rather than interface dispatch generally. Keeping CupriFace interpreted (the jiterpreter
-    still applies) costs roughly 8x native on the measured showcase — hover restyle 16.2 ms/move,
-    section switch 60.7 ms at 940x720 — while CoreLib, AngleSharp, Regex and the Skia bindings all
-    stay AOT.
+    Mono's WASM AOT mis-compiles a call inside CupriFace method bodies, and the app dies at boot
+    with `RuntimeError: null function or function signature mismatch`. Keeping CupriFace
+    interpreted (the jiterpreter still applies) costs roughly 8x native on the measured showcase —
+    hover restyle 16.2 ms/move, section switch 60.7 ms at 940x720 — while CoreLib, AngleSharp,
+    Regex and the Skia bindings all stay AOT.
 
-    Why it belongs to the package: this is a workaround for a defect in CupriFace's own code, and
-    it was previously carried in consumers' csproj files, where nobody could tell them when it
-    stopped being necessary. It is ours to retest on each SDK bump, and ours to delete.
+    WHAT THE FAULT ACTUALLY IS (re-investigated on SDK 10.0.302, 2026-08). It is not one bad
+    method. It is whichever AngleSharp INTERFACE call runs first from an AOT-compiled CupriFace
+    body, and the earlier note here — which named SliderComponent.Expand — was describing the
+    symptom's location on that day rather than its cause. Three measurements say so:
+
+      * With the workaround off, the trap symbolises to CupriDocument.ApplyInputProfile, via
+        Rebuild → Load → CreateDocument. NOT SliderComponent.Expand.
+      * Rewriting ApplyInputProfile to avoid AngleSharp's ITokenList entirely (ClassName string
+        manipulation instead of ClassList.Add/Remove) fixes THAT site — and the trap moves
+        straight to SliderComponent.Expand's first `el.GetAttribute(name)`, which is where the
+        original investigation found it. Fixing call sites is whack-a-mole: the engine has ~419
+        AngleSharp interface call sites across 43 files.
+      * Force-interpreting AngleSharp.dll INSTEAD of CupriFace.dll does not help. The bad code is
+        in the AOT body of the CALLER, so interpreting the callee changes nothing.
+
+    So this cannot be fixed from our side by changing code, and narrowing the interpret set to
+    something smaller than CupriFace.dll needs the DOM-facing half of the engine to be separable
+    from the layout/paint half — which it currently is not, because a hover restyle re-runs the
+    style resolver over the DOM. It is an upstream Mono codegen bug; ours to retest, not to fix.
+
+    TO RETEST after an SDK bump (about five minutes):
+      dotnet publish samples/WebWasm/WebWasm.csproj -c Release -p:Aot=true -p:CupriInterpretAssemblies=" "
+      then serve bin/Release/net10.0/publish/wwwroot and open it — a white canvas with
+      "signature mismatch" in the page's #bootlog means it is still broken.
+    To symbolise the wasm-function[N] frames, map them through
+      obj/Release/net10.0/wasm/for-publish/dotnet.native.js.symbols
+    (WasmEmitSymbolMap is already on for AOT publishes). If it boots and paints, delete this file
+    and the property below, and take the 8x back.
+
+    Why it belongs to the package: it is a workaround for a defect that bites CupriFace's own code,
+    and it was previously carried in consumers' csproj files, where nobody could tell them when it
+    stopped being necessary.
 
     Applied only when the app actually AOT-compiles, so a plain build or `dotnet run` is untouched.
   -->
   <ItemGroup Condition="'$(RunAOTCompilation)' == 'true'">
-    <_AOT_InternalForceInterpretAssemblies Include="CupriFace.dll" />
+    <!-- CupriInterpretAssemblies overrides the set, for the retest recipe above. A single space
+         means "interpret nothing", which is how the fault is reproduced. -->
+    <_AOT_InternalForceInterpretAssemblies Include="$(CupriInterpretAssemblies)" Condition="'$(CupriInterpretAssemblies)' != ''" />
+    <_AOT_InternalForceInterpretAssemblies Include="CupriFace.dll" Condition="'$(CupriInterpretAssemblies)' == ''" />
   </ItemGroup>
 </Project>
