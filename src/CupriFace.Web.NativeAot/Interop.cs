@@ -64,10 +64,10 @@ public static unsafe partial class Interop
     [DllImport("js", EntryPoint = "js_favicon")]
     private static extern void JsFavicon(char* utf16, int len);
 
-    [DllImport("js", EntryPoint = "js_clip_write")]
+    [DllImport("js", EntryPoint = "js_clipboard_write")]
     private static extern void JsClipWrite(char* utf16, int len);
 
-    [DllImport("js", EntryPoint = "js_clip_paste")]
+    [DllImport("js", EntryPoint = "js_clipboard_paste")]
     private static extern void JsClipPaste(); // async on the JS side; feeds back via PasteText
 
     [DllImport("js", EntryPoint = "js_a11y")]
