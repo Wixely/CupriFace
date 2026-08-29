@@ -91,8 +91,6 @@ public class WebHostParityTests(ITestOutputHelper output)
         // strings through a shared buffer (TextBuffer/PasteText) because the C ABI has no string.
         a.Remove(Key("TextBuffer"));
         a.Remove(Key("PasteText"));
-        // …and CancelComposition is exported by Mono but called by neither page (see #77).
-        m.Remove(Key("CancelComposition"));
         AssertSame(m, a, "Exports (page -> engine)");
     }
 

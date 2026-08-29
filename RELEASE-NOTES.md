@@ -34,12 +34,14 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Changed
 
-
-- **The two web hosts are now checked for parity** ([#79]). A test compares the call surface each
-  host offers the page — 30 exports and 19 imports — and fails naming whichever host is missing one.
-  The NativeAOT host's clipboard imports were renamed (`js_clip_write` → `js_clipboard_write`) so
-  the two agree; nothing else moved. This is what would have caught the IME gap in #77 the day it
-  appeared, rather than years later.
+- **The two web hosts are one host now** ([#79]). The lifecycle, damage-rect painting, the
+  premultiplied→straight alpha conversion, input dispatch, the touch recognizer, the ARIA mirror,
+  IME cadence, clipboard and the video backend are written once in a shared core; each package
+  keeps only the declarations that reach JS, in whichever way its runtime reaches JS. About 1,000
+  lines of duplicated host code are gone, and a call added to one host now reaches both by
+  construction. A parity test compares the two surfaces (31 exports, 19 imports) and fails naming
+  whichever host is missing one — which is what would have caught the IME gap in #77 the day it
+  appeared. Nothing an app writes changes.
 
 [#79]: https://github.com/Wixely/CupriFace/issues/79
 
