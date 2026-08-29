@@ -81,6 +81,9 @@ If you want the fast one, CupriFace.Web.NativeAot compiles the engine properly, 
        an app cannot forget them. -->
   <Import Project="..\WebFonts.props" />
 
+  <!-- The host itself, shared with CupriFace.Web.NativeAot as source (#79). -->
+  <Import Project="..\WebCore.props" />
+
   <ItemGroup>
     <!-- OFL-licensed; the licence travels in the package that ships the bytes. -->
     <None Include="..\WebFonts\OFL.txt" Pack="true" PackagePath="THIRD-PARTY-NOTICES\fonts-OFL.txt" />

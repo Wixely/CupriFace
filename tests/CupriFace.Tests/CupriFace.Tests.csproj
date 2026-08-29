@@ -25,6 +25,11 @@
     <!-- The shipped sample apps: their documents are built headlessly here, so a markup or
          binding typo fails in seconds on any OS instead of on a device gate. -->
     <ProjectReference Include="..\..\samples\DemoApp\DemoApp.csproj" />
+    <!-- For the shared web host core (#79): WebHostCore and IWebBridge are public and the
+         core has no browser dependency, so the whole host runs here against a fake page —
+         which is where video, the straight-alpha present path and the clipboard get tested,
+         none of which the browser gate reaches. -->
+    <ProjectReference Include="..\..\src\CupriFace.Web.Mono\CupriFace.Web.Mono.csproj" />
   </ItemGroup>
 
   <ItemGroup>

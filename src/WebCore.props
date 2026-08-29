@@ -1,0 +1,20 @@
+<Project>
+  <!--
+    The web host, shared by both packages as SOURCE rather than as a third package.
+
+    Compiled in rather than referenced for one reason that matters: the NativeAOT host's exports
+    are attribute entry points that ILC must find, root and write into an Emscripten exports file,
+    and every assembly boundary in that path is another thing to get right (it already needs both
+    TrimmerRootAssembly and UnmanagedEntryPointsAssembly to name the host assembly — see
+    CupriFace.Web.NativeAot's targets). Linking the source in keeps the export story to one
+    assembly per host, and costs only a second compile of ~600 lines.
+
+    It also means neither package gains a dependency the other would have to match, and a consumer
+    installs exactly one host package, as before.
+
+    Same pattern as src/WebFonts.props, which shares the two font faces both hosts embed.
+  -->
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)CupriFace.Web.Core\*.cs" />
+  </ItemGroup>
+</Project>

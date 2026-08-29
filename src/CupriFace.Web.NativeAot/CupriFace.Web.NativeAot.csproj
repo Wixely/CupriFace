@@ -44,6 +44,9 @@ The cost is toolchain maturity: it builds with the ILCompiler.LLVM backend from 
   <!-- The sans faces both web hosts embed, and the guard that they were found. -->
   <Import Project="..\WebFonts.props" />
 
+  <!-- The host itself, shared with CupriFace.Web.Mono as source (#79). -->
+  <Import Project="..\WebCore.props" />
+
   <ItemGroup>
     <None Include="..\WebFonts\OFL.txt" Pack="true" PackagePath="THIRD-PARTY-NOTICES\fonts-OFL.txt" />
   </ItemGroup>
