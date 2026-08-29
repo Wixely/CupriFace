@@ -15,16 +15,8 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ## Unreleased
 
-### Fixed
-
-- **The NativeAOT-LLVM web host now positions the IME** ([#77]). It had composition input but never
-  told JS where the caret was, so a candidate window opened at the page's top-left instead of at
-  the field being typed into, and `inputmode` was never set — a touch keyboard could not offer
-  digits for a numeric field. The Mono host has always done this; the two had simply drifted. The
-  browser gate now asserts it on **both** hosts, so the gap cannot reopen on one of them.
-
-[#77]: https://github.com/Wixely/CupriFace/issues/77
 ### Added
+
 
 - **`CupriFace.Web.NativeAot` — the browser host, compiled ahead of time** ([#78]). The second web
   runtime now has a package too, so `samples/WebLlvm` is three lines of app rather than ~740 lines
@@ -42,6 +34,7 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Changed
 
+
 - **The two web hosts are now checked for parity** ([#79]). A test compares the call surface each
   host offers the page — 30 exports and 19 imports — and fails naming whichever host is missing one.
   The NativeAOT host's clipboard imports were renamed (`js_clip_write` → `js_clipboard_write`) so
@@ -49,6 +42,17 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   appeared, rather than years later.
 
 [#79]: https://github.com/Wixely/CupriFace/issues/79
+
+### Fixed
+
+
+- **The NativeAOT-LLVM web host now positions the IME** ([#77]). It had composition input but never
+  told JS where the caret was, so a candidate window opened at the page's top-left instead of at
+  the field being typed into, and `inputmode` was never set — a touch keyboard could not offer
+  digits for a numeric field. The Mono host has always done this; the two had simply drifted. The
+  browser gate now asserts it on **both** hosts, so the gap cannot reopen on one of them.
+
+[#77]: https://github.com/Wixely/CupriFace/issues/77
 
 ## v0.7.0
 
