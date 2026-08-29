@@ -1,0 +1,84 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <!--
+    The browser host: the third sibling of CupriFace.Shell (desktop) and CupriFace.Android (phone).
+    An app author writes `CupriWeb.Run(new MyApp())` and gets the canvas, the frame loop, input,
+    the ARIA mirror, the IME, the clipboard and browser-decoded video — the same host the Showcase
+    runs, rather than a copy of it.
+
+    Same layering law as the other two: the ENGINE has no idea the browser exists. Everything
+    browser lives here.
+
+    Why this package exists at all: `samples/WebWasm` used to BE the web host, so a second web app
+    had to copy ~1,000 lines of Program.cs + main.js + video backend, an AOT workaround for a bug
+    in CupriFace's own code, and two font files whose absence renders every app monospaced with no
+    error. The copies silently lost the ARIA mirror, IME positioning, touch and video, because
+    hand-carrying 700 lines to get a first render is not a trade anyone makes deliberately (#73).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <!-- The straight-alpha conversion writes into the staging bitmap through a raw pointer, and
+         Present hands JS a Span over WASM memory rather than allocating 2.7 MB per frame. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Browser-only by definition; the JSExport/JSImport platform hints (CA1416 "only supported
+         on browser") are expected here and are not actionable. -->
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+    <!-- The Razor SDK, for exactly one of its features: static web assets. It is what implements
+         the `_content/<PackageId>/` protocol, so main.js and the default page reach a consuming app
+         through a ProjectReference and a PackageReference alike. There is not a line of Razor here,
+         hence the two switches below — without them the SDK adds an ASP.NET Core framework
+         reference that a browser-wasm app has no shared framework to resolve. -->
+    <AddRazorSupportForMvc>false</AddRazorSupportForMvc>
+    <GenerateRazorAssemblyInfo>false</GenerateRazorAssemblyInfo>
+    <StaticWebAssetBasePath>_content/CupriFace.Web</StaticWebAssetBasePath>
+    <Description>Browser host for CupriFace: run a CupriApp in the browser on a canvas (raw WebAssembly, no Blazor, no JS UI framework). Brings the frame loop, input, touch gestures, the ARIA mirror for screen readers, IME composition, clipboard and browser-decoded video.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CupriFace\CupriFace.csproj" />
+    <!-- Skia + HarfBuzz natives for the browser (the engine's desktop natives are ignored here).
+         BOTH are required and both fail LATE if missing, which is exactly why they belong to the
+         package rather than to every app: text shaping (FontService → SKShaper) dlopens
+         libHarfBuzzSharp at the first text draw, so an app without the wasm asset boots happily
+         and then dies rendering its first glyph. Keep versions in sync with the engine's SkiaSharp
+         (src/SkiaNativeAssets.props documents the pins). -->
+    <PackageReference Include="SkiaSharp" Version="3.116.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.WebAssembly" Version="3.116.1" />
+    <PackageReference Include="HarfBuzzSharp.NativeAssets.WebAssembly" Version="8.3.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The wasm Skia build embeds exactly one face (Noto Mono). Without a real sans face every
+         app renders monospaced — and renders it SILENTLY, with no error to search for. So the
+         faces ship inside the host and are registered at Init, where an app cannot forget them.
+         OFL-licensed; the licence travels with the files. -->
+    <EmbeddedResource Include="Assets\NotoSans-Regular.ttf" LogicalName="fonts.NotoSans-Regular.ttf" />
+    <EmbeddedResource Include="Assets\NotoSans-Bold.ttf" LogicalName="fonts.NotoSans-Bold.ttf" />
+    <None Include="Assets\OFL.txt" Pack="true" PackagePath="THIRD-PARTY-NOTICES\fonts-OFL.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- main.js is the JS half of the host and ships WITH it, so the two halves cannot drift: every
+         module name it binds is a [JSImport] in this assembly. wwwroot/ is picked up as static web
+         assets by the SDK above, so a consuming app serves it at _content/CupriFace.Web/main.js and
+         writes no JS of its own.
+
+         The default page is NOT a static web asset: the WebAssembly SDK requires the app to own
+         wwwroot/index.html, and two index.html files claiming the same placeholder target path is a
+         hard build error. It ships as a template to copy instead, which is also the honest shape —
+         the page shell (title, background, how the canvas is sized) is the one genuinely
+         app-specific piece of a web host. -->
+    <None Include="template\index.html" Pack="true" PackagePath="template\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Reaches nupkg CONSUMERS only — buildTransitive does not cross ProjectReference edges, so
+         repo-internal apps (samples/WebWasm) set the same properties in their own csproj. -->
+    <None Include="buildTransitive\CupriFace.Web.props" Pack="true" PackagePath="buildTransitive\" />
+    <None Include="buildTransitive\CupriFace.Web.targets" Pack="true" PackagePath="buildTransitive\" />
+  </ItemGroup>
+
+</Project>

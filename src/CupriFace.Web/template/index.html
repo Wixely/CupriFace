@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+
+<!-- The default page shell for a CupriFace.Web app, shipped at _content/CupriFace.Web/index.html.
+
+     The page is the one genuinely app-specific piece of a web host — its title, its background,
+     how the canvas is sized — so an app owns its own wwwroot/index.html and this is the working
+     copy to start from. Everything else (the frame loop, input, ARIA, IME, clipboard, video) comes
+     from the package; an app writes no JS.
+
+     The three lines that matter are the canvas, the module script, and the two placeholder tags
+     the WebAssembly SDK fills in. -->
+
+<head>
+  <title>CupriFace</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- No favicon here on purpose: the host sets one at boot from CupriApp.Icon, so the logo lives
+       in exactly one place. A copy pasted here as base64 could only ever drift away from it. -->
+  <link rel="preload" id="webassembly" />
+  <script type="importmap"></script>
+  <script type='module' src="_content/CupriFace.Web/main.js"></script>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #f4f5f7; font-family: sans-serif; }
+    /* Fill the window so the app's Hybrid-Zoom scaling has the viewport to scale into. */
+    #cupri { display: block; width: 100vw; height: 100vh; outline: none; }
+  </style>
+</head>
+
+<body>
+  <!-- The engine draws the entire UI here. No HTML widgets, no Blazor — just a canvas. -->
+  <canvas id="cupri"></canvas>
+</body>
+
+</html>

@@ -69,6 +69,7 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 | `src/CupriFace` | The engine (DOM, CSS, layout, text, paint, binding, components) |
 | `src/CupriFace.Shell` | Silk.NET window + OpenGL + Skia surface + profiler HUD |
 | `src/CupriFace.Android` | Android host: `CupriActivity` + GL surface + touch/IME + TalkBack bridge (needs `dotnet workload install android`) |
+| `src/CupriFace.Web` | Browser host: `CupriWeb.Run` + canvas blit + touch/IME + ARIA mirror + browser-decoded video (raw WASM, no Blazor) |
 | `src/CupriFace.Media` | Optional: WebM (VP9 + Opus) video for `<cupri-video>` on desktop |
 | `src/CupriFace.Binding.Gen` | Roslyn source generator for AOT-clean binding accessors |
 | `samples/HelloBox` | M0 shell smoke (window / CPU-raster) |
@@ -85,7 +86,7 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 | `samples/DemoApp` | **Portable apps** (`ShowcaseApp` — the screenshots above — plus `SettingsApp`/`ControlsApp`), one definition each, no platform code |
 | `samples/Viewer` | Desktop host running `ShowcaseApp` (GPU → SDL fallback, live animation); `--app mobile` runs the phone sample |
 | `samples/AndroidViewer` | The phone-first `MobileApp` on Android (the Showcase reachable from its About page) |
-| `samples/WebWasm` | Web host (**default**): raw .NET-WASM + thin JS glue → `<canvas>`, no Blazor |
+| `samples/WebWasm` | The Showcase in the browser (**default**): three lines of app over `CupriFace.Web` |
 | `samples/Web` | Web host (alt): a **minimal** Blazor `<SKCanvasView>` embedding example — clicks only, see below |
 
 ## Download

@@ -1,0 +1,19 @@
+<Project>
+  <!--
+    Flows into apps that consume the CupriFace.Web NUPKG (repo-internal apps set the same
+    properties in their own csproj — buildTransitive does not cross ProjectReference edges).
+
+    Everything here is load-bearing rather than advisory, and every item is something an app
+    author previously had to copy out of samples/WebWasm and then own forever (#73).
+  -->
+  <PropertyGroup>
+    <!-- SkiaSharp ships a STATIC wasm library that has to be linked into the app. Without this the
+         build succeeds and the app dies at runtime with unresolved Skia symbols. -->
+    <WasmBuildNative Condition="'$(WasmBuildNative)' == ''">true</WasmBuildNative>
+
+    <!-- The host's own JSExport/JSImport surface is browser-only by construction; an app that
+         never writes a line of interop should not inherit CA1416 noise from it. Only defaulted,
+         so an app that wants the analyzer back can set it. -->
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,25 @@
+<Project>
+  <!--
+    The AOT workaround, kept HERE rather than in every app that publishes with -p:Aot=true.
+
+    Mono's WASM AOT mis-compiles an indirect call inside CupriFace method bodies, trapping at boot
+    with "function signature mismatch". Retested on SDK 10.0.302 (2026-08): the symbolised fault is
+    within SliderComponent.Expand's own AOT body (its first AngleSharp IElement call) — NOT the
+    registry→component interface dispatch, so devirtualising the call site does not help (verified:
+    the trap stays at the same frame with the caller changed). Interface calls made BEFORE
+    expansion (ICupriComponent.Tag during Register) dispatch fine, so it is signature-specific Mono
+    codegen rather than interface dispatch generally. Keeping CupriFace interpreted (the jiterpreter
+    still applies) costs roughly 8x native on the measured showcase — hover restyle 16.2 ms/move,
+    section switch 60.7 ms at 940x720 — while CoreLib, AngleSharp, Regex and the Skia bindings all
+    stay AOT.
+
+    Why it belongs to the package: this is a workaround for a defect in CupriFace's own code, and
+    it was previously carried in consumers' csproj files, where nobody could tell them when it
+    stopped being necessary. It is ours to retest on each SDK bump, and ours to delete.
+
+    Applied only when the app actually AOT-compiles, so a plain build or `dotnet run` is untouched.
+  -->
+  <ItemGroup Condition="'$(RunAOTCompilation)' == 'true'">
+    <_AOT_InternalForceInterpretAssemblies Include="CupriFace.dll" />
+  </ItemGroup>
+</Project>
