@@ -8,7 +8,7 @@
     startup.
 
     They live here rather than inside either host because neither owns them. They were briefly in
-    CupriFace.Web/Assets, which made the NativeAOT-LLVM host reach into the Mono host's package
+    CupriFace.Web.Mono/Assets, which made the NativeAOT-LLVM host reach into the Mono host's package
     folder for a shared asset — backwards, and the kind of coupling that decides which host is
     "real" by accident.
 

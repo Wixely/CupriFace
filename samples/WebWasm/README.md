@@ -10,10 +10,10 @@ WebHost.Run(new ShowcaseApp());
 ```
 
 plus a `wwwroot/index.html` with a `<canvas id="cupri">` and one `<script>` tag pointing at
-`_content/CupriFace.Web/main.js`. Everything else — the frame loop, damage-rect blitting, pointer
+`_content/CupriFace.Web.Mono/main.js`. Everything else — the frame loop, damage-rect blitting, pointer
 / touch / wheel / keyboard input, the touch recognizer, the ARIA mirror screen readers read, IME
 composition, the clipboard, browser-decoded video, and the two font faces the wasm Skia build does
-not embed — is [`CupriFace.Web`](../../src/CupriFace.Web).
+not embed — is [`CupriFace.Web.Mono`](../../src/CupriFace.Web.Mono).
 
 That split is the point. This sample used to *be* the web host, so a second web app had to copy
 ~1,000 lines out of it, along with an AOT workaround for a bug in CupriFace's own code (#73).

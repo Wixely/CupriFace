@@ -3,11 +3,11 @@
 // wheel and keyboard input. No Blazor, no UI framework — just a canvas and input plumbing.
 //
 // This is the JS half of CupriFace.Web and ships inside that package, next to the C# half whose
-// [JSImport] names it binds below. An app gets it at _content/CupriFace.Web/main.js and writes no
+// [JSImport] names it binds below. An app gets it at _content/CupriFace.Web.Mono/main.js and writes no
 // JS at all. Keeping the halves in one package is the point: every name in `setModuleImports`
 // below is a contract with Interop.cs, and a copied-out main.js drifts from it silently.
 //
-// Served from _content/CupriFace.Web/, so the runtime that the APP publishes is two levels up.
+// Served from _content/CupriFace.Web.Mono/, so the runtime that the APP publishes is two levels up.
 import { dotnet } from '../../_framework/dotnet.js'
 
 const canvas = document.getElementById('cupri');
@@ -186,7 +186,7 @@ try {
     // The host's exports, not the app's: the [JSExport] surface lives in CupriFace.Web, so every
     // app boots the same host rather than owning a copy of it. (This used to read the app's
     // `config.mainAssemblyName`, back when the app WAS the host.)
-    const exports = await getAssemblyExports('CupriFace.Web');
+    const exports = await getAssemblyExports('CupriFace.Web.Mono');
     const I = exports.CupriFace.Web.Interop;
     // Exposed for automation, as the WebLlvm host does: a browser test drives the same exports the
     // page does, rather than a parallel path that could pass while the real one is broken.

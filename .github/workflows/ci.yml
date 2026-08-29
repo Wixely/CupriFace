@@ -1106,7 +1106,7 @@ jobs:
           for proj in src/CupriFace/CupriFace.csproj src/CupriFace.Shell/CupriFace.Shell.csproj \
                       src/CupriFace.Media/CupriFace.Media.csproj \
                       src/CupriFace.Android/CupriFace.Android.csproj \
-                      src/CupriFace.Web/CupriFace.Web.csproj; do
+                      src/CupriFace.Web.Mono/CupriFace.Web.Mono.csproj; do
             dotnet pack "$proj" -c Release -p:Version="$VERSION" -o dist
           done
           # The media package must actually CARRY the decoders it promises — a nupkg without
@@ -1170,7 +1170,7 @@ jobs:
           | `CupriFace` | The engine — HTML + CSS to a Skia canvas or any RGBA buffer, bound to plain C# objects. Runs headless. |
           | `CupriFace.Shell` | The desktop host — `DesktopHost.Run(new MyApp())`. |
           | `CupriFace.Android` | The Android host — subclass `CupriActivity`, return your app. Touch, IME, TalkBack. Needs the `android` workload; runs CoreCLR (the package pins it). |
-          | `CupriFace.Web` | The browser host — `WebHost.Run(new MyApp())` in a raw-WASM app. Canvas, input, touch, the ARIA mirror, IME, clipboard, browser-decoded video. No Blazor, no JS to write. |
+          | `CupriFace.Web.Mono` | The browser host — `WebHost.Run(new MyApp())` on a canvas. Frame loop, input, touch, the ARIA mirror, IME, clipboard, browser-decoded video. No Blazor, no JS to write. Runs on the SDK's own wasm runtime; the engine is interpreted, so a NativeAOT-LLVM sibling is planned for speed. |
           | `CupriFace.Media` | Optional: WebM (VP9 + Opus) playback for `<cupri-video>`, decoders included for every desktop RID. |
 
           These are also published to **GitHub Packages**, which is a real NuGet feed — so rather

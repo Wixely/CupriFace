@@ -34,7 +34,7 @@ variables, `@media`, `@keyframes`, transitions.
 | `CupriFace` | The engine — parse, style, layout, shape text, paint, bind, components. Renders into any Skia canvas or RGBA buffer, so it works headless too. |
 | `CupriFace.Shell` | The desktop host — a window (GPU with a software fallback), input, and cursors. `DesktopHost.Run(new SettingsApp())`. |
 | `CupriFace.Android` | The Android host — subclass `CupriActivity`, return your `CupriApp`. GL surface, touch gestures (tap/fling/long-press), soft keyboard with real IME composition, and the TalkBack accessibility bridge. Needs the `android` workload. |
-| `CupriFace.Web` | The browser host — `WebHost.Run(new SettingsApp())` in a raw WebAssembly app. Canvas, frame loop, pointer/touch/wheel/keyboard, the ARIA mirror screen readers read, IME composition, clipboard, and browser-decoded video. No Blazor and no JS to write. |
+| `CupriFace.Web.Mono` | The browser host — `WebHost.Run(new SettingsApp())` on a canvas. Frame loop, pointer/touch/wheel/keyboard, the ARIA mirror screen readers read, IME composition, clipboard, and browser-decoded video. No Blazor and no JS to write. Named for its runtime: it uses the wasm runtime in the .NET SDK, so it builds anywhere, but the engine runs interpreted (~8x slower than native). A faster NativeAOT-LLVM sibling with the identical `WebHost.Run` API is planned, so the choice is a `PackageReference`. |
 
 The engine has no windowing dependency at all, which is what makes it embeddable: `RenderToPixels`
 fills any RGBA buffer — a game texture, an HTML canvas, a server-side image — and the same document

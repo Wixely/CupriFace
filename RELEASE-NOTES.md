@@ -17,7 +17,7 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
-- **`CupriFace.Web` — the browser host as a package** ([#73]). The web platform now has what
+- **`CupriFace.Web.Mono` — the browser host as a package** ([#73]). The web platform now has what
   desktop and Android already had: `WebHost.Run(new MyApp())` is the whole of an app's
   `Program.cs`. The package brings the frame loop, damage-rect blitting, pointer/touch/wheel/
   keyboard input, the touch recognizer (tap-on-release, momentum fling, long-press), the ARIA
@@ -29,10 +29,10 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   the copies silently arrived without accessibility, the IME and touch — the parts you can omit and
   still see a first frame. An app now owns its page shell and nothing else; a default
   `index.html` ships in the package under `template/` to start from, and the host's JS half is
-  served at `_content/CupriFace.Web/main.js`.
+  served at `_content/CupriFace.Web.Mono/main.js`.
   Migrating an app built on the old sample: delete the copied `Program.cs`, `main.js` and video
-  backend, reference `CupriFace.Web`, call `WebHost.Run`, and point the page's `<script>` at
-  `_content/CupriFace.Web/main.js`.
+  backend, reference `CupriFace.Web.Mono`, call `WebHost.Run`, and point the page's `<script>` at
+  `_content/CupriFace.Web.Mono/main.js`.
 
 [#73]: https://github.com/Wixely/CupriFace/issues/73
 

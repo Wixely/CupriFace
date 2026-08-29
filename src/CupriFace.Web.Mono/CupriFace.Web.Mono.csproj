@@ -1,13 +1,26 @@
 <Project Sdk="Microsoft.NET.Sdk.StaticWebAssets">
 
   <!--
-    The browser host: the third sibling of CupriFace.Shell (desktop) and CupriFace.Android (phone).
-    An app author writes `WebHost.Run(new MyApp())` and gets the canvas, the frame loop, input,
-    the ARIA mirror, the IME, the clipboard and browser-decoded video — the same host the Showcase
-    runs, rather than a copy of it.
+    The browser host on the MONO WebAssembly runtime: the third sibling of CupriFace.Shell
+    (desktop) and CupriFace.Android (phone). An app author writes `WebHost.Run(new MyApp())` and
+    gets the canvas, the frame loop, input, the ARIA mirror, the IME, the clipboard and
+    browser-decoded video — the same host the Showcase runs, rather than a copy of it.
 
     Same layering law as the other two: the ENGINE has no idea the browser exists. Everything
     browser lives here.
+
+    WHY THE NAME SAYS Mono. There are two web hosts, and the runtime is the choice between them:
+    this one runs on the wasm runtime that ships with the .NET SDK, so it builds wherever
+    `dotnet publish` does; the NativeAOT-LLVM host (samples/WebLlvm, packaged by #78) compiles the
+    engine properly and is several times faster, at the cost of an experimental toolchain from the
+    dotnet-experimental feed. Neither is simply better, so neither gets to be `CupriFace.Web` —
+    that name is deliberately unclaimed rather than quietly meaning whichever host we favoured on
+    the day. A package ID that silently changes runtime under consumers is a worse outcome than a
+    longer name.
+
+    The API is identical across both, on purpose: namespace CupriFace.Web, type WebHost, method
+    Run. Switching hosts is a PackageReference change and no app code, which is what makes "the
+    other one is the fallback" true rather than aspirational.
 
     Why this package exists at all: `samples/WebWasm` used to BE the web host, so a second web app
     had to copy ~1,000 lines of Program.cs + main.js + video backend, an AOT workaround for a bug
@@ -38,8 +51,16 @@
          frameworkReference, and the published wasm app ships no ASP.NET Core or Blazor assembly.
          (The two Microsoft.AspNetCore.StaticWebAssets*.props files inside the nupkg are build-time
          item metadata for main.js — a path, a base path and cache headers. Nothing runs.) -->
-    <StaticWebAssetBasePath>_content/CupriFace.Web</StaticWebAssetBasePath>
-    <Description>Browser host for CupriFace: run a CupriApp in the browser on a canvas (raw WebAssembly, no Blazor, no JS UI framework). Brings the frame loop, input, touch gestures, the ARIA mirror for screen readers, IME composition, clipboard and browser-decoded video.</Description>
+    <StaticWebAssetBasePath>_content/CupriFace.Web.Mono</StaticWebAssetBasePath>
+    <!-- The namespace stays CupriFace.Web even though the assembly is CupriFace.Web.Mono: an app
+         writes the same `WebHost.Run(new MyApp())` against either host. -->
+    <RootNamespace>CupriFace.Web</RootNamespace>
+    <Description>Run a CupriApp in the browser, on a canvas — no Blazor, no WebView, no JavaScript to write. Your whole Program.cs is WebHost.Run(new MyApp()); the package brings the frame loop, pointer/touch/wheel/keyboard input, the touch gesture recognizer, an ARIA mirror so screen readers can read the canvas, IME composition, the clipboard and browser-decoded video.
+
+This is the MONO runtime host — the compatible one. It builds with the wasm runtime that ships in the .NET SDK, so it works wherever `dotnet publish` does. The trade-off is speed: a Mono AOT codegen defect forces the engine to run interpreted, roughly 8x slower than native, so heavy interaction is noticeably less smooth.
+
+If you want the fast one, CupriFace.Web.NativeAot compiles the engine properly, at the cost of an experimental (dotnet/runtimelab) toolchain. Both packages expose exactly the same WebHost.Run API, so choosing between them — or falling back — is a PackageReference change and no app code.</Description>
+    <PackageTags>cupriface;ui;webassembly;wasm;browser;canvas;skia;html;css;mono</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
@@ -82,8 +103,8 @@
   <ItemGroup>
     <!-- Reaches nupkg CONSUMERS only — buildTransitive does not cross ProjectReference edges, so
          repo-internal apps (samples/WebWasm) set the same properties in their own csproj. -->
-    <None Include="buildTransitive\CupriFace.Web.props" Pack="true" PackagePath="buildTransitive\" />
-    <None Include="buildTransitive\CupriFace.Web.targets" Pack="true" PackagePath="buildTransitive\" />
+    <None Include="buildTransitive\CupriFace.Web.Mono.props" Pack="true" PackagePath="buildTransitive\" />
+    <None Include="buildTransitive\CupriFace.Web.Mono.targets" Pack="true" PackagePath="buildTransitive\" />
   </ItemGroup>
 
 </Project>

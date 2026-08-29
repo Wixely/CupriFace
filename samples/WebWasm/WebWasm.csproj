@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.WebAssembly">
 
   <!--
-    The raw-WASM sample. What a CupriFace.Web app's project file actually is: the WebAssembly SDK,
+    The raw-WASM sample. What a CupriFace.Web.Mono app's project file actually is: the WebAssembly SDK,
     a reference to the host, and a reference to the app. Compare against git history — this file
     used to carry the Skia/HarfBuzz wasm natives, the WasmBuildNative switch, the font embedding
     and an AOT workaround for a bug in CupriFace's own code. All of that is the host's now (#73).
@@ -29,12 +29,12 @@
        these in itself. IMPORT them rather than copy them: a duplicated block would mean the files a
        nupkg consumer actually gets are never exercised by our own build, so they could rot and CI
        would stay green. This way the sample IS the test of them. -->
-  <Import Project="..\..\src\CupriFace.Web\buildTransitive\CupriFace.Web.props" />
-  <Import Project="..\..\src\CupriFace.Web\buildTransitive\CupriFace.Web.targets" />
+  <Import Project="..\..\src\CupriFace.Web.Mono\buildTransitive\CupriFace.Web.Mono.props" />
+  <Import Project="..\..\src\CupriFace.Web.Mono\buildTransitive\CupriFace.Web.Mono.targets" />
 
   <ItemGroup>
     <!-- The browser host, and the SAME app the desktop Viewer and the Android host run. -->
-    <ProjectReference Include="..\..\src\CupriFace.Web\CupriFace.Web.csproj" />
+    <ProjectReference Include="..\..\src\CupriFace.Web.Mono\CupriFace.Web.Mono.csproj" />
     <ProjectReference Include="..\DemoApp\DemoApp.csproj" />
   </ItemGroup>
 
