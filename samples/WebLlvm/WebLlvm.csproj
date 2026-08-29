@@ -1,20 +1,25 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- EXPERIMENTAL web host on NativeAOT-LLVM (dotnet/runtimelab) instead of the Mono WASM runtime.
-       Why it exists: Mono's WASM AOT mis-compiles CupriFace (see WebWasm.csproj), forcing the engine
-       to run INTERPRETED in the browser — measured at hover 16.2 ms / section switch 60.7 ms, ~8×
-       native. NativeAOT-LLVM is a different compiler + runtime, so that bug cannot occur and the
-       whole engine compiles. Probed before building this host: the full engine (AngleSharp, layout,
-       HarfBuzz shaping, Skia raster) renders pixel-exact under this toolchain.
+  <!-- buildTransitive does not cross ProjectReference edges, so this sample imports by hand what a
+       nupkg consumer gets automatically — props FIRST, as NuGet injects them, because the RID has
+       to be set before the ILC/Emscripten targets evaluate it. Importing rather than copying is
+       what makes this sample the test of the files a consumer actually receives. -->
+  <Import Project="..\..\src\CupriFace.Web.NativeAot\buildTransitive\CupriFace.Web.NativeAot.props" />
 
-       No Mono runtime also means no [JSImport]/[JSExport]: interop is UnmanagedCallersOnly exports +
-       DllImport into the Emscripten JS library (wwwroot/imports.js). Publish then serve:
-         dotnet publish samples/WebLlvm/WebLlvm.csproj -c Release
-         then serve bin/Release/net10.0/browser-wasm/publish with tools/Serve on port 5230
-         (the "Web (NativeAOT-LLVM)" VS Code launch config does both). -->
+  <!--
+    The NativeAOT-LLVM sample: the Showcase, three lines of app over CupriFace.Web.NativeAot.
+
+    What is left here is exactly what a package CANNOT supply, and it is worth knowing which is
+    which. Restore-time facts — the experimental feed, the ILC compiler packages, the two
+    native-asset packages — must live in the app's own file, because restore has picked its sources
+    long before any of the host's build files are read. Everything else now comes from the package:
+    the link line, the Emscripten JS library, the static archives, the trimmer root that keeps the
+    host's exports alive, and the RID.
+
+    See git history for the version of this file that WAS the host (#78).
+  -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>
     <OutputType>Exe</OutputType>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -31,17 +36,15 @@
     <ExecutableExtensionName Condition="$([MSBuild]::IsOSPlatform('Windows'))">.exe</ExecutableExtensionName>
     <!-- The NativeAOT-LLVM compiler itself is a native executable, so it must match the machine
          doing the build even though the OUTPUT is always browser-wasm. Deriving the host RID from
-         the SDK is what lets this project build on Windows and Linux from one definition; it was
-         previously hard-wired to win-x64, which made the whole web host Windows-only.
+         the SDK is what lets this project build on Windows and Linux from one definition.
 
-         Pinning the version (rather than the old floating 10.0.0-*) does two things: it stops a
-         nightly feed drop silently changing the compiler under us, and it makes the package path
-         deterministic — so no GeneratePathProperty indirection is needed, and no per-RID
-         conditionals either, because NuGet lowercases package folder names uniformly.
-         Override either property on the command line to try a newer compiler. -->
+         Pinning the version (rather than a floating 10.0.0-*) stops a nightly feed drop silently
+         changing the compiler under us and keeps the package path deterministic. Override either
+         property on the command line to try a newer compiler. -->
     <IlcHostRid Condition="'$(IlcHostRid)' == ''">$(NETCoreSdkPortableRuntimeIdentifier)</IlcHostRid>
     <IlcLlvmVersion Condition="'$(IlcLlvmVersion)' == ''">10.0.0-rc.1.26357.1</IlcLlvmVersion>
     <IlcHostPackagePath>$(NuGetPackageRoot)runtime.$(IlcHostRid).microsoft.dotnet.ilcompiler.llvm/$(IlcLlvmVersion)</IlcHostPackagePath>
+    <!-- THE restore-time fact a package cannot supply: ILCompiler.LLVM is not on nuget.org. -->
     <RestoreAdditionalProjectSources>
       https://api.nuget.org/v3/index.json;
       https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-experimental/nuget/v3/index.json;
@@ -58,48 +61,24 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <LinkerArg Include="--js-library &quot;$(MSBuildProjectDirectory)/wwwroot/imports.js&quot; -sEXPORTED_RUNTIME_METHODS=['FS','out','err','ccall','cwrap','setValue','getValue','addRunDependency','addFunction','UTF8ToString','UTF8ArrayToString','lengthBytesUTF8','stringToUTF8Array','FS_createPath','FS_createDataFile','removeRunDependency','safeSetTimeout','runtimeKeepalivePush','runtimeKeepalivePop','UTF16ToString','stringToUTF16','lengthBytesUTF16']"/>
-    <!-- Static Skia + HarfBuzz, the Emscripten 3.1.56 single-thread variants that match the
-         workload toolchain; DirectPInvoke binds their DllImports at link time. -->
-    <NativeLibrary Include="$(PkgSkiaSharp_NativeAssets_WebAssembly)/buildTransitive/netstandard1.0/libSkiaSharp.a/3.1.56/st/libSkiaSharp.a" />
-    <NativeLibrary Include="$(PkgHarfBuzzSharp_NativeAssets_WebAssembly)/buildTransitive/netstandard1.0/libHarfBuzzSharp.a/3.1.56/st/libHarfBuzzSharp.a" />
-    <DirectPInvoke Include="libSkiaSharp" />
-    <DirectPInvoke Include="libHarfBuzzSharp" />
-    <DirectPInvoke Include="js" />
+    <!-- The browser host, and the SAME app the desktop Viewer, the phone and WebWasm all run. -->
+    <ProjectReference Include="..\..\src\CupriFace.Web.NativeAot\CupriFace.Web.NativeAot.csproj" />
+    <ProjectReference Include="..\DemoApp\DemoApp.csproj" />
   </ItemGroup>
 
-  <!-- The sans faces both web hosts embed, from the one place that owns them, with the guard that
-       they were actually found. This project cannot reference CupriFace.Web.Mono (NativeAOT-LLVM is
-       Emscripten, not the Mono wasm runtime, so that package's [JSExport] surface is unusable
-       here) — but the fonts are not the host, and both hosts share them. -->
-  <Import Project="..\..\src\WebFonts.props" />
-
   <ItemGroup>
-    <ProjectReference Include="..\..\src\CupriFace\CupriFace.csproj" />
-    <ProjectReference Include="..\DemoApp\DemoApp.csproj" />
+    <!-- Restore-time, therefore app-side. ExcludeAssets=all because only the STATIC ARCHIVES are
+         wanted — the host's targets add those to the native link; the managed assets would collide
+         with the ones the engine already brings. -->
     <PackageReference Include="Microsoft.DotNet.ILCompiler.LLVM" Version="$(IlcLlvmVersion)" />
-    <!-- The ILC host is a native tool, so it follows the BUILD machine, not the wasm target. -->
     <PackageReference Include="runtime.$(IlcHostRid).Microsoft.DotNet.ILCompiler.LLVM" Version="$(IlcLlvmVersion)" />
-
-    <!-- Referenced purely to put the static .a archives on disk (see NativeLibrary above); their
-         managed/build assets are excluded because this host links the natives itself. Previously
-         the archives were addressed by a hand-built $(NuGetPackageRoot) path with no reference at
-         all, so the build only succeeded on a machine where WebWasm had already populated the
-         shared NuGet cache — a clean checkout, and CI, failed at the emcc link. GeneratePathProperty
-         also removes the duplicated version number from the path. -->
     <PackageReference Include="SkiaSharp.NativeAssets.WebAssembly" Version="3.116.1"
                       GeneratePathProperty="true" ExcludeAssets="all" />
     <PackageReference Include="HarfBuzzSharp.NativeAssets.WebAssembly" Version="8.3.0.1"
                       GeneratePathProperty="true" ExcludeAssets="all" />
-    <EmscriptenEnvVars Include="DOTNET_EMSCRIPTEN_LLVM_ROOT=$(EmscriptenUpstreamBinPath)"/>
-    <EmscriptenEnvVars Include="DOTNET_EMSCRIPTEN_BINARYEN_ROOT=$(EmscriptenSdkToolsPath)"/>
-    <EmscriptenEnvVars Include="DOTNET_EMSCRIPTEN_NODE_JS=$(EmscriptenNodeBinPath)node$(ExecutableExtensionName)"/>
-    <EmscriptenEnvVars Include="EM_CACHE=$(EmscriptenCacheSdkCacheDir)"/>
   </ItemGroup>
 
-  <!-- The static page + host script live beside the publish output so one dir serves the app. -->
-  <Target Name="CopyHostAssets" AfterTargets="Publish">
-    <Copy SourceFiles="wwwroot/index.html;wwwroot/main.js" DestinationFolder="$(PublishDir)" />
-  </Target>
+  <!-- …and the targets last, as NuGet would. -->
+  <Import Project="..\..\src\CupriFace.Web.NativeAot\buildTransitive\CupriFace.Web.NativeAot.targets" />
 
 </Project>
