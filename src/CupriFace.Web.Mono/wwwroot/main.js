@@ -1,8 +1,14 @@
 // CupriFace raw-WASM host — the entire "JS glue" (DESIGN.md §9.1): boot the .NET runtime,
 // hand the engine a <canvas> 2D context, blit its pixels each frame, and forward pointer,
 // wheel and keyboard input. No Blazor, no UI framework — just a canvas and input plumbing.
-
-import { dotnet } from './_framework/dotnet.js'
+//
+// This is the JS half of CupriFace.Web and ships inside that package, next to the C# half whose
+// [JSImport] names it binds below. An app gets it at _content/CupriFace.Web.Mono/main.js and writes no
+// JS at all. Keeping the halves in one package is the point: every name in `setModuleImports`
+// below is a contract with Interop.cs, and a copied-out main.js drifts from it silently.
+//
+// Served from _content/CupriFace.Web.Mono/, so the runtime that the APP publishes is two levels up.
+import { dotnet } from '../../_framework/dotnet.js'
 
 const canvas = document.getElementById('cupri');
 const ctx = canvas.getContext('2d');
@@ -57,7 +63,7 @@ function showError(where, err) {
 
 try {
     logBoot('create...');
-    const { setModuleImports, getAssemblyExports, getConfig, runMain } = await dotnet
+    const { setModuleImports, getAssemblyExports, runMain } = await dotnet
         .withDiagnosticTracing(false)
         .create();
     logBoot('created');
@@ -176,10 +182,12 @@ try {
         }
     });
 
-    const config = getConfig();
     logBoot('exports...');
-    const exports = await getAssemblyExports(config.mainAssemblyName);
-    const I = exports.Interop;
+    // The host's exports, not the app's: the [JSExport] surface lives in CupriFace.Web, so every
+    // app boots the same host rather than owning a copy of it. (This used to read the app's
+    // `config.mainAssemblyName`, back when the app WAS the host.)
+    const exports = await getAssemblyExports('CupriFace.Web.Mono');
+    const I = exports.CupriFace.Web.Interop;
     // Exposed for automation, as the WebLlvm host does: a browser test drives the same exports the
     // page does, rather than a parallel path that could pass while the real one is broken.
     // `isCoarse` is the UNIFORM contract both web hosts publish, so one gate can drive either

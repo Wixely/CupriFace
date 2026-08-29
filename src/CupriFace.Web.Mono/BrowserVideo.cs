@@ -6,6 +6,8 @@ using CupriFace.Paint;
 using CupriFace.Style;
 using SkiaSharp;
 
+namespace CupriFace.Web;
+
 // The web video backend: the BROWSER decodes (hardware, zero wasm bytes of codec). Each player
 // is an underlaid <video> element the JS glue creates below the canvas; the engine paints a
 // transparent hole at the element's box (ClearHole via ISurfaceSource.HostComposited) and its
@@ -196,7 +198,7 @@ internal sealed class BrowserVideoBackend : IVideoBackend
     }
 }
 
-public partial class Interop
+internal partial class Interop
 {
     // ---- JS → C#: browser video events ------------------------------------------------------
 

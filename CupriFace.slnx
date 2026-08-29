@@ -40,6 +40,7 @@
     <Project Path="src/CupriFace.Media/CupriFace.Media.csproj" />
     <Project Path="src/CupriFace.Resources.Gen/CupriFace.Resources.Gen.csproj" />
     <Project Path="src/CupriFace.Shell/CupriFace.Shell.csproj" />
+    <Project Path="src/CupriFace.Web.Mono/CupriFace.Web.Mono.csproj" />
     <Project Path="src/CupriFace/CupriFace.csproj" />
   </Folder>
 </Solution>

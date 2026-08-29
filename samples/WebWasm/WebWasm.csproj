@@ -1,22 +1,23 @@
 <Project Sdk="Microsoft.NET.Sdk.WebAssembly">
 
+  <!--
+    The raw-WASM sample. What a CupriFace.Web.Mono app's project file actually is: the WebAssembly SDK,
+    a reference to the host, and a reference to the app. Compare against git history — this file
+    used to carry the Skia/HarfBuzz wasm natives, the WasmBuildNative switch, the font embedding
+    and an AOT workaround for a bug in CupriFace's own code. All of that is the host's now (#73).
+  -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
-    <!-- This project is browser-only by definition; the JSExport/JSImport platform hints
-         (CA1416 "only supported on browser") are expected and not actionable here. -->
-    <NoWarn>$(NoWarn);CA1416</NoWarn>
-    <!-- SkiaSharp ships a static wasm lib that must be linked into the app. -->
-    <WasmBuildNative>true</WasmBuildNative>
     <!-- AOT-compile managed code to WASM, opt-in: `dotnet publish -c Release -p:Aot=true`.
-         Gated behind an explicit property (NOT Configuration) so plain builds/runs never mix
-         with AOT artifacts in obj/ — a prior AOT publish poisoning obj/ makes a later
-         `dotnet run` render a blank canvas. Emit a symbol map so wasm-function[N] frames in
-         crash stacks can be resolved to real names. -->
+         Gated behind an explicit property (NOT Configuration) so plain builds/runs never mix with
+         AOT artifacts in obj/ — a prior AOT publish poisoning obj/ makes a later `dotnet run`
+         render a blank canvas. Emit a symbol map so wasm-function[N] frames in crash stacks can be
+         resolved to real names. The host's buildTransitive targets supply the interpreter
+         workaround that AOT needs; a nupkg consumer gets it without knowing it exists. -->
     <RunAOTCompilation Condition="'$(Aot)' == 'true'">true</RunAOTCompilation>
     <WasmEmitSymbolMap Condition="'$(Aot)' == 'true'">true</WasmEmitSymbolMap>
     <!-- Strip debug names/DWARF from the (large) AOT wasm: much smaller download and faster
@@ -24,41 +25,17 @@
     <WasmNativeDebugSymbols Condition="'$(Aot)' == 'true'">false</WasmNativeDebugSymbols>
   </PropertyGroup>
 
-  <ItemGroup Condition="'$(Aot)' == 'true'">
-    <!-- Mono's WASM AOT mis-compiles an indirect call INSIDE CupriFace method bodies, trapping at
-         boot with "function signature mismatch". Retested on SDK 10.0.302 (2026-08): the symbolised
-         fault is within SliderComponent.Expand's own AOT body (its first AngleSharp IElement call) —
-         NOT the registry→component interface dispatch, so devirtualising the call site does not help
-         (verified: the trap stays at the same frame with the caller changed). Interface calls made
-         BEFORE expansion (ICupriComponent.Tag during Register) dispatch fine, so it is signature-
-         specific Mono codegen, not interface dispatch generally. Keep CupriFace interpreted
-         (jiterpreter still applies); CoreLib, AngleSharp, Regex, Skia bindings etc. remain AOT.
-         Measured cost of this workaround (940×720 showcase, in-browser): hover restyle 16.2 ms/move,
-         section switch 60.7 ms — ~8× native. Re-try removing this on each SDK update. -->
-    <_AOT_InternalForceInterpretAssemblies Include="CupriFace.dll" />
-  </ItemGroup>
+  <!-- buildTransitive does not cross ProjectReference edges, so a repo-internal app has to bring
+       these in itself. IMPORT them rather than copy them: a duplicated block would mean the files a
+       nupkg consumer actually gets are never exercised by our own build, so they could rot and CI
+       would stay green. This way the sample IS the test of them. -->
+  <Import Project="..\..\src\CupriFace.Web.Mono\buildTransitive\CupriFace.Web.Mono.props" />
+  <Import Project="..\..\src\CupriFace.Web.Mono\buildTransitive\CupriFace.Web.Mono.targets" />
 
   <ItemGroup>
-    <!-- The wasm Skia build embeds only "Noto Mono", so a real sans face ships with the host and is
-         registered at Init (doc.LoadFont) — otherwise the whole UI renders monospaced. OFL-licensed;
-         licence kept beside the files. -->
-    <EmbeddedResource Include="Assets/fonts/*.ttf" LogicalName="fonts.%(Filename)%(Extension)" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <StaticWebAssetFingerprintPattern Include="JS" Pattern="*.js" Expression="#[.{fingerprint}]!" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <!-- The portable engine + the SAME app the desktop Viewer and Blazor host run. -->
-    <ProjectReference Include="..\..\src\CupriFace\CupriFace.csproj" />
+    <!-- The browser host, and the SAME app the desktop Viewer and the Android host run. -->
+    <ProjectReference Include="..\..\src\CupriFace.Web.Mono\CupriFace.Web.Mono.csproj" />
     <ProjectReference Include="..\DemoApp\DemoApp.csproj" />
-    <!-- Skia + HarfBuzz natives for the browser (the desktop natives in the engine are ignored here).
-         BOTH are required: text shaping (FontService → SKShaper) dlopens libHarfBuzzSharp at the first
-         text draw — without the wasm native asset the app boots and then dies rendering its first text. -->
-    <PackageReference Include="SkiaSharp" Version="3.116.1" />
-    <PackageReference Include="SkiaSharp.NativeAssets.WebAssembly" Version="3.116.1" />
-    <PackageReference Include="HarfBuzzSharp.NativeAssets.WebAssembly" Version="8.3.0.1" />
   </ItemGroup>
 
 </Project>

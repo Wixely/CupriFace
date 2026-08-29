@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <!-- EXPERIMENTAL web host on NativeAOT-LLVM (dotnet/runtimelab) instead of the Mono WASM runtime.
        Why it exists: Mono's WASM AOT mis-compiles CupriFace (see WebWasm.csproj), forcing the engine
@@ -68,10 +68,11 @@
     <DirectPInvoke Include="js" />
   </ItemGroup>
 
-  <ItemGroup>
-    <!-- Same embedded sans faces as the Mono host (see WebWasm.csproj) — one copy in the repo. -->
-    <EmbeddedResource Include="../WebWasm/Assets/fonts/*.ttf" LogicalName="fonts.%(Filename)%(Extension)" />
-  </ItemGroup>
+  <!-- The sans faces both web hosts embed, from the one place that owns them, with the guard that
+       they were actually found. This project cannot reference CupriFace.Web.Mono (NativeAOT-LLVM is
+       Emscripten, not the Mono wasm runtime, so that package's [JSExport] surface is unusable
+       here) — but the fonts are not the host, and both hosts share them. -->
+  <Import Project="..\..\src\WebFonts.props" />
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\CupriFace\CupriFace.csproj" />

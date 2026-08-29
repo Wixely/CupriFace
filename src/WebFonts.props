@@ -1,0 +1,34 @@
+<Project>
+  <!--
+    The sans faces every WEB host has to embed, and the one place that says so.
+
+    The wasm Skia build ships exactly one face — Noto Mono — so a browser host without a real sans
+    face renders every app monospaced, silently, with no error to search for. Both web hosts
+    therefore embed the same two files, under the same logical names, and read them back at
+    startup.
+
+    They live here rather than inside either host because neither owns them. They were briefly in
+    CupriFace.Web.Mono/Assets, which made the NativeAOT-LLVM host reach into the Mono host's package
+    folder for a shared asset — backwards, and the kind of coupling that decides which host is
+    "real" by accident.
+
+    Importing this rather than copying the item group is deliberate: the two hosts have already
+    drifted apart once per shared thing that was duplicated instead of shared (see the IME gap and
+    the font-path break). One import, one guard, both hosts.
+  -->
+  <PropertyGroup>
+    <CupriWebFontsDir>$(MSBuildThisFileDirectory)WebFonts\</CupriWebFontsDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="$(CupriWebFontsDir)*.ttf" LogicalName="fonts.%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <!-- A glob that matches nothing is not an MSBuild error, so the build stays green and the app
+       dies at first paint dereferencing a null resource stream instead. That is how moving these
+       files broke one host's browser gate and nothing else. Fail here, where the cause is. -->
+  <Target Name="AssertWebFontsEmbedded" BeforeTargets="CoreCompile">
+    <Error Condition="'@(EmbeddedResource->WithMetadataValue('Extension', '.ttf'))' == ''"
+           Text="No .ttf embedded: the sans faces a web host loads at startup were not found under $(CupriWebFontsDir). Without them every app renders monospaced, and the resource read at startup throws." />
+  </Target>
+</Project>
