@@ -15,7 +15,8 @@ name: Codecs
 #
 # So if you are reclaiming Actions storage: the six `cupricodecs-*` artifacts on the latest green
 # run of THIS workflow are the only ones another run reads, and they are ~4 MB in total — deleting
-# them saves nothing and breaks the next release. Everything else in this repo is an intra-run
+# them saves nothing and breaks the next release. The post-release sweep in ci.yml knows this and
+# keeps anything named `cupricodecs-*`; any other cleanup must do the same. Everything else in this repo is an intra-run
 # handoff (`mediaprobe-*`) or a release input built only on tags (`viewer-*`, `androidviewer-apk`),
 # all of which expire in a day on their own and are safe to delete at any time.
 

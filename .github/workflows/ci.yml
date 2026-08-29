@@ -1028,6 +1028,7 @@ jobs:
     permissions:
       contents: write   # the default GITHUB_TOKEN is read-only; creating a release needs write
       packages: write   # …and pushing the nupkgs to GitHub Packages needs this on top
+      actions: write    # …and the post-release sweep below deletes workflow artifacts
     steps:
       # Checkout FIRST: it cleans the working directory, which would delete downloaded artifacts.
       - uses: actions/checkout@v4
@@ -1247,3 +1248,66 @@ jobs:
           done
           echo "::error::release publish failed five times — the build is fine, the API is not"
           exit 1
+
+      # Everything this run built is now a permanent release asset, so the workflow artifacts that
+      # carried it between jobs are dead weight. Reclaim them.
+      #
+      # THIS STEP KEEPS cupricodecs-* NO MATTER WHAT. Those six are the one cross-run dependency in
+      # this repository: a later release fetches them from the latest green Codecs run, and they are
+      # rebuilt only when codecs.yml changes. Deleting them is precisely how v0.5.0 shipped a 25 KB
+      # CupriFace.Media with no decoders under a green build — see the header of codecs.yml. Anything
+      # else here is either an intra-run handoff (mediaprobe-*) or a release input built on a tag
+      # (viewer-*, androidviewer-apk), and is safe to remove once the release exists.
+      #
+      # Runs only on a successful publish: a failed release may need its artifacts for a re-run.
+      - name: Reclaim artifact storage
+        if: success()
+        # Housekeeping must never fail a release that already published. If the sweep cannot do its
+        # job the storage stays, which is the harmless outcome; a red job on a good release is not.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Younger than this and another workflow may still be reading it — a Codecs run hands
+          # mediaprobe between its own jobs, and killing that mid-flight breaks a build that was
+          # doing nothing wrong. This run's own artifacts are exempt: the release just consumed them.
+          MIN_AGE_MINUTES=60
+          now=$(date -u +%s)
+          kept=0; deleted=0; skipped=0; freed=0
+          page=1
+          while : ; do
+            resp=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100&page=$page") \
+              || { echo "::error::could not list artifacts — leaving storage alone"; exit 1; }
+            n=$(echo "$resp" | jq '.artifacts | length')
+            if [ "$n" -eq 0 ]; then break; fi
+            while read -r id name size expired created run_id; do
+              # The one thing that must survive.
+              case "$name" in
+                cupricodecs-*) kept=$((kept + 1)); continue ;;
+              esac
+              if [ "$expired" = "true" ]; then continue; fi
+              # Guarded: an unparseable timestamp must not become a syntax error mid-sweep, and
+              # "I do not know how old this is" resolves to KEEPING it. Every uncertainty here
+              # resolves towards keeping — the cost of keeping is storage, the cost of deleting
+              # wrongly is a broken release.
+              if ! created_epoch=$(date -u -d "$created" +%s 2>/dev/null); then
+                echo "::warning::unreadable timestamp on artifact $name — keeping it"
+                skipped=$((skipped + 1)); continue
+              fi
+              age=$(( (now - created_epoch) / 60 ))
+              if [ "$run_id" != "$GITHUB_RUN_ID" ] && [ "$age" -lt "$MIN_AGE_MINUTES" ]; then
+                skipped=$((skipped + 1)); continue
+              fi
+              if gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id" > /dev/null 2>&1; then
+                deleted=$((deleted + 1)); freed=$((freed + size))
+              else
+                echo "::warning::could not delete artifact $name ($id)"
+              fi
+            done < <(echo "$resp" | jq -r '.artifacts[] | "\(.id) \(.name) \(.size_in_bytes) \(.expired) \(.created_at) \(.workflow_run.id)"')
+            page=$((page + 1))
+          done
+          mb=$(( freed / 1000000 ))
+          echo "deleted $deleted artifact(s), freeing ~${mb} MB; kept $kept codec native(s); skipped $skipped still-recent" \
+            >> "$GITHUB_STEP_SUMMARY"
+          echo "deleted=$deleted freed=${mb}MB kept=$kept skipped=$skipped"
