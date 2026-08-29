@@ -36,6 +36,31 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 [#73]: https://github.com/Wixely/CupriFace/issues/73
 
+### Fixed
+
+- **`box-sizing: border-box` now works** ([#76]) — it was not read at all, so a declared width was
+  always the CONTENT box. Every full-bleed `width:100%` container with padding therefore overflowed
+  its parent by twice that padding, silently shifting anything centred inside it, and the global
+  `* { box-sizing: border-box }` almost every stylesheet writes could not rescue it. It applies to
+  `width`/`height` and to `min-`/`max-` alike. If you compensated by subtracting padding from a
+  width by hand, that box is now smaller than you intended — remove the compensation.
+
+- **`margin: auto` centres again** ([#76]) — `auto` resolved to `0` like any unresolved length, so
+  a box with `margin-left:auto; margin-right:auto` sat flush against its container instead of
+  centring. Both axes' shorthand now behave: two auto margins centre, a single `margin-left:auto`
+  pushes a box to the far side. On a flex item they take the free space before `justify-content`
+  sees it, which is what makes them the way to move ONE item while its siblings stay put.
+
+### Changed
+
+- **Placeholder text now reads `--cupri-muted`** instead of a hard-coded grey, matching every other
+  muted label in the toolbox. The fallback is the same colour, so nothing changes unless you set
+  the variable — at which point the text inputs finally follow your theme. Noted while documenting
+  that the fields draw their value with `--cupri-text` rather than inheriting `color`, which is why
+  a dark theme that sets only `body { color: … }` appears to grey text out as it is typed ([#76]).
+
+[#76]: https://github.com/Wixely/CupriFace/issues/76
+
 ## v0.6.0
 
 ### Fixed

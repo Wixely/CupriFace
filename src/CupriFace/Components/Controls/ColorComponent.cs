@@ -23,7 +23,7 @@ public sealed class ColorComponent : ComponentBase
         .cupri-color-trigger[data-hover] { border:2px #98a2b3; }
         .cupri-color-chip { width:20px; height:20px; border-radius:5px; border:1px solid #00000022; }
         .cupri-color-hex { flex:1; font-family:monospace; font-size:13px; }
-        .cupri-color-ph { flex:1; color:#98a2b3; font-size:14px; }
+        .cupri-color-ph { flex:1; color:var(--cupri-muted, #98a2b3); font-size:14px; }
         .cupri-color-pop { position:fixed; width:278px; background:var(--cupri-surface, white); border-radius:10px;
                            padding:10px; z-index:30; border:1px var(--cupri-border, #e6e9f0); box-shadow:0 10px 28px #00000026; }
         .cupri-color-grid { display:grid; grid-template-columns: repeat(10, 1fr); gap:4px; }

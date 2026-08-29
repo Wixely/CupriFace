@@ -21,7 +21,7 @@ public sealed class TextAreaComponent : ComponentBase
         .cupri-textarea[data-invalid] { border:2px #d92d20; }
         .cupri-ta-body { color:var(--cupri-text, #1e2430); }
         .cupri-ta-line { display:block; }
-        .cupri-ta-ph { color:#98a2b3; }
+        .cupri-ta-ph { color:var(--cupri-muted, #98a2b3); }
         """;
 
     public override void Expand(IElement el)

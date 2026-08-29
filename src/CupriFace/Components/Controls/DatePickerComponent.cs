@@ -22,7 +22,7 @@ public sealed class DatePickerComponent : ComponentBase
                             border:2px var(--cupri-border, #cbd2dc); border-radius:8px;
                             color:var(--cupri-text, #1e2430); font-size:15px; }
         .cupri-dp-trigger[data-hover] { border:2px #98a2b3; }
-        .cupri-dp-ph { color:#98a2b3; }
+        .cupri-dp-ph { color:var(--cupri-muted, #98a2b3); }
         .cupri-dp-popup { position:fixed; background:var(--cupri-surface, white); border-radius:10px; padding:12px;
                           z-index:30; border:1px var(--cupri-border, #e6e9f0); width:250px; box-shadow:0 10px 28px #00000026; }
         .cupri-dp-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }

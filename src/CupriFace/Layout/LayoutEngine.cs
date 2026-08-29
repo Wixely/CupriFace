@@ -148,7 +148,7 @@ public sealed class LayoutEngine
         float contentW;
         if (node.ResizeW is { } rw && forceContentW is null) contentW = rw - node.HorizontalInsets; // user-dragged size
         else if (forceContentW is { } fw) contentW = fw;
-        else if (s.Width.IsDefinite) contentW = s.Width.Resolve(cbW);
+        else if (s.Width.IsDefinite) contentW = ContentW(s, s.Width, cbW);
         else contentW = MathF.Max(0, cbW - node.MarginLeft - node.MarginRight - node.HorizontalInsets);
         contentW = ClampW(s, contentW, cbW);
 
@@ -163,7 +163,7 @@ public sealed class LayoutEngine
             var wDef = s.Width.IsDefinite || forceContentW is not null || node.ResizeW is not null;
             var hDef = s.Height.IsDefinite || forceContentH is not null || node.ResizeH is not null;
             var hh = node.ResizeH is { } rh2 ? rh2 - node.VerticalInsets
-                   : hDef ? (forceContentH ?? s.Height.Resolve(cbH))
+                   : hDef ? (forceContentH ?? ContentH(s, s.Height, cbH))
                    : (wDef ? contentW / aspect : px.H);
             var ww = wDef ? contentW : (hDef ? hh * aspect : px.W);
             node.Width = ClampW(s, ww, cbW) + node.HorizontalInsets;
@@ -181,12 +181,12 @@ public sealed class LayoutEngine
         else if (s.IsFlexContainer)
         {
             var heightKnown = forceContentH.HasValue || s.Height.IsDefinite;
-            var providedH = forceContentH ?? (s.Height.IsDefinite ? s.Height.Resolve(cbH) : 0f);
+            var providedH = forceContentH ?? (s.Height.IsDefinite ? ContentH(s, s.Height, cbH) : 0f);
             usedH = LayoutFlex(node, contentW, providedH, heightKnown);
         }
         else if (s.IsGridContainer)
         {
-            var providedH = forceContentH ?? (s.Height.IsDefinite ? s.Height.Resolve(cbH) : cbH);
+            var providedH = forceContentH ?? (s.Height.IsDefinite ? ContentH(s, s.Height, cbH) : cbH);
             usedH = LayoutGrid(node, contentW, providedH);
         }
         else
@@ -197,7 +197,7 @@ public sealed class LayoutEngine
             // top of a page, the viewport): `height:100%` on the fill of an 18px meter came out 200px and
             // painted over everything below it. Auto keeps forwarding cbH — a height that depends on
             // content is no basis for a percentage, and that is the pre-existing behaviour on all paths.
-            var providedH = forceContentH ?? (s.Height.IsDefinite ? s.Height.Resolve(cbH) : cbH);
+            var providedH = forceContentH ?? (s.Height.IsDefinite ? ContentH(s, s.Height, cbH) : cbH);
             usedH = LayoutBlock(node, contentW, providedH);
         }
 
@@ -208,7 +208,7 @@ public sealed class LayoutEngine
         float contentH;
         if (node.ResizeH is { } rh && forceContentH is null) contentH = rh - node.VerticalInsets; // user-dragged size
         else if (forceContentH is { } fh) contentH = fh;
-        else if (s.Height.IsDefinite) contentH = s.Height.Resolve(cbH);
+        else if (s.Height.IsDefinite) contentH = ContentH(s, s.Height, cbH);
         else contentH = usedH;
         contentH = ClampH(s, contentH, cbH);
 
@@ -267,7 +267,7 @@ public sealed class LayoutEngine
             }
             var child = kids[i];
             LayoutNode(child, contentW, cbH);
-            child.X = insetL + child.MarginLeft;
+            child.X = insetL + child.MarginLeft + BlockAutoOffset(child, contentW);
             child.Y = insetT + cursorY + child.MarginTop;
             if (child.Style.Position == PositionType.Relative) ApplyRelativeOffset(child, contentW, cbH);
             cursorY += child.MarginTop + child.Height + child.MarginBottom;
@@ -617,7 +617,18 @@ public sealed class LayoutEngine
 
             var totalMain = gap * MathF.Max(0, count - 1);
             for (var i = start; i < end; i++) totalMain += MainOf(items[i], i) + mainMargin[i];
-            var (lineStartPos, between) = Justify(s.JustifyContent, lineMainSize - totalMain, gap, count);
+
+            // Auto margins on the main axis take the free space BEFORE justify-content sees any of
+            // it, and share it equally between them. That is what makes `margin-left:auto` the way
+            // to push one item to the end, or centre one while its siblings stay where they are —
+            // justify-content can only move the whole line at once.
+            var leftover = lineMainSize - totalMain;
+            var autoCount = 0;
+            for (var i = start; i < end; i++) autoCount += MainAutoMargins(items[i], horizontal);
+            var autoShare = 0f;
+            if (autoCount > 0 && leftover > 0) { autoShare = leftover / autoCount; leftover = 0; }
+
+            var (lineStartPos, between) = Justify(s.JustifyContent, leftover, gap, count);
 
             var cursor = lineStartPos;
             for (var i = start; i < end; i++)
@@ -631,18 +642,24 @@ public sealed class LayoutEngine
                     _ => 0f,
                 };
 
+                // The item's own share: a leading auto margin offsets it, and both leading and
+                // trailing shares advance the cursor past the space they claimed.
+                var mainStyle = item.Style.Margin;
+                var leadAuto = (horizontal ? mainStyle.Left : mainStyle.Top).IsAuto ? autoShare : 0f;
+                var tailAuto = (horizontal ? mainStyle.Right : mainStyle.Bottom).IsAuto ? autoShare : 0f;
+
                 if (horizontal)
                 {
-                    item.X = insetL + cursor + item.MarginLeft;
+                    item.X = insetL + cursor + item.MarginLeft + leadAuto;
                     item.Y = insetT + crossCursor + crossPos + item.MarginTop;
                 }
                 else
                 {
-                    item.Y = insetT + cursor + item.MarginTop;
+                    item.Y = insetT + cursor + item.MarginTop + leadAuto;
                     item.X = insetL + crossCursor + crossPos + item.MarginLeft;
                 }
                 if (item.Style.Position == PositionType.Relative) ApplyRelativeOffset(item, contentW, contentH);
-                cursor += MainOf(item, i) + mainMargin[i] + between;
+                cursor += MainOf(item, i) + mainMargin[i] + leadAuto + tailAuto + between;
             }
 
             maxMainExtent = MathF.Max(maxMainExtent, totalMain);
@@ -1180,7 +1197,9 @@ public sealed class LayoutEngine
 
         float baseW;
         if (s.Width.Unit == LengthUnit.Px)
-            baseW = s.Width.Value + PadBorderX(s);
+            // Under border-box the declared value already contains the frame; adding it again
+            // would make an intrinsic measurement wider than the box it describes.
+            baseW = s.BorderBox ? MathF.Max(s.Width.Value, PadBorderX(s)) : s.Width.Value + PadBorderX(s);
         else
         {
             // Iterate the in-flow children directly — MaxContentWidth recurses the whole subtree and runs
@@ -1260,20 +1279,65 @@ public sealed class LayoutEngine
     private static float PadBorderX(ComputedStyle s) =>
         s.Padding.Left.Resolve(0) + s.Padding.Right.Resolve(0) + s.BorderLeft + s.BorderRight;
 
+    private static float PadBorderY(ComputedStyle s) =>
+        s.Padding.Top.Resolve(0) + s.Padding.Bottom.Resolve(0) + s.BorderTop + s.BorderBottom;
+
     private static float MarginX(ComputedStyle s) => s.Margin.Left.Resolve(0) + s.Margin.Right.Resolve(0);
 
+    // ---- auto margins --------------------------------------------------------
+    // `margin: auto` means "take a share of whatever is left over", and it is the idiomatic way to
+    // centre a box — `margin-left:auto; margin-right:auto` on a block, or on a single flex item
+    // that should sit apart from its siblings. Length.Auto resolves to 0 like any other unresolved
+    // length, so without these it silently did nothing and boxes sat flush against their container
+    // (#76).
+
+    /// <summary>How many of an item's MAIN-axis margins are auto (0, 1 or 2).</summary>
+    private static int MainAutoMargins(RenderNode item, bool horizontal)
+    {
+        var m = item.Style.Margin;
+        var (lead, tail) = horizontal ? (m.Left, m.Right) : (m.Top, m.Bottom);
+        return (lead.IsAuto ? 1 : 0) + (tail.IsAuto ? 1 : 0);
+    }
+
+    /// <summary>The horizontal offset auto margins give a block-level child: both auto centres it
+    /// in the containing block, a lone `margin-left:auto` pushes it to the right edge. A lone
+    /// `margin-right:auto` is the default already (flush left), so it adds nothing. Negative free
+    /// space is ignored — an overflowing box stays at the start rather than being pulled backwards.</summary>
+    private static float BlockAutoOffset(RenderNode child, float contentW)
+    {
+        var m = child.Style.Margin;
+        if (!m.Left.IsAuto) return 0f;
+        var free = contentW - child.Width - child.MarginLeft - child.MarginRight;
+        if (free <= 0) return 0f;
+        return m.Right.IsAuto ? free / 2f : free;
+    }
+
+    // ---- box-sizing ----------------------------------------------------------
+    // The engine lays out in CONTENT boxes: node.Width is contentW + HorizontalInsets. A declared
+    // length therefore has to be read differently depending on box-sizing — under border-box it
+    // already includes the frame, so the frame comes back out of it. Floored at zero, because a
+    // width smaller than its own padding cannot make a negative content box; CSS clamps it and the
+    // border box ends up exactly the frame.
+    private static float ContentW(ComputedStyle s, Length len, float basis) =>
+        s.BorderBox ? MathF.Max(0, len.Resolve(basis) - PadBorderX(s)) : len.Resolve(basis);
+
+    private static float ContentH(ComputedStyle s, Length len, float basis) =>
+        s.BorderBox ? MathF.Max(0, len.Resolve(basis) - PadBorderY(s)) : len.Resolve(basis);
+
     // ---- clamps --------------------------------------------------------------
+    // min/max follow box-sizing too: under border-box a `max-width:200px` caps the BORDER box, so
+    // it has to be compared against a content width with the frame already removed.
     private static float ClampW(ComputedStyle s, float v, float cb)
     {
-        if (s.MinWidth.IsDefinite) v = MathF.Max(v, s.MinWidth.Resolve(cb));
-        if (s.MaxWidth.IsDefinite) v = MathF.Min(v, s.MaxWidth.Resolve(cb));
+        if (s.MinWidth.IsDefinite) v = MathF.Max(v, ContentW(s, s.MinWidth, cb));
+        if (s.MaxWidth.IsDefinite) v = MathF.Min(v, ContentW(s, s.MaxWidth, cb));
         return MathF.Max(0, v);
     }
 
     private static float ClampH(ComputedStyle s, float v, float cb)
     {
-        if (s.MinHeight.IsDefinite) v = MathF.Max(v, s.MinHeight.Resolve(cb));
-        if (s.MaxHeight.IsDefinite) v = MathF.Min(v, s.MaxHeight.Resolve(cb));
+        if (s.MinHeight.IsDefinite) v = MathF.Max(v, ContentH(s, s.MinHeight, cb));
+        if (s.MaxHeight.IsDefinite) v = MathF.Min(v, ContentH(s, s.MaxHeight, cb));
         return MathF.Max(0, v);
     }
 }
