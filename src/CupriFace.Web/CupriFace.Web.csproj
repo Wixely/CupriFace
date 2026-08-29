@@ -27,10 +27,17 @@
          on browser") are expected here and are not actionable. -->
     <NoWarn>$(NoWarn);CA1416</NoWarn>
     <!-- The Razor SDK, for exactly one of its features: static web assets. It is what implements
-         the `_content/<PackageId>/` protocol, so main.js and the default page reach a consuming app
-         through a ProjectReference and a PackageReference alike. There is not a line of Razor here,
-         hence the two switches below — without them the SDK adds an ASP.NET Core framework
-         reference that a browser-wasm app has no shared framework to resolve. -->
+         the `_content/<PackageId>/` protocol, so main.js reaches a consuming app through a
+         ProjectReference and a PackageReference alike. Nothing Blazor or ASP.NET Core comes with
+         it here, and that is verified rather than assumed: the built assembly references only
+         System.*, SkiaSharp and CupriFace, the nuspec declares NO frameworkReference, and the
+         published wasm app carries no ASP.NET Core or Blazor assembly at all.
+
+         The two switches below are a GUARD, not a fix — measured on SDK 10.0.302, the build is
+         identical without them. They stay because the failure they prevent is silent and
+         expensive: an SDK that decides an RCL needs MVC support would add a
+         Microsoft.AspNetCore.App framework reference, and a browser-wasm app has no such shared
+         framework to resolve it against. Two lines to keep that impossible. -->
     <AddRazorSupportForMvc>false</AddRazorSupportForMvc>
     <GenerateRazorAssemblyInfo>false</GenerateRazorAssemblyInfo>
     <StaticWebAssetBasePath>_content/CupriFace.Web</StaticWebAssetBasePath>
