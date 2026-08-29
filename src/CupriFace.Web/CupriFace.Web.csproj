@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Razor">
+<Project Sdk="Microsoft.NET.Sdk.StaticWebAssets">
 
   <!--
     The browser host: the third sibling of CupriFace.Shell (desktop) and CupriFace.Android (phone).
@@ -26,20 +26,18 @@
     <!-- Browser-only by definition; the JSExport/JSImport platform hints (CA1416 "only supported
          on browser") are expected here and are not actionable. -->
     <NoWarn>$(NoWarn);CA1416</NoWarn>
-    <!-- The Razor SDK, for exactly one of its features: static web assets. It is what implements
-         the `_content/<PackageId>/` protocol, so main.js reaches a consuming app through a
-         ProjectReference and a PackageReference alike. Nothing Blazor or ASP.NET Core comes with
-         it here, and that is verified rather than assumed: the built assembly references only
-         System.*, SkiaSharp and CupriFace, the nuspec declares NO frameworkReference, and the
-         published wasm app carries no ASP.NET Core or Blazor assembly at all.
+    <!-- Microsoft.NET.Sdk.StaticWebAssets is the SDK whose entire job is the one thing this
+         package needs: the `_content/<PackageId>/` protocol, which is how main.js reaches a
+         consuming app through a ProjectReference and a PackageReference alike, lands in the right
+         place in its publish output, and gets its .br/.gz siblings and cache headers.
 
-         The two switches below are a GUARD, not a fix — measured on SDK 10.0.302, the build is
-         identical without them. They stay because the failure they prevent is silent and
-         expensive: an SDK that decides an RCL needs MVC support would add a
-         Microsoft.AspNetCore.App framework reference, and a browser-wasm app has no such shared
-         framework to resolve it against. Two lines to keep that impossible. -->
-    <AddRazorSupportForMvc>false</AddRazorSupportForMvc>
-    <GenerateRazorAssemblyInfo>false</GenerateRazorAssemblyInfo>
+         Not the Razor SDK. That was the first thing that worked, and it works, but it is the Razor
+         SDK plus two switches to turn Razor off — for a package with no Razor in it. This is the
+         same feature without the detour, and nothing Blazor or ASP.NET Core comes with it: the
+         built assembly references only System.*, SkiaSharp and CupriFace, the nuspec declares no
+         frameworkReference, and the published wasm app ships no ASP.NET Core or Blazor assembly.
+         (The two Microsoft.AspNetCore.StaticWebAssets*.props files inside the nupkg are build-time
+         item metadata for main.js — a path, a base path and cache headers. Nothing runs.) -->
     <StaticWebAssetBasePath>_content/CupriFace.Web</StaticWebAssetBasePath>
     <Description>Browser host for CupriFace: run a CupriApp in the browser on a canvas (raw WebAssembly, no Blazor, no JS UI framework). Brings the frame loop, input, touch gestures, the ARIA mirror for screen readers, IME composition, clipboard and browser-decoded video.</Description>
   </PropertyGroup>
