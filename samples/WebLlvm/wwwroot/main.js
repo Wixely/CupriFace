@@ -55,7 +55,7 @@ try {
 
     // Bridge for imports.js (which runs inside the Emscripten module scope).
     globalThis.__cupri = {
-        canvas, ctx, a11y, paints: 0,
+        canvas, ctx, a11y, kbd, paints: 0,
         // JS → C# strings: write UTF-16 into the engine-owned buffer, then invoke the consumer.
         sendText: (s, entry) => {
             const ptr = M._TextBuffer(s.length + 1);
