@@ -29,10 +29,10 @@
 
   <ItemGroup>
     <!-- Real font files for the registration tests, copied beside the test binary so the tests are
-         machine-independent and run anywhere (including CI). They live with the browser host now,
-         which is what needs them at runtime — the wasm Skia build embeds only Noto Mono, so without
+         machine-independent and run anywhere (including CI). They live in src/WebFonts, shared by
+         both web hosts, which is what needs them at runtime — the wasm Skia build embeds only Noto Mono, so without
          a real sans face every web app renders monospaced. -->
-    <None Include="..\..\src\CupriFace.Web\Assets\*.ttf" LinkBase="fonts"
+    <None Include="..\..\src\WebFonts\*.ttf" LinkBase="fonts"
           CopyToOutputDirectory="PreserveNewest" />
     <!-- The demo clip (browser-recorded VP9 WebM) doubles as the demuxer's fixture — copied for
          file-path tests AND embedded for the embedded-source resolution test. -->

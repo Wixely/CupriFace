@@ -55,14 +55,14 @@
     <PackageReference Include="HarfBuzzSharp.NativeAssets.WebAssembly" Version="8.3.0.1" />
   </ItemGroup>
 
+  <!-- The sans faces both web hosts embed, and the guard that they actually got embedded. Shared
+       rather than owned: neither host owns them (see src/WebFonts.props). Registered at Init, where
+       an app cannot forget them. -->
+  <Import Project="..\WebFonts.props" />
+
   <ItemGroup>
-    <!-- The wasm Skia build embeds exactly one face (Noto Mono). Without a real sans face every
-         app renders monospaced — and renders it SILENTLY, with no error to search for. So the
-         faces ship inside the host and are registered at Init, where an app cannot forget them.
-         OFL-licensed; the licence travels with the files. -->
-    <EmbeddedResource Include="Assets\NotoSans-Regular.ttf" LogicalName="fonts.NotoSans-Regular.ttf" />
-    <EmbeddedResource Include="Assets\NotoSans-Bold.ttf" LogicalName="fonts.NotoSans-Bold.ttf" />
-    <None Include="Assets\OFL.txt" Pack="true" PackagePath="THIRD-PARTY-NOTICES\fonts-OFL.txt" />
+    <!-- OFL-licensed; the licence travels in the package that ships the bytes. -->
+    <None Include="..\WebFonts\OFL.txt" Pack="true" PackagePath="THIRD-PARTY-NOTICES\fonts-OFL.txt" />
   </ItemGroup>
 
   <ItemGroup>
