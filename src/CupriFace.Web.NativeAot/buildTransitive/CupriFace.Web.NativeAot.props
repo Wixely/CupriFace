@@ -1,0 +1,27 @@
+<Project>
+  <!--
+    Flows into apps that consume the CupriFace.Web.NativeAot NUPKG.
+
+    WHAT THIS CANNOT DO, AND WHY YOUR CSPROJ STILL HAS WORK IN IT. The ILCompiler.LLVM backend
+    lives on the dotnet-experimental feed, not nuget.org, and a package cannot add a restore source
+    to its consumer: restore has already chosen its sources by the time any of our build files are
+    read. So the app must declare the feed, the ILC packages, and the two native-asset packages
+    itself. The package notes carry the block to paste; samples/WebLlvm is a working copy of it.
+
+    That is a real limitation of this host rather than an oversight, and it is one of the honest
+    differences from CupriFace.Web.Mono, which needs none of it.
+  -->
+  <PropertyGroup>
+    <!-- browser-wasm is the only RID this host runs on; setting it here means an app's csproj does
+         not have to know that, and a wrong one fails at restore rather than at link. -->
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">browser-wasm</RuntimeIdentifier>
+    <!-- NOT PublishAot. The SDK's own AOT switch rejects browser-wasm outright
+         (NETSDK1203) — this host reaches ILC through the ILCompiler.LLVM packages the app
+         references, with PublishTrimmed driving the trim, which is a different road to the
+         same compiler. -->
+
+    <!-- The engine and this host are browser-only by construction; an app that writes no interop
+         should not inherit the platform-compatibility noise from them. -->
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+</Project>

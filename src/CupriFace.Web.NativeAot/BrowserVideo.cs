@@ -6,6 +6,8 @@ using CupriFace.Paint;
 using CupriFace.Style;
 using SkiaSharp;
 
+namespace CupriFace.Web;
+
 // The browser-video backend for the NativeAOT-LLVM host — the same design as WebWasm's
 // (samples/WebWasm/BrowserVideo.cs): the BROWSER decodes into an underlaid <video>, the engine
 // paints a transparent hole (HostComposited → ClearHole) and its own controls above, rect+clip

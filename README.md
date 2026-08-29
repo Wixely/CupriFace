@@ -70,6 +70,7 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 | `src/CupriFace.Shell` | Silk.NET window + OpenGL + Skia surface + profiler HUD |
 | `src/CupriFace.Android` | Android host: `CupriActivity` + GL surface + touch/IME + TalkBack bridge (needs `dotnet workload install android`) |
 | `src/CupriFace.Web.Mono` | Browser host on the Mono wasm runtime: `WebHost.Run` + canvas blit + touch/IME + ARIA mirror + browser-decoded video (no Blazor) |
+| `src/CupriFace.Web.NativeAot` | Browser host compiled AOT (NativeAOT-LLVM): same `WebHost.Run`, faster, experimental toolchain |
 | `src/CupriFace.Media` | Optional: WebM (VP9 + Opus) video for `<cupri-video>` on desktop |
 | `src/CupriFace.Binding.Gen` | Roslyn source generator for AOT-clean binding accessors |
 | `samples/HelloBox` | M0 shell smoke (window / CPU-raster) |
