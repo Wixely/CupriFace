@@ -25,15 +25,12 @@
     <WasmNativeDebugSymbols Condition="'$(Aot)' == 'true'">false</WasmNativeDebugSymbols>
   </PropertyGroup>
 
-  <!-- buildTransitive does not cross ProjectReference edges, so this repo-internal app repeats
-       what a nupkg consumer gets for free from CupriFace.Web.props/.targets. -->
-  <PropertyGroup>
-    <WasmBuildNative>true</WasmBuildNative>
-    <NoWarn>$(NoWarn);CA1416</NoWarn>
-  </PropertyGroup>
-  <ItemGroup Condition="'$(RunAOTCompilation)' == 'true'">
-    <_AOT_InternalForceInterpretAssemblies Include="CupriFace.dll" />
-  </ItemGroup>
+  <!-- buildTransitive does not cross ProjectReference edges, so a repo-internal app has to bring
+       these in itself. IMPORT them rather than copy them: a duplicated block would mean the files a
+       nupkg consumer actually gets are never exercised by our own build, so they could rot and CI
+       would stay green. This way the sample IS the test of them. -->
+  <Import Project="..\..\src\CupriFace.Web\buildTransitive\CupriFace.Web.props" />
+  <Import Project="..\..\src\CupriFace.Web\buildTransitive\CupriFace.Web.targets" />
 
   <ItemGroup>
     <!-- The browser host, and the SAME app the desktop Viewer and the Android host run. -->

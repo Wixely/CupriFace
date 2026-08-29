@@ -6,7 +6,7 @@ The raw-WebAssembly sample. Its entire source is:
 using CupriFace.Demo;
 using CupriFace.Web;
 
-CupriWeb.Run(new ShowcaseApp());
+WebHost.Run(new ShowcaseApp());
 ```
 
 plus a `wwwroot/index.html` with a `<canvas id="cupri">` and one `<script>` tag pointing at

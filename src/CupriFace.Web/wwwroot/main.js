@@ -5,7 +5,7 @@
 // This is the JS half of CupriFace.Web and ships inside that package, next to the C# half whose
 // [JSImport] names it binds below. An app gets it at _content/CupriFace.Web/main.js and writes no
 // JS at all. Keeping the halves in one package is the point: every name in `setModuleImports`
-// below is a contract with WebHost.cs, and a copied-out main.js drifts from it silently.
+// below is a contract with Interop.cs, and a copied-out main.js drifts from it silently.
 //
 // Served from _content/CupriFace.Web/, so the runtime that the APP publishes is two levels up.
 import { dotnet } from '../../_framework/dotnet.js'
@@ -187,7 +187,7 @@ try {
     // app boots the same host rather than owning a copy of it. (This used to read the app's
     // `config.mainAssemblyName`, back when the app WAS the host.)
     const exports = await getAssemblyExports('CupriFace.Web');
-    const I = exports.CupriFace.Web.WebHost;
+    const I = exports.CupriFace.Web.Interop;
     // Exposed for automation, as the WebLlvm host does: a browser test drives the same exports the
     // page does, rather than a parallel path that could pass while the real one is broken.
     // `isCoarse` is the UNIFORM contract both web hosts publish, so one gate can drive either

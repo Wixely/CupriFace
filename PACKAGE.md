@@ -34,7 +34,7 @@ variables, `@media`, `@keyframes`, transitions.
 | `CupriFace` | The engine — parse, style, layout, shape text, paint, bind, components. Renders into any Skia canvas or RGBA buffer, so it works headless too. |
 | `CupriFace.Shell` | The desktop host — a window (GPU with a software fallback), input, and cursors. `DesktopHost.Run(new SettingsApp())`. |
 | `CupriFace.Android` | The Android host — subclass `CupriActivity`, return your `CupriApp`. GL surface, touch gestures (tap/fling/long-press), soft keyboard with real IME composition, and the TalkBack accessibility bridge. Needs the `android` workload. |
-| `CupriFace.Web` | The browser host — `CupriWeb.Run(new SettingsApp())` in a raw WebAssembly app. Canvas, frame loop, pointer/touch/wheel/keyboard, the ARIA mirror screen readers read, IME composition, clipboard, and browser-decoded video. No Blazor and no JS to write. |
+| `CupriFace.Web` | The browser host — `WebHost.Run(new SettingsApp())` in a raw WebAssembly app. Canvas, frame loop, pointer/touch/wheel/keyboard, the ARIA mirror screen readers read, IME composition, clipboard, and browser-decoded video. No Blazor and no JS to write. |
 
 The engine has no windowing dependency at all, which is what makes it embeddable: `RenderToPixels`
 fills any RGBA buffer — a game texture, an HTML canvas, a server-side image — and the same document

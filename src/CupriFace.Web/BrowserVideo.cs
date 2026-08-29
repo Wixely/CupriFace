@@ -49,25 +49,25 @@ internal sealed class BrowserPlayer : IVideoPlayer, ISurfaceSource
     // ---- IVideoPlayer ------------------------------------------------------------------------
     public ISurfaceSource Surface => this;
     public bool Playing => PlayingNow;
-    public void Play() => WebHost.VideoPlay(Id);       // synchronous: the gesture is on the stack
-    public void Pause() => WebHost.VideoPause(Id);
+    public void Play() => Interop.VideoPlay(Id);       // synchronous: the gesture is on the stack
+    public void Pause() => Interop.VideoPause(Id);
 
     public bool Muted
     {
         get => _muted;
-        set { _muted = value; WebHost.VideoMuted(Id, value); }
+        set { _muted = value; Interop.VideoMuted(Id, value); }
     }
 
     public double Volume
     {
         get => _volume;
-        set { _volume = value; WebHost.VideoVolume(Id, value); }
+        set { _volume = value; Interop.VideoVolume(Id, value); }
     }
 
     public bool Loop
     {
         get => _loop;
-        set { _loop = value; WebHost.VideoLoop(Id, value); }
+        set { _loop = value; Interop.VideoLoop(Id, value); }
     }
 
     public double Duration => DurationSeconds;
@@ -75,7 +75,7 @@ internal sealed class BrowserPlayer : IVideoPlayer, ISurfaceSource
     public double Position
     {
         get => PositionSeconds;
-        set { PositionSeconds = value; WebHost.VideoSeek(Id, value); }
+        set { PositionSeconds = value; Interop.VideoSeek(Id, value); }
     }
 
     public event Action? Ended;
@@ -108,7 +108,7 @@ internal sealed class BrowserVideoBackend : IVideoBackend
         {
             // http(s): hand the URL straight to the element — the browser streams it (range
             // requests, progressive play) far better than a download-then-blob would.
-            WebHost.VideoOpen(player.Id, source.Src);
+            Interop.VideoOpen(player.Id, source.Src);
         }
         else
         {
@@ -116,7 +116,7 @@ internal sealed class BrowserVideoBackend : IVideoBackend
             // the bytes to the element as a Blob URL — so an app's embedded clip plays on the
             // web host identically to the desktop one.
             var bytes = source.LoadBytes() ?? throw new FileNotFoundException($"Video source '{source.Src}' could not be resolved.");
-            WebHost.VideoOpenBytes(player.Id, bytes);
+            Interop.VideoOpenBytes(player.Id, bytes);
         }
         return player;
     }
@@ -124,7 +124,7 @@ internal sealed class BrowserVideoBackend : IVideoBackend
     internal static void Close(BrowserPlayer player)
     {
         Players.Remove(player.Id);
-        WebHost.VideoClose(player.Id);
+        Interop.VideoClose(player.Id);
     }
 
     internal static BrowserPlayer? Get(int id) => Players.TryGetValue(id, out var p) ? p : null;
@@ -140,7 +140,7 @@ internal sealed class BrowserVideoBackend : IVideoBackend
             var node = Find(doc.Root, player.SurfaceKey);
             if (node is null || !node.LaidOut)
             {
-                WebHost.VideoRect(player.Id, 0, 0, 0, 0, 0, 0, 0, 0, false, "", 1, 0, 0, 1, 0, 0);
+                Interop.VideoRect(player.Id, 0, 0, 0, 0, 0, 0, 0, 0, false, "", 1, 0, 0, 1, 0, 0);
                 continue;
             }
 
@@ -160,7 +160,7 @@ internal sealed class BrowserVideoBackend : IVideoBackend
 
             if (visR <= visL || visB <= visT)
             {
-                WebHost.VideoRect(player.Id, 0, 0, 0, 0, 0, 0, 0, 0, false, "", 1, 0, 0, 1, 0, 0);
+                Interop.VideoRect(player.Id, 0, 0, 0, 0, 0, 0, 0, 0, false, "", 1, 0, 0, 1, 0, 0);
                 continue;
             }
 
@@ -179,7 +179,7 @@ internal sealed class BrowserVideoBackend : IVideoBackend
                 te = (mapped.X - x) * scale;
                 tf = (mapped.Y - y) * scale;
             }
-            WebHost.VideoRect(player.Id,
+            Interop.VideoRect(player.Id,
                 x * scale, y * scale, w * scale, h * scale,
                 (visT - y) * scale,            // clip-path inset: top
                 (x + w - visR) * scale,        // right
@@ -198,7 +198,7 @@ internal sealed class BrowserVideoBackend : IVideoBackend
     }
 }
 
-public partial class WebHost
+internal partial class Interop
 {
     // ---- JS → C#: browser video events ------------------------------------------------------
 

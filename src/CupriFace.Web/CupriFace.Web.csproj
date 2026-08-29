@@ -2,7 +2,7 @@
 
   <!--
     The browser host: the third sibling of CupriFace.Shell (desktop) and CupriFace.Android (phone).
-    An app author writes `CupriWeb.Run(new MyApp())` and gets the canvas, the frame loop, input,
+    An app author writes `WebHost.Run(new MyApp())` and gets the canvas, the frame loop, input,
     the ARIA mirror, the IME, the clipboard and browser-decoded video — the same host the Showcase
     runs, rather than a copy of it.
 

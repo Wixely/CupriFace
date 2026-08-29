@@ -7,4 +7,4 @@ using CupriFace.Web;
 // now, which is the whole point of #73: the second web app should not have to copy the first one.
 //
 // This runs the SAME ShowcaseApp the desktop Viewer and the Android host run.
-CupriWeb.Run(new ShowcaseApp());
+WebHost.Run(new ShowcaseApp());

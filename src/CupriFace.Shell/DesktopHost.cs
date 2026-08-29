@@ -6,8 +6,9 @@ namespace CupriFace.Shell;
 
 /// <summary>
 /// Runs a <see cref="CupriApp"/> in a desktop window: tries GPU (GL), falls back to the
-/// SDL software window, and wires pointer input to the app's document. The web host
-/// (<c>CupriView</c> in the WASM project) renders the *same* app to a &lt;canvas&gt;.
+/// SDL software window, and wires pointer input to the app's document. Its siblings render the
+/// *same* app elsewhere: <c>WebHost.Run</c> (CupriFace.Web) to a browser &lt;canvas&gt;, and
+/// <c>CupriActivity</c> (CupriFace.Android) to a GL surface on a phone.
 /// </summary>
 public static class DesktopHost
 {
