@@ -1,0 +1,73 @@
+<Project>
+  <!--
+    What a NativeAOT-LLVM app needs in order to LINK and SERVE this host. It matters more than a
+    usual buildTransitive file, because nothing here is compiled to wasm inside the package: ILC
+    compiles the whole program when the app publishes, so every one of these is a fact about the
+    app's link rather than about our build.
+
+    (buildTransitive does not cross ProjectReference edges, so samples/WebLlvm imports this file by
+    hand. That is deliberate: it makes the sample the test of what a nupkg consumer receives.)
+  -->
+  <PropertyGroup>
+    <!-- Where our own web assets sit, which differs by how we were consumed: a package puts
+         wwwroot/ under staticwebassets/, a ProjectReference leaves it where it was authored. -->
+    <_CupriAotAssets Condition="Exists('$(MSBuildThisFileDirectory)../wwwroot/main.js')">$(MSBuildThisFileDirectory)../wwwroot/</_CupriAotAssets>
+    <_CupriAotAssets Condition="'$(_CupriAotAssets)' == ''">$(MSBuildThisFileDirectory)../staticwebassets/</_CupriAotAssets>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- WITHOUT THIS THE HOST DOES NOT EXIST AT RUNTIME. ILC trims what nothing roots, and an
+         [UnmanagedCallersOnly(EntryPoint = "...")] method in a REFERENCED library is rooted by
+         nothing: the app never calls Init or Tick from managed code — the page does. Measured
+         rather than assumed, by exporting a probe method from a library and looking for its symbol
+         in the published wasm: absent without this line, present with it. What it prevents is a
+         clean build whose page then finds no exports to call. -->
+    <TrimmerRootAssembly Include="CupriFace.Web.NativeAot" />
+
+    <!-- …and this is what makes them callable FROM THE PAGE. Keeping a method (above) and exporting
+         it are two different things: ILC scans only the assemblies listed here for
+         [UnmanagedCallersOnly] entry points to put in the Emscripten exports file. Without it the
+         symbols are in the wasm and `M._Tick` is still undefined, which surfaces as
+         "M._IsCoarsePointer is not a function" from a page that otherwise loaded perfectly. -->
+    <UnmanagedEntryPointsAssembly Include="CupriFace.Web.NativeAot" />
+
+    <!-- The Emscripten JS library the host's DllImports bind against, from inside this package,
+         plus the runtime methods main.js and imports.js use. Emscripten prunes unlisted runtime
+         methods, so a missing name here is a TypeError in the page rather than a link error. -->
+    <LinkerArg Include="--js-library &quot;$(_CupriAotAssets)imports.js&quot; -sEXPORTED_RUNTIME_METHODS=['FS','out','err','ccall','cwrap','setValue','getValue','addRunDependency','addFunction','UTF8ToString','UTF8ArrayToString','lengthBytesUTF8','stringToUTF8Array','FS_createPath','FS_createDataFile','removeRunDependency','safeSetTimeout','runtimeKeepalivePush','runtimeKeepalivePop','UTF16ToString','stringToUTF16','lengthBytesUTF16']" />
+
+    <DirectPInvoke Include="js" />
+    <DirectPInvoke Include="libSkiaSharp" />
+    <DirectPInvoke Include="libHarfBuzzSharp" />
+
+    <!-- Point Emscripten at the workload's own toolchain. Without these emcc reports
+         "LLVM_ROOT is set to empty value" and the link dies — the .emscripten config that ships in
+         the runtime pack expects the host build to supply them. -->
+    <EmscriptenEnvVars Include="DOTNET_EMSCRIPTEN_LLVM_ROOT=$(EmscriptenUpstreamBinPath)" />
+    <EmscriptenEnvVars Include="DOTNET_EMSCRIPTEN_BINARYEN_ROOT=$(EmscriptenSdkToolsPath)" />
+    <EmscriptenEnvVars Include="DOTNET_EMSCRIPTEN_NODE_JS=$(EmscriptenNodeBinPath)node$(ExecutableExtensionName)" />
+    <EmscriptenEnvVars Include="EM_CACHE=$(EmscriptenCacheSdkCacheDir)" />
+  </ItemGroup>
+
+  <!-- The static Skia + HarfBuzz archives, in the Emscripten 3.1.56 single-thread flavour matching
+       this workload's toolchain. Resolved from the restored packages rather than hard-coded, which
+       is why the app must reference them with GeneratePathProperty. Guarded so the error names the
+       cause: a silent miss here is an undefined-symbol wall from the linker. -->
+  <Target Name="CupriAddWasmNativeArchives" BeforeTargets="IlcCompile;LinkNative">
+    <Error Condition="'$(PkgSkiaSharp_NativeAssets_WebAssembly)' == '' or '$(PkgHarfBuzzSharp_NativeAssets_WebAssembly)' == ''"
+           Text="CupriFace.Web.NativeAot: the wasm native archives could not be located. The app must reference SkiaSharp.NativeAssets.WebAssembly and HarfBuzzSharp.NativeAssets.WebAssembly with GeneratePathProperty=&quot;true&quot; ExcludeAssets=&quot;all&quot; — see the package notes." />
+    <ItemGroup>
+      <NativeLibrary Include="$(PkgSkiaSharp_NativeAssets_WebAssembly)/buildTransitive/netstandard1.0/libSkiaSharp.a/3.1.56/st/libSkiaSharp.a" />
+      <NativeLibrary Include="$(PkgHarfBuzzSharp_NativeAssets_WebAssembly)/buildTransitive/netstandard1.0/libHarfBuzzSharp.a/3.1.56/st/libHarfBuzzSharp.a" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Put the host's JS half beside the app's page. This host publishes as a plain wasm app rather
+       than through the static-web-assets pipeline, so there is no `_content/` to serve from and the
+       file has to be copied. The app's own index.html comes along for the same reason. -->
+  <Target Name="CupriCopyWebAssets" AfterTargets="Publish">
+    <Copy SourceFiles="$(_CupriAotAssets)main.js" DestinationFolder="$(PublishDir)" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)/wwwroot/index.html" DestinationFolder="$(PublishDir)"
+          Condition="Exists('$(MSBuildProjectDirectory)/wwwroot/index.html')" />
+  </Target>
+</Project>

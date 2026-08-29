@@ -1,0 +1,60 @@
+<Project Sdk="Microsoft.NET.Sdk.StaticWebAssets">
+
+  <!--
+    The browser host compiled ahead of time, on the NativeAOT-LLVM backend: the fast sibling of
+    CupriFace.Web.Mono. Same engine, same CupriApp, same `WebHost.Run(new MyApp())` — what differs
+    is the runtime and therefore the interop, since there is no Mono here and so no
+    [JSImport]/[JSExport].
+
+    This is a plain IL library. It is not compiled to wasm here: ILC compiles the whole program when
+    the APP publishes, which is exactly why the buildTransitive half of this package matters more
+    than usual — see the notes there.
+
+    Why it is a package: samples/WebLlvm used to BE this host, so a second app on this runtime had
+    to copy ~740 lines, an Emscripten JS library, a pinned pair of static native archives and a
+    linker argument. That is the same problem #73 fixed for the Mono host, one runtime over (#78).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <!-- Pointers everywhere: the C ABI this host talks over passes UTF-16 buffers and the frame
+         buffer by address, and the present path hands JS a view over wasm memory. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <StaticWebAssetBasePath>_content/CupriFace.Web.NativeAot</StaticWebAssetBasePath>
+    <!-- The namespace stays CupriFace.Web, as in the Mono package: an app writes the same
+         `WebHost.Run(new MyApp())` against either, so switching runtimes touches no app code. -->
+    <RootNamespace>CupriFace.Web</RootNamespace>
+    <Description>Run a CupriApp in the browser, on a canvas — no Blazor, no WebView, no JavaScript to write. Your whole Program.cs is WebHost.Run(new MyApp()); the package brings the frame loop, pointer/touch/wheel/keyboard input, the touch gesture recognizer, an ARIA mirror so screen readers can read the canvas, IME composition and placement, the clipboard and browser-decoded video.
+
+This is the NATIVEAOT-LLVM host — the fast one. The engine is compiled ahead of time rather than interpreted, which is several times quicker than the Mono host for interaction-heavy UI.
+
+The cost is toolchain maturity: it builds with the ILCompiler.LLVM backend from dotnet/runtimelab, which is experimental and is not on nuget.org, so your app must add the dotnet-experimental feed itself (a package cannot add a restore source to its consumer — see the package notes). If you would rather have something that builds wherever `dotnet publish` does, CupriFace.Web.Mono is the compatible sibling. Both expose exactly the same WebHost.Run API, so choosing between them — or falling back — is a PackageReference change and no app code.</Description>
+    <PackageTags>cupriface;ui;webassembly;wasm;browser;canvas;skia;html;css;nativeaot;aot</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CupriFace\CupriFace.csproj" />
+    <!-- Referenced for the managed Skia API only. The wasm NATIVES are static archives the app's
+         Emscripten link consumes; buildTransitive supplies those. -->
+    <PackageReference Include="SkiaSharp" Version="3.116.1" />
+  </ItemGroup>
+
+  <!-- The sans faces both web hosts embed, and the guard that they were found. -->
+  <Import Project="..\WebFonts.props" />
+
+  <ItemGroup>
+    <None Include="..\WebFonts\OFL.txt" Pack="true" PackagePath="THIRD-PARTY-NOTICES\fonts-OFL.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- main.js is the page's half of the host; imports.js is the Emscripten JS library its
+         DllImports bind against at link time. Both ship here so the three halves — C#, the page,
+         and the linker library — cannot drift. -->
+    <None Include="buildTransitive\CupriFace.Web.NativeAot.props" Pack="true" PackagePath="buildTransitive\" />
+    <None Include="buildTransitive\CupriFace.Web.NativeAot.targets" Pack="true" PackagePath="buildTransitive\" />
+    <None Include="template\index.html" Pack="true" PackagePath="template\" />
+  </ItemGroup>
+
+</Project>

@@ -24,6 +24,21 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   browser gate now asserts it on **both** hosts, so the gap cannot reopen on one of them.
 
 [#77]: https://github.com/Wixely/CupriFace/issues/77
+### Added
+
+- **`CupriFace.Web.NativeAot` — the browser host, compiled ahead of time** ([#78]). The second web
+  runtime now has a package too, so `samples/WebLlvm` is three lines of app rather than ~740 lines
+  of host. The API is identical to `CupriFace.Web.Mono` — same namespace, same `WebHost.Run` — so
+  moving between the two runtimes, or falling back from one to the other, is a `PackageReference`
+  change and no app code.
+  It is the fast one: the engine is compiled rather than interpreted. It costs toolchain maturity —
+  the ILCompiler.LLVM backend is on the experimental dotnet/runtimelab feed, and **a package cannot
+  add a restore source to its consumer**, so an app must still declare that feed, the ILC packages
+  and the two wasm native-asset packages itself. `samples/WebLlvm/WebLlvm.csproj` is a working copy
+  of exactly that block; everything else (the link line, the Emscripten JS library, the static
+  archives, the trimmer roots, the RID) comes from the package.
+
+[#78]: https://github.com/Wixely/CupriFace/issues/78
 
 ## v0.7.0
 
