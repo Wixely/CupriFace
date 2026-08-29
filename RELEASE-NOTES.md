@@ -40,6 +40,16 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 [#78]: https://github.com/Wixely/CupriFace/issues/78
 
+### Changed
+
+- **The two web hosts are now checked for parity** ([#79]). A test compares the call surface each
+  host offers the page — 30 exports and 19 imports — and fails naming whichever host is missing one.
+  The NativeAOT host's clipboard imports were renamed (`js_clip_write` → `js_clipboard_write`) so
+  the two agree; nothing else moved. This is what would have caught the IME gap in #77 the day it
+  appeared, rather than years later.
+
+[#79]: https://github.com/Wixely/CupriFace/issues/79
+
 ## v0.7.0
 
 ### Added

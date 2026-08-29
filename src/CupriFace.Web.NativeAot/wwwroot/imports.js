@@ -22,8 +22,8 @@ mergeInto(LibraryManager.library, {
         if (!link) { link = document.createElement("link"); link.rel = "icon"; document.head.appendChild(link); }
         link.href = UTF16ToString(p);
     },
-    js_clip_write: (p, len) => { navigator.clipboard.writeText(UTF16ToString(p)).catch(() => {}); },
-    js_clip_paste: () => {
+    js_clipboard_write: (p, len) => { navigator.clipboard.writeText(UTF16ToString(p)).catch(() => {}); },
+    js_clipboard_paste: () => {
         navigator.clipboard.readText()
             .then(t => { if (t) globalThis.__cupri.sendText(t, "PasteText"); })
             .catch(() => {});
