@@ -77,7 +77,9 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   path from one a host should open in a browser; a host's re-emission of it (`IWebBridge.Navigate`,
   `DesktopHost.OpenExternal`) is the external subset only, which is what made relative and
   custom-scheme links look dropped. Now on `OnClick`'s own XML docs and in a new "Handling input"
-  section in the README. No behaviour changed.
+  section in the README. **No behaviour changed and no upgrade is needed for this** — `Navigated`
+  has carried every non-`#` href with a correct `External` flag for many releases (confirmed on
+  0.8.0 in the issue). Only the documentation is new.
 
 [#88]: https://github.com/Wixely/CupriFace/issues/88
 [#89]: https://github.com/Wixely/CupriFace/issues/89
