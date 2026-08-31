@@ -186,6 +186,27 @@ public sealed class MainActivity : CupriActivity {     // Android (GL surface, t
 web host. The engine, layout, styling, binding, components, and click handling are shared
 unchanged; only the host (window vs. canvas) differs.
 
+### Handling input
+
+`Configure` is where an app wires interaction, with the same handlers on every host:
+
+| | Fires when |
+|---|---|
+| `d.OnClick(selector, …)` | a click bubbles up to an element matching the CSS selector |
+| `d.OnAction("data-…", …)` | an element (or an ancestor) carrying that attribute is clicked **or** activated from the keyboard |
+| `d.OnContext("data-…", …)` | …the same element is right-clicked or long-pressed, for a context menu |
+| `d.OnShortcut(mods, key, …)` | a keyboard chord — a character (`"k"`) or a named key (`"Enter"`, `"Escape"`, `"Tab"`, an arrow) |
+
+Links are the one exception. `<a href>` is claimed by the engine, so `OnClick("a", …)` never fires for
+an anchor; subscribe to **`d.Navigated`** instead. It carries every non-`#` href, and its `External` flag
+separates a route the app should handle itself from one the host should open in a browser:
+
+```csharp
+doc.Navigated += e => { if (!e.External) GoTo(e.Href); };   // in-app routing; hosts open the rest
+```
+
+In-page `#fragments` never reach it — the engine scrolls those into view itself.
+
 ### Two ways to reach a browser
 
 | | Where the engine runs | Download | Needs a WASM build? |

@@ -1624,6 +1624,15 @@ public sealed partial class CupriDocument : IDisposable
     private readonly List<(string Selector, AngleSharp.Css.Dom.ISelector? Compiled, Action<CupriPointerEvent> Handler)> _clickHandlers = new();
 
     /// <summary>Register a click handler matched by CSS selector (bubbles from target up).</summary>
+    /// <remarks>The built-in interaction primitives claim a click FIRST and stop the walk, so a selector
+    /// matching one of them never runs. The common surprise is <c>OnClick("a", ...)</c>: it is silent for
+    /// EVERY anchor, because the link branch has already raised <see cref="Navigated"/> and returned.
+    /// Route links off <see cref="Navigated"/> instead — it carries every non-<c>#</c> href, with
+    /// <c>External</c> separating an in-app path from one a host should open externally; a host's own
+    /// re-emission of it (<c>IWebBridge.Navigate</c>, <c>DesktopHost.OpenExternal</c>) is the external
+    /// subset only, so watching that instead makes relative and custom-scheme links look dropped when they
+    /// are not. Steppers, video transport, window commands, toggles and the ARIA control roles shadow a
+    /// selector the same way. A shadowed handler looks exactly like one whose selector does not match.</remarks>
     public CupriDocument OnClick(string selector, Action<CupriPointerEvent> handler)
     {
         _clickHandlers.Add((selector, CompileSelector(selector), handler));
