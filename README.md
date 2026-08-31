@@ -208,6 +208,13 @@ doc.Navigated += e => { if (!e.External) GoTo(e.Href); };   // in-app routing; h
 
 In-page `#fragments` never reach it — the engine scrolls those into view itself.
 
+**Wire all of it inside `Configure`**, including the `+=` events (`Navigated`, `FormSubmitted`,
+`ContextRequested`, `WindowCommandRequested`). `Configure` runs once per document, from
+`CreateDocument`. Handlers survive a rebuild, so a long-lived document keeps them — but an app that
+builds a *new* `CupriDocument` per page, as a browser or a router does, and subscribes once outside
+`Configure` wires the first document and none of the ones that replace it. That failure looks like
+the feature working and then quietly stopping, which is the hardest kind to trace back.
+
 ### Two ways to reach a browser
 
 | | Where the engine runs | Download | Needs a WASM build? |
