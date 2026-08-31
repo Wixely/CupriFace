@@ -13,6 +13,30 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Added
+
+- **A context menu can say what it was opened over** ([#85]). `doc.OnContext("data-…", handler)`
+  mirrors `OnAction` for the moment a menu OPENS: the handler runs with the element the right-click
+  or long-press landed on, its attribute value and the model, so a menu item chosen afterwards can
+  act on the row that was actually clicked. `doc.LastContext` exposes the point and hit node for
+  apps that would rather `HitTest` themselves. Both fire for a mouse and for the touch recognizer's
+  long-press, since both arrive through the same dispatch.
+  Name the row in the attribute (`data-msg="{{Id}}"`) and read `e.Value`; `e.Model` is the root
+  model, exactly as for `OnAction`, because `data-repeat` discards each item after substituting its
+  bindings.
+
+### Fixed
+
+- **A right-click no longer activates what it lands on, in the browser** ([#85]). Both web hosts
+  dispatched a click for ANY pointer button, so on the web a right-click pressed the button under
+  it and then opened the menu — while the desktop host has always sent right-click to the context
+  dispatch alone. That divergence was silent: an app aimed by the accidental click worked in a
+  browser and did nothing on the desktop. Both hosts now dispatch a click for the left button only.
+
+[#85]: https://github.com/Wixely/CupriFace/issues/85
+
 ## v0.8.0
 
 ### Added
