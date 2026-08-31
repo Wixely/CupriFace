@@ -13,6 +13,22 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- **Hovering or focusing a field no longer resizes it** ([#93]). Every field component's state rules
+  redeclared the whole `border` shorthand (`[data-hover] { border:2px … }`), and an attribute
+  selector outranks an app's plain class — so an app that wrote `border: 0` got width 0 at rest and
+  2px back the moment the pointer crossed the control, growing it 4px and shifting every sibling in
+  the row. The state rules now set `border-color` alone, so the width belongs to whoever declared
+  it and the states only recolour what is there. Fixed in all eleven components that had the
+  pattern, not only `cupri-textarea` where it was reported. **What to do:** if you reserved the
+  space with `border: 2px solid transparent` and reduced padding to compensate, you can drop that
+  workaround — but it still behaves correctly, so there is no hurry.
+
+[#93]: https://github.com/Wixely/CupriFace/issues/93
+
 ## v0.10.0
 
 ### Added

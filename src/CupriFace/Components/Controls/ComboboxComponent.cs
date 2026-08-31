@@ -20,8 +20,8 @@ public sealed class ComboboxComponent : ComponentBase
         .cupri-cb-input { display:inline-block; min-width:200px; min-height:20px; background:var(--cupri-surface, white);
                           border:2px var(--cupri-border, #cbd2dc); border-radius:8px; padding:9px 12px; font-size:15px;
                           white-space:nowrap; overflow:hidden; }
-        .cupri-cb-input[data-hover] { border:2px #98a2b3; }
-        .cupri-cb-input:focus { border:2px var(--cupri-accent,#B87333); }
+        .cupri-cb-input[data-hover] { border-color:#98a2b3; }
+        .cupri-cb-input:focus { border-color:var(--cupri-accent,#B87333); }
         .cupri-cb-popup { position:fixed; background:var(--cupri-surface, white); border-radius:10px; padding:6px;
                           z-index:30; border:1px var(--cupri-border, #e6e9f0); min-width:200px; display:none;
                           box-shadow:0 10px 28px #00000026; }

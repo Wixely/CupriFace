@@ -14,7 +14,7 @@ public sealed class SearchFieldComponent : ComponentBase
         .cupri-search { display:inline-flex; align-items:center; gap:8px; min-width:220px;
                         background:var(--cupri-surface, white); border:2px var(--cupri-border, #cbd2dc);
                         border-radius:8px; padding:8px 12px; }
-        .cupri-search[data-hover] { border:2px #98a2b3; }
+        .cupri-search[data-hover] { border-color:#98a2b3; }
         .cupri-search-icon { color:var(--cupri-muted, #98a2b3); display:inline-flex; }
         .cupri-search-field { flex:1; min-height:20px; font-size:15px; white-space:nowrap; overflow:hidden; }
         .cupri-search-clear { color:var(--cupri-muted, #98a2b3); display:inline-flex; }

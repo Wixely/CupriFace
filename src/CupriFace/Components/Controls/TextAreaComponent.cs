@@ -21,9 +21,9 @@ public sealed class TextAreaComponent : ComponentBase
         .cupri-textarea { display:block; min-width:260px; min-height:78px; overflow:auto;
                           background:var(--cupri-surface, white);
                           border:2px var(--cupri-border, #cbd2dc); border-radius:8px; padding:10px 12px; font-size:15px; }
-        .cupri-textarea[data-hover] { border:2px #98a2b3; }
-        .cupri-textarea:focus { border:2px var(--cupri-accent,#B87333); }
-        .cupri-textarea[data-invalid] { border:2px #d92d20; }
+        .cupri-textarea[data-hover] { border-color:#98a2b3; }
+        .cupri-textarea:focus { border-color:var(--cupri-accent,#B87333); }
+        .cupri-textarea[data-invalid] { border-color:#d92d20; }
         .cupri-ta-body { color:var(--cupri-text, #1e2430); }
         .cupri-ta-line { display:block; }
         .cupri-ta-ph { color:var(--cupri-muted, #98a2b3); }

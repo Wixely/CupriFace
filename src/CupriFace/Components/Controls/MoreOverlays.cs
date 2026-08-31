@@ -118,7 +118,7 @@ public sealed class SelectComponent : ComponentBase
                                 min-width:180px; padding:9px 12px; background:var(--cupri-surface, white);
                                 border:2px var(--cupri-border, #cbd2dc); border-radius:8px;
                                 color:var(--cupri-text, #1e2430); font-size:15px; }
-        .cupri-select-trigger[data-hover] { border:2px #98a2b3; }
+        .cupri-select-trigger[data-hover] { border-color:#98a2b3; }
         .cupri-select-list { position:fixed; background:var(--cupri-surface, white); border-radius:10px; padding:6px;
                              z-index:30; border:1px var(--cupri-border, #e6e9f0); min-width:180px; box-shadow:0 10px 28px #00000026; }
         .cupri-option-row { display:flex; align-items:center; justify-content:space-between; gap:8px;
