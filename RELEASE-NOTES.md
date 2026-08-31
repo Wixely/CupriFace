@@ -13,6 +13,60 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## v0.10.0
+
+### Added
+
+- **Enter can send, and Shift+Enter can still mean a new line** ([#90]). Mark a field
+  `submit-on-enter` — as in `<cupri-textarea value="{{Composer}}" submit-on-enter>` — and answer it
+  with `doc.OnSubmit("data-…", handler)`, which is attribute-keyed and bubbling like `OnAction` and
+  `OnContext`, with `e.Value` naming the field that submitted.
+  It is per-field on purpose: a global Enter shortcut would eat newlines in every other textarea on
+  the page. The edit buffer commits BEFORE the handler runs, so it reads the text just typed; focus
+  is kept, since a composer goes on composing after it sends; and if no handler claims the submit,
+  Enter falls through to its ordinary behaviour rather than vanishing. `submit-on-enter` also labels
+  the on-screen keyboard's action key `send` unless you authored an `enterkeyhint`.
+
+- **`OnShortcut` can bind named keys** ([#88]). `"Enter"`, `"Escape"`, `"Tab"`, `"Space"`,
+  `"Backspace"`, `"Delete"`, `"Home"`, `"End"` and the four arrows, case-insensitive, alongside the
+  single characters that already worked. Same rule as before: a Ctrl chord fires anywhere, a bare
+  key only when no field is focused.
+
+### Changed
+
+- **`OnShortcut` now throws on a key that can never be delivered.** Anything that is neither a
+  single character nor one of the names above — `"F5"`, `"PageDown"`, `""` — raises
+  `ArgumentException` at the call site. **What to do:** nothing, unless you registered a binding
+  that has never worked; such a binding was dead before this release and is now loud. This is the
+  half of [#88] that matters, since a dead registration was previously indistinguishable from a
+  working one.
+
+- **A bare `Escape` shortcut fires below the engine's own dismissals.** An open context menu,
+  overlay or video fullscreen still closes first; your handler runs when there is nothing left for
+  Escape to dismiss, and before the focused field is blurred — so it still means "cancel" while
+  the field being cancelled has focus.
+
+### Fixed
+
+- **Named-key shortcuts were registered but never matched** ([#88]). The lookup was gated on the
+  keystroke's text being one character long, and named keys arrive as an `EditKey` with no text at
+  all, so the whole block was unreachable for them. `OnShortcut(Ctrl, "Enter", …)` stored
+  `"ctrl+enter"` correctly and nothing ever read it.
+
+### Documented
+
+- **Links are not delivered to `OnClick`, and never were** ([#89]). An `<a href>` click is claimed
+  by the engine's link branch, so a selector matching an anchor never runs — for any href. Route
+  links off `doc.Navigated`, which carries every non-`#` href with `External` separating an in-app
+  path from one a host should open in a browser; a host's re-emission of it (`IWebBridge.Navigate`,
+  `DesktopHost.OpenExternal`) is the external subset only, which is what made relative and
+  custom-scheme links look dropped. Now on `OnClick`'s own XML docs and in a new "Handling input"
+  section in the README. No behaviour changed.
+
+[#88]: https://github.com/Wixely/CupriFace/issues/88
+[#89]: https://github.com/Wixely/CupriFace/issues/89
+[#90]: https://github.com/Wixely/CupriFace/issues/90
+
 ## v0.9.0
 
 ### Added
