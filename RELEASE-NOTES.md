@@ -13,6 +13,29 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- **Damage-clipped repainting now works under scale** ([#99]). Both the engine and the hosts used to
+  repaint the whole surface whenever the scale was not exactly 1 — `RenderIncremental` bailed on
+  `Zoom != 1`, and the web and desktop hosts would not even call it when `PresentInfo.Scale != 1` —
+  on the grounds that a damage rectangle computed in document space would not map 1:1 onto device
+  pixels. It does not map 1:1, but the mapping is a multiply, because the scale is uniform. The
+  rectangle is now scaled and rounded OUTWARD, so a hover repaints its own band rather than the
+  page. **What to do:** nothing. This is a per-frame saving on every display that is not exactly
+  scale 1, which is most of them — a HiDPI ratio of 2, fractional desktop scaling of 1.25 or 1.5,
+  and any fit-to-viewport factor all previously gave up damage tracking entirely.
+  A host that applies its own scale to the canvas can map the returned rectangle with the new
+  `CupriDocument.ScaleDamageToDevice`.
+
+- **`WebHostCore.Init` resets the state it caches per page.** Re-initialising in one process kept
+  `_dirty`, the last cursor, the last text-input state and the last surface size from the previous
+  page, so a new document could sit unpainted and a new bridge never be told the first cursor.
+  Unobservable in a browser, where the page loads once and the statics start empty.
+
+[#99]: https://github.com/Wixely/CupriFace/issues/99
+
 ## v0.10.1
 
 ### Fixed

@@ -1015,6 +1015,40 @@ public sealed partial class CupriDocument : IDisposable
     // freshly-built path) also drops remembered sources that left the list, so retired players
     // don't accumulate. A first-sight source unions its rect too — on the normal path the diff
     // already covers it (harmless double-union), and the fast path can't meet one.
+    /// <summary>Map a damage rectangle returned by <see cref="RenderIncremental"/> into DEVICE pixels,
+    /// for a host that applied its OWN scale to the canvas before calling it — a HiDPI present, or an
+    /// authored design size fitted to the viewport. Such a host renders the document at logical size
+    /// and scales the raster, so the rectangle comes back in logical units and the region it must
+    /// re-upload is that rectangle scaled.
+    ///
+    /// <para>Rounds OUTWARD and clamps to the surface, for the reasons in <c>DeviceRect</c>: short by
+    /// a fraction of a device pixel leaves a stale seam, past the edge is an out-of-bounds upload.
+    /// Identity at <paramref name="scale"/> 1, so a host can call it unconditionally (#99).</para></summary>
+    public static SKRectI ScaleDamageToDevice(SKRectI logical, float scale, int deviceWidth, int deviceHeight)
+    {
+        var left = Math.Max(0, (int)MathF.Floor(logical.Left * scale));
+        var top = Math.Max(0, (int)MathF.Floor(logical.Top * scale));
+        var right = Math.Min(deviceWidth, (int)MathF.Ceiling(logical.Right * scale));
+        var bottom = Math.Min(deviceHeight, (int)MathF.Ceiling(logical.Bottom * scale));
+        return right <= left || bottom <= top ? SKRectI.Empty : new SKRectI(left, top, right, bottom);
+    }
+
+    /// <summary>Map a DOCUMENT-space damage rectangle to the DEVICE rectangle a host re-uploads.
+    /// Zoom is a uniform <c>canvas.Scale</c> — no rotation, no skew — so this is an exact multiply.
+    /// The care is all in rounding OUTWARD: floor the minimum and ceil the maximum, because a
+    /// rectangle short by a fraction of a device pixel leaves a stale seam on screen, while one that
+    /// is a pixel too generous costs a pixel. Clamped to the surface, since the result is an upload
+    /// region and an out-of-bounds one is a host-side fault (#99).</summary>
+    private SKRectI DeviceRect(SKRect doc, float width, float height)
+    {
+        var s = _zoom;
+        var left = Math.Max(0, (int)MathF.Floor(doc.Left * s));
+        var top = Math.Max(0, (int)MathF.Floor(doc.Top * s));
+        var right = Math.Min((int)MathF.Ceiling(width), (int)MathF.Ceiling(doc.Right * s));
+        var bottom = Math.Min((int)MathF.Ceiling(height), (int)MathF.Ceiling(doc.Bottom * s));
+        return right <= left || bottom <= top ? SKRectI.Empty : new SKRectI(left, top, right, bottom);
+    }
+
     private SKRect SurfaceDamage(IReadOnlyList<Paint.PaintCommand> cmds, SKRect damage, bool prune)
     {
         List<Paint.ISurfaceSource>? present = prune ? new() : null;
@@ -1082,15 +1116,11 @@ public sealed partial class CupriDocument : IDisposable
     /// computes AA coverage against the clip).</summary>
     public SKRectI? RenderIncremental(SKCanvas canvas, float width, float height, SKColor background)
     {
-        // Damage rectangles are computed in DOCUMENT space; under zoom they would need scaling into
-        // device space, and a rectangle that is wrong by a scale factor leaves visible dirt on
-        // screen. A zoomed page repaints in full until that mapping is worth writing — zoom is a
-        // deliberate, occasional act, not a per-frame cost.
-        if (_zoom != 1f)
-        {
-            Render(canvas, width, height);
-            return new SKRectI(0, 0, (int)MathF.Ceiling(width), (int)MathF.Ceiling(height));
-        }
+        // Damage is computed in DOCUMENT space and returned in DEVICE space; DeviceRect maps between
+        // them. This used to give up and repaint in full whenever _zoom != 1, on the grounds that zoom
+        // is "a deliberate, occasional act" — true of Ctrl+plus, false of a device pixel ratio, which
+        // is 2 on a HiDPI screen and 1.25 or 1.5 on a fractionally-scaled desktop. Scale 1 is the
+        // exception, so that bail-out cost damage tracking on most machines (#99).
 
         // FAST PATH: no input/rebuild/animation touched the document since the retained list was
         // built — only live-surface frames can differ. Re-raster the SAME list clipped to the
@@ -1106,7 +1136,16 @@ public sealed partial class CupriDocument : IDisposable
                 LastFrame = new FrameTimings(0, 0, 0, 0, 0, FastPath: true);
                 return null;                                   // no new frames either — clean
             }
+            // TWO rectangles, and mixing them paints the wrong region: the cull is matched against
+            // command bounds, which are in document space; the clip and the returned rect are what
+            // the host re-uploads, which is device space.
             var srect = SKRectI.Ceiling(surface);
+            var sdev = DeviceRect(surface, width, height);
+            if (sdev.IsEmpty)
+            {
+                LastFrame = new FrameTimings(0, 0, 0, 0, 0, FastPath: true);
+                return null;
+            }
             // Replay only what intersects the rect: submitting the whole page for Skia to
             // clip-reject costs more than the video raster itself (measured ~2.3 ms of walk).
             // The culled list is stable while the video sits still — cull once, reuse.
@@ -1117,19 +1156,22 @@ public sealed partial class CupriDocument : IDisposable
                 _cullCacheRect = srect;
             }
             canvas.Save();
-            canvas.ClipRect(srect);
+            canvas.ClipRect(sdev);                             // device: clip before the scale
             canvas.Clear(background);
+            if (_zoom != 1f) canvas.Scale(_zoom);              // …then draw in document units
             _rasterizer.Paint(canvas, _cullCache);
             canvas.Restore();
             LastFrame = new FrameTimings(0, 0, 0, Ms(f0, Stopwatch.GetTimestamp()),
-                srect.Width * srect.Height, FastPath: true);
-            return srect;
+                sdev.Width * sdev.Height, FastPath: true);
+            return sdev;
         }
 
         var list = BuildFrame(width, height);
         var t0 = Stopwatch.GetTimestamp();
         var prev = _lastPresentedW == width && _lastPresentedH == height ? _lastPresented : null;
-        var damage = Paint.DamageDiff.Compute(prev, list.Commands, width, height);
+        // Document dimensions: the commands being diffed are in document space, so the bound they
+        // are clamped against must be too — at zoom 2 the host's pixels are twice the page's.
+        var damage = Paint.DamageDiff.Compute(prev, list.Commands, width / _zoom, height / _zoom);
         damage = SurfaceDamage(list.Commands, damage, prune: true); // frames may ALSO have arrived
         var t1 = Stopwatch.GetTimestamp();
         _lastPresented = list.Commands;
@@ -1150,10 +1192,16 @@ public sealed partial class CupriDocument : IDisposable
             return null;                                       // identical frame — nothing to present
         }
 
-        var rect = SKRectI.Ceiling(damage);
+        var rect = DeviceRect(damage, width, height);
+        if (rect.IsEmpty)
+        {
+            LastFrame = new FrameTimings(_tLayout, _tPaint, Ms(t0, t1), 0, 0);
+            return null;                                       // nothing of it lands on the surface
+        }
         canvas.Save();
-        canvas.ClipRect(rect);
+        canvas.ClipRect(rect);                                 // device: clip before the scale
         canvas.Clear(background);                              // Clear respects the clip
+        if (_zoom != 1f) canvas.Scale(_zoom);                  // …then draw in document units
         _rasterizer.Paint(canvas, list);                       // full list; Skia rejects outside the clip
         canvas.Restore();
         LastFrame = new FrameTimings(_tLayout, _tPaint, Ms(t0, t1), Ms(t1, Stopwatch.GetTimestamp()),

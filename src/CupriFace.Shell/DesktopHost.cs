@@ -268,19 +268,17 @@ public static class DesktopHost
                     if (doc.HasAnimations || doc.HasActiveTransitions) doc.Animate(clock.Elapsed.TotalSeconds);
                     var bg = app.Transparent ? SkiaSharp.SKColors.Transparent : app.Background;
 
-                    SkiaSharp.SKRectI? damage;
-                    if (scale == 1f)
-                        damage = doc.RenderIncremental(ctx.Canvas, p.LogicalWidth, p.LogicalHeight, bg);
-                    else
-                    {
-                        // Scaled present: damage coords wouldn't map 1:1 onto the device bitmap — full frame.
-                        ctx.Canvas.Clear(bg);
-                        ctx.Canvas.Save();
-                        ctx.Canvas.Scale(scale);
-                        doc.Render(ctx.Canvas, p.LogicalWidth, p.LogicalHeight);
-                        ctx.Canvas.Restore();
-                        damage = new SkiaSharp.SKRectI(0, 0, ctx.Width, ctx.Height);
-                    }
+                    // Scale the canvas, then damage-clip inside it: the engine's clip is interpreted
+                    // in the scaled space (= logical space), so only the rectangle it returns needs
+                    // converting to device pixels. Previously any scale but 1 repainted in full,
+                    // which on a HiDPI or fractionally-scaled display is every frame (#99).
+                    ctx.Canvas.Save();
+                    if (scale != 1f) ctx.Canvas.Scale(scale);
+                    var logical = doc.RenderIncremental(ctx.Canvas, p.LogicalWidth, p.LogicalHeight, bg);
+                    ctx.Canvas.Restore();
+                    SkiaSharp.SKRectI? damage = logical is { } lg
+                        ? CupriDocument.ScaleDamageToDevice(lg, scale, ctx.Width, ctx.Height)
+                        : null;
                     // A drawn frame is the moment the tree is laid out and current — publish then.
                     if (damage is not null) a11y.Publish(p.LogicalWidth, p.LogicalHeight, scale, window.ScreenPosition);
                     return damage;
