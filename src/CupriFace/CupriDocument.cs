@@ -1642,15 +1642,52 @@ public sealed partial class CupriDocument : IDisposable
     private readonly Dictionary<string, Action> _shortcuts = new();
 
     /// <summary>Register a keyboard shortcut. <paramref name="mods"/> is usually <see cref="KeyMods.Ctrl"/>
-    /// (Cmd maps to it on macOS); <paramref name="key"/> is the character, e.g. <c>"k"</c>. A Ctrl shortcut
-    /// fires anywhere (even while editing a field); a plain-key one only fires when no field is focused.
+    /// (Cmd maps to it on macOS); <paramref name="key"/> is either a single character, e.g. <c>"k"</c>, or
+    /// the name of one of the editing keys — <c>"Enter"</c>, <c>"Escape"</c>, <c>"Tab"</c>, <c>"Space"</c>,
+    /// <c>"Backspace"</c>, <c>"Delete"</c>, <c>"Home"</c>, <c>"End"</c> or an arrow (case-insensitive).
+    /// A Ctrl shortcut fires anywhere (even while editing a field); a plain-key one only fires when no
+    /// field is focused, so a bare <c>"Enter"</c> binding cannot eat a newline being typed. Escape is the
+    /// exception: it fires below the engine's own dismissals (a menu, an open overlay and video fullscreen
+    /// each win) but above the plain blur, so it still means "cancel" while a field has focus.
     /// The host must deliver the chord — the built-in Web/Viewer hosts forward Ctrl/Cmd + letter.</summary>
+    /// <exception cref="ArgumentException">The key can never be delivered, so the binding would be dead:
+    /// anything that is neither a single character nor one of the names above. Two shipped features once
+    /// did nothing for weeks behind exactly that silence (#88), so it fails at the call site instead.</exception>
     public CupriDocument OnShortcut(KeyMods mods, string key, Action handler)
     {
+        if (!IsBindable(key))
+            throw new ArgumentException(
+                $"\"{key}\" is not a bindable shortcut key — it can never be delivered, so the handler " +
+                $"would never run. Use a single character (\"k\") or one of: {NamedKeyList}.", nameof(key));
         _shortcuts[ShortcutKey(mods, key)] = handler;
         return this;
     }
     private static string ShortcutKey(KeyMods mods, string key) => (mods.HasFlag(KeyMods.Ctrl) ? "ctrl+" : "") + key.ToLowerInvariant();
+
+    // The editing keys an app may bind by name, and the name each binds under. Keys that cannot
+    // meaningfully be bound are absent: None is "no key", ShiftTab is Tab plus a modifier, and SelectAll
+    // is already Ctrl+A. A key here is looked up on the way in exactly as a character is.
+    private static readonly (EditKey Key, string Name)[] NamedKeys =
+    [
+        (EditKey.Enter, "enter"), (EditKey.Escape, "escape"), (EditKey.Tab, "tab"), (EditKey.Space, "space"),
+        (EditKey.Backspace, "backspace"), (EditKey.Delete, "delete"), (EditKey.Home, "home"), (EditKey.End, "end"),
+        (EditKey.Left, "left"), (EditKey.Right, "right"), (EditKey.Up, "up"), (EditKey.Down, "down"),
+    ];
+    private static readonly string NamedKeyList = string.Join(", ", Array.ConvertAll(NamedKeys, k => k.Name));
+
+    private static string? NameOf(EditKey key)
+    {
+        foreach (var (k, name) in NamedKeys) if (k == key) return name;
+        return null;
+    }
+
+    private static bool IsBindable(string key)
+    {
+        if (key.Length == 1) return true;
+        foreach (var (_, name) in NamedKeys)
+            if (string.Equals(key, name, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
 
     // Custom interaction primitives (extensibility): a data-* attribute → behaviour, alongside the
     // engine's built-in vocabulary (data-set-path / data-cupri-toggle / …). Fires on click AND on
@@ -2603,7 +2640,7 @@ public sealed partial class CupriDocument : IDisposable
     }
 
     // Escape: close the top-most open overlay if any; otherwise blur a focused text field.
-    private bool HandleEscape()
+    private bool HandleEscape(KeyMods mods)
     {
         RenderNode? target = null;
         void Walk(RenderNode n)
@@ -2628,6 +2665,12 @@ public sealed partial class CupriDocument : IDisposable
             Refresh();
             return true;
         }
+        // An app-registered Escape shortcut sits here: below everything the engine dismisses itself (the
+        // context menu above, an open overlay and video fullscreen already returned), and above the plain
+        // blur — because "cancel this edit" is wanted precisely while the field still has focus, which is
+        // the one case the general plain-key rule (_focusKey is null) would have refused (#88).
+        if (_shortcuts.TryGetValue(ShortcutKey(mods, "escape"), out var esc)) { esc(); Refresh(); ReconcileScope(); return true; }
+
         if (_focusKey is not null) { UpdateFocus(null); Refresh(); return true; }
         return false;
     }
@@ -2911,20 +2954,30 @@ public sealed partial class CupriDocument : IDisposable
         // A registered keyboard shortcut consumes the key. A Ctrl/Cmd chord fires anywhere; a plain-key
         // shortcut only when no text field is focused (so it doesn't eat normal typing). An unbound Ctrl
         // chord is swallowed too (returns false → the host can defer to the browser) rather than typed.
-        if (text is { Length: 1 } && (mods.HasFlag(KeyMods.Ctrl) || _focusKey is null))
+        // A named key (Enter, Tab, an arrow…) arrives as an EditKey with no text at all, so it is looked
+        // up by name. Gating this block on the text being one character made it unreachable for those,
+        // which left every OnShortcut(…, "Enter") registered-but-dead — and dead identically to a working
+        // one, since the registration itself succeeded (#88). Escape is deliberately not matched here: it
+        // is consulted inside HandleEscape, deep enough that an open menu, overlay or video fullscreen
+        // still wins over an app's binding.
+        var chord = text is { Length: 1 } ? text : key == EditKey.Escape ? null : NameOf(key);
+        if (chord is not null && (mods.HasFlag(KeyMods.Ctrl) || _focusKey is null))
         {
             // Refresh: the handler almost certainly mutated the model (open a palette, toggle a panel) —
             // without the rebuild the change only became visible on the NEXT event's ReconcileScope,
             // which desktop's constant mouse-moves masked and the web host's quiet keyboard didn't.
-            if (_shortcuts.TryGetValue(ShortcutKey(mods, text), out var shortcut)) { shortcut(); Refresh(); ReconcileScope(); return true; }
-            if (mods.HasFlag(KeyMods.Ctrl)) return false; // never insert a Ctrl/Cmd + letter as text
+            if (_shortcuts.TryGetValue(ShortcutKey(mods, chord), out var shortcut)) { shortcut(); Refresh(); ReconcileScope(); return true; }
+            // Never insert a Ctrl/Cmd + letter as text. Only text can be inserted, so an unbound Ctrl +
+            // named key must fall through to its ordinary handling below rather than be swallowed here —
+            // Ctrl+Enter still activates a focused control when nothing bound it.
+            if (mods.HasFlag(KeyMods.Ctrl) && text is not null) return false;
         }
 
         // Normalize pasted/typed line endings to '\n' (a textarea's internal newline). Windows
         // clipboards deliver "\r\n"; the stray '\r' would otherwise render as a collapsed empty line.
         if (text is { } t && t.IndexOf('\r') >= 0) text = t.Replace("\r\n", "\n").Replace('\r', '\n');
 
-        if (key == EditKey.Escape) return HandleEscape();
+        if (key == EditKey.Escape) return HandleEscape(mods);
         // Tab moves keyboard focus regardless of edit state (trapped within an open overlay).
         if (key == EditKey.Tab) return MoveFocus(+1);
         if (key == EditKey.ShiftTab) return MoveFocus(-1);
