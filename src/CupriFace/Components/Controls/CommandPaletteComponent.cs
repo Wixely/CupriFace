@@ -24,7 +24,7 @@ public sealed class CommandPaletteComponent : ComponentBase
                             box-shadow:0 24px 60px #00000047; }
         .cupri-cmdp-input { display:block; background:var(--cupri-surface,#fff); border:2px var(--cupri-border,#cbd2dc);
                             border-radius:9px; padding:11px 14px; font-size:16px; color:var(--cupri-text,#1e2430); }
-        .cupri-cmdp-input:focus { border:2px var(--cupri-accent,#B87333); }
+        .cupri-cmdp-input:focus { border-color:var(--cupri-accent,#B87333); }
         .cupri-cmdp-list { margin-top:8px; display:flex; flex-direction:column; gap:2px; max-height:320px; overflow:scroll; }
         /* A 520px panel is wider than a phone: it hung 74px off BOTH edges of a 393dp screen, so the
            query box and the command labels were cut off. Below the breakpoint it takes a share of

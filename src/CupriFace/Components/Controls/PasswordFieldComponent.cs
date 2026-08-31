@@ -15,7 +15,7 @@ public sealed class PasswordFieldComponent : ComponentBase
         .cupri-pw { display:inline-flex; align-items:center; gap:8px; min-width:220px;
                     background:var(--cupri-surface, white); border:2px var(--cupri-border, #cbd2dc);
                     border-radius:8px; padding:8px 12px; }
-        .cupri-pw[data-hover] { border:2px #98a2b3; }
+        .cupri-pw[data-hover] { border-color:#98a2b3; }
         .cupri-pw-field { flex:1; min-height:20px; font-size:15px; white-space:nowrap; overflow:hidden; }
         .cupri-pw-eye { color:var(--cupri-muted, #98a2b3); display:inline-flex; }
         .cupri-pw-eye[data-hover] { color:var(--cupri-text, #1e2430); }
