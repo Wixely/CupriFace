@@ -60,6 +60,7 @@ public sealed partial class CupriDocument : IDisposable
     private bool _focusNumeric; // focused field is validated as a number
     private bool _focusMultiline; // focused field is a textarea (Enter inserts a newline)
     private bool _focusMask;    // focused field masks its text (data-mask, e.g. <cupri-password>)
+    private bool _focusSubmitOnEnter; // focused field submits on Enter (Shift+Enter still inserts)
     private int _maskRevealPos = -1;          // index of a masked char being briefly "peeked" after typing; -1 = none
     // IME composition (preedit): a marked range INSIDE _editBuffer — rendered underlined, never
     // committed to the model until the IME says so. -1 start = no composition.
@@ -1740,6 +1741,72 @@ public sealed partial class CupriDocument : IDisposable
     /// register a handler — and for anything that needs the point rather than an element.</summary>
     public (float X, float Y, RenderNode? Target)? LastContext { get; private set; }
 
+    private readonly List<(string Attr, Func<Interaction.CupriActionEvent, bool> Handler)> _submitHandlers = new();
+
+    /// <summary>The <see cref="OnAction"/> shape again, for a field being SUBMITTED: when a field
+    /// marked <c>submit-on-enter</c> (engine attribute <c>data-submit-on-enter</c>) takes a plain Enter,
+    /// the handler runs with the field — or an ancestor — carrying <paramref name="dataAttribute"/>, its
+    /// attribute value and the bound model. The edit buffer is committed to the model FIRST, so a
+    /// handler reading the bound value sees what was just typed.
+    ///
+    /// <para>This is the chat-composer idiom — Enter sends, Shift+Enter starts a new line — and it is
+    /// opt-in per field precisely because the alternatives are not. A bare <c>Enter</c>
+    /// <see cref="OnShortcut"/> would eat newlines in every textarea on the page rather than the one
+    /// that wants it; <c>FormSubmitted</c> is parameterless and the engine never raises it (only
+    /// <see cref="SubmitForm"/> does, for prompting a password manager); and watching the bound value
+    /// cannot work, because Enter and Shift+Enter both arrive as an inserted "\n" and are
+    /// indistinguishable by the time the model changes (#90).</para>
+    ///
+    /// <para>Shift+Enter always inserts, whatever is registered. If NO handler claims the submit, the
+    /// key falls through to its ordinary behaviour — a newline in a textarea, commit-and-blur in a
+    /// single-line field — so a field marked <c>submit-on-enter</c> with nothing listening behaves
+    /// exactly as it did without the attribute rather than swallowing Enter into silence.</para>
+    ///
+    /// <para>NAME THE ROW IN THE ATTRIBUTE and read it from <c>e.Value</c>, as with
+    /// <see cref="OnAction"/> and <see cref="OnContext"/>: <c>e.Model</c> is the root model, not a
+    /// repeated row's. <c>e.X</c>/<c>e.Y</c> are 0 — a submit comes from the keyboard and has no
+    /// pointer position.</para></summary>
+    public CupriDocument OnSubmit(string dataAttribute, Func<Interaction.CupriActionEvent, bool> handler)
+    {
+        _submitHandlers.Add((dataAttribute, handler));
+        return this;
+    }
+
+    /// <summary>Offer the focused field's submit to any handler registered for an attribute the field
+    /// or an ancestor carries. False if nothing claimed it — the caller then lets Enter do its ordinary
+    /// work, so the attribute never eats a keystroke that goes nowhere.</summary>
+    private bool RaiseSubmit()
+    {
+        if (_submitHandlers.Count == 0 || _focusKey is null) return false;
+        for (var node = FocusedRenderNode(); node is not null; node = node.Parent)
+        {
+            if (node.Element is not { } el) continue;
+            foreach (var (attr, handler) in _submitHandlers)
+                if (el.GetAttribute(attr) is { } av
+                    && handler(new Interaction.CupriActionEvent(node, el, av, _model, 0, 0)))
+                    return true;
+        }
+        return false;
+    }
+
+    /// <summary>The render node of the focused field, found the way focus itself identifies it
+    /// (<c>data-bind-value</c>, else <c>id</c>). Null when nothing is focused or the tree no longer
+    /// holds it.</summary>
+    private RenderNode? FocusedRenderNode()
+    {
+        if (_focusKey is null) return null;
+        RenderNode? found = null;
+        void Walk(RenderNode n)
+        {
+            if (found is not null) return;
+            if (n.Element is { } e
+                && (e.GetAttribute("data-bind-value") ?? e.GetAttribute("id")) == _focusKey) { found = n; return; }
+            foreach (var c in n.Children) Walk(c);
+        }
+        Walk(_root);
+        return found;
+    }
+
     /// <summary>Publish the target of a context menu about to open, and offer it to any handler
     /// registered for an attribute the element or an ancestor carries.</summary>
     private void RaiseContextTarget(RenderNode? hit, float x, float y)
@@ -2736,6 +2803,7 @@ public sealed partial class CupriDocument : IDisposable
         _focusNumeric = field?.HasAttribute("data-numeric") == true;
         _focusMultiline = field?.HasAttribute("data-multiline") == true;
         _focusMask = field?.HasAttribute("data-mask") == true;
+        _focusSubmitOnEnter = field?.HasAttribute("data-submit-on-enter") == true;
         // The same vocabulary the web platform uses, so one authored attribute drives Android's
         // EditorInfo and the web host's inputmode/enterkeyhint alike.
         _focusInputMode = field?.GetAttribute("inputmode") ?? "";
@@ -3098,6 +3166,21 @@ public sealed partial class CupriDocument : IDisposable
                 break;
 
             case EditKey.Enter:
+                // "Enter sends, Shift+Enter starts a new line" (#90). Opt-in per field, so it cannot eat
+                // newlines in any other textarea on the page — which is why a bare Enter OnShortcut is
+                // the wrong tool for it even now that one can be bound. Shift always inserts.
+                //
+                // Commit BEFORE raising: the handler's whole job is to read the value that was just
+                // typed. Focus is deliberately kept — a composer goes on composing after it sends.
+                // Nothing claimed it → fall through to the ordinary Enter below, so a field marked
+                // submit-on-enter with no handler behaves as it did rather than swallowing the key.
+                if (_focusSubmitOnEnter && !shift)
+                {
+                    var pending = _editBuffer;
+                    CommitBuffer();
+                    if (RaiseSubmit()) { Refresh(); ReconcileScope(); return true; }
+                    _editBuffer = pending;                     // unclaimed: put the edit back, untouched
+                }
                 if (_focusMultiline)
                 {
                     if (hasSel) { value = value.Remove(selS, selE - selS); caret = selS; }
