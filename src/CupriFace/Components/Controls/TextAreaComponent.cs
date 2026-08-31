@@ -8,6 +8,11 @@ namespace CupriFace.Components.Controls;
 /// field. role=textbox + aria-multiline; each buffer line renders as its own block so hard
 /// newlines (Enter) stack. The document's key dispatch inserts newlines and the caret is
 /// positioned per line (see CupriDocument.AppendCaret / the data-multiline buffer patch).
+///
+/// <para><c>submit-on-enter</c> makes it a chat composer: Enter submits and Shift+Enter starts a new
+/// line, answered by <c>doc.OnSubmit("data-…", …)</c>. It also labels the on-screen keyboard's action
+/// key "send" unless an <c>enterkeyhint</c> was authored. Per-field on purpose — a global Enter
+/// shortcut would eat newlines in every other textarea on the page (#90).</para>
 /// </summary>
 public sealed class TextAreaComponent : ComponentBase
 {
@@ -33,6 +38,16 @@ public sealed class TextAreaComponent : ComponentBase
         // Opt-in "follow the tail": when already scrolled to the bottom, new content keeps it pinned
         // there (logging). The engine reads data-follow-tail on rebuild (see CupriDocument.Rebuild).
         if (Flag(el, "follow-tail")) el.SetAttribute("data-follow-tail", "");
+        // Opt-in "Enter sends, Shift+Enter starts a new line" — the chat-composer idiom. Local to this
+        // field so every other textarea keeps a plain Enter; the app answers it with doc.OnSubmit (#90).
+        if (Flag(el, "submit-on-enter"))
+        {
+            el.SetAttribute("data-submit-on-enter", "");
+            // One authored attribute should drive the on-screen keyboard's action key too, so a phone
+            // agrees with the desktop instead of offering a newline key that sends. An explicit
+            // enterkeyhint still wins — this only fills in the one the behaviour implies.
+            if (!el.HasAttribute("enterkeyhint")) el.SetAttribute("enterkeyhint", "send");
+        }
         el.ClassList.Add("cupri-textarea");
         var inner = value.Length > 0
             ? RenderLines(value)

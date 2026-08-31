@@ -195,6 +195,7 @@ unchanged; only the host (window vs. canvas) differs.
 | `d.OnClick(selector, …)` | a click bubbles up to an element matching the CSS selector |
 | `d.OnAction("data-…", …)` | an element (or an ancestor) carrying that attribute is clicked **or** activated from the keyboard |
 | `d.OnContext("data-…", …)` | …the same element is right-clicked or long-pressed, for a context menu |
+| `d.OnSubmit("data-…", …)` | a field marked `submit-on-enter` takes a plain Enter (Shift+Enter still inserts a newline) |
 | `d.OnShortcut(mods, key, …)` | a keyboard chord — a character (`"k"`) or a named key (`"Enter"`, `"Escape"`, `"Tab"`, an arrow) |
 
 Links are the one exception. `<a href>` is claimed by the engine, so `OnClick("a", …)` never fires for
