@@ -101,17 +101,22 @@ public class HoverRingLayoutTests
         var hovered = t.FindClass("field").Style.BorderColor;
         Assert.NotEqual(resting, hovered);
 
-        // Focus is read with the pointer moved AWAY: [data-hover] and :focus (rewritten to
-        // [data-focus]) have equal specificity, so while the pointer is still over the field the
-        // hover colour keeps winning on source order. That was true before this change and after it —
-        // only the property name differed — so it is not what #93 is about.
+        // Focus outranks hover while BOTH apply. :focus is rewritten to [data-focus], so the two are
+        // equal on specificity and :focus wins for being declared after it.
+        //
+        // Measured rather than reasoned, because reasoning got it wrong once: an earlier draft read
+        // the HOVER colour at this point and I took that for a precedence rule. Its field was
+        // unbound — focus is keyed on data-bind-value, else id — so it had never focused at all, and
+        // what looked like hover outranking focus was focus simply not happening.
         var f = t.FindClass("field");
         t.Doc.DispatchClick(f.X + 20, f.Y + 10);
-        t.Move(595, 195);
-        var focused = t.FindClass("field").Style.BorderColor;
+        t.Layout();
+        var focusedWhileHovered = t.FindClass("field").Style.BorderColor;
+        Assert.NotEqual(hovered, focusedWhileHovered);
+        Assert.NotEqual(resting, focusedWhileHovered);
 
-        Assert.NotEqual(resting, focused);
-        Assert.NotEqual(hovered, focused);
+        t.Move(595, 195);                                  // pointer away: still the focus colour
+        Assert.Equal(focusedWhileHovered, t.FindClass("field").Style.BorderColor);
     }
 
     /// <summary>The same rule shape is in every field component, so the fix has to be too — this is
