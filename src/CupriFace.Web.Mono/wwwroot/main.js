@@ -243,7 +243,13 @@ try {
         // inherits it.
         try { canvas.setPointerCapture(e.pointerId); } catch { /* not capturable */ }
         if (touch(e)) { I.TouchDown(e.pointerId, x, y, e.timeStamp); e.preventDefault(); }
-        else I.PointerDown(x, y, e.detail || 1);
+        // LEFT button only. This used to dispatch a click for any button, so on the web a
+        // right-click activated whatever was under it and THEN opened the menu — right-clicking a
+        // button pressed it. The desktop host has always sent right-click to DispatchContextMenu
+        // alone, so this was also a silent divergence: an app aimed by the accidental click worked
+        // in a browser and did nothing on the desktop (#85). The menu's own target now arrives
+        // through OnContext on every host.
+        else if (e.button === 0) I.PointerDown(x, y, e.detail || 1);
     });
     // Right-click: the engine's context menu, and the browser's suppressed. On touch the same menu
     // arrives from the recognizer's long-press, so the browser's must not also appear.

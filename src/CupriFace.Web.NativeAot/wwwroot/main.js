@@ -116,7 +116,10 @@ try {
         const [x, y] = at(e);
         try { canvas.setPointerCapture(e.pointerId); } catch { /* not capturable */ }
         if (touch(e)) { M._TouchDown(e.pointerId, x, y, e.timeStamp); e.preventDefault(); }
-        else M._PointerDown(x, y, e.detail || 1);
+        // LEFT button only — see the same note in CupriFace.Web.Mono's main.js. A right-click used
+        // to activate whatever was under it and then open the menu, which the desktop host has
+        // never done (#85).
+        else if (e.button === 0) M._PointerDown(x, y, e.detail || 1);
     });
     canvas.addEventListener("contextmenu", e => {
         e.preventDefault();

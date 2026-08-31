@@ -1659,6 +1659,57 @@ public sealed partial class CupriDocument : IDisposable
         return this;
     }
 
+    private readonly List<(string Attr, Func<Interaction.CupriActionEvent, bool> Handler)> _contextHandlers = new();
+
+    /// <summary>The <see cref="OnAction"/> shape, for the moment a context menu OPENS rather than the
+    /// moment something is clicked: when the pointer that opened it was over an element (or an
+    /// ancestor) carrying <paramref name="dataAttribute"/>, the handler runs with that element, its
+    /// attribute value and the bound model — so a menu item chosen afterwards can act on the row that
+    /// was actually right-clicked.
+    ///
+    /// <para>Without this an app could not aim a context menu at all. A right-click is not a click, so
+    /// <see cref="OnAction"/> never fires for it; <c>ContextRequested</c> carries a command and no
+    /// target; and the pointer position that would make <see cref="HitTest"/> usable was never
+    /// published. The only workable pattern left was to select on left-click and act on the selection,
+    /// which is a click more than anyone expects (#85).</para>
+    ///
+    /// <para>Fires for a right-click and for the touch recognizer's long-press alike — both arrive
+    /// through <see cref="DispatchContextMenu"/>, which is where this is raised. Returning true stops
+    /// it bubbling to ancestors; the menu opens either way, because whether a handler claimed the
+    /// target says nothing about whether a menu should appear.</para>
+    ///
+    /// <para>NAME THE ROW IN THE ATTRIBUTE — <c>data-msg="{{Id}}"</c> — and read it from
+    /// <c>e.Value</c>. <c>e.Model</c> is the ROOT model, not the row's, exactly as it is for
+    /// <see cref="OnAction"/>: <c>data-repeat</c> substitutes each item's bindings and then discards
+    /// the item, so a <c>RenderNode</c> never learns which one produced it. The attribute value is
+    /// how a repeated row is identified, and it is enough.</para></summary>
+    public CupriDocument OnContext(string dataAttribute, Func<Interaction.CupriActionEvent, bool> handler)
+    {
+        _contextHandlers.Add((dataAttribute, handler));
+        return this;
+    }
+
+    /// <summary>Where the last context menu was opened, in document coordinates, and what was under
+    /// it. Null until one has opened. For apps that would rather <see cref="HitTest"/> themselves than
+    /// register a handler — and for anything that needs the point rather than an element.</summary>
+    public (float X, float Y, RenderNode? Target)? LastContext { get; private set; }
+
+    /// <summary>Publish the target of a context menu about to open, and offer it to any handler
+    /// registered for an attribute the element or an ancestor carries.</summary>
+    private void RaiseContextTarget(RenderNode? hit, float x, float y)
+    {
+        LastContext = (x, y, hit);
+        if (_contextHandlers.Count == 0) return;
+        for (var node = hit; node is not null; node = node.Parent)
+        {
+            if (node.Element is not { } el) continue;
+            foreach (var (attr, handler) in _contextHandlers)
+                if (el.GetAttribute(attr) is { } av
+                    && handler(new Interaction.CupriActionEvent(node, el, av, _model, x, y)))
+                    return;
+        }
+    }
+
     public RenderNode? HitTest(float x, float y) { EnsureLaidOut(); return HitTesting.HitTest(_root, Zc(x), Zc(y)); }
 
     /// <summary>Lay out the current tree if it hasn't been, at the last size a frame used. A rebuild or
@@ -3084,6 +3135,11 @@ public sealed partial class CupriDocument : IDisposable
     {
         EnsureLaidOut();
         var hit = HitTesting.HitTest(_root, x, y);
+
+        // Publish the target FIRST, before any branch below decides what kind of menu this is (or
+        // that there is none). An app needs to know what was under the pointer whether the engine
+        // goes on to open a custom region, an editing menu, or nothing at all.
+        RaiseContextTarget(hit, x, y);
 
         // A <cupri-context-menu> region under the pointer opens its own menu at the pointer.
         for (var n = hit; n is not null; n = n.Parent)
