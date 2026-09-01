@@ -33,12 +33,9 @@ public class ShowcaseKeyboardTests(ITestOutputHelper output)
         return (doc, model);
     }
 
-    private static RenderNode? Find(RenderNode n, Func<RenderNode, bool> p)
-    {
-        if (p(n)) return n;
-        foreach (var c in n.Children) if (Find(c, p) is { } f) return f;
-        return null;
-    }
+    // TestDoc.Find is a pure walk over a node, so it works on any document — not only the ones
+    // TestDoc builds. Nine other test files declare their own identical copy; this one does not.
+    private static RenderNode? Find(RenderNode n, Func<RenderNode, bool> p) => TestDoc.Find(n, p);
 
     private static void Frame(CupriDocument doc) { using (doc.RenderToImage(W, H)) { } }
 
