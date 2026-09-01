@@ -115,6 +115,9 @@ body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; -
 .section > cupri-tabs, .section > cupri-textarea, .section > cupri-accordion { display:block; margin-bottom:14px; }
 .lbl { color:var(--cupri-muted); font-size:14px; }
 .val { color:var(--cupri-text); font-weight:bold; font-size:14px; width:34px; }
+/* The Keyboard page's readouts say a phrase, not a number. .val is 34px wide because it holds the
+   slider's value, and a sentence in it stacks one word per line. */
+.kb-val { color:var(--cupri-text); font-weight:bold; font-size:14px; }
 cupri-alert { margin-bottom:10px; }
 /* Bounded → scrolls (wheel, thumb); resize:vertical → drag the corner to change its height. */
 cupri-textarea { max-height:300px; min-height:78px; resize:vertical; }

@@ -16,6 +16,7 @@
       <div class="nav {{NavLayout}}" data-section="layout"><cupri-icon name="dashboard" size="20"></cupri-icon><span class="nav-label">Layout</span></div>
       <div class="nav {{NavMotion}}" data-section="motion"><cupri-icon name="autorenew" size="20"></cupri-icon><span class="nav-label">Motion</span></div>
       <div class="nav {{NavStyling}}" data-section="styling"><cupri-icon name="palette" size="20"></cupri-icon><span class="nav-label">Styling</span></div>
+      <div class="nav {{NavKeyboard}}" data-section="keyboard"><cupri-icon name="arrow-right" size="20"></cupri-icon><span class="nav-label">Keyboard</span></div>
       <div class="nav {{NavSettings}}" data-section="settings"><cupri-icon name="settings" size="20"></cupri-icon><span class="nav-label">Settings</span></div>
       <div class="nav {{NavDiag}}" data-section="diag"><cupri-icon name="memory" size="20"></cupri-icon><span class="nav-label">Diagnostics</span></div>
       <div class="side-bottom">
@@ -420,6 +421,44 @@ doc.RenderToImage(800, 600);
       </div>
 
       <!-- SETTINGS -->
+      <!-- Keyboard: the interactions that leave no trace on screen unless something reports them.
+           Every control here is reachable with Tab alone, and the shortcuts listed are real
+           registrations in Configure rather than a printed table that could drift from the code. -->
+      <div class="section" style="display:{{SecKeyboard}}">
+        <div class="title">Keyboard</div>
+        <p class="sub">Everything on this page is reachable without a pointer. <b>Tab</b> and
+          <b>Shift+Tab</b> walk the controls below — the focus ring shows where you are — and
+          <b>Enter</b> or <b>Space</b> activates whatever holds focus.</p>
+        <div class="row">
+          <cupri-button>First</cupri-button>
+          <cupri-textfield value="{{Name}}" placeholder="…then here" style="min-width:0; width:180px"></cupri-textfield>
+          <cupri-checkbox checked="{{KbNotify}}"></cupri-checkbox>
+          <span class="lbl">Notify</span>
+          <cupri-select value="{{KbPlan}}">
+            <cupri-option value="monthly">Monthly</cupri-option>
+            <cupri-option value="yearly">Yearly</cupri-option>
+          </cupri-select>
+          <cupri-button variant="ghost">Last</cupri-button>
+        </div>
+
+        <p class="sub">The composer below is marked <b>submit-on-enter</b>: <b>Enter</b> sends,
+          <b>Shift+Enter</b> starts a new line, and <b>Ctrl+Enter</b> sends from anywhere — including
+          while a different field has focus. On a phone the on-screen keyboard shows a Send key,
+          because the same attribute sets the enter-key hint.</p>
+        <div data-composer="main">
+          <cupri-textarea value="{{Composer}}" submit-on-enter
+                          placeholder="Type a message, then press Enter…"></cupri-textarea>
+        </div>
+
+        <div class="row"><span class="lbl">Last key</span><span class="kb-val">{{KeyLog}}</span></div>
+        <div class="row"><span class="lbl">Sent</span><span class="kb-val">{{SentLabel}}</span></div>
+
+        <p class="sub"><b>Ctrl+K</b> opens the command palette, <b>Ctrl+Enter</b> sends,
+          <b>Escape</b> clears the composer. Try Escape with the palette open: it closes the palette
+          first and clears nothing, because the engine's own dismissals outrank an app's binding —
+          then a second Escape reaches this page.</p>
+      </div>
+
       <div class="section" style="display:{{SecSettings}}">
         <div class="title">Settings</div>
         <p class="sub">Scaling controls how the UI reacts when the window resizes.</p>
