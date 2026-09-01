@@ -15,6 +15,14 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ## v0.12.0
 
+### Added
+
+- **A Keyboard page in the Showcase**, which ships in the Viewer downloads below. Tab and Shift+Tab
+  walk a row of controls, a composer marked `submit-on-enter` sends on Enter and takes a newline on
+  Shift+Enter, `Ctrl+Enter` sends from anywhere and `Escape` clears — with a readout naming whichever
+  just happened, because a keyboard interaction leaves nothing on screen to see otherwise. It also
+  demonstrates that an open palette swallows the first `Escape` before an app's own binding runs.
+
 ### Changed
 
 - **A single-line field submits on Enter without opting in.** `submit-on-enter` is no longer needed
