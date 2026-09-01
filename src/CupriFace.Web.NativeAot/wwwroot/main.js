@@ -159,7 +159,10 @@ try {
             if (k === "y") { M._Redo(); e.preventDefault(); return; }
             if (k.length === 1 && M._KeyChord(k.charCodeAt(0), mods)) { e.preventDefault(); return; }
         }
-        if (e.key === "Tab") { M._EditKeyPress(e.shiftKey ? EK.ShiftTab : EK.Tab, 0); e.preventDefault(); return; }
+        // Shift rides in the KEY (ShiftTab) rather than in mods; the rest must still travel, as
+        // they do for every other named key below. A literal 0 here left Ctrl+Tab unbindable in
+        // a browser while it worked on desktop and Android (#96).
+        if (e.key === "Tab") { M._EditKeyPress(e.shiftKey ? EK.ShiftTab : EK.Tab, mods); e.preventDefault(); return; }
         if (e.key in EK) { M._EditKeyPress(EK[e.key], mods); e.preventDefault(); return; }
         if (e.key.length === 1 && !ctrl) { globalThis.__cupri.sendText(e.key, "KeyChar"); e.preventDefault(); }
     });
