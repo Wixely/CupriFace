@@ -43,6 +43,13 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **A `cupri-range` whose thumbs sit on the same value can be dragged apart again.** Only the thumb
+  painted last is hit-testable where two coincide, so every press there grabbed the same one and the
+  other could never be moved — a range dragged shut stayed shut. The press now waits for the first
+  movement and picks by direction: pull left and the low thumb follows, pull right and the high one
+  does. A press that does not move writes nothing, and a drag on thumbs that are already apart is
+  unchanged.
+
 - **A child of a padded `<body>` now gets the body's content width.** The root was laid out with its
   content width forced to the viewport width, and in a content-box model the padding is then added
   outside it — so a padded body's border box came out wider than the window and every child was

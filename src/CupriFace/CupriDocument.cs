@@ -3944,7 +3944,63 @@ public sealed partial class CupriDocument : IDisposable
         _dragClampMax = el.HasAttribute("data-clamp-max") ? ParseAttr(el, "data-clamp-max", _dragMax) : null;
         _dragPath = path;
         _dragSeek = null;
+        _dragUndecided = false;
+
+        // BOTH THUMBS ON THE SAME VALUE. Only the one painted last is hit-testable there, so every
+        // press would grab that same thumb and the other could never be moved again — a range dragged
+        // shut is a range that stays shut. Which thumb was meant is genuinely unknowable at press
+        // time, so the choice waits for the first move: pull left and you meant the low thumb, pull
+        // right and you meant the high one. Nothing is written until then, so a press that never moves
+        // changes nothing.
+        //
+        // (The alternative — let them cross and swap which is which — reaches the same end state, but
+        // swaps the labels under the finger mid-drag and gives up the no-crossing guarantee for every
+        // other drag as well. Deciding by direction costs one deferred frame and changes nothing else.)
+        var side = el.GetAttribute("data-drag-side");
+        if (el.GetAttribute("data-peer-path") is { Length: > 0 } peerPath
+            && (side == "low" || side == "high")
+            && BindingEngine.Resolve(_model, peerPath) is { } peerRaw
+            && double.TryParse(peerRaw.ToString(), System.Globalization.NumberStyles.Any,
+                               CultureInfo.InvariantCulture, out var peerValue))
+        {
+            var mine = ParseAttr(el, "aria-valuenow", double.NaN);
+            if (!double.IsNaN(mine) && Math.Abs(mine - peerValue) < 0.5)
+            {
+                _dragUndecided = true;
+                _dragPressX = x;
+                _dragSharedValue = mine;
+                _dragLowPath = side == "low" ? path : peerPath;
+                _dragHighPath = side == "low" ? peerPath : path;
+                _dragPath = null;                    // decided on the first move, not now
+                return true;
+            }
+        }
         return ApplySliderValue(x);
+    }
+
+    // A press that landed where both range thumbs sit. Which one is being dragged is decided by the
+    // direction of the first move, so these hold the candidates until then.
+    private bool _dragUndecided;
+    private string? _dragLowPath, _dragHighPath;
+    private float _dragPressX;
+    private double _dragSharedValue;
+
+    /// <summary>Resolve a deferred range drag once the pointer has committed to a direction. Returns
+    /// false while the movement is still too small to read as one, which leaves both thumbs alone —
+    /// the alternative is guessing on the first stray pixel and moving the wrong one.</summary>
+    private bool DecideRangeThumb(float x)
+    {
+        const float threshold = 2f;               // below this a "drag" is hand tremor, not intent
+        var dx = x - _dragPressX;
+        if (MathF.Abs(dx) < threshold) return false;
+
+        var goingLeft = dx < 0;
+        _dragPath = goingLeft ? _dragLowPath : _dragHighPath;
+        // The thumb left behind is the bound: neither may pass the point they were sharing.
+        _dragClampMin = goingLeft ? null : _dragSharedValue;
+        _dragClampMax = goingLeft ? _dragSharedValue : null;
+        _dragUndecided = false;
+        return _dragPath is not null;
     }
 
     private Media.IVideoPlayer? _dragSeek; // the seek bar's player while a scrub drag is live
@@ -3953,6 +4009,9 @@ public sealed partial class CupriDocument : IDisposable
 
     private bool ApplySliderValue(float x)
     {
+        // A deferred range drag decides which thumb it is on the first real movement.
+        if (_dragUndecided && !DecideRangeThumb(x)) return false;
+
         var ratio = _dragInnerW > 0 ? Math.Clamp((x - _dragX0 - _dragPad) / _dragInnerW, 0, 1) : 0;
         var value = _dragMin + ratio * (_dragMax - _dragMin);
         // A thumb may be limited by something other than the scale — the other thumb of a range.
@@ -4354,7 +4413,7 @@ public sealed partial class CupriDocument : IDisposable
         if (_reorderItems is not null) { EndReorder(); return true; }
         if (_splitA is not null) { _splitA = null; _splitB = null; return true; }
         if (_colPath is not null) { _colPath = null; return true; }
-        _dragging = false; _dragSeek = null; _textDrag = false; _scrollDrag = null; _resizeDrag = null; return ClearActive();
+        _dragging = false; _dragSeek = null; _dragUndecided = false; _textDrag = false; _scrollDrag = null; _resizeDrag = null; return ClearActive();
     }
 
     /// <summary>Scroll wheel: scroll the nearest scrollable element under the pointer by pixels.</summary>
