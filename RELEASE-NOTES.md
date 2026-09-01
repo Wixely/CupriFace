@@ -13,7 +13,17 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
-## Unreleased
+## v0.11.0
+
+### Added
+
+- **`CupriDocument.ScaleDamageToDevice(logical, scale, deviceWidth, deviceHeight)`** — maps a damage
+  rectangle from `RenderIncremental` into device pixels, for a host that applied its own scale to the
+  canvas before calling it (a HiDPI present, or an authored design size fitted to the viewport). Such
+  a host renders at logical size and scales the raster, so the rectangle comes back in logical units.
+  Rounds outward and clamps to the surface; identity at scale 1, so it can be called unconditionally.
+  The built-in web and desktop hosts use it, and it is public so a third-party host need not
+  reimplement the rounding rule. See [#99].
 
 ### Fixed
 
