@@ -112,6 +112,17 @@ public static class WebHostCore
                 case ContextCommand.SelectAll: if (_doc.DispatchKey(null, EditKey.SelectAll)) _dirty = true; break;
             }
         };
+
+        // A freshly initialised host owes its first frame, and owes the page everything it caches as
+        // "already sent". These are all per-PAGE state, and Init means a new page: _cursor and
+        // _lastTextInput exist to suppress repeat calls, so carrying them over a re-init silently
+        // withholds the first cursor and the first text-input state from a bridge that has never
+        // been told either. In a browser this is academic — the page loads once and the statics
+        // start empty — and it stops being academic the moment Init runs twice in one process.
+        _dirty = true;
+        _cursor = "";
+        _lastTextInput = default;
+        _lastW = _lastH = 0;
     }
 
     /// <summary>One animation frame. Renders ONLY when something changed — after input, on the app's
@@ -169,20 +180,21 @@ public static class WebHostCore
         {
             if (animating) _doc.Animate(_clock.Elapsed.TotalSeconds);  // @keyframes
             var bg = _transparent ? SKColors.Transparent : _bg;        // overlays: page shows through
-            if (_scale == 1f)
-            {
-                damage = _doc.RenderIncremental(canvas, p.LogicalWidth, p.LogicalHeight, bg);
-            }
-            else
-            {
-                // Scaled present (hybrid zoom): damage coordinates would not map 1:1 — full frame.
-                canvas.Clear(bg);
-                canvas.Save();
-                canvas.Scale(_scale);
-                _doc.Render(canvas, p.LogicalWidth, p.LogicalHeight);
-                canvas.Restore();
-                damage = new SKRectI(0, 0, width, height);
-            }
+            // Scale the canvas, then let the engine damage-clip inside it: the clip it applies is
+            // interpreted in the scaled space, which IS logical space, so the region it repaints is
+            // right and only the rectangle it hands back needs converting to device pixels.
+            //
+            // This used to repaint the whole surface whenever the scale was not exactly 1, on the
+            // grounds that damage coordinates would not map 1:1. They do not — but the mapping is a
+            // multiply, because the scale is uniform. Scale 1 is the rare case, not the common one:
+            // a HiDPI ratio of 2, fractional desktop scaling of 1.25, or any fit-to-viewport factor
+            // all landed here, so most machines re-uploaded every pixel on every hover (#99).
+            canvas.Save();
+            if (_scale != 1f) canvas.Scale(_scale);
+            damage = _doc.RenderIncremental(canvas, p.LogicalWidth, p.LogicalHeight, bg);
+            canvas.Restore();
+            if (damage is { } logical)
+                damage = CupriDocument.ScaleDamageToDevice(logical, _scale, width, height);
             canvas.Flush();
         }
         if (damage is not { } d) return false;   // identical frame

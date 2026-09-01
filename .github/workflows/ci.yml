@@ -509,8 +509,17 @@ jobs:
         run: |
           set -x
           set -o pipefail   # an empty grep must not hide behind tee's exit status
-          # A failed assert must explain itself: dump the app's whole story before dying.
-          fail() { echo "::error::$1"; adb logcat -d -s cupri:I | tail -80; adb logcat -d | tail -40; exit 1; }
+          # A failed assert must explain itself: dump the app's whole story before dying. The system
+          # log is wide rather than deep — 40 lines was not enough to reach the ActivityManager
+          # entry that explains a restart, which left the cause of one failure inferred rather than
+          # read. am get-config names the configuration the activity is actually running under.
+          fail() {
+            echo "::error::$1"
+            adb logcat -d -s cupri:I | tail -80
+            echo "--- device configuration ---"; adb shell am get-config 2>&1 | head -5
+            echo "--- system log ---"; adb logcat -d | tail -200
+            exit 1
+          }
           # Taps are computed in the APP VIEW's coordinate space, not the display's: the status
           # bar sits ABOVE the view, so display-size arithmetic lands in system chrome (run 8's
           # finding). The host publishes its view's screen origin + size on every layout; the
@@ -528,6 +537,32 @@ jobs:
           }
           # tap <dpX> <dpY>: view-dp → screen px.
           tap() { adb shell input tap $(( OX + $1 * D / 160 )) $(( OY + $2 * D / 160 )); }
+
+          # The activity can be recreated a second or two AFTER it first paints — a new AndroidHost
+          # with a fresh clock, a rebuilt document, and the app back on its first page. The geometry
+          # is identical across it, so nothing downstream notices: taps sent across that window are
+          # swallowed, and every later assert measures a page the app is no longer showing. Two runs
+          # died that way and both blamed the switch tap, which was three steps too late.
+          #
+          # Each host start logs its own FIRST FRAME, so the count is the restart counter. Wait for
+          # it to hold still before reading geometry or trusting what is on screen.
+          starts() { adb logcat -d -s cupri:I | grep -c 'FIRST FRAME at' || true; }
+          prev=-1; steady=0
+          for i in $(seq 1 25); do
+            n=$(starts)
+            if [ "$n" = "$prev" ]; then steady=$(( steady + 1 )); else steady=0; fi
+            [ "$steady" -ge 3 ] && break      # ~3s with no new host start
+            prev=$n; sleep 1
+          done
+          HOST_STARTS=$(starts)
+          echo "host starts before the gate begins: $HOST_STARTS (settled after ${i}s)"
+
+          # Called before blaming an assert on the engine: if the activity restarted underneath us,
+          # say THAT instead — the taps went to a document that no longer exists.
+          restart_guard() {
+            local n; n=$(starts)
+            [ "$n" = "$HOST_STARTS" ] || fail "the activity restarted mid-gate ($HOST_STARTS -> $n host starts): every tap since is against a rebuilt document on its first page, so the assert below is measuring the restart and not the engine. See the configuration dump for what changed."
+          }
           geom
           # Calibrated dp anchors (MobileApp @ 393-wide): nav row centre y=dpH-28, five equal
           # fifths; Notifications switch centre (dpW-56, 99); Form's first field (dpW/2, 109).
@@ -549,6 +584,9 @@ jobs:
               [ "$after" -gt "$before" ] && break
               echo "switch tap not delivered (attempt $i)"
             done
+            # A restart is the likelier explanation for a tap that landed nowhere, and it is not the
+            # engine's fault — check it before the exact-once assert gets to accuse anyone.
+            [ "$after" = "$(( before + 1 ))" ] || restart_guard
             test "$after" = "$(( before + 1 ))" || fail "one tap produced $(( after - before )) toggles"
           }
           # Warmup tap first, on Home's FIRST card (plain text — no action, and safely above the

@@ -32,9 +32,11 @@ public class WebHostCoreTests(ITestOutputHelper output)
         public readonly List<(int Id, double W, double H, bool Visible)> Rects = [];
         public (bool Focused, bool Numeric, bool Multiline, double X, double Y)? TextInput;
 
+        public int LastDamageX, LastDamageY, LastDamageW, LastDamageH;
         public void Present(nint pixels, int byteCount, int width, int height, int dx, int dy, int dw, int dh)
         {
             Presents++; LastPixels = pixels; LastByteCount = byteCount; LastWidth = width; LastHeight = height;
+            LastDamageX = dx; LastDamageY = dy; LastDamageW = dw; LastDamageH = dh;
             Calls.Add($"present {width}x{height} damage {dw}x{dh}");
         }
         public void SetCursor(string c) { Cursor = c; Calls.Add($"cursor {c}"); }
@@ -103,6 +105,20 @@ public class WebHostCoreTests(ITestOutputHelper output)
     {
         public override string Html => "<body><div style=\"padding:20px\">hello</div></body>";
         public override string Css => "body{margin:0;background:#fff}";
+    }
+
+    /// <summary>Fits an authored design to whatever canvas it gets, which is what puts a real app on
+    /// a fractional scale — and what #99 measured. Scale is settable per instance so one test can
+    /// walk the reporter's table.</summary>
+    private sealed class ScaledApp(float scale) : CupriApp
+    {
+        public override string Html =>
+            "<body style=\"margin:0\">" +
+            "<h1 style=\"margin:0;padding:8px\">Heading</h1>" +
+            "<div class='hand' style=\"height:60px\">hover me</div>" +
+            "<p style=\"padding:8px\">tail</p></body>";
+        public override string Css => "body{background:#fff}.hand{background:#e8eef7}.hand:hover{background:#b9c8de}";
+        public override PresentInfo Present(float w, float h) => new(w / scale, h / scale, scale);
     }
 
     private static RecordingBridge Boot(CupriApp app)
@@ -239,5 +255,41 @@ public class WebHostCoreTests(ITestOutputHelper output)
         // Both pages parse this as JSON at boot; malformed here is a dead keyboard there.
         Assert.StartsWith("{", map);
         Assert.EndsWith("}", map);
+    }
+
+    /// <summary>#99: a hover under a scaled present must reach the page as a PARTIAL damage rect.
+    ///
+    /// The host used to skip RenderIncremental entirely whenever PresentInfo.Scale was not exactly 1
+    /// and re-upload the whole surface, which on a HiDPI screen (2), a fractionally-scaled desktop
+    /// (1.25, 1.5) or any fit-to-viewport factor is every frame. Scale 1 was the only case that ever
+    /// narrowed, and it is the rarest one in the field.
+    ///
+    /// The pointer is moved in DEVICE pixels — the same logical spot at every scale — so each case
+    /// hovers the one element whose background changes.</summary>
+    [Theory]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    [InlineData(2f)]
+    [InlineData(0.72f)]
+    public void A_hover_under_a_scaled_present_damages_only_part_of_the_surface(float scale)
+    {
+        const int W = 400, H = 300;
+        var js = Boot(new ScaledApp(scale));
+        Assert.True(WebHostCore.Tick(W, H, 16), "the first tick must paint");
+        var full = js.Calls[^1];
+
+        WebHostCore.PointerMove(60 * scale, 80 * scale);
+        Assert.True(WebHostCore.Tick(W, H, 32), "the hover must repaint");
+
+        var d = (js.LastDamageW, js.LastDamageH);
+        output.WriteLine($"scale {scale}: first={full} hover damage={d.Item1}x{d.Item2} of {W}x{H}");
+
+        Assert.True(d.Item1 > 0 && d.Item2 > 0, "a repaint must report a non-empty rect");
+        Assert.True(d.Item1 * d.Item2 < W * H,
+            $"at scale {scale} the whole surface was re-uploaded ({d.Item1}x{d.Item2} of {W}x{H})");
+        // …and it must stay inside the surface, since the page uploads exactly this region.
+        Assert.True(js.LastDamageX >= 0 && js.LastDamageY >= 0, "damage starts outside the surface");
+        Assert.True(js.LastDamageX + d.Item1 <= W && js.LastDamageY + d.Item2 <= H,
+            "damage runs past the surface");
     }
 }
