@@ -27,9 +27,27 @@ public sealed class LayoutEngine
 
     public void Layout(RenderNode root, float viewportWidth, float viewportHeight)
     {
-        // The root (body) is the initial containing block: it fills the viewport, so
+        // The root (body) is the initial containing block: its BORDER box fills the viewport, so
         // percentage heights resolve and `height:100%` fills the window.
-        LayoutNode(root, viewportWidth, viewportHeight, viewportWidth, viewportHeight);
+        //
+        // Its CONTENT box is that minus its own padding and border — which is the whole of this
+        // arithmetic. Forcing the content width to the viewport instead (as this did) made a padded
+        // body wider than the window in a content-box model, and every child was measured against the
+        // full viewport: a block child of a 600px body with 20px padding came out 600 wide and ran off
+        // the right edge. Nested padded elements were always right, because only the root was forced,
+        // which is what made it look like a bug in whichever component happened to sit there.
+        //
+        // Insets are resolved here rather than left to the ordinary auto-width path because that path
+        // also subtracts MARGINS — and root.X is pinned to 0 below, so a body margin would narrow the
+        // content without shifting it and open a one-sided gap. A body margin is still ignored, as it
+        // always has been; this changes padding only.
+        var rs = root.Style;
+        var insetW = rs.BorderLeft + rs.BorderRight
+                   + rs.Padding.Left.Resolve(viewportWidth) + rs.Padding.Right.Resolve(viewportWidth);
+        var insetH = rs.BorderTop + rs.BorderBottom
+                   + rs.Padding.Top.Resolve(viewportWidth) + rs.Padding.Bottom.Resolve(viewportWidth);
+        LayoutNode(root, viewportWidth, viewportHeight,
+                   MathF.Max(0, viewportWidth - insetW), MathF.Max(0, viewportHeight - insetH));
         root.X = 0;
         root.Y = 0;
         LayoutFixedNodes(root, viewportWidth, viewportHeight);
