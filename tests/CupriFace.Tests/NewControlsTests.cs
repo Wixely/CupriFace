@@ -92,19 +92,21 @@ public class NewControlsTests(ITestOutputHelper output)
 
     /// <summary>A toolbar fills its container and keeps its pushed cluster inside itself.
     ///
-    /// <para>The container here is a padded DIV rather than a padded body on purpose. A child of a
-    /// padded <c>&lt;body&gt;</c> is currently laid out at the full viewport width rather than the
-    /// body's content width — reproducible with a plain <c>&lt;div&gt;</c> and nothing to do with this
-    /// component, so asserting it here would fail for a reason the toolbar cannot fix. Nested padded
-    /// divs, as below, size their children correctly.</para></summary>
-    [Fact]
-    public void A_toolbar_fills_its_container_and_keeps_its_pushed_cluster_inside()
+    /// <para>Written first against a padded <c>&lt;body&gt;</c>, where it failed — the root was laid
+    /// out at the full viewport width, so EVERY child overflowed and a plain <c>&lt;div&gt;</c> did
+    /// the same. That was a layout bug this control surfaced rather than caused, and it is fixed
+    /// separately; the container here is a padded div because that is the case the toolbar is
+    /// responsible for, and <c>BodyPaddingTests</c> owns the root.</para></summary>
+    [Theory]
+    [InlineData("<div class='wrap' style='padding:20px'>", "</div>")]   // a padded container…
+    [InlineData("<div class='wrap'>", "</div>")]                        // …and one with none
+    public void A_toolbar_fills_its_container_and_keeps_its_pushed_cluster_inside(string open, string close)
     {
         using var t = new TestDoc(
-            "<body style='margin:0'><div class='wrap' style='padding:20px'><cupri-toolbar label='T'>" +
+            $"<body style='margin:0'>{open}<cupri-toolbar label='T'>" +
             "<cupri-toolbar-group><cupri-button>Bold</cupri-button></cupri-toolbar-group>" +
             "<cupri-toolbar-group push><cupri-button>Publish</cupri-button></cupri-toolbar-group>" +
-            "</cupri-toolbar></div></body>", "", width: 600, height: 220, components: true);
+            $"</cupri-toolbar>{close}</body>", "", width: 600, height: 220, components: true);
 
         var wrap = Find(t.Doc.Root, n => HasClass(n, "wrap"))!;
         var bar = Find(t.Doc.Root, n => n.Element?.GetAttribute("role") == "toolbar")!;

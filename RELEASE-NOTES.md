@@ -41,6 +41,18 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   stay the whole range or the pointer stops landing where you point, while the limit is the other
   thumb.
 
+### Fixed
+
+- **A child of a padded `<body>` now gets the body's content width.** The root was laid out with its
+  content width forced to the viewport width, and in a content-box model the padding is then added
+  outside it — so a padded body's border box came out wider than the window and every child was
+  measured against the full viewport. A block child of a 600px body with `padding:20px` was 600 wide
+  and ran 20px off the right edge. Nested padded elements were always correct, since only the root
+  was forced, which is what made this look like a bug in whichever component happened to sit there.
+  **What to do:** nothing, unless a layout was built around the old overflow — a body with no padding
+  is unaffected, and `height:100%` still fills the window. A body MARGIN is still ignored, as before:
+  applying it would narrow the content without shifting it, and half a margin is worse than none.
+
 ## v0.12.0
 
 ### Added
