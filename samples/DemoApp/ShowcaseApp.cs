@@ -17,7 +17,8 @@ public sealed class ShowcaseApp : CupriApp
     // Section ids a <a href="…"> link may route to (mirrors the sidebar nav). An unknown internal href
     // is ignored rather than blanking every section.
     private static readonly HashSet<string> KnownSections =
-        ["controls", "components", "charts", "images", "overlays", "layout", "motion", "styling", "settings", "diag"];
+        ["controls", "components", "charts", "images", "overlays", "layout", "motion", "styling",
+         "keyboard", "settings", "diag"];
 
     /// <summary>Optionally start on a given section (a sidebar id like "images") — the hosts pass
     /// e.g. `--section images` through, so a dev (or a UI test) lands straight on the page under
@@ -71,6 +72,42 @@ public sealed class ShowcaseApp : CupriApp
         void OpenPalette() { _model.PaletteQuery = ""; _model.PaletteOpen = true; }
         doc.OnClick(".search-btn", _ => OpenPalette());                           // open the command palette (button)
         doc.OnShortcut(CupriFace.Interaction.KeyMods.Ctrl, "k", OpenPalette);     // …or Ctrl/Cmd + K
+
+        // ---- Keyboard section ------------------------------------------------------------------
+        // Named keys, which only became bindable in v0.10.0 — before that OnShortcut took a string
+        // that read as though any key name would do and silently matched single characters only.
+        // Ctrl+Enter fires anywhere, including mid-edit, which is what makes it a send key.
+        doc.OnShortcut(CupriFace.Interaction.KeyMods.Ctrl, "Enter", () => Send("Ctrl+Enter"));
+
+        // A BARE key only fires when no field is focused, so this cannot eat a keystroke someone is
+        // typing. Escape is the exception the engine places by hand: it runs below the built-in
+        // dismissals — an open palette or dialog still closes first — and above the plain blur, so
+        // it still means "cancel" while the composer has focus.
+        doc.OnShortcut(CupriFace.Interaction.KeyMods.None, "Escape", () =>
+        {
+            if (_model.Section != "keyboard") return;      // the page's own key, not a global one
+            _model.Composer = "";
+            _model.KeyLog = "Escape — composer cleared";
+        });
+
+        // The composer is marked submit-on-enter, so a plain Enter submits and Shift+Enter still
+        // starts a new line. The attribute names WHICH field submitted, exactly as OnAction and
+        // OnContext name what was clicked.
+        doc.OnSubmit("data-composer", e => { Send($"Enter on \"{e.Value}\""); return true; });
+
+        void Send(string how)
+        {
+            if (_model.Section != "keyboard") return;
+            var text = _model.Composer.Trim();
+            if (text.Length == 0) { _model.KeyLog = $"{how} — nothing to send"; return; }
+            _model.SentCount++;
+            _model.Composer = "";
+            _model.KeyLog = $"{how} — sent \"{Shorten(text)}\"";
+        }
+
+        // Newlines are the point of Shift+Enter, so show them rather than letting the log go quiet.
+        static string Shorten(string t) =>
+            (t.Length <= 28 ? t : t[..28] + "…").Replace("\n", "⏎ ");
 
         doc.OnReorder(e =>
         {
@@ -134,6 +171,7 @@ public sealed partial class ShowcaseModel
     public string SecLayout => Section == "layout" ? "block" : "none";
     public string SecMotion => Section == "motion" ? "block" : "none";
     public string SecStyling => Section == "styling" ? "block" : "none";
+    public string SecKeyboard => Section == "keyboard" ? "block" : "none";
     public string SecSettings => Section == "settings" ? "block" : "none";
     public string SecDiag => Section == "diag" ? "block" : "none";
     public string NavControls => Section == "controls" ? "active" : "";
@@ -144,8 +182,20 @@ public sealed partial class ShowcaseModel
     public string NavLayout => Section == "layout" ? "active" : "";
     public string NavMotion => Section == "motion" ? "active" : "";
     public string NavStyling => Section == "styling" ? "active" : "";
+    public string NavKeyboard => Section == "keyboard" ? "active" : "";
     public string NavSettings => Section == "settings" ? "active" : "";
     public string NavDiag => Section == "diag" ? "active" : "";
+
+    // ---- Keyboard section ---------------------------------------------------
+    // Everything below is reachable from the keyboard alone, which is the point of the page: Tab
+    // and Shift+Tab walk the controls, and the shortcuts are real registrations rather than a
+    // printed list. KeyLog is what makes an invisible interaction visible.
+    public string Composer { get; set; } = "";
+    public string KeyLog { get; set; } = "nothing yet — try Tab, then Ctrl+Enter";
+    public int SentCount { get; set; }
+    public string SentLabel => SentCount == 1 ? "1 message sent" : $"{SentCount} messages sent";
+    public bool KbNotify { get; set; }
+    public string KbPlan { get; set; } = "monthly";
 
     // 1:1 by default — the window's own pixels, reflowing as it resizes. "hybrid" used to be the
     // default, which scales the whole UI up on a large monitor; that is a demo of the scaling modes,

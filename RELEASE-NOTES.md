@@ -27,6 +27,18 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   attribute is the scope: a field with no such ancestor claims nothing and keeps the behaviour it
   had, and an app that registered no `OnSubmit` is untouched.
 
+### Fixed
+
+- **Both web hosts now forward the modifiers when dispatching `Tab`** ([#96]). The `Tab` line passed a
+  literal `0` where the line directly below it forwards the real modifiers for every other named key,
+  so `OnShortcut(KeyMods.Ctrl, "Tab", …)` was a registration that fired on desktop and Android and
+  never in a browser. **What to do:** nothing, and expect nothing — in practice a browser still will
+  not deliver the chord, because Ctrl+Tab and Ctrl+Shift+Tab switch browser tabs and never reach the
+  page. This removes an incorrectness in the hosts rather than enabling a shortcut; the limitation is
+  the platform's and is now stated on `OnShortcut` instead of being discovered.
+
+[#96]: https://github.com/Wixely/CupriFace/issues/96
+
 ## v0.11.0
 
 ### Added

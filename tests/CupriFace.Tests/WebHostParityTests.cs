@@ -113,4 +113,31 @@ public class WebHostParityTests(ITestOutputHelper output)
             Assert.Contains("public static void Run(CupriApp app, Action<CupriDocument>? configure = null)", src);
         }
     }
+
+    /// <summary>Every named key must carry its modifiers to the engine, in BOTH hosts.
+    ///
+    /// Tab was dispatched with a literal 0 where the line directly below it forwards <c>mods</c>, so
+    /// <c>OnShortcut(KeyMods.Ctrl, "Tab", …)</c> was a registration that fired on desktop and Android
+    /// and never in a browser — a host divergence of exactly the kind this file exists to catch, and
+    /// one both hosts got wrong identically, which is why comparing them to each other could not
+    /// find it (#96). Shift is the deliberate exception: it rides in the KEY as ShiftTab.</summary>
+    [Fact]
+    public void Neither_host_drops_the_modifiers_when_dispatching_tab()
+    {
+        foreach (var (pkg, call) in new[]
+                 {
+                     ("CupriFace.Web.Mono", "I.EditKeyPress"),
+                     ("CupriFace.Web.NativeAot", "M._EditKeyPress"),
+                 })
+        {
+            var js = Read("src", pkg, "wwwroot", "main.js");
+            var line = js.Split('\n').FirstOrDefault(l => l.Contains("EK.ShiftTab : EK.Tab"));
+            Assert.NotNull(line);
+            output.WriteLine($"{pkg}: {line!.Trim()}");
+
+            Assert.Contains(call, line);
+            Assert.DoesNotContain("EK.Tab, 0)", line.Replace(" ", ""));
+            Assert.Contains("mods", line);
+        }
+    }
 }
