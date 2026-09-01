@@ -147,6 +147,8 @@ public sealed class ComponentRegistry
         .Register(new HeatmapComponent())
         .Register(new HeatCellComponent())
         // Navigation & disclosure
+        .Register(new CarouselComponent())
+        .Register(new SlideComponent())
         .Register(new BreadcrumbComponent())
         .Register(new CrumbComponent())
         .Register(new ToolbarComponent())

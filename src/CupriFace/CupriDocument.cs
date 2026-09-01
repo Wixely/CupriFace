@@ -3217,6 +3217,15 @@ public sealed partial class CupriDocument : IDisposable
             case EditKey.Home: caret = 0; if (!shift) anchor = caret; break;
             case EditKey.End: caret = value.Length; if (!shift) anchor = caret; break;
 
+            case EditKey.Backspace
+                when _focusTagList is { Length: > 0 } backPath && (_editBuffer ?? "").Length == 0 && !hasSel:
+                // The tag-box idiom: Backspace on an EMPTY entry takes back the last chip, so a
+                // mistyped tag is undone where the hand already is instead of by hunting for its ×.
+                // Gated on the entry being empty — while there is text to delete, Backspace deletes
+                // text, and eating a chip mid-word would be its own small disaster.
+                if (RemoveLastTag(backPath)) Refresh();
+                return true;
+
             case EditKey.Backspace:
                 if (hasSel) { value = value.Remove(selS, selE - selS); caret = selS; edited = true; }
                 else if (ctrl && caret > 0) { var w = WordLeft(value, caret); value = value.Remove(w, caret - w); caret = w; edited = true; }
@@ -3800,6 +3809,20 @@ public sealed partial class CupriDocument : IDisposable
                 return false;                            // already there: adding it twice is never meant
 
         return BindingEngine.TrySet(_model, path, current.Trim().Length == 0 ? entry : current + "," + entry);
+    }
+
+    /// <summary>Drop the last entry from a comma-separated list. Returns false when there is nothing
+    /// to drop, so an empty tag box swallows nothing and Backspace stays inert rather than appearing
+    /// to do something.</summary>
+    private bool RemoveLastTag(string path)
+    {
+        if (_model is null) return false;
+        var parts = (BindingEngine.Resolve(_model, path)?.ToString() ?? "")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(p => p.Trim()).Where(p => p.Length > 0).ToList();
+        if (parts.Count == 0) return false;
+        parts.RemoveAt(parts.Count - 1);
+        return BindingEngine.TrySet(_model, path, string.Join(",", parts));
     }
 
     private void CommitBuffer()

@@ -547,6 +547,12 @@ jobs:
           # Each host start logs its own FIRST FRAME, so the count is the restart counter. Wait for
           # it to hold still before reading geometry or trusting what is on screen.
           starts() { adb logcat -d -s cupri:I | grep -c 'FIRST FRAME at' || true; }
+          # The device's configuration BEFORE the settle window. The activity is sometimes recreated a
+          # second or two after it first paints, and the declaration only lists orientation|screenSize|
+          # uiMode — so something outside that list is firing and we have never seen which. Bracketing
+          # the window with `am get-config` means the next occurrence NAMES it, on a passing run as
+          # readily as a failing one, instead of waiting for a failure dump to happen to catch it.
+          CONFIG_BEFORE=$(adb shell am get-config 2>/dev/null | head -1 || true)
           prev=-1; steady=0
           for i in $(seq 1 25); do
             n=$(starts)
@@ -556,6 +562,22 @@ jobs:
           done
           HOST_STARTS=$(starts)
           echo "host starts before the gate begins: $HOST_STARTS (settled after ${i}s)"
+          # If the activity restarted while we waited, the two configurations bracket the cause — diff
+          # them and the undeclared config change names itself. Printed either way so a quiet run still
+          # records the baseline; a run with no restart simply says so.
+          CONFIG_AFTER=$(adb shell am get-config 2>/dev/null | head -1 || true)
+          if [ "$HOST_STARTS" -gt 1 ]; then
+            echo "::warning::the activity restarted during startup ($HOST_STARTS host starts)"
+            echo "  config before: $CONFIG_BEFORE"
+            echo "  config after : $CONFIG_AFTER"
+            if [ "$CONFIG_BEFORE" = "$CONFIG_AFTER" ]; then
+              echo "  the configuration did NOT change across the restart — look elsewhere than configChanges"
+            else
+              echo "  ^ THIS is the change to add to CupriActivity's ConfigurationChanges"
+            fi
+          else
+            echo "no restart during startup; config: $CONFIG_AFTER"
+          fi
 
           # Called before blaming an assert on the engine: if the activity restarted underneath us,
           # say THAT instead — the taps went to a document that no longer exists.

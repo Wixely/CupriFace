@@ -1061,6 +1061,19 @@ public sealed class StyleResolver
 
     private static void ParseFlexShorthand(ComputedStyle s, string v)
     {
+        // The keyword forms. Only numbers were understood, so `flex: none` — the ordinary way to say
+        // "do not let this shrink" — parsed as nothing at all and left the item shrinking, silently.
+        // The repository's own sidebar icons ask for it and were relying on a no-op.
+        switch (v.Trim().ToLowerInvariant())
+        {
+            case "none":                                    // 0 0 auto
+                s.FlexGrow = 0; s.FlexShrink = 0; s.FlexBasis = Length.Auto; return;
+            case "auto":                                    // 1 1 auto
+                s.FlexGrow = 1; s.FlexShrink = 1; s.FlexBasis = Length.Auto; return;
+            case "initial":                                 // 0 1 auto
+                s.FlexGrow = 0; s.FlexShrink = 1; s.FlexBasis = Length.Auto; return;
+        }
+
         var parts = v.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length == 1 && CssNumber.TryParse(parts[0], out var g)) { s.FlexGrow = g; s.FlexShrink = 1; s.FlexBasis = new Length(LengthUnit.Px, 0); return; }
         if (parts.Length >= 1 && CssNumber.TryParse(parts[0], out var grow)) s.FlexGrow = grow;

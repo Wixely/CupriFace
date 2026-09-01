@@ -339,6 +339,54 @@ public class NewControlsTests(ITestOutputHelper output)
         Assert.Equal("alpha,gamma", m.Tags);
     }
 
+    /// <summary>Backspace on an EMPTY entry takes back the last chip — the tag-box idiom, so a
+    /// mistyped tag is undone where the hand already is instead of by hunting for its ×.</summary>
+    [Fact]
+    public void Backspace_on_an_empty_entry_removes_the_last_tag()
+    {
+        var m = new Tagged { Tags = "alpha,beta,gamma" };
+        using var t = new TestDoc(TagHtml, "", m, width: 500, height: 200, components: true);
+
+        var entry = Find(t.Doc.Root, n => HasClass(n, "cupri-tag-entry"))!;
+        t.ClickNode(entry);
+        t.Doc.DispatchKey(null, EditKey.Backspace);
+        t.Layout();
+
+        Assert.Equal("alpha,beta", m.Tags);
+    }
+
+    /// <summary>…but only when it IS empty. While there is text to delete, Backspace deletes text —
+    /// eating a chip mid-word would be its own small disaster.</summary>
+    [Fact]
+    public void Backspace_with_text_in_the_entry_deletes_text_not_a_tag()
+    {
+        var m = new Tagged { Tags = "alpha,beta" };
+        using var t = new TestDoc(TagHtml, "", m, width: 500, height: 200, components: true);
+
+        var entry = Find(t.Doc.Root, n => HasClass(n, "cupri-tag-entry"))!;
+        t.ClickNode(entry);
+        t.Doc.DispatchKey("draft", EditKey.None);
+        t.Doc.DispatchKey(null, EditKey.Backspace);      // deletes the "t"
+        t.Doc.DispatchKey(null, EditKey.Enter);          // …and commits "draf"
+
+        Assert.Equal("alpha,beta,draf", m.Tags);
+    }
+
+    /// <summary>An empty tag box has nothing to take back, so Backspace stays inert rather than
+    /// appearing to do something.</summary>
+    [Fact]
+    public void Backspace_on_an_empty_list_does_nothing()
+    {
+        var m = new Tagged { Tags = "" };
+        using var t = new TestDoc(TagHtml, "", m, width: 500, height: 200, components: true);
+
+        var entry = Find(t.Doc.Root, n => HasClass(n, "cupri-tag-entry"))!;
+        t.ClickNode(entry);
+        t.Doc.DispatchKey(null, EditKey.Backspace);
+
+        Assert.Equal("", m.Tags);
+    }
+
     /// <summary>Enter in a tag box means "add this tag", so it must NOT also submit the form around
     /// it — otherwise every tag added sends a half-filled form.</summary>
     [Fact]
