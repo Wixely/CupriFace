@@ -13,6 +13,20 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Changed
+
+- **A single-line field submits on Enter without opting in.** `submit-on-enter` is no longer needed
+  on a `cupri-textfield` (or any single-line field): Enter raises the submit, exactly as Enter in an
+  `<input>` submits its form on the web. Previously it committed and blurred, which is quieter and
+  less useful. A **textarea still has to opt in**, because Enter already means newline there.
+  **What to do:** nothing, unless you have an `OnSubmit` handler whose attribute sits on an ancestor
+  of a single-line field you did not intend to submit — that field will now submit on Enter instead
+  of blurring. There is no `<form>` element in this engine, so the ancestor carrying the `OnSubmit`
+  attribute is the scope: a field with no such ancestor claims nothing and keeps the behaviour it
+  had, and an app that registered no `OnSubmit` is untouched.
+
 ## v0.11.0
 
 ### Added
