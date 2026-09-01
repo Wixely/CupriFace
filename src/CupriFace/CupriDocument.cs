@@ -1797,11 +1797,20 @@ public sealed partial class CupriDocument : IDisposable
 
     private readonly List<(string Attr, Func<Interaction.CupriActionEvent, bool> Handler)> _submitHandlers = new();
 
-    /// <summary>The <see cref="OnAction"/> shape again, for a field being SUBMITTED: when a field
-    /// marked <c>submit-on-enter</c> (engine attribute <c>data-submit-on-enter</c>) takes a plain Enter,
-    /// the handler runs with the field — or an ancestor — carrying <paramref name="dataAttribute"/>, its
-    /// attribute value and the bound model. The edit buffer is committed to the model FIRST, so a
-    /// handler reading the bound value sees what was just typed.
+    /// <summary>The <see cref="OnAction"/> shape again, for a field being SUBMITTED: when a field takes
+    /// a plain Enter, the handler runs with the field — or an ancestor — carrying
+    /// <paramref name="dataAttribute"/>, its attribute value and the bound model. The edit buffer is
+    /// committed to the model FIRST, so a handler reading the bound value sees what was just typed.
+    ///
+    /// <para>A SINGLE-LINE field submits without opting in, as <c>&lt;input&gt;</c> does inside a
+    /// <c>&lt;form&gt;</c> — Enter had no other meaning there worth keeping. A TEXTAREA must be marked
+    /// <c>submit-on-enter</c> (engine attribute <c>data-submit-on-enter</c>), because Enter already
+    /// means newline in one.</para>
+    ///
+    /// <para>There is no <c>&lt;form&gt;</c> element in this engine, so the ancestor carrying
+    /// <paramref name="dataAttribute"/> IS the form boundary: a field with no such ancestor claims
+    /// nothing and keeps the behaviour it had. That is what makes the implicit case safe — it can only
+    /// reach fields an app has already scoped for submission.</para>
     ///
     /// <para>This is the chat-composer idiom — Enter sends, Shift+Enter starts a new line — and it is
     /// opt-in per field precisely because the alternatives are not. A bare <c>Enter</c>
@@ -3220,15 +3229,23 @@ public sealed partial class CupriDocument : IDisposable
                 break;
 
             case EditKey.Enter:
-                // "Enter sends, Shift+Enter starts a new line" (#90). Opt-in per field, so it cannot eat
-                // newlines in any other textarea on the page — which is why a bare Enter OnShortcut is
-                // the wrong tool for it even now that one can be bound. Shift always inserts.
+                // "Enter sends, Shift+Enter starts a new line" (#90). Shift always inserts.
+                //
+                // A SINGLE-LINE field tries this without asking, which is what <input> does inside a
+                // <form>: Enter there has no other meaning worth keeping — it committed and blurred,
+                // which is quieter and less useful than submitting. A TEXTAREA must opt in with
+                // submit-on-enter, because Enter already means newline and taking that by default
+                // would eat a keystroke in every other textarea on the page.
+                //
+                // There is no <form> element in this engine, so the scope is the attribute OnSubmit
+                // bubbles to: an ancestor carrying data-… IS the form boundary, and a field with no
+                // such ancestor claims nothing and behaves exactly as before.
                 //
                 // Commit BEFORE raising: the handler's whole job is to read the value that was just
                 // typed. Focus is deliberately kept — a composer goes on composing after it sends.
-                // Nothing claimed it → fall through to the ordinary Enter below, so a field marked
-                // submit-on-enter with no handler behaves as it did rather than swallowing the key.
-                if (_focusSubmitOnEnter && !shift)
+                // Nothing claimed it → fall through to the ordinary Enter below, so an unhandled
+                // field behaves as it did rather than swallowing the key.
+                if ((_focusSubmitOnEnter || !_focusMultiline) && !shift)
                 {
                     var pending = _editBuffer;
                     CommitBuffer();
