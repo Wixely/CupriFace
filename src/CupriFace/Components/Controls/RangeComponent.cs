@@ -58,8 +58,8 @@ public sealed class RangeComponent : ComponentBase
             $"<div class='cupri-range-track' data-slider-track " +
             $"style='--cupri-low:{F(Percent(low, min, max))}%;--cupri-high:{F(Percent(high, min, max))}%'>" +
             $"<div class='cupri-range-fill'></div>" +
-            Thumb("low", lowPath, low, min, max, clampMax: high) +
-            Thumb("high", highPath, high, min, max, clampMin: low) +
+            Thumb("low", lowPath, low, min, max, clampMax: high, peer: highPath) +
+            Thumb("high", highPath, high, min, max, clampMin: low, peer: lowPath) +
             $"</div>";
     }
 
@@ -71,9 +71,14 @@ public sealed class RangeComponent : ComponentBase
     /// so a drag to 60% of the track landed at 60% of whatever was left. ARIA reports the clamp, since
     /// what a screen reader wants is where this thumb may actually go.</para></summary>
     private static string Thumb(string which, string path, double value, double min, double max,
-                                double? clampMin = null, double? clampMax = null) =>
+                                double? clampMin = null, double? clampMax = null, string peer = "") =>
         $"<div class='cupri-range-thumb {which}' role='slider' tabindex='0'" +
         (path.Length > 0 ? $" data-bind-value='{path}'" : "") +
+        // Which side this thumb is, and where its neighbour's value lives. The engine needs both to
+        // handle a press landing where the two coincide: only the thumb painted last is hit-testable
+        // there, so without this the other could never be dragged off it again.
+        $" data-drag-side='{which}'" +
+        (peer.Length > 0 ? $" data-peer-path='{peer}'" : "") +
         $" min='{F(min)}' max='{F(max)}'" +
         (clampMin is { } lo ? $" data-clamp-min='{F(lo)}'" : "") +
         (clampMax is { } hi ? $" data-clamp-max='{F(hi)}'" : "") +
