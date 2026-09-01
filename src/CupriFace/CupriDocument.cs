@@ -1698,7 +1698,13 @@ public sealed partial class CupriDocument : IDisposable
     /// field is focused, so a bare <c>"Enter"</c> binding cannot eat a newline being typed. Escape is the
     /// exception: it fires below the engine's own dismissals (a menu, an open overlay and video fullscreen
     /// each win) but above the plain blur, so it still means "cancel" while a field has focus.
-    /// The host must deliver the chord — the built-in Web/Viewer hosts forward Ctrl/Cmd + letter.</summary>
+    /// The host must deliver the chord — the built-in Web/Viewer hosts forward Ctrl/Cmd + letter.
+    ///
+    /// <para>A modifier plus <c>"Tab"</c> is delivered on desktop and Android but, in practice, never in
+    /// a browser: Ctrl+Tab and Ctrl+Shift+Tab switch browser tabs and Alt+Tab belongs to the window
+    /// manager, so the keydown does not reach the page at all and <c>preventDefault</c> cannot claim it.
+    /// The hosts forward the modifiers correctly (#96) — the platform is what withholds the chord, which
+    /// is why this is documented rather than refused: the same registration works elsewhere.</para></summary>
     /// <exception cref="ArgumentException">The key can never be delivered, so the binding would be dead:
     /// anything that is neither a single character nor one of the names above. Two shipped features once
     /// did nothing for weeks behind exactly that silence (#88), so it fails at the call site instead.</exception>

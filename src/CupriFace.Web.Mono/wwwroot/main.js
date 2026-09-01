@@ -302,7 +302,11 @@ try {
             // took it, so unbound chords (Ctrl+F/P/…) still reach the browser.
             if (k.length === 1 && I.KeyChord(k, mods)) { e.preventDefault(); return; }
         }
-        if (e.key === 'Tab') { I.EditKeyPress(e.shiftKey ? EK.ShiftTab : EK.Tab, 0); e.preventDefault(); return; }
+        // Shift is carried by the KEY here (ShiftTab), not by mods — but the other modifiers
+        // still have to travel, exactly as they do for every other named key on the line below.
+        // Passing a literal 0 made OnShortcut(Ctrl, "Tab", …) a registration that could fire on
+        // desktop and Android and never in a browser (#96).
+        if (e.key === 'Tab') { I.EditKeyPress(e.shiftKey ? EK.ShiftTab : EK.Tab, mods); e.preventDefault(); return; }
         if (e.key in EK) { I.EditKeyPress(EK[e.key], mods); e.preventDefault(); return; }
         if (e.key.length === 1 && !ctrl) { I.KeyChar(e.key); e.preventDefault(); }
     });
