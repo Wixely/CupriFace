@@ -120,6 +120,16 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         }
     }
 
+    /// <summary>Nudge the window by a delta, for a frameless window being dragged by an element that
+    /// stands in for its missing title bar. A delta rather than a destination because that is what the
+    /// engine can report — it knows how far the pointer travelled, not where the window sits.</summary>
+    public void MoveBy(int dx, int dy)
+    {
+        if (_window is null) return;
+        var (x, y) = ScreenPosition;
+        _sdl.SetWindowPosition(_window, x + dx, y + dy);
+    }
+
     /// <summary>True while the window is fullscreen (see <see cref="SetFullscreen"/>).</summary>
     public bool IsFullscreen { get; private set; }
 

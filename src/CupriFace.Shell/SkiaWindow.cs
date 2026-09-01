@@ -52,6 +52,15 @@ public sealed class SkiaWindow : IDisposable
     /// is exactly the origin pointer coordinates are relative to).</summary>
     public (int X, int Y) ScreenPosition => _window is { } w ? (w.Position.X, w.Position.Y) : (0, 0);
 
+    /// <summary>Nudge the window by a delta, for a frameless window being dragged by an element that
+    /// stands in for its missing title bar. A delta rather than a destination because that is what the
+    /// engine can report — it knows how far the pointer travelled, not where the window sits.</summary>
+    public void MoveBy(int dx, int dy)
+    {
+        if (_window is not { } w) return;
+        w.Position = new Silk.NET.Maths.Vector2D<int>(w.Position.X + dx, w.Position.Y + dy);
+    }
+
     /// <summary>True while the window is OS-fullscreen (see <see cref="SetFullscreen"/>).</summary>
     public bool IsFullscreen => _window?.WindowState == WindowState.Fullscreen;
 

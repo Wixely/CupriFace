@@ -13,6 +13,19 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Added
+
+- **`data-window-drag` — the title bar a frameless window does not have.** Mark an element with it
+  and a drag there moves the OS window: the engine reports how far the pointer has travelled through
+  the new `doc.WindowMoveRequested`, and the host adds that to the window's position. Same
+  engine→host split as `WindowCommandRequested` — a host with no window to move (a browser page, an
+  Android activity) simply does not subscribe, and the press is then left to whatever else wanted it
+  rather than swallowed by a drag that could never do anything. The handle shows a grab cursor, but
+  only while a host is listening. Both desktop windows gained `MoveBy`; the `TransparentHud` sample
+  now has a real title bar.
+
 ## v0.13.0
 
 ### Added
