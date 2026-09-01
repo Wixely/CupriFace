@@ -45,9 +45,12 @@ body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; -
 .sidebar.collapsed .side-toggle cupri-switch { display:none; }
 /* Phone widths: this is a DESKTOP demo that a phone can now reach (the mobile sample opens it from
    its About page), and several blocks are wider than the screen — the image frame, the charts, the
-   fixed-width cards. Horizontal scrolling is not the answer today: the engine's touch recognizer
-   only scrolls vertically, so a horizontal scroller would be undraggable by finger. Until that
-   lands, the wide pieces shrink to fit instead of running off the edge. */
+   fixed-width cards. They shrink to fit rather than running off the edge.
+   That is now a CHOICE, not a limitation. This comment used to say a horizontal scroller would be
+   undraggable by finger because the touch recognizer only scrolled vertically; the second axis
+   landed, and the comment outlived it by long enough to talk a carousel out of existing. A chart
+   squeezed onto a phone still reads better than a chart you have to drag sideways, so the shrinking
+   stays — but see the Components page for cupri-carousel, which is what sideways scrolling is for. */
 /* Two charts sharing a row. The floor is a CLASS, not an inline style, because an inline style
    wins over every rule below — which is exactly why the first attempt at this did nothing. */
 .pair { flex:1; min-width:230px; }

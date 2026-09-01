@@ -17,6 +17,11 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **`cupri-carousel`** (with `cupri-slide`) — a horizontal strip that scrolls sideways by finger,
+  wheel or fling. It is a scroll container rather than a widget with its own gesture code, so the
+  second scrolling axis does the work. `slide-width` fixes the panel width; `peek` sizes panels
+  against the container so a sliver of the next one shows.
+
 - **Five controls**: `cupri-breadcrumb` (with `cupri-crumb`), `cupri-toolbar` (with
   `cupri-toolbar-group` and `cupri-toolbar-sep`), `cupri-form`, `cupri-range` and `cupri-taginput`.
   A breadcrumb's last crumb is the page you are on, so it renders as text with `aria-current` rather
@@ -42,6 +47,15 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   thumb.
 
 ### Fixed
+
+- **`flex: none` works.** The `flex` shorthand parsed only numbers, so the keyword forms — `none`,
+  `auto`, `initial` — matched nothing and left the item at the default `flex-shrink: 1`. `flex: none`
+  read as working everywhere it was written and silently did not, including in this repository's own
+  sidebar. **What to do:** nothing, unless a layout was relying on an item shrinking despite asking
+  not to.
+
+- **`cupri-taginput` takes back the last tag on Backspace** when the entry is empty — the tag-box
+  idiom. While there is text to delete, Backspace still deletes text.
 
 - **A `cupri-range` whose thumbs sit on the same value can be dragged apart again.** Only the thumb
   painted last is hit-testable where two coincide, so every press there grabbed the same one and the

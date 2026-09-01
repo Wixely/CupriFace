@@ -243,6 +243,14 @@ doc.RenderToImage(800, 600);
           <div style="height:60px"></div>
         </div>
 
+        <div class="mlabel" style="margin-top:18px">Carousel — drag it sideways with a finger, or shift-scroll</div>
+        <cupri-carousel label="Featured" peek="46" gap="12" height="128">
+          <cupri-slide><b>Damage-clipped painting</b><div class="lbl" style="margin-top:6px">Only the changed rectangle is re-uploaded — at any scale, since v0.11.0.</div></cupri-slide>
+          <cupri-slide><b>One markup, three hosts</b><div class="lbl" style="margin-top:6px">The same CupriApp runs on desktop, Android and in a browser.</div></cupri-slide>
+          <cupri-slide><b>No browser engine</b><div class="lbl" style="margin-top:6px">AngleSharp for the DOM, a managed layout pass, SkiaSharp for pixels.</div></cupri-slide>
+          <cupri-slide><b>Two scrolling axes</b><div class="lbl" style="margin-top:6px">Fling, overscroll and axis-locking, which is what this strip is riding on.</div></cupri-slide>
+        </cupri-carousel>
+
         <div class="mlabel" style="margin-top:18px">Breadcrumb — the trail up; the last crumb is where you are</div>
         <cupri-breadcrumb value="{{Crumb}}">
           <cupri-crumb value="root">Home</cupri-crumb>
