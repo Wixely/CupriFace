@@ -242,6 +242,48 @@ doc.RenderToImage(800, 600);
           <div id="a-gamma" style="font-weight:bold">Gamma</div>
           <div style="height:60px"></div>
         </div>
+
+        <div class="mlabel" style="margin-top:18px">Breadcrumb — the trail up; the last crumb is where you are</div>
+        <cupri-breadcrumb value="{{Crumb}}">
+          <cupri-crumb value="root">Home</cupri-crumb>
+          <cupri-crumb value="reports">Reports</cupri-crumb>
+          <cupri-crumb>March</cupri-crumb>
+        </cupri-breadcrumb>
+
+        <div class="mlabel" style="margin-top:18px">Toolbar — one group to a screen reader; <b>push</b> pins a cluster right</div>
+        <cupri-toolbar label="Formatting">
+          <cupri-toolbar-group>
+            <cupri-button variant="ghost">Bold</cupri-button>
+            <cupri-button variant="ghost">Italic</cupri-button>
+          </cupri-toolbar-group>
+          <cupri-toolbar-sep></cupri-toolbar-sep>
+          <cupri-toolbar-group>
+            <cupri-icon-button icon="copy"></cupri-icon-button>
+            <cupri-icon-button icon="trash"></cupri-icon-button>
+          </cupri-toolbar-group>
+          <cupri-toolbar-group push>
+            <cupri-button>Publish</cupri-button>
+          </cupri-toolbar-group>
+        </cupri-toolbar>
+
+        <div class="mlabel" style="margin-top:18px">Range — two thumbs that cannot cross; drag either</div>
+        <div class="row">
+          <cupri-range low="{{PriceFrom}}" high="{{PriceTo}}" min="0" max="500" style="width:320px"></cupri-range>
+          <span class="lbl">£{{PriceFrom}} – £{{PriceTo}}</span>
+        </div>
+
+        <div class="mlabel" style="margin-top:18px">Tag input — type and press Enter; click × to remove</div>
+        <cupri-taginput value="{{Tags}}" placeholder="Add a tag…" style="max-width:420px"></cupri-taginput>
+
+        <div class="mlabel" style="margin-top:18px">Form — its own validation scope, and its own submit</div>
+        <cupri-form name="demo" style="max-width:420px">
+          <cupri-textfield value="{{FormName}}" placeholder="Name" required error="Please tell us your name"></cupri-textfield>
+          <cupri-textfield value="{{FormEmail}}" placeholder="Email" pattern="[^@ ]+@[^@ ]+\.[^@ ]+" error="Enter a valid email address"></cupri-textfield>
+          <div class="row" style="margin:0">
+            <cupri-button class="form-submit">Submit this form</cupri-button>
+            <span class="lbl">{{FormStatus}}</span>
+          </div>
+        </cupri-form>
       </div>
 
       <!-- CHARTS -->

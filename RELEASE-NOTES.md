@@ -15,6 +15,32 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ## Unreleased
 
+### Added
+
+- **Five controls**: `cupri-breadcrumb` (with `cupri-crumb`), `cupri-toolbar` (with
+  `cupri-toolbar-group` and `cupri-toolbar-sep`), `cupri-form`, `cupri-range` and `cupri-taginput`.
+  A breadcrumb's last crumb is the page you are on, so it renders as text with `aria-current` rather
+  than a link to here. A toolbar is one `role="toolbar"` group, and a group marked `push` takes the
+  free space before it. A range is two thumbs that cannot cross. A tag input takes a comma-separated
+  value: type and press Enter to add, click a chip's × to remove.
+
+- **`doc.Validate("formName")`** validates only the fields inside that `<cupri-form name="…">`, and
+  reveals only that form's errors. `ValidateAll()` is unchanged and still document-wide — two forms
+  on one page previously could not be submitted apart, because validating one reported AND displayed
+  the other's errors.
+
+- **`<cupri-form name="…">` is a submit scope as well as a validation scope.** It emits
+  `data-cupri-form`, which is what `OnSubmit` bubbles to, so `doc.OnSubmit("data-cupri-form", …)`
+  hands you the form's name in `e.Value` and Enter in any single-line field inside it submits that
+  form. The boundary an app previously spelled with a hand-chosen `data-` attribute is now a
+  declaration.
+
+- **A slider thumb can take its drag geometry from an ancestor marked `data-slider-track`**, and can
+  be limited by `data-clamp-min`/`data-clamp-max` separately from the `min`/`max` it is measured on.
+  Both exist for `cupri-range`, where two thumbs share one track and bound each other: the scale must
+  stay the whole range or the pointer stops landing where you point, while the limit is the other
+  thumb.
+
 ### Fixed
 
 - **A child of a padded `<body>` now gets the body's content width.** The root was laid out with its

@@ -67,6 +67,17 @@ public sealed class ShowcaseApp : CupriApp
         // element's behaviour), so this never double-toggles.
         doc.OnClick(".side-toggle", _ => _model.DarkMode = !_model.DarkMode);
         doc.OnClick(".act-submit", _ => _model.FormOk = doc.ValidateAll());
+        // The new <cupri-form> validates ITS OWN fields — the Inputs page's half-filled signup box
+        // beside it stays quiet, which document-wide ValidateAll could not manage.
+        doc.OnClick(".form-submit", _ =>
+            _model.FormStatus = doc.Validate("demo") ? "Looks good" : "Check the fields above");
+        // …and the same attribute is the submit scope, so Enter in either field submits the form and
+        // says which one it was.
+        doc.OnSubmit("data-cupri-form", e =>
+        {
+            _model.FormStatus = doc.Validate(e.Value) ? $"Sent ({e.Value})" : "Check the fields above";
+            return true;
+        });
         doc.OnClick(".swatch", e => { if (e.Element.GetAttribute("data-accent") is { } a) _model.Accent = a; });
         doc.OnClick(".ctx-act", e => { if (e.Element.GetAttribute("data-action") is { } a) _model.CtxAction = a; });
         void OpenPalette() { _model.PaletteQuery = ""; _model.PaletteOpen = true; }
@@ -185,6 +196,15 @@ public sealed partial class ShowcaseModel
     public string NavKeyboard => Section == "keyboard" ? "active" : "";
     public string NavSettings => Section == "settings" ? "active" : "";
     public string NavDiag => Section == "diag" ? "active" : "";
+
+    // ---- Components section: the newer controls -----------------------------
+    public string Crumb { get; set; } = "march";
+    public double PriceFrom { get; set; } = 80;
+    public double PriceTo { get; set; } = 340;
+    public string Tags { get; set; } = "design,engine";
+    public string FormName { get; set; } = "";
+    public string FormEmail { get; set; } = "";
+    public string FormStatus { get; set; } = "";
 
     // ---- Keyboard section ---------------------------------------------------
     // Everything below is reachable from the keyboard alone, which is the point of the page: Tab

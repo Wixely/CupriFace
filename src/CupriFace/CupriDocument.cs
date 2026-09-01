@@ -61,6 +61,7 @@ public sealed partial class CupriDocument : IDisposable
     private bool _focusMultiline; // focused field is a textarea (Enter inserts a newline)
     private bool _focusMask;    // focused field masks its text (data-mask, e.g. <cupri-password>)
     private bool _focusSubmitOnEnter; // focused field submits on Enter (Shift+Enter still inserts)
+    private string? _focusTagList;    // focused field appends to this comma-separated path on Enter
     private int _maskRevealPos = -1;          // index of a masked char being briefly "peeked" after typing; -1 = none
     // IME composition (preedit): a marked range INSIDE _editBuffer — rendered underlined, never
     // committed to the model until the IME says so. -1 start = no composition.
@@ -2867,6 +2868,7 @@ public sealed partial class CupriDocument : IDisposable
         _focusMultiline = field?.HasAttribute("data-multiline") == true;
         _focusMask = field?.HasAttribute("data-mask") == true;
         _focusSubmitOnEnter = field?.HasAttribute("data-submit-on-enter") == true;
+        _focusTagList = field?.GetAttribute("data-tag-list");
         // The same vocabulary the web platform uses, so one authored attribute drives Android's
         // EditorInfo and the web host's inputmode/enterkeyhint alike.
         _focusInputMode = field?.GetAttribute("inputmode") ?? "";
@@ -3245,6 +3247,16 @@ public sealed partial class CupriDocument : IDisposable
                 // typed. Focus is deliberately kept — a composer goes on composing after it sends.
                 // Nothing claimed it → fall through to the ordinary Enter below, so an unhandled
                 // field behaves as it did rather than swallowing the key.
+                // A tag field claims Enter before any submit does: in a "type a tag, press Enter"
+                // control the key means "commit this tag", and letting it submit the surrounding form
+                // instead would send a half-filled form every time someone added a tag.
+                if (_focusTagList is { Length: > 0 } tagPath && !shift)
+                {
+                    var entry = (_editBuffer ?? "").Trim();
+                    if (entry.Length == 0) return true;              // Enter on an empty tag box: no-op
+                    if (AppendTag(tagPath, entry)) { _editBuffer = ""; _caret = _selAnchor = 0; Refresh(); }
+                    return true;
+                }
                 if ((_focusSubmitOnEnter || !_focusMultiline) && !shift)
                 {
                     var pending = _editBuffer;
@@ -3772,6 +3784,24 @@ public sealed partial class CupriDocument : IDisposable
 
     // Validate and commit the current edit buffer to the model, then clear it (blur). Marks the field
     // "touched" so its inline error can show now that the user has left it.
+    /// <summary>Append one entry to a comma-separated list at <paramref name="path"/>, refusing a
+    /// duplicate. A comma-joined string is the list shape because it round-trips through the same
+    /// binding a text field uses — a real collection would need the binder to write back into an
+    /// element of it, which is a bigger change than a tag box is worth.</summary>
+    private bool AppendTag(string path, string entry)
+    {
+        if (_model is null) return false;
+        entry = entry.Replace(",", " ").Trim();          // a comma inside an entry would split it in two
+        if (entry.Length == 0) return false;
+
+        var current = BindingEngine.Resolve(_model, path)?.ToString() ?? "";
+        foreach (var existing in current.Split(',', StringSplitOptions.RemoveEmptyEntries))
+            if (string.Equals(existing.Trim(), entry, StringComparison.OrdinalIgnoreCase))
+                return false;                            // already there: adding it twice is never meant
+
+        return BindingEngine.TrySet(_model, path, current.Trim().Length == 0 ? entry : current + "," + entry);
+    }
+
     private void CommitBuffer()
     {
         if (_focusKey is not null && _editBuffer is not null && _model is not null
@@ -3784,13 +3814,27 @@ public sealed partial class CupriDocument : IDisposable
     // Inline validation: for each bound field with rules that is invalid AND has been visited (or the form
     // was submitted), flag it invalid and inject an error message after it. The focused field is left to
     // its mid-edit red border (no message while you're still typing in it).
+    /// <summary>Is this field inside the named <c>&lt;cupri-form&gt;</c>? Walked rather than selected,
+    /// because the caller already has the element and a selector per field would re-query the DOM.</summary>
+    private static bool InForm(IElement field, string formName)
+    {
+        for (IElement? e = field; e is not null; e = e.ParentElement)
+            if (e.GetAttribute("data-cupri-form") == formName) return true;
+        return false;
+    }
+
     private void ApplyValidation(IDocument dom)
     {
         foreach (var field in dom.QuerySelectorAll("[data-bind-value]"))
         {
             if (!FieldValidation.HasRules(field)) continue;
             var key = field.GetAttribute("data-bind-value")!;
-            if (key == _focusKey || (!_validateAll && !_touched.Contains(key))) continue;
+            if (key == _focusKey) continue;
+            // A field is revealed because it was visited, or because a submit asked for every error.
+            // A SCOPED submit asks only for its own form's: without this a Validate("login") would
+            // still light up the signup box beside it, which is the thing scoping exists to stop.
+            var bySubmit = _validateAll && (_validateScope is null || InForm(field, _validateScope));
+            if (!bySubmit && !_touched.Contains(key)) continue;
             if (FieldValidation.Evaluate(field, field.GetAttribute("value") ?? "") is not { } error) continue;
 
             field.SetAttribute("data-invalid", "");
@@ -3803,16 +3847,39 @@ public sealed partial class CupriDocument : IDisposable
 
     /// <summary>Reveal every validated field's inline error (mark all fields touched) and re-render — call
     /// from a form's submit handler. Returns true when every field is currently valid.</summary>
-    public bool ValidateAll()
+    public bool ValidateAll() => ValidateScope(null);
+
+    /// <summary>Validate only the fields inside one <c>&lt;cupri-form name="…"&gt;</c>, rather than
+    /// every bound field on the page.
+    ///
+    /// <para>A page with two independent forms could not be validated a form at a time:
+    /// <see cref="ValidateAll"/> is document-wide, so submitting the login box reported the
+    /// half-finished signup box's errors as well — and showed them, since validation reveals every
+    /// field it checks. Naming the form is how you say which one you meant.</para>
+    ///
+    /// <para>An unknown name validates nothing and returns true, which is the same answer a form with
+    /// no rules gives.</para></summary>
+    public bool Validate(string formName) => ValidateScope(formName);
+
+    private bool ValidateScope(string? formName)
     {
+        _validateScope = formName;
         _validateAll = true;
         Rebuild();
         if (_dom is null) return true;
-        foreach (var field in _dom.QuerySelectorAll("[data-bind-value]"))
+        var fields = formName is null
+            ? _dom.QuerySelectorAll("[data-bind-value]")
+            : _dom.QuerySelectorAll($"[data-cupri-form=\"{formName}\"] [data-bind-value]");
+        foreach (var field in fields)
             if (FieldValidation.HasRules(field) && FieldValidation.Evaluate(field, field.GetAttribute("value") ?? "") is not null)
                 return false;
         return true;
     }
+
+    // Which form's fields the pending "show every error" pass applies to (null = the whole document).
+    // Without this a scoped Validate would still light up every field on the page, because the
+    // message-injection pass below is what actually reveals them.
+    private string? _validateScope;
 
     // The player a video-seek slider controls: the element marks itself data-video-role='seek'
     // and its enclosing <cupri-video> names the src. Null when it isn't a seek bar (or the video
@@ -3841,6 +3908,7 @@ public sealed partial class CupriDocument : IDisposable
             _dragMin = 0;
             _dragMax = Math.Max(seekPlayer.Duration, 0.01);
             _dragPath = null;
+            _dragClampMin = _dragClampMax = null;
             _dragSeek = seekPlayer;
             return ApplySliderValue(x);
         }
@@ -3848,24 +3916,48 @@ public sealed partial class CupriDocument : IDisposable
         var path = el.GetAttribute("data-bind-value");
         if (path is null || _model is null) return false;
 
-        var box = HitTesting.AbsoluteBox(node);
+        // A thumb may take its geometry from an ancestor TRACK instead of itself. A range slider has
+        // two thumbs sharing one track, so each is its own role=slider — separately focusable, with
+        // its own aria-valuenow, and nudged by the existing arrow handling — but mapping the pointer
+        // across an 18px thumb would make it undraggable. The track is the scale; the thumb is just
+        // the grab handle.
+        var geomNode = node;
+        for (var p = node; p is not null; p = p.Parent)
+            if (p.Element?.HasAttribute("data-slider-track") == true) { geomNode = p; break; }
+
+        // Box AND insets both come from whichever node supplies the scale — mixing the track's box
+        // with the thumb's padding would offset every value by the thumb's own inset.
+        var box = HitTesting.AbsoluteBox(geomNode);
         _dragging = true;
         _dragX0 = box.X;
-        _dragPad = node.ContentLeftInset;
-        _dragInnerW = box.W - node.HorizontalInsets;
+        _dragPad = geomNode.ContentLeftInset;
+        _dragInnerW = box.W - geomNode.HorizontalInsets;
+        // min/max are the SCALE — what the track's width represents. They must stay the full range
+        // even for a thumb that cannot reach all of it, or the pointer stops landing where you point:
+        // scaling a range thumb across only its permitted span put a drag to 60% of the track at 60%
+        // of what was left, which is a different number and visibly wrong under the cursor.
         _dragMin = ParseAttr(el, "min", 0);
         _dragMax = ParseAttr(el, "max", 100);
+        // …and the LIMIT is separate, for a thumb bounded by something other than the scale — the
+        // other thumb of a range. Absent on an ordinary slider, where the scale is the limit.
+        _dragClampMin = el.HasAttribute("data-clamp-min") ? ParseAttr(el, "data-clamp-min", _dragMin) : null;
+        _dragClampMax = el.HasAttribute("data-clamp-max") ? ParseAttr(el, "data-clamp-max", _dragMax) : null;
         _dragPath = path;
         _dragSeek = null;
         return ApplySliderValue(x);
     }
 
     private Media.IVideoPlayer? _dragSeek; // the seek bar's player while a scrub drag is live
+    // A bound the dragged thumb may not pass, distinct from the scale it is measured on.
+    private double? _dragClampMin, _dragClampMax;
 
     private bool ApplySliderValue(float x)
     {
         var ratio = _dragInnerW > 0 ? Math.Clamp((x - _dragX0 - _dragPad) / _dragInnerW, 0, 1) : 0;
         var value = _dragMin + ratio * (_dragMax - _dragMin);
+        // A thumb may be limited by something other than the scale — the other thumb of a range.
+        if (_dragClampMin is { } lo) value = Math.Max(value, lo);
+        if (_dragClampMax is { } hi) value = Math.Min(value, hi);
         if (_dragSeek is { } seek)
         {
             seek.Position = value;   // unrounded: sub-second scrubbing

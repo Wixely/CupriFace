@@ -121,6 +121,9 @@ public sealed class ComponentRegistry
         .Register(new SegmentedComponent())
         .Register(new SegmentComponent())
         .Register(new PaginationComponent())
+        .Register(new RangeComponent())
+        .Register(new TagInputComponent())
+        .Register(new FormComponent())
         // Content
         .Register(new ImageComponent())
         .Register(new VideoComponent())
@@ -144,6 +147,11 @@ public sealed class ComponentRegistry
         .Register(new HeatmapComponent())
         .Register(new HeatCellComponent())
         // Navigation & disclosure
+        .Register(new BreadcrumbComponent())
+        .Register(new CrumbComponent())
+        .Register(new ToolbarComponent())
+        .Register(new ToolbarGroupComponent())
+        .Register(new ToolbarSeparatorComponent())
         .Register(new TabsComponent())
         .Register(new AccordionComponent())
         .Register(new AccordionItemComponent())
