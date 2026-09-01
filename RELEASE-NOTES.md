@@ -26,6 +26,14 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   only while a host is listening. Both desktop windows gained `MoveBy`; the `TransparentHud` sample
   now has a real title bar.
 
+### Fixed
+
+- **A grab cursor no longer looks like a link on the desktop.** Both desktop windows folded
+  `CursorType.Grab` and `Grabbing` in with `Pointer`, so every drag handle — a window title bar, a
+  reorder grip — reached the OS as the same pointing hand a hyperlink gets, and read as clickable
+  rather than draggable. Neither GLFW nor SDL has an open/closed hand, so they now map to the
+  four-way move arrow: not a true grab, but at least not a link.
+
 ## v0.13.0
 
 ### Added

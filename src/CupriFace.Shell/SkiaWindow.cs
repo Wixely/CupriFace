@@ -383,10 +383,15 @@ public sealed class SkiaWindow : IDisposable
         _lastCursor = c;
         var shape = c switch
         {
-            CupriFace.Style.CursorType.Pointer or CupriFace.Style.CursorType.Grab or CupriFace.Style.CursorType.Grabbing => StandardCursor.Hand,
+            CupriFace.Style.CursorType.Pointer => StandardCursor.Hand,
+            // Neither GLFW nor SDL has an open/closed hand, so grab used to fall in with Pointer —
+            // which made a drag handle look exactly like a hyperlink. The four-way move arrow is the
+            // closest thing either platform has to "this can be dragged", and it is at least DIFFERENT
+            // from a link, which is the part that was actually missing.
+            CupriFace.Style.CursorType.Grab or CupriFace.Style.CursorType.Grabbing
+                or CupriFace.Style.CursorType.Move => StandardCursor.ResizeAll,
             CupriFace.Style.CursorType.Text => StandardCursor.IBeam,
             CupriFace.Style.CursorType.Crosshair => StandardCursor.Crosshair,
-            CupriFace.Style.CursorType.Move => StandardCursor.ResizeAll,
             CupriFace.Style.CursorType.NotAllowed => StandardCursor.NotAllowed,
             CupriFace.Style.CursorType.EwResize => StandardCursor.HResize,
             CupriFace.Style.CursorType.NsResize => StandardCursor.VResize,
