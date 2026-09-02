@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/samples/">
     <Project Path="samples/AgentDebug/AgentDebug.csproj" />
+    <Project Path="samples/AndroidLottie/AndroidLottie.csproj" />
     <Project Path="samples/AndroidViewer/AndroidViewer.csproj" />
     <Project Path="samples/BidiText/BidiText.csproj" />
     <Project Path="samples/Controls/Controls.csproj" />
