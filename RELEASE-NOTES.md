@@ -40,8 +40,9 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   `samples/WebLottie` (Mono) and `samples/WebLlvmLottie` (NativeAOT-LLVM), the latter being the
   strict test since NativeAOT links statically and a missing symbol fails the link. On the web it
   costs **+408 KB of raw wasm, +119 KB gzipped (2.3%)**, measured as the same app with and without
-  the package. Android is unblocked — the entry points are in all four ABIs — but has no sample yet,
-  and neither web sample has been driven in a real browser.
+  the package. **Confirmed rendering in real Chromium** on the NativeAOT-LLVM host, by the browser
+  gate: the spinner is on the canvas and the canvas keeps changing, with no console errors.
+  Android is unblocked — the entry points are in all four ABIs — but has no sample yet.
 
 - **`doc.OnRebuilt(handler)`** — run a handler after each rebuild, once components have expanded, the
   moment the engine wires its own video players. This is what a surface producer living outside the
