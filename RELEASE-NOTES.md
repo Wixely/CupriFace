@@ -36,7 +36,9 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   Skia, and `SkiaSharp.Skottie` (MIT) is managed bindings over the same `libSkiaSharp` the engine
   already loads — so unlike `CupriFace.Media` there are no per-RID builds. It is still opt-in, since
   most apps do not play Lottie. `samples/LottieDemo` shows it with an original MIT-licensed spinner.
-  Desktop-tested; reach on Android and the WASM hosts is not yet proven.
+  End-to-end tested on desktop. The native entry points are present in the WASM and Android
+  SkiaSharp builds too, so neither is blocked — but the web hosts do not register the element
+  yet and the wasm payload cost is unmeasured, so neither is claimed to work.
 
 - **`doc.OnRebuilt(handler)`** — run a handler after each rebuild, once components have expanded, the
   moment the engine wires its own video players. This is what a surface producer living outside the
