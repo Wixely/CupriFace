@@ -14,6 +14,14 @@
     <RootNamespace>CupriFace.Tools.Serve</RootNamespace>
     <!-- Nothing here is shipped; keep it out of any package or publish flow. -->
     <IsPackable>false</IsPackable>
+    <!-- No apphost, so there is no Serve.exe for a still-running instance to hold open.
+         `dotnet run` rebuilds before it launches, and the build's copy of the apphost over
+         bin/Serve.exe fails outright while ANY earlier Serve is alive — which is routine, because a
+         VS Code background task outlives the debug session that started it. The symptom is the worst
+         kind: the browser opens on ERR_CONNECTION_REFUSED and the reason is ten screens of MSB3026
+         retries in a task pane nobody reads. Without an apphost the launch is `dotnet Serve.dll`,
+         nothing is locked, and a stale server costs a port at most. -->
+    <UseAppHost>false</UseAppHost>
   </PropertyGroup>
 
 </Project>

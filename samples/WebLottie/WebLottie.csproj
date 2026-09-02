@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+
+  <!--
+    The raw-WASM sample WITH the optional Lottie package, to prove Skottie survives the Emscripten link: the WebAssembly SDK,
+    a reference to the host, and a reference to the app. Compare against git history — this file
+    used to carry the Skia/HarfBuzz wasm natives, the WasmBuildNative switch, the font embedding
+    and an AOT workaround for a bug in CupriFace's own code. All of that is the host's now (#73).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
+    <!-- AOT-compile managed code to WASM, opt-in: `dotnet publish -c Release -p:Aot=true`.
+         Gated behind an explicit property (NOT Configuration) so plain builds/runs never mix with
+         AOT artifacts in obj/ — a prior AOT publish poisoning obj/ makes a later `dotnet run`
+         render a blank canvas. Emit a symbol map so wasm-function[N] frames in crash stacks can be
+         resolved to real names. The host's buildTransitive targets supply the interpreter
+         workaround that AOT needs; a nupkg consumer gets it without knowing it exists. -->
+    <RunAOTCompilation Condition="'$(Aot)' == 'true'">true</RunAOTCompilation>
+    <WasmEmitSymbolMap Condition="'$(Aot)' == 'true'">true</WasmEmitSymbolMap>
+    <!-- Strip debug names/DWARF from the (large) AOT wasm: much smaller download and faster
+         browser instantiation. Crash indices still resolve via the emitted .symbols map. -->
+    <WasmNativeDebugSymbols Condition="'$(Aot)' == 'true'">false</WasmNativeDebugSymbols>
+  </PropertyGroup>
+
+  <!-- buildTransitive does not cross ProjectReference edges, so a repo-internal app has to bring
+       these in itself. IMPORT them rather than copy them: a duplicated block would mean the files a
+       nupkg consumer actually gets are never exercised by our own build, so they could rot and CI
+       would stay green. This way the sample IS the test of them. -->
+  <Import Project="..\..\src\CupriFace.Web.Mono\buildTransitive\CupriFace.Web.Mono.props" />
+  <Import Project="..\..\src\CupriFace.Web.Mono\buildTransitive\CupriFace.Web.Mono.targets" />
+
+  <ItemGroup>
+    <!-- The browser host, and the SAME app the desktop Viewer and the Android host run. -->
+    <ProjectReference Include="..\..\src\CupriFace.Web.Mono\CupriFace.Web.Mono.csproj" />
+    <!-- The optional package, opted into by a WEB app. This sample exists to answer one question:
+         do Skottie's native entry points survive the Emscripten link, and what does that cost?
+         WebWasm next door is the same app WITHOUT it, so the two publish sizes are the answer. -->
+    <ProjectReference Include="..\..\src\CupriFace.Lottie\CupriFace.Lottie.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\**\*" />
+  </ItemGroup>
+
+</Project>

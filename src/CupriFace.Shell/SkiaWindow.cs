@@ -391,12 +391,21 @@ public sealed class SkiaWindow : IDisposable
             CupriFace.Style.CursorType.Grab or CupriFace.Style.CursorType.Grabbing
                 or CupriFace.Style.CursorType.Move => StandardCursor.ResizeAll,
             CupriFace.Style.CursorType.Text => StandardCursor.IBeam,
+            // Present in GLFW all along and simply never mapped here, while the SDL window has mapped
+            // both since it was written — so a busy app showed an hourglass on one desktop path and an
+            // arrow on the other. The two tables are now checked against each other by a test.
+
+            CupriFace.Style.CursorType.Wait => StandardCursor.Wait,
+            CupriFace.Style.CursorType.Progress => StandardCursor.WaitArrow,
             CupriFace.Style.CursorType.Crosshair => StandardCursor.Crosshair,
             CupriFace.Style.CursorType.NotAllowed => StandardCursor.NotAllowed,
             CupriFace.Style.CursorType.EwResize => StandardCursor.HResize,
             CupriFace.Style.CursorType.NsResize => StandardCursor.VResize,
             CupriFace.Style.CursorType.NwseResize => StandardCursor.NwseResize,
             CupriFace.Style.CursorType.NeswResize => StandardCursor.NeswResize,
+            // Help (the arrow-and-question-mark) has no GLFW or SDL standard cursor, so it falls
+            // through here on purpose rather than by omission — the one CursorType neither desktop
+            // path can honour.
             _ => StandardCursor.Default,
         };
         foreach (var m in mice) { m.Cursor.Type = Silk.NET.Input.CursorType.Standard; m.Cursor.StandardCursor = shape; }

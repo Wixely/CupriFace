@@ -20,6 +20,17 @@
       "browserAttachLocation": "workspace"
     },
     {
+      // The optional Lottie package running on the NativeAOT-LLVM web host. Its own port so it can
+      // sit alongside the plain WebLlvm sample rather than fighting it for 5230.
+      "name": "Web (NativeAOT-LLVM) — Lottie",
+      "type": "msedge",
+      "request": "launch",
+      "url": "http://127.0.0.1:5231",
+      "webRoot": "${workspaceFolder}/samples/WebLlvmLottie/bin/Release/net10.0/browser-wasm/publish",
+      "preLaunchTask": "serve-webllvmlottie",
+      "browserAttachLocation": "workspace"
+    },
+    {
       "name": "Web (NativeAOT-LLVM, experimental) — browser",
       "type": "msedge",
       "request": "launch",
@@ -54,6 +65,19 @@
       "request": "launch",
       "preLaunchTask": "build",
       "program": "${workspaceFolder}/samples/Viewer/bin/Debug/net10.0/Viewer.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "stopAtEntry": false
+    },
+    {
+      // The optional CupriFace.Lottie package, opted into. Desktop only: Skottie rides the same
+      // libSkiaSharp the engine loads, which the desktop hosts have; the web hosts are untested.
+      "name": "LottieDemo — cupri-lottie (stays open)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${workspaceFolder}/samples/LottieDemo/bin/Debug/net10.0/LottieDemo.dll",
       "args": [],
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",

@@ -1166,6 +1166,7 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           for proj in src/CupriFace/CupriFace.csproj src/CupriFace.Shell/CupriFace.Shell.csproj \
                       src/CupriFace.Media/CupriFace.Media.csproj \
+                      src/CupriFace.Lottie/CupriFace.Lottie.csproj \
                       src/CupriFace.Android/CupriFace.Android.csproj \
                       src/CupriFace.Web.Mono/CupriFace.Web.Mono.csproj \
                       src/CupriFace.Web.NativeAot/CupriFace.Web.NativeAot.csproj; do

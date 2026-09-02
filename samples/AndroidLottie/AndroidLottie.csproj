@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Lottie on Android: the third host family the optional package runs on, after desktop
+       (samples/LottieDemo) and the two web hosts (samples/WebLottie, samples/WebLlvmLottie).
+
+       A sample of its OWN rather than a page in the shared MobileApp, for the reason LottieDemo
+       already gives: DemoApp is what the two WASM hosts build, so a Lottie reference there would put
+       Skottie into every web payload to demonstrate a feature that is meant to be opted into.
+
+       What this proves that a build cannot: Skottie's natives ship in all four Android ABIs, but a
+       resolved symbol is not a rendered frame. This APK is the thing that makes the Android claim as
+       real as the browser one. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-android</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <SupportedOSPlatformVersion>24.0</SupportedOSPlatformVersion>
+    <ApplicationId>com.cupriface.lottie</ApplicationId>
+    <ApplicationVersion>1</ApplicationVersion>
+    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <AndroidPackageFormat>apk</AndroidPackageFormat>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>CupriFace.Samples.AndroidLottie</RootNamespace>
+    <!-- CoreCLR is mandatory: Mono 10.0.11 crashes CupriFace at startup (a codegen defect —
+         forensics in samples/AndroidProbe/MONO-CRASH.md). The nupkg carries this default via
+         buildTransitive; a ProjectReference does not, hence explicit here, exactly as AndroidViewer
+         has to say it. -->
+    <UseMonoRuntime>false</UseMonoRuntime>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CupriFace.Android\CupriFace.Android.csproj" />
+    <ProjectReference Include="..\..\src\CupriFace.Lottie\CupriFace.Lottie.csproj" />
+  </ItemGroup>
+
+  <!-- Embedded, not an Android asset: the package's loader resolves a src against the calling
+       assembly's manifest resources, so the same "Assets/cupri-spinner.json" string works unchanged
+       on desktop, on the web and here. Nothing in this sample is Android-specific but the host. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\**\*" />
+  </ItemGroup>
+
+</Project>
