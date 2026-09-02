@@ -13,7 +13,7 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
-## Unreleased
+## v0.15.0
 
 ### Fixed
 
@@ -24,9 +24,14 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   deliberate exception rather than an omission. A test compares the two tables against the enum and
   against each other, so a cursor added to one window cannot go missing from the other.
 
-## Unreleased
-
-### Fixed
+- **A bound `autoplay` on `<cupri-lottie>` now actually pauses.** The player is deliberately kept
+  across rebuilds so an animation does not restart on every keystroke, but `autoplay` was read only
+  when the player was first opened — so a Pause button bound to it flipped the model, rewrote the DOM
+  and reached nothing. Independently: a bound C# bool renders as `"False"`, and the check was an
+  ORDINAL compare against `"false"`, so even the initial value was ignored. It is now re-read on
+  every rebuild and parsed case-insensitively, as a tri-state — an ABSENT `autoplay` means "no
+  opinion", so several elements sharing one animation (the surface key is the `src`) are controlled
+  only by the ones that ask for it.
 
 - **The web launch configurations start their server again.** `tools/Serve` produced a `Serve.exe`
   apphost, and `dotnet run` rebuilds before launching — so while ANY earlier server was alive the
@@ -51,7 +56,10 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   costs **+408 KB of raw wasm, +119 KB gzipped (2.3%)**, measured as the same app with and without
   the package. **Confirmed rendering in real Chromium on both web hosts** by the browser gate: the
   spinner is on the canvas and the canvas keeps changing, with no console errors.
-  Android is unblocked — the entry points are in all four ABIs — but has no sample yet.
+  **Proven on Android too**, by `samples/AndroidLottie` — an APK driven on a device rather than a
+  symbol table: playing, 53,199 pixels change over 400 ms; paused, exactly 0 change while the last
+  frame stays on screen; resumed, 40,336. Every `.so` in that APK is .NET's runtime or a library the
+  engine already loaded — there is no Skottie native, because there is none to ship.
 
 - **`doc.OnRebuilt(handler)`** — run a handler after each rebuild, once components have expanded, the
   moment the engine wires its own video players. This is what a surface producer living outside the
