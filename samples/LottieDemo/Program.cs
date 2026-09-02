@@ -7,10 +7,14 @@ using CupriFace.Shell;
 // UseLottie() on the registry teaches the app the <cupri-lottie> element, UseLottie() on the document
 // opens a player per animation and retires it when its element goes.
 //
-// The animation itself rides the engine's live-surface lane — the same path a <cupri-video> frame
-// takes — so object-fit sizing, damage-clipped repainting and render-on-demand all apply to it
-// without this sample (or the package) doing anything about them. A paused animation stops ticking
-// and the window goes idle again.
+// The animation rides the engine's live-surface lane, so object-fit sizing, damage-clipped
+// repainting and render-on-demand all apply to it without this sample (or the package) doing
+// anything about them. A paused animation stops ticking and the window goes idle again.
+//
+// It is the same lane a <cupri-video> frame takes HERE, on a desktop host. That is worth saying
+// carefully rather than generally: on the web hosts video is host-composited — the engine punches a
+// transparent hole and the browser decodes underneath — so there the two take different paths and
+// Lottie is the one the engine still draws itself.
 DesktopHost.Run(new LottieApp());
 
 sealed class LottieApp : CupriApp

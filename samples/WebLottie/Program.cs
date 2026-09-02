@@ -23,8 +23,10 @@ sealed class WasmLottieApp : CupriApp
             <div class="t">cupri-lottie, in a browser</div>
             <cupri-lottie src="Assets/cupri-spinner.json" width="140" height="140"
                           label="Loading"></cupri-lottie>
-            <p class="s">Skia renders this. The engine draws it through the same live-surface lane a
-              video frame takes, so nothing here is browser-specific.</p>
+            <p class="s">Skia renders this, inside the wasm module — the engine draws the frames
+              itself. A <b>video</b> on this host works the other way round: the engine punches a
+              transparent hole and the browser decodes and composites underneath it. So these are the
+              same pixels the desktop build produces, and no part of drawing them is the browser's.</p>
           </div>
         </body>
         """;

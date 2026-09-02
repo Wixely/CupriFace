@@ -6,10 +6,12 @@ namespace CupriFace.Lottie;
 /// <summary>
 /// <c>&lt;cupri-lottie src="…" loop autoplay width height&gt;</c> — an After Effects animation.
 ///
-/// <para>The element becomes a live surface, exactly as <c>cupri-video</c> does: it carries
+/// <para>The element becomes a live surface, registered the same way <c>cupri-video</c> is: it carries
 /// <c>data-cupri-surface</c> and the paint path draws whatever frame the player has published. That
 /// means <c>object-fit</c>, damage tracking and the render-on-demand cadence all come from the engine
-/// rather than being invented here.</para>
+/// rather than being invented here. Registration is where the likeness ends — a video on a web host
+/// is composited by the BROWSER under a transparent hole, whereas a Lottie is drawn by the engine on
+/// every host it runs on.</para>
 ///
 /// <para>The component only marks the element. Loading the JSON and producing frames is
 /// <see cref="LottiePlayer"/>'s job, wired by <c>doc.UseLottie()</c> — components expand markup and

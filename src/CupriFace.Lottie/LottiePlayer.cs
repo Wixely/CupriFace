@@ -9,8 +9,11 @@ namespace CupriFace.Lottie;
 /// One playing Lottie animation, published to the engine as a live surface.
 ///
 /// <para>Frames are rendered at the animation's OWN size and the engine scales them to the element,
-/// exactly as it does a video frame — which is what makes <c>object-fit</c>, damage tracking and the
-/// render-on-demand cadence come for free instead of being reinvented here.</para>
+/// which is what makes <c>object-fit</c>, damage tracking and the render-on-demand cadence come for
+/// free instead of being reinvented here. On a desktop host that is the same treatment a video frame
+/// gets; on the web hosts it is NOT, because there a video is host-composited — the engine punches a
+/// transparent hole and the browser decodes underneath — while a Lottie is still drawn by the engine
+/// on every host. These pixels are the engine's everywhere.</para>
 ///
 /// <para>The clock lives in the player. A surface has no per-frame callback to hang off, and adding
 /// one would mean every host learning to pump animations; instead the frame is advanced when the
