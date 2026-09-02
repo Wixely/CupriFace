@@ -37,7 +37,7 @@ public class LottieBrowserTests(WebHostFixture host, ITestOutputHelper output)
             "    if (Math.abs(d[i]-184) < 40 && Math.abs(d[i+1]-115) < 40 && Math.abs(d[i+2]-51) < 40) n++;" +
             "  } return n; }");
 
-    [Fact]
+    [LottieFact]
     public async Task The_animation_renders_and_keeps_moving_in_a_browser()
     {
         var page = await host.PhoneAsync();
@@ -66,5 +66,23 @@ public class LottieBrowserTests(WebHostFixture host, ITestOutputHelper output)
                             "rendered but is not running");
 
         Assert.True(errors.Count == 0, $"[{host.Host}] console errors: {string.Join(" | ", errors)}");
+    }
+}
+
+/// <summary>Runs only when the gate is pointed at a build that actually contains a Lottie.
+///
+/// <para>The gate's default wwwroot is the Showcase, which has none — and the copper count PASSES
+/// there anyway, because the Showcase is full of CupriFace's copper. Ungated, this test failed in CI
+/// on the FINGERPRINT instead: a static page does not change in 400 ms. Worth recording, because it
+/// says which of the two assertions is carrying the test and which is nearly decorative.</para></summary>
+internal sealed class LottieFactAttribute : FactAttribute
+{
+    public const string OptIn = "CUPRI_WEB_LOTTIE";
+
+    public LottieFactAttribute()
+    {
+        if (Environment.GetEnvironmentVariable(OptIn) != "1")
+            Skip = $"set {OptIn}=1 and point CUPRI_WEB_WWWROOT at a published Lottie sample " +
+                   "(samples/WebLottie or samples/WebLlvmLottie)";
     }
 }
