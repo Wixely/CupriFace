@@ -15,14 +15,19 @@ This is the APK that makes it observable.
 
 Measured on an API 36 x86_64 emulator (`-gpu swiftshader_indirect`):
 
-| state | pixels changing over 400 ms | copper on screen |
-|-------|-----------------------------|------------------|
-| playing | 53,199 | 205,829 |
-| paused | **0** | 212,880 |
-| resumed | 40,336 | — |
+| state | pixels changing over 400 ms |
+|-------|-----------------------------|
+| playing | 53,199 |
+| paused | **0** |
+| resumed | 40,336 |
 
-Paused is exactly zero while the last frame stays up, which is the bargain `LottiePlayer.Ticking`
-promises: nothing ticks, the host goes idle, and the animation is still on screen.
+Paused is exactly zero, and the four rings are still on screen — 12,720 pixels of CupriFace's copper
+inside the animation's own bounds. That is the bargain `LottiePlayer.Ticking` promises: nothing
+ticks, the host goes idle, and the last frame stays up.
+
+Counting copper across the WHOLE screen would have been a bad check and nearly went in as one: the
+Pause button is copper too, and at 181,801 pixels it is 93% of any full-screen count. A number that
+large barely moves whether the animation renders or not.
 
 The device also reports what Skottie parsed, under the `cupri` logcat tag:
 
