@@ -147,5 +147,43 @@ public class LottieTests(ITestOutputHelper output)
         Assert.Null(doc.Surfaces.Get("lottie:fixtures.cupri-spinner.json"));
     }
 
+    /// <summary>Pausing from the MARKUP has to reach the player. A Pause button binds
+    /// autoplay="{{Playing}}", and the player is deliberately kept across rebuilds so an animation does
+    /// not restart on every keystroke — so unless the attribute is re-read, the button rewrites the DOM
+    /// and nothing else. The bound value is a real bool, as a sample would write it.</summary>
+    [Fact]
+    public void A_pause_in_the_markup_reaches_the_open_player()
+    {
+        var model = new Toggle();
+        using var doc = CupriDocument.Load(
+            "<body><cupri-lottie src=\"fixtures.cupri-spinner.json\" " +
+            "autoplay=\"{{Playing}}\" width=\"60\" height=\"60\"></cupri-lottie></body>", "")
+            .UseComponents(ComponentRegistry.Default().UseLottie())
+            .UseLottie(typeof(LottieTests).Assembly);
+        doc.Bind(model);
+        using (doc.RenderToImage(200, 200)) { }
+
+        var player = (LottiePlayer)doc.Surfaces.Get("lottie:fixtures.cupri-spinner.json")!;
+        Assert.True(player.Playing, "autoplay defaults on");
+
+        // Pin what a bound bool actually RENDERS as, because it is the reason the attribute is read
+        // case-insensitively: .NET writes "False", and an ordinal compare against "false" would read
+        // a pause as a play. Asserted rather than commented, so a binder that started lower-casing
+        // would show up here instead of silently making the check moot.
+        string? rendered = null;
+        doc.OnRebuilt(dom => rendered = dom.QuerySelector("[data-cupri-surface]")?.GetAttribute("autoplay"));
+
+        model.Playing = false;
+        doc.Refresh();
+        using (doc.RenderToImage(200, 200)) { }
+
+        output.WriteLine($"a bound bool reaches the attribute as: \"{rendered}\"");
+        Assert.Equal("False", rendered);
+        Assert.False(player.Playing, "the pause in the markup never reached the player");
+        Assert.False(player.Ticking, "a paused player must stop keeping the host awake");
+    }
+
+    private sealed class Toggle { public bool Playing { get; set; } = true; }
+
     private sealed class Holder { public string Show { get; set; } = "block"; }
 }

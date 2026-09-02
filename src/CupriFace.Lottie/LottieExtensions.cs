@@ -43,13 +43,28 @@ public static class LottieExtensions
                 var key = el.GetAttribute("data-cupri-surface")!;
                 if (!key.StartsWith("lottie:", StringComparison.Ordinal)) continue;
                 seen.Add(key);
-                if (players.ContainsKey(key)) continue;          // already open: a rebuild is not a reload
+
+                // autoplay is a LIVE control, not merely a starting value. A Pause button binds
+                // autoplay="{{Playing}}", and the player is deliberately kept across rebuilds so an
+                // animation does not restart on every keystroke — so unless the attribute is re-read
+                // here, the button rewrites the DOM and reaches nothing. That is exactly what the
+                // desktop sample's Pause did: it flipped the model, the markup changed, and the
+                // animation carried on.
+                var wanted = Flag(el, "autoplay");
+
+                if (players.TryGetValue(key, out var already))
+                {
+                    // Absent means NO OPINION rather than "play". Several elements can share one
+                    // animation (the key is the src), and a sample that shows one file at three sizes
+                    // writes autoplay on one of them; letting the bare two vote would immediately undo
+                    // the pause the third asked for.
+                    if (wanted is { } w) already.Playing = w;
+                    continue;                                    // already open: a rebuild is not a reload
+                }
 
                 var src = key["lottie:".Length..];
                 if (Load(src, assembly) is not { } json) continue;
-                var loop = el.GetAttribute("loop") is not "false";
-                var autoplay = el.GetAttribute("autoplay") is not "false";
-                if (LottiePlayer.TryCreate(json, loop, autoplay) is not { } player) continue;
+                if (LottiePlayer.TryCreate(json, Flag(el, "loop") ?? true, wanted ?? true) is not { } player) continue;
 
                 players[key] = player;
                 doc.Surfaces.Register(key, player);
@@ -72,6 +87,15 @@ public static class LottieExtensions
         // that actually draws it, and a paused one costs nothing.
         return doc;
     }
+
+    /// <summary>An attribute read as a tri-state: absent is "no opinion", so a shared animation is
+    /// only controlled by the elements that actually ask. Case-INSENSITIVE on purpose — a bound C#
+    /// bool renders as "True"/"False", and comparing ordinally against "false" quietly let a paused
+    /// animation keep playing.</summary>
+    private static bool? Flag(IElement el, string name) =>
+        el.GetAttribute(name) is not { } v
+            ? null
+            : !(v.Equals("false", StringComparison.OrdinalIgnoreCase) || v == "0");
 
     private static byte[]? Load(string src, Assembly? assembly)
     {
