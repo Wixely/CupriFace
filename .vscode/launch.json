@@ -20,6 +20,17 @@
       "browserAttachLocation": "workspace"
     },
     {
+      // The optional Lottie package running on the NativeAOT-LLVM web host. Its own port so it can
+      // sit alongside the plain WebLlvm sample rather than fighting it for 5230.
+      "name": "Web (NativeAOT-LLVM) — Lottie",
+      "type": "msedge",
+      "request": "launch",
+      "url": "http://127.0.0.1:5231",
+      "webRoot": "${workspaceFolder}/samples/WebLlvmLottie/bin/Release/net10.0/browser-wasm/publish",
+      "preLaunchTask": "serve-webllvmlottie",
+      "browserAttachLocation": "workspace"
+    },
+    {
       "name": "Web (NativeAOT-LLVM, experimental) — browser",
       "type": "msedge",
       "request": "launch",
