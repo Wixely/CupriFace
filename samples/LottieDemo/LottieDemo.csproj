@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Shows the OPTIONAL CupriFace.Lottie package being opted into. It is a sample of its own
+       rather than a page in the Showcase for a reason: the Showcase is also what the two WASM
+       hosts build, and adding a dependency there would put Skottie into every web payload to
+       demonstrate a feature that is meant to be something you choose. -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>CupriFace.Samples.LottieDemo</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CupriFace.Shell\CupriFace.Shell.csproj" />
+    <ProjectReference Include="..\..\src\CupriFace.Lottie\CupriFace.Lottie.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\**\*" />
+  </ItemGroup>
+
+</Project>

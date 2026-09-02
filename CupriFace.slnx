@@ -15,6 +15,7 @@
     <Project Path="samples/Interactive/Interactive.csproj" />
     <Project Path="samples/Keyboard/Keyboard.csproj" />
     <Project Path="samples/KeyboardNav/KeyboardNav.csproj" />
+    <Project Path="samples/LottieDemo/LottieDemo.csproj" />
     <Project Path="samples/MediaProbe/MediaProbe.csproj" />
     <Project Path="samples/Motion/Motion.csproj" />
     <Project Path="samples/NativeControls/NativeControls.csproj" />
@@ -37,6 +38,7 @@
   <Folder Name="/src/">
     <Project Path="src/CupriFace.Android/CupriFace.Android.csproj" />
     <Project Path="src/CupriFace.Binding.Gen/CupriFace.Binding.Gen.csproj" />
+    <Project Path="src/CupriFace.Lottie/CupriFace.Lottie.csproj" />
     <Project Path="src/CupriFace.Media/CupriFace.Media.csproj" />
     <Project Path="src/CupriFace.Resources.Gen/CupriFace.Resources.Gen.csproj" />
     <Project Path="src/CupriFace.Shell/CupriFace.Shell.csproj" />

@@ -24,6 +24,26 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   deliberate exception rather than an omission. A test compares the two tables against the enum and
   against each other, so a cursor added to one window cannot go missing from the other.
 
+## Unreleased
+
+### Added
+
+- **`CupriFace.Lottie` — an optional package playing After Effects JSON via `<cupri-lottie>`.**
+  Enable with `Components.UseLottie()` and `doc.UseLottie(assembly)`. The element becomes a live
+  surface, so `object-fit` sizing, damage-clipped repainting and render-on-demand all come from the
+  engine, and a paused animation stops ticking so the window goes idle.
+  **It costs about 65 KB of managed assemblies and no native code at all**: Lottie is already inside
+  Skia, and `SkiaSharp.Skottie` (MIT) is managed bindings over the same `libSkiaSharp` the engine
+  already loads — so unlike `CupriFace.Media` there are no per-RID builds. It is still opt-in, since
+  most apps do not play Lottie. `samples/LottieDemo` shows it with an original MIT-licensed spinner.
+  Desktop-tested; reach on Android and the WASM hosts is not yet proven.
+
+- **`doc.OnRebuilt(handler)`** — run a handler after each rebuild, once components have expanded, the
+  moment the engine wires its own video players. This is what a surface producer living outside the
+  engine needs: registering an `ISurfaceSource` is only half of it, and something has to notice that
+  an element wanting one has appeared or gone. Without it an optional package can ship a component
+  that expands correctly and renders nothing forever.
+
 ## v0.14.0
 
 ### Added

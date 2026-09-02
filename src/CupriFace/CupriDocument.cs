@@ -309,6 +309,27 @@ public sealed partial class CupriDocument : IDisposable
     private string? _fullscreenVideo; // src of the video currently element-fullscreened (web model: one at most)
 
     /// <summary>Register the video backend (host composition root — see <see cref="Media.IVideoBackend"/>).</summary>
+    private List<Action<AngleSharp.Dom.IDocument>>? _rebuiltHandlers;
+
+    /// <summary>Run <paramref name="handler"/> after every rebuild, once components have expanded and
+    /// bindings are concrete — the same moment the engine wires its own video players.
+    ///
+    /// <para>This is what a surface producer living outside the engine needs. Registering an
+    /// <see cref="Paint.ISurfaceSource"/> is only half of it; something has to notice that an element
+    /// asking for one has appeared, and that another's element has gone, and the DOM is rebuilt on
+    /// every keystroke and every model change. Without this an optional package can ship a component
+    /// that expands correctly and renders nothing forever.</para>
+    ///
+    /// <para>Handlers see the DOM the frame is about to be built from, so mutating it is allowed and
+    /// is how a producer publishes what it learned (a natural size, a poster). Keep it cheap: this runs
+    /// on the rebuild path, which is also the typing path.</para></summary>
+    public CupriDocument OnRebuilt(Action<AngleSharp.Dom.IDocument> handler)
+    {
+        (_rebuiltHandlers ??= []).Add(handler);
+        Refresh();                     // wire whatever is already in the tree
+        return this;
+    }
+
     public CupriDocument UseVideo(Media.IVideoBackend backend)
     {
         _videoBackend = backend;
@@ -550,6 +571,13 @@ public sealed partial class CupriDocument : IDisposable
         // Expand custom elements after binding so components see concrete attribute values.
         _components?.Expand(dom);
         SyncVideos(dom); // players follow the DOM: open for new sources, label controls, retire gone ones
+        // …and the same moment, opened up. A surface producer outside this assembly — a Lottie player,
+        // and the 3D viewport or camera SurfaceRegistry already anticipates — needs exactly what
+        // SyncVideos needs: the expanded DOM, every rebuild, so it can open sources that appeared and
+        // retire ones whose element is gone. Without it an optional package can ship a component that
+        // renders nothing, because nothing ever told it the element exists.
+        if (_rebuiltHandlers is { Count: > 0 })
+            foreach (var h in _rebuiltHandlers) h(dom);
         Mark("expand-components");
 
         // Re-apply text focus across the rebuild (typing rebuilds the DOM each keystroke), and
