@@ -13,6 +13,17 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- **The GL window now shows the wait and busy cursors.** `CursorType.Wait` and `Progress` were never
+  mapped there, while the SDL window has mapped both since it was written — so a busy app showed an
+  hourglass on one desktop path and a plain arrow on the other. GLFW had the cursors all along.
+  `Help` remains unmapped on both, which no platform standard cursor covers; it is now listed as a
+  deliberate exception rather than an omission. A test compares the two tables against the enum and
+  against each other, so a cursor added to one window cannot go missing from the other.
+
 ## v0.14.0
 
 ### Added

@@ -105,40 +105,6 @@ public class WindowDragTests(ITestOutputHelper output)
         Assert.Equal(1, clicks);
     }
 
-    /// <summary>Both desktop windows must map a grab to something that is NOT the link hand.
-    ///
-    /// <para>The engine reporting <c>Grab</c> is only half of it: the hosts used to fold Grab and
-    /// Grabbing in with Pointer, so a drag handle arrived at the OS as the same pointing hand a
-    /// hyperlink gets and read as clickable rather than draggable. Neither GLFW nor SDL has an
-    /// open/closed hand, so the move arrow is the closest either can do — the point is that it is
-    /// DIFFERENT from a link.</para>
-    ///
-    /// <para>Source analysis, because a cursor mapping needs a real window to exercise, and checked
-    /// for BOTH windows because the GL and SDL paths have drifted before.</para></summary>
-    [Fact]
-    public void Both_desktop_windows_map_a_grab_away_from_the_link_hand()
-    {
-        var root = new DirectoryInfo(AppContext.BaseDirectory);
-        while (root is not null && !File.Exists(Path.Combine(root.FullName, "CupriFace.slnx"))) root = root.Parent;
-        Assert.NotNull(root);
-
-        foreach (var (file, hand) in new[]
-                 {
-                     ("SkiaWindow.cs", "StandardCursor.Hand"),
-                     ("SdlSoftwareWindow.cs", "SystemCursor.SystemCursorHand"),
-                 })
-        {
-            var src = File.ReadAllText(Path.Combine(root!.FullName, "src", "CupriFace.Shell", file));
-            var line = src.Split('\n').FirstOrDefault(l => l.Contains(hand) && l.Contains("=>"));
-            Assert.NotNull(line);
-            output.WriteLine($"{file}: {line!.Trim()}");
-
-            // The hand belongs to Pointer alone now.
-            Assert.DoesNotContain("Grab", line);
-            Assert.Contains("Pointer", line);
-        }
-    }
-
     /// <summary>The bar shows a grab cursor, so it looks like what it is — but only once a host is
     /// listening, since offering a grab that cannot move anything is a lie.</summary>
     [Fact]
