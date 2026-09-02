@@ -84,6 +84,9 @@ public sealed partial class CupriDocument : IDisposable
     private int _kbIndex = -1;      // keyboard focus: index into the focusable list (-1 = none)
     private bool _focusVisible;     // show the focus ring? true after Tab, false after a mouse click
     private bool _dragging;
+    // A live window drag (data-window-drag) and the point it was grabbed at, in window pixels.
+    private bool _windowDrag;
+    private float _windowDragX, _windowDragY;
     private float _dragX0, _dragInnerW, _dragPad;
     private double _dragMin, _dragMax;
     private string? _dragPath;
@@ -186,6 +189,15 @@ public sealed partial class CupriDocument : IDisposable
     /// also host-side: when <see cref="DispatchKey"/> returns unhandled for Escape and the window
     /// is fullscreen, the host exits it (so overlays keep winning Escape first).</summary>
     public event Action<Interaction.WindowCommand>? WindowCommandRequested;
+
+    /// <summary>Raised repeatedly while a drag is live on an element marked <c>data-window-drag</c>:
+    /// the title bar a frameless window does not have. Carries how far the pointer has moved from
+    /// where it was pressed, for the host to add to the window's position.
+    ///
+    /// <para>Same engine→host split as <see cref="WindowCommandRequested"/> — the engine owns pixels,
+    /// not the OS window. A host with nothing to move (a browser page, an Android activity) simply
+    /// does not subscribe, and the drag then does nothing rather than misbehaving.</para></summary>
+    public event Action<Interaction.WindowMove>? WindowMoveRequested;
 
     /// <summary>The colour the page itself paints behind everything — <c>body</c>'s computed
     /// background, or the root's if the body is transparent. A host needs it for the surfaces the
@@ -1917,6 +1929,7 @@ public sealed partial class CupriDocument : IDisposable
         if (_splitA is not null) return _splitVertical ? Style.CursorType.NsResize : Style.CursorType.EwResize;
         if (_reorderItems is not null) return Style.CursorType.Grabbing;
         if (_scrollDrag is not null) return Style.CursorType.Default;  // scrollbar thumb
+        if (_windowDrag) return Style.CursorType.Grabbing;             // moving the window
         if (_dragging) return Style.CursorType.Pointer;                // slider thumb
         if (_textDrag) return Style.CursorType.Text;                   // drag-selecting in a field
         if (_resizeDrag is { } rd) return rd.Style.Resize switch
@@ -1946,6 +1959,11 @@ public sealed partial class CupriDocument : IDisposable
                 _ => Style.CursorType.NwseResize,
             };
             if (ColumnBoundaryAt(n, x) is not null) return Style.CursorType.EwResize;
+            // A window-drag handle is a grab affordance, not a click one — and it belongs in this
+            // section rather than with the inferred pointers below, so a title bar containing a
+            // button still reads as grabbable everywhere the button is not.
+            if (n.Element?.HasAttribute("data-window-drag") == true && WindowMoveRequested is not null)
+                return Style.CursorType.Grab;
         }
 
         // 3) The nearest explicit CSS cursor (Auto = unspecified → keep looking up the chain).
@@ -2528,6 +2546,19 @@ public sealed partial class CupriDocument : IDisposable
 
             // Video transport (play/pause toggle, mute) for the nearest enclosing <cupri-video>.
             if (el.GetAttribute("data-video-cmd") is { Length: > 0 } videoCmd) return VideoCommand(node, videoCmd);
+
+            // Window drag: a frameless window has no title bar, so an element can be one. The press
+            // only ARMS it — every later move reports its distance from here, and the host adds that
+            // to the window's position. Claimed only when a host is listening, so the same markup in
+            // a browser leaves the press to whatever else wanted it.
+            if (el.HasAttribute("data-window-drag"))
+            {
+                if (WindowMoveRequested is null) return false;
+                _windowDrag = true;
+                _windowDragX = x;
+                _windowDragY = y;
+                return true;
+            }
 
             // Window command (fullscreen…): raised for the host, like Navigated. Handled only when
             // a host actually subscribed — headless/embedded consumers just ignore the click.
@@ -4411,6 +4442,17 @@ public sealed partial class CupriDocument : IDisposable
                 _scrollDrag = FindByVirtualKey(_root, vkey);
             return true;          // scroll is paint-time → repaint (RewindowVirtual rebuilds if needed)
         }
+        // Dragging the window by a data-window-drag element. The press point is NOT updated as we go:
+        // once the host has moved the window, the pointer is back over the point it grabbed, so the
+        // next event's distance is measured from the same origin again. Updating it would halve every
+        // movement. Rounded to whole pixels because a window position is an integer.
+        if (_windowDrag)
+        {
+            var dx = (int)MathF.Round(x - _windowDragX);
+            var dy = (int)MathF.Round(y - _windowDragY);
+            if (dx != 0 || dy != 0) WindowMoveRequested?.Invoke(new Interaction.WindowMove(dx, dy));
+            return false;                        // the window moved; nothing in the document changed
+        }
         if (_dragging)
         {
             if (!ApplySliderValue(x)) return false;
@@ -4436,7 +4478,7 @@ public sealed partial class CupriDocument : IDisposable
         if (_reorderItems is not null) { EndReorder(); return true; }
         if (_splitA is not null) { _splitA = null; _splitB = null; return true; }
         if (_colPath is not null) { _colPath = null; return true; }
-        _dragging = false; _dragSeek = null; _dragUndecided = false; _textDrag = false; _scrollDrag = null; _resizeDrag = null; return ClearActive();
+        _dragging = false; _dragSeek = null; _dragUndecided = false; _windowDrag = false; _textDrag = false; _scrollDrag = null; _resizeDrag = null; return ClearActive();
     }
 
     /// <summary>Scroll wheel: scroll the nearest scrollable element under the pointer by pixels.</summary>

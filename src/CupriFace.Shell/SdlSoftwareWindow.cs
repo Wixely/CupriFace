@@ -120,6 +120,16 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         }
     }
 
+    /// <summary>Nudge the window by a delta, for a frameless window being dragged by an element that
+    /// stands in for its missing title bar. A delta rather than a destination because that is what the
+    /// engine can report — it knows how far the pointer travelled, not where the window sits.</summary>
+    public void MoveBy(int dx, int dy)
+    {
+        if (_window is null) return;
+        var (x, y) = ScreenPosition;
+        _sdl.SetWindowPosition(_window, x + dx, y + dy);
+    }
+
     /// <summary>True while the window is fullscreen (see <see cref="SetFullscreen"/>).</summary>
     public bool IsFullscreen { get; private set; }
 
@@ -175,19 +185,22 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
 
     /// <summary>Show the platform cursor matching the engine's <see cref="CupriFace.Style.CursorType"/>
     /// (from <c>CupriDocument.CursorAt</c>). Synonyms without a distinct SDL system cursor fall back to the
-    /// closest one (grab → hand; the diagonal resizes → the two-headed arrows).</summary>
+    /// closest one (grab → the move arrow, there being no hand-grab; the diagonal resizes → the two-headed arrows).</summary>
     public void SetCursor(CupriFace.Style.CursorType c)
     {
         if (c == _lastCursor) return;
         _lastCursor = c;
         var id = c switch
         {
-            CupriFace.Style.CursorType.Pointer or CupriFace.Style.CursorType.Grab or CupriFace.Style.CursorType.Grabbing => SystemCursor.SystemCursorHand,
+            CupriFace.Style.CursorType.Pointer => SystemCursor.SystemCursorHand,
+            // See SkiaWindow: no platform hand-grab cursor exists, and sharing Pointer's made a drag
+            // handle indistinguishable from a link. The move arrow says "this can be dragged".
+            CupriFace.Style.CursorType.Grab or CupriFace.Style.CursorType.Grabbing
+                or CupriFace.Style.CursorType.Move => SystemCursor.SystemCursorSizeall,
             CupriFace.Style.CursorType.Text => SystemCursor.SystemCursorIbeam,
             CupriFace.Style.CursorType.Wait => SystemCursor.SystemCursorWait,
             CupriFace.Style.CursorType.Progress => SystemCursor.SystemCursorWaitarrow,
             CupriFace.Style.CursorType.Crosshair => SystemCursor.SystemCursorCrosshair,
-            CupriFace.Style.CursorType.Move => SystemCursor.SystemCursorSizeall,
             CupriFace.Style.CursorType.NotAllowed => SystemCursor.SystemCursorNo,
             CupriFace.Style.CursorType.EwResize => SystemCursor.SystemCursorSizewe,
             CupriFace.Style.CursorType.NsResize => SystemCursor.SystemCursorSizens,

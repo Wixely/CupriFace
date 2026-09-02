@@ -199,6 +199,10 @@ public static class DesktopHost
                 WindowCommand.ExitFullscreen => false,
                 _ => !window.IsFullscreen,
             });
+            // A frameless window has no title bar to grab, so an element marked data-window-drag
+            // becomes one. Wired on BOTH window types — a host feature added to only one of them is
+            // how the GL and SDL paths have drifted before.
+            doc.WindowMoveRequested += m => window.MoveBy(m.Dx, m.Dy);
             Action<string> clipboardWriter = value => window.ClipboardText = value;
             app.ClipboardWriteRequested += clipboardWriter;
             try { window.Run(); }
@@ -335,6 +339,10 @@ public static class DesktopHost
                 WindowCommand.ExitFullscreen => false,
                 _ => !window.IsFullscreen,
             });
+            // A frameless window has no title bar to grab, so an element marked data-window-drag
+            // becomes one. Wired on BOTH window types — a host feature added to only one of them is
+            // how the GL and SDL paths have drifted before.
+            doc.WindowMoveRequested += m => window.MoveBy(m.Dx, m.Dy);
             Action<string> clipboardWriter = value => window.ClipboardText = value;
             app.ClipboardWriteRequested += clipboardWriter;
             try { window.Run(); }

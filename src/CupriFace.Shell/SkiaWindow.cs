@@ -52,6 +52,15 @@ public sealed class SkiaWindow : IDisposable
     /// is exactly the origin pointer coordinates are relative to).</summary>
     public (int X, int Y) ScreenPosition => _window is { } w ? (w.Position.X, w.Position.Y) : (0, 0);
 
+    /// <summary>Nudge the window by a delta, for a frameless window being dragged by an element that
+    /// stands in for its missing title bar. A delta rather than a destination because that is what the
+    /// engine can report — it knows how far the pointer travelled, not where the window sits.</summary>
+    public void MoveBy(int dx, int dy)
+    {
+        if (_window is not { } w) return;
+        w.Position = new Silk.NET.Maths.Vector2D<int>(w.Position.X + dx, w.Position.Y + dy);
+    }
+
     /// <summary>True while the window is OS-fullscreen (see <see cref="SetFullscreen"/>).</summary>
     public bool IsFullscreen => _window?.WindowState == WindowState.Fullscreen;
 
@@ -374,10 +383,15 @@ public sealed class SkiaWindow : IDisposable
         _lastCursor = c;
         var shape = c switch
         {
-            CupriFace.Style.CursorType.Pointer or CupriFace.Style.CursorType.Grab or CupriFace.Style.CursorType.Grabbing => StandardCursor.Hand,
+            CupriFace.Style.CursorType.Pointer => StandardCursor.Hand,
+            // Neither GLFW nor SDL has an open/closed hand, so grab used to fall in with Pointer —
+            // which made a drag handle look exactly like a hyperlink. The four-way move arrow is the
+            // closest thing either platform has to "this can be dragged", and it is at least DIFFERENT
+            // from a link, which is the part that was actually missing.
+            CupriFace.Style.CursorType.Grab or CupriFace.Style.CursorType.Grabbing
+                or CupriFace.Style.CursorType.Move => StandardCursor.ResizeAll,
             CupriFace.Style.CursorType.Text => StandardCursor.IBeam,
             CupriFace.Style.CursorType.Crosshair => StandardCursor.Crosshair,
-            CupriFace.Style.CursorType.Move => StandardCursor.ResizeAll,
             CupriFace.Style.CursorType.NotAllowed => StandardCursor.NotAllowed,
             CupriFace.Style.CursorType.EwResize => StandardCursor.HResize,
             CupriFace.Style.CursorType.NsResize => StandardCursor.VResize,
