@@ -1,0 +1,93 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- buildTransitive does not cross ProjectReference edges, so this sample imports by hand what a
+       nupkg consumer gets automatically — props FIRST, as NuGet injects them, because the RID has
+       to be set before the ILC/Emscripten targets evaluate it. Importing rather than copying is
+       what makes this sample the test of the files a consumer actually receives. -->
+  <Import Project="..\..\src\CupriFace.Web.NativeAot\buildTransitive\CupriFace.Web.NativeAot.props" />
+
+  <!--
+    The NativeAOT-LLVM sample WITH the optional Lottie package.
+
+    This one exists to settle a question the Mono wasm build cannot: NativeAOT links everything
+    statically through Emscripten, so if Skottie's entry points were not really in the archive —
+    or DirectPInvoke did not cover them — this fails at LINK time rather than silently at runtime.
+    WebLlvm next door is the same host without the package; the two publish sizes are the cost.
+
+    What is left here is exactly what a package CANNOT supply, and it is worth knowing which is
+    which. Restore-time facts — the experimental feed, the ILC compiler packages, the two
+    native-asset packages — must live in the app's own file, because restore has picked its sources
+    long before any of the host's build files are read. Everything else now comes from the package:
+    the link line, the Emscripten JS library, the static archives, the trimmer root that keeps the
+    host's exports alive, and the RID.
+
+    See git history for the version of this file that WAS the host (#78).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PublishTrimmed>true</PublishTrimmed>
+    <DotNetJsApi>true</DotNetJsApi>
+    <UseAppHost>false</UseAppHost>
+    <!-- -O1 keeps the edit-publish loop tolerable; bump to -O3 (+ wasm-opt) for shipping. The
+         longjmp flag satisfies libSkiaSharp's __wasm_longjmp (image-codec error paths). -->
+    <EmccFlags>$(EmccFlags) -O1 -sSUPPORT_LONGJMP=wasm</EmccFlags>
+    <UsingBrowserRuntimeWorkload>false</UsingBrowserRuntimeWorkload>
+    <!-- Only Windows suffixes executables. This feeds the Emscripten node path below, and hard-coding
+         .exe made the Linux link die on a missing "node.exe" — the last Windows-ism in this file. -->
+    <ExecutableExtensionName Condition="$([MSBuild]::IsOSPlatform('Windows'))">.exe</ExecutableExtensionName>
+    <!-- The NativeAOT-LLVM compiler itself is a native executable, so it must match the machine
+         doing the build even though the OUTPUT is always browser-wasm. Deriving the host RID from
+         the SDK is what lets this project build on Windows and Linux from one definition.
+
+         Pinning the version (rather than a floating 10.0.0-*) stops a nightly feed drop silently
+         changing the compiler under us and keeps the package path deterministic. Override either
+         property on the command line to try a newer compiler. -->
+    <IlcHostRid Condition="'$(IlcHostRid)' == ''">$(NETCoreSdkPortableRuntimeIdentifier)</IlcHostRid>
+    <IlcLlvmVersion Condition="'$(IlcLlvmVersion)' == ''">10.0.0-rc.1.26357.1</IlcLlvmVersion>
+    <IlcHostPackagePath>$(NuGetPackageRoot)runtime.$(IlcHostRid).microsoft.dotnet.ilcompiler.llvm/$(IlcLlvmVersion)</IlcHostPackagePath>
+    <!-- THE restore-time fact a package cannot supply: ILCompiler.LLVM is not on nuget.org. -->
+    <RestoreAdditionalProjectSources>
+      https://api.nuget.org/v3/index.json;
+      https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-experimental/nuget/v3/index.json;
+    </RestoreAdditionalProjectSources>
+    <InvariantTimezone>true</InvariantTimezone>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <WasmEnableLegacyJsInterop>false</WasmEnableLegacyJsInterop>
+    <TrimMode>full</TrimMode>
+    <DebuggerSupport>false</DebuggerSupport>
+    <EventSourceSupport>false</EventSourceSupport>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <StackTraceSupport>true</StackTraceSupport>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The browser host, and the SAME app the desktop Viewer, the phone and WebWasm all run. -->
+    <ProjectReference Include="..\..\src\CupriFace.Web.NativeAot\CupriFace.Web.NativeAot.csproj" />
+    <ProjectReference Include="..\..\src\CupriFace.Lottie\CupriFace.Lottie.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\**\*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Restore-time, therefore app-side. ExcludeAssets=all because only the STATIC ARCHIVES are
+         wanted — the host's targets add those to the native link; the managed assets would collide
+         with the ones the engine already brings. -->
+    <PackageReference Include="Microsoft.DotNet.ILCompiler.LLVM" Version="$(IlcLlvmVersion)" />
+    <PackageReference Include="runtime.$(IlcHostRid).Microsoft.DotNet.ILCompiler.LLVM" Version="$(IlcLlvmVersion)" />
+    <PackageReference Include="SkiaSharp.NativeAssets.WebAssembly" Version="3.116.1"
+                      GeneratePathProperty="true" ExcludeAssets="all" />
+    <PackageReference Include="HarfBuzzSharp.NativeAssets.WebAssembly" Version="8.3.0.1"
+                      GeneratePathProperty="true" ExcludeAssets="all" />
+  </ItemGroup>
+
+  <!-- …and the targets last, as NuGet would. -->
+  <Import Project="..\..\src\CupriFace.Web.NativeAot\buildTransitive\CupriFace.Web.NativeAot.targets" />
+
+</Project>

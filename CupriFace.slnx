@@ -30,6 +30,7 @@
     <Project Path="samples/TransparentHud/TransparentHud.csproj" />
     <Project Path="samples/Viewer/Viewer.csproj" />
     <Project Path="samples/Web/Web.csproj" />
+    <Project Path="samples/WebLottie/WebLottie.csproj" />
     <Project Path="samples/WebWasm/WebWasm.csproj" />
   </Folder>
   <Folder Name="/tests/">
