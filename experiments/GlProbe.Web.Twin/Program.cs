@@ -1,4 +1,3 @@
-using CupriFace.Demo.ThreeD;
 using System.Reflection;
 using SkiaSharp;
 
