@@ -8,7 +8,7 @@ live picture from outside the engine composites correctly with ordinary UI, on e
 Gltf.cs           a GLB reader: buffers, accessors (interleaved byteStride included), materials
 GlRenderer.cs     `Gl`, a function-pointer table filled from whatever proc-address source the host has
 SceneRenderer.cs  Cook-Torrance PBR (GGX / Smith / Schlick) over one shader source
-teapot.glb        4,032 triangles, one base-colour texture
+teapot.glb        4,032 triangles, one base-colour texture (see Provenance below)
 ```
 
 ## Why it has no host dependency
@@ -23,7 +23,7 @@ part that genuinely differs:
 |---|---|---|
 | desktop | [`samples/Viewer/Teapot3dSurface.cs`](../Viewer/Teapot3dSurface.cs) | **painted** — GL into an FBO, read back as an `SKImage`, drawn into the display list |
 | browser | [`samples/WebLlvm/Web3dSurface.cs`](../WebLlvm/Web3dSurface.cs) | **host-composited** — a transparent hole, with a WebGL2 canvas underneath |
-| Android | not wired | shows the poster, and the page says so |
+| Android | not wired | paints nothing; the panel behind shows and the page says so |
 
 The same shader source serves both: `glslEs: false` emits `#version 330 core`, `true` emits
 `#version 300 es`.
@@ -41,11 +41,16 @@ DesktopHost.Run(new ShowcaseApp(), doc => Teapot3dSurface.TryAttach(doc));
 The app itself contributes one element and no reference to any of this:
 
 ```html
-<div data-cupri-surface="showcase3d" data-cupri-image="Assets/poster.png"></div>
+<div data-cupri-surface="showcase3d"></div>
 ```
 
-A host that wires nothing shows the poster. That is not a case anyone wrote — it is the engine's
-ordinary behaviour for a surface with no frames, the same one a `<cupri-video>` uses.
+A host that wires nothing paints nothing there, so whatever is behind the element shows. Add
+`data-cupri-image="…"` and it shows that instead, until frames arrive — the same fallback a
+`<cupri-video>` poster uses, and not a case anyone had to write.
+
+The Showcase deliberately does **not** set one: it briefly carried the video demo's poster, which is
+a play button, so a 3D viewport spent its first half-second advertising a control it does not have.
+A poster is a still of what is coming; the wrong still is worse than none.
 
 ## What it is not
 
@@ -73,6 +78,15 @@ consults surfaces inside `display:none` sections too.
 replaces everything painted at that box — including the CSS `background` behind the viewport. On
 desktop the model is drawn *over* that background and picks it up for free. Clear the underlay to
 the backdrop colour, or identical markup renders near-black on desktop and white in the browser.
+
+## Provenance
+
+`teapot.glb` is the repo owner's own work — mesh from the 3ds Max teapot primitive, base-colour
+texture authored alongside it — so it ships with the samples without a third-party licence to track.
+
+It is embedded in `samples/Viewer` and `samples/WebLlvm` only. `Demo3d` is `IsPackable=false` and no
+library in `src/` references it, so it appears in the standalone Showcase downloads attached to
+releases and in no published package.
 
 ## Reproducing the measurements
 

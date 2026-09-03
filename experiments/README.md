@@ -314,5 +314,9 @@ Each prints the same statistics and a `PASS`/`FAIL` line. The desktop leg exits 
 cannot get a GL context at all — an environment fact rather than a code failure, and this repo
 already knows GL-less machines are common (virtualised GPUs, RDP, CI runners).
 
-`samples/Demo3d/teapot.glb` is a supplied test asset, not original work — check its provenance before it is
-used anywhere that ships.
+`samples/Demo3d/teapot.glb` is the repo owner's own work: the mesh generated with the 3ds Max teapot
+primitive and the base-colour texture authored alongside it. Recorded here because this line previously
+said the opposite — "a supplied test asset, not original work" — written while it was a probe input and
+nobody had asked. It is embedded in the two sample apps (`samples/Viewer`, `samples/WebLlvm`), so it
+reaches the standalone Showcase downloads attached to releases; `Demo3d` is `IsPackable=false` and no
+library references it, so it is in no published package.
