@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>CupriFace — 3D under the page</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script type='module' src="main.js"></script>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #ffffff; font-family: sans-serif; }
+    /* The engine's canvas. The 3D underlay is inserted BEFORE it at runtime and the engine's
+       punched hole is what reveals it, so nothing here needs to know 3D exists. */
+    #cupri { display: block; width: 100vw; height: 100vh; outline: none; }
+  </style>
+</head>
+<body>
+  <canvas id="cupri"></canvas>
+</body>
+</html>

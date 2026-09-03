@@ -59,6 +59,35 @@ draw 0.09 ms    readback 0.83 ms    to-SKImage 0.92 ms
 whether the zero-copy path is worth building — a texture-backed `SKImage` over a shared context,
 which would need the engine to expose its `GRContext`. Now arguable with, rather than guessed at.
 
+### …and inside a CupriFace WEB document too, also unchanged
+
+The desktop approach cannot transfer: CupriFace's web hosts render to an `SKBitmap` and present
+through `putImageData`, so there is **no GPU context to share**. The web takes the engine's *other*
+lane instead — host compositing, the same one `<cupri-video>` uses. `GlProbe.WebHost` is a
+NativeAOT-LLVM CupriFace app whose surface returns `HostComposited => true`, so the engine punches a
+transparent hole at the element's box, and a real WebGL canvas sits underneath it.
+
+Verified in Chromium by reading the engine's own canvas rather than by looking at it:
+
+```
+engine canvas alpha INSIDE  the hole = 0      (genuinely punched through)
+engine canvas alpha OUTSIDE the hole = 255    (opaque everywhere else)
+underlay canvas 308x308 at 32,122, z-index 0, beneath the engine canvas at z-index 1
+```
+
+Everything it needs was already public, so **the engine is unchanged here as well**:
+`ISurfaceSource.HostComposited`, `CupriApp.Transparent` (which selects the straight-alpha present a
+hole requires), `doc.Root` / `RenderNode.SurfaceKey` to find the element, and
+`HitTesting.ScreenBox` to learn where layout put it. `Painter.cs`'s comment on that branch already
+named the case: *"a HOST-COMPOSITED surface… future 3D viewports"*.
+
+**One build-config line is required**, and it is worth knowing because its failure points elsewhere:
+the app must link with `-sMAX_WEBGL_VERSION=2`. Without it `emscripten_webgl_create_context`
+**silently downgrades** a version-2 request to WebGL1 rather than refusing it, and the first symptom
+is `ERROR: unsupported shader version` from a `#version 300 es` shader — a diagnosis three steps from
+the cause. The probe now asserts the version string at runtime so the context is blamed, not the
+shader.
+
 ### What 3D actually costs on the web
 
 Measured against a twin: the same app, same NativeAOT-LLVM settings, same Skia link, same embedded
@@ -132,10 +161,6 @@ slashes**, which no shell or patch script can mangle that way.
 - The scene walk handles multiple nodes, meshes and primitives with per-primitive materials, but
   every primitive is drawn every frame: no culling, no sorting, no instancing, and alpha blending
   modes are ignored.
-- **The web integration is unbuilt.** CupriFace's web hosts render to an `SKBitmap` via
-  `putImageData` and have **no GPU context at all**, so the desktop approach does not transfer. The
-  lane that fits there is host-composited hole-punching — exactly what `WebVideo` already does
-  (`HostComposited => true`) — with a real WebGL canvas beneath a transparent hole. Not attempted.
 - Desktop proven on one GPU (NVIDIA), Android on SwiftShader, neither on real mobile silicon.
 
 ## Running them
