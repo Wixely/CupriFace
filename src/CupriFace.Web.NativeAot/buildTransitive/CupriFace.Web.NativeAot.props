@@ -32,7 +32,15 @@
          `#version 300 es` shader, which points at the shader rather than at the context.
 
          Additive, so an app can still raise it; MIN is deliberately NOT set, because a page that
-         only ever rasterises has no reason to be refused a WebGL1 context it will never ask for. -->
+         only ever rasterises has no reason to be refused a WebGL1 context it will never ask for.
+
+         PRICED AND KEPT UNCONDITIONAL. Measured by relinking samples/WebLlvm without it: +9,447
+         bytes of wasm and +56,745 of JS glue, so 66 KB uncompressed that an app which never touches
+         WebGL still carries. Making it opt-in would hand that back, and was rejected: the failure it
+         prevents is invisible at the point it happens. A consumer who has not read this file gets a
+         shader error naming a line they did not write, in a context they cannot inspect, on a build
+         that linked cleanly. 66 KB is a worse trade than one developer losing a day to that. If the
+         payload ever matters more than the trap, the change is one condition here, not a redesign. -->
     <EmccFlags>$(EmccFlags) -sMAX_WEBGL_VERSION=2</EmccFlags>
   </PropertyGroup>
 </Project>

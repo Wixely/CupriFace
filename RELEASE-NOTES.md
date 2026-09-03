@@ -43,6 +43,11 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   `emscripten_webgl_create_context` silently downgrades to WebGL1, and the first symptom is a shader
   error blaming `#version 300 es` — three steps from the cause.
 
+  **This costs every NativeAOT-LLVM app about 66 KB uncompressed** (+9.4 KB wasm, +56.7 KB JS glue),
+  whether or not it uses WebGL. Deliberate: the failure it prevents is invisible at the point it
+  happens, and a build that links cleanly and then reports a shader error is a worse day than 66 KB.
+  Nothing to do — apps already rendering WebGL into a surface underlay simply work.
+
 ### Note for surface authors
 
 `ISurfaceSource.Ticking` feeds the document's "something is animating" signal. Returning a constant
