@@ -56,6 +56,9 @@ public static unsafe class Gl
     public static delegate* unmanaged<uint, int, uint, void*, void> DrawElements;
     public static delegate* unmanaged<int, int, int, int, uint, uint, void*, void> ReadPixels;
     public static delegate* unmanaged<uint> GetError;
+    // glFinish, for timing: GL is asynchronous, so a stopwatch without it measures how fast
+    // commands are QUEUED rather than how fast they are drawn.
+    public static delegate* unmanaged<void> Finish;
     // Offscreen rendering, needed only by the CupriFace integration: the engine wants pixels, not a
     // window, so the 3D goes to a framebuffer object rather than to anyone's back buffer.
     public static delegate* unmanaged<int, uint*, void> GenFramebuffers;
@@ -135,6 +138,7 @@ public static unsafe class Gl
         DrawElements = (delegate* unmanaged<uint, int, uint, void*, void>)P("glDrawElements");
         ReadPixels = (delegate* unmanaged<int, int, int, int, uint, uint, void*, void>)P("glReadPixels");
         GetError = (delegate* unmanaged<uint>)P("glGetError");
+        Finish = (delegate* unmanaged<void>)P("glFinish");
         GenFramebuffers = (delegate* unmanaged<int, uint*, void>)P("glGenFramebuffers");
         BindFramebuffer = (delegate* unmanaged<uint, uint, void>)P("glBindFramebuffer");
         FramebufferTexture2D = (delegate* unmanaged<uint, uint, uint, uint, int, void>)P("glFramebufferTexture2D");

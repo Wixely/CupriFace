@@ -99,6 +99,27 @@ internal static unsafe class DesktopProbe
                 return 0;
             }
 
+            // --- stress: how does it scale? -------------------------------------------------------
+            // Correctness at 4,032 triangles says nothing about viability. This walks the instance
+            // count up and reports the per-frame cost, so "is this a usable renderer" stops being a
+            // matter of opinion. glFinish before each stop, because GL is asynchronous and timing
+            // without it measures how fast commands are QUEUED, not how fast they are drawn.
+            if (args.Contains("--stress"))
+            {
+                Console.WriteLine("glprobe: instances  draws  triangles      ms/frame     fps");
+                foreach (var n in new[] { 1, 10, 50, 100, 250, 500, 1000 })
+                {
+                    for (var warm = 0; warm < 5; warm++) renderer.DrawInstances(0.6f, W, H, n, 0.055f, 0.067f, 0.086f, 1f);
+                    Gl.Finish();
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    const int frames = 30;
+                    for (var f = 0; f < frames; f++) renderer.DrawInstances(0.6f + f * 0.01f, W, H, n, 0.055f, 0.067f, 0.086f, 1f);
+                    Gl.Finish();
+                    var ms = sw.Elapsed.TotalMilliseconds / frames;
+                    Console.WriteLine($"glprobe: {n,9}  {n * renderer.DrawCalls,5}  {n * scene.TriangleCount,9:n0}  {ms,11:F2}  {1000 / ms,6:F0}");
+                }
+            }
+
             if (DrawAt(0.6f) != 0) return 1;
 
             var drawn = 0; long sr = 0, sg = 0, sb = 0;

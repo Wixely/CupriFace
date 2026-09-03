@@ -263,6 +263,58 @@ public sealed unsafe class SceneRenderer
         return (Gltf.Multiply(proj, LookAt(ex, ey, ez, cx, cy, cz)), ex, ey, ez);
     }
 
+    /// <summary>Draw the scene <paramref name="instances"/> times on a grid, for measuring rather
+    /// than for looking at. Each instance gets its own MVP so they occupy different screen space —
+    /// drawing the same geometry in the same place would let the depth test reject almost every
+    /// fragment after the first, measuring vertex throughput while appearing to measure fill.</summary>
+    public void DrawInstances(float angle, int w, int h, int instances, float bgR, float bgG, float bgB, float bgA)
+    {
+        Gl.UseProgram(_prog);
+        Gl.Viewport(0, 0, w, h);
+        Gl.ClearColor(bgR, bgG, bgB, bgA);
+        Gl.ClearBits(Gl.COLOR_BUFFER_BIT | Gl.DEPTH_BUFFER_BIT);
+
+        // FIXED grid and FIXED zoom, deliberately not scaled to the instance count. An earlier
+        // version zoomed out as the count rose, so each instance shrank and fill fell while draw
+        // calls climbed — the two moved together and the resulting numbers were non-monotonic
+        // (100 instances "faster" than 50, 1000 "faster" than 500), which is the signature of a
+        // measurement of nothing. Holding the size constant means the only thing varying is the
+        // count, so this measures draw-call and vertex cost with bounded fill; instances past the
+        // 36 that fit are clipped, and pay vertex and call cost without fill.
+        const int side = 6;
+        const float zoomFactor = 1f / 3.6f;
+        float rx = _scene.Max[0] - _scene.Min[0], ry = _scene.Max[1] - _scene.Min[1];
+        var (baseMvp, ex, ey, ez) = Camera(angle, (float)w / h);
+        Gl.Uniform3f(_camLoc, ex, ey, ez);
+
+        for (var i = 0; i < instances; i++)
+        {
+            // Spread on a grid, then pull the camera back by the grid's size so the whole lot stays
+            // in frame — otherwise the instance count silently becomes a fill-rate experiment.
+            var gx = (i % side) - (side - 1) / 2f;
+            var gy = ((i / side) % side) - (side - 1) / 2f;
+            var t = Gltf.Identity();
+            t[12] = gx * rx * 1.2f; t[13] = gy * ry * 1.2f;
+            var zoom = Gltf.Identity();
+            zoom[0] = zoom[5] = zoom[10] = zoomFactor;
+            var mvp = Gltf.Multiply(baseMvp, Gltf.Multiply(zoom, t));
+            fixed (float* p = mvp) Gl.UniformMatrix4fv(_mvpLoc, 1, 0, p);
+
+            foreach (var (vao, count, prim) in _draws)
+            {
+                Gl.Uniform4f(_baseColorLoc, prim.BaseColor[0], prim.BaseColor[1], prim.BaseColor[2], prim.BaseColor[3]);
+                Gl.Uniform1f(_metalLoc, prim.Metallic);
+                Gl.Uniform1f(_roughLoc, prim.Roughness);
+                var tex = prim.ImageIndex >= 0 && prim.ImageIndex < _textures.Count ? _textures[prim.ImageIndex] : 0;
+                if (tex != 0) { Gl.BindTexture(Gl.TEXTURE_2D, tex); Gl.Uniform1i(_hasTexLoc, 1); }
+                else Gl.Uniform1i(_hasTexLoc, 0);
+                Gl.BindVertexArray(vao);
+                Gl.DrawElements(Gl.TRIANGLES, count, Gl.UNSIGNED_INT, (void*)0);
+            }
+        }
+        Gl.BindVertexArray(0);
+    }
+
     public void Draw(float angle, int w, int h, float bgR, float bgG, float bgB, float bgA)
     {
         Gl.UseProgram(_prog);

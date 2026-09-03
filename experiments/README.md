@@ -163,6 +163,36 @@ slashes**, which no shell or patch script can mangle that way.
   modes are ignored.
 - Desktop proven on one GPU (NVIDIA), Android on SwiftShader, neither on real mobile silicon.
 
+## Does it perform?
+
+Correctness at 4,032 triangles says nothing about viability, so the desktop leg has a `--stress` mode
+that walks the instance count up and times whole frames. `glFinish` before each stop, because GL is
+asynchronous and a stopwatch without it measures how fast commands are *queued*.
+
+Three runs, GTX 1060, 480×480:
+
+| instances | draw calls | ms/frame (3 runs) |
+|-----------|-----------|--------------------|
+| 1 | 1 | 0.02, 0.02, 0.02 |
+| 10 | 10 | 0.06, 0.05, 0.08 |
+| 50 | 50 | 0.38, 0.35, 0.26 |
+| 250 | 250 | 1.01, 1.54, 1.36 |
+| 1000 | 1000 | 2.34, 2.41, 2.52 |
+
+**1,000 draw calls costs about 2.4 ms** — roughly 2.4 µs per call, leaving most of a 16 ms frame
+unspent. That is the number the viability question actually turns on, and it is stable across runs.
+
+Two honesties about this table. The middle of it is **noisy, ±40% run to run**, so only the endpoints
+are worth quoting. And it is a **draw-call** measurement, not triangle throughput: the grid shows 36
+instances and clips the rest, so beyond that point instances pay vertex and call cost but little
+fill. Dividing 4M triangles by 2.4 ms would suggest 1.7 billion triangles a second, which a GTX 1060
+cannot do and which nothing here measured.
+
+An earlier version of this table was **discarded rather than published**: it scaled the zoom with the
+instance count, so each teapot shrank as the count grew and fill fell while draw calls rose. The two
+moved together and the result was non-monotonic — 100 instances "faster" than 50, 1000 "faster" than
+500. Non-monotonic output is the signature of a measurement of nothing.
+
 ## Verified together
 
 Every leg built and run from the committed state in one sweep, rather than each having worked at some
