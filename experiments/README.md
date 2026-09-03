@@ -5,6 +5,22 @@ in any package. These are feasibility probes, kept for the same reason `samples/
 answer to "can we?" is worth more written down than remembered, and a probe that has been deleted
 proves nothing later.
 
+**Kept in main after the answer landed**, which is a deliberate choice rather than tidying missed.
+The feature these probes justified now lives in `src/` and `samples/Demo3d`, so it would have been
+reasonable to delete them. Three things are only here:
+
+- **The Android evidence.** The Showcase does not wire 3D on Android yet, so `GlProbe.Android` is the
+  only place the GLES 3.0 leg is demonstrated at all.
+- **The perf harness.** The draw / readback / upload split that prices the GPU→CPU→GPU round trip is
+  what the next step (sharing the engine's `GRContext`) will be measured against. Re-deriving a
+  baseline after deleting it is how a regression becomes an opinion.
+- **`PROMOTING.md`'s retrospective**, comparing what a careful read of the code predicted against
+  what integration actually cost. The estimate was wrong in a specific, repeatable way, and that is
+  only legible next to the estimate itself.
+
+`pwsh experiments/verify.ps1` rebuilds every leg from what is committed and reports what passed, so
+this cannot rot silently.
+
 The question: **could CupriFace host a 3D renderer, given that NativeAOT-LLVM wasm is a hard
 requirement?** That requirement is what ruled Stride out — its web export waits on Silk.NET 3.0
 shipping browser bindings, then a migration to it, then a shader rewrite, and NativeAOT is an open
