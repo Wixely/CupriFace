@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>teapot.glb — WebGL2 from NativeAOT-LLVM — probe</title>
+  <style>
+    body { background:#0f1115; color:#e6e8ec; font-family:system-ui, sans-serif; margin:24px; }
+    #glcanvas { border:1px solid #2a2f3a; display:block; }
+    pre { background:#161a21; padding:12px; white-space:pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>teapot.glb — WebGL2 from NativeAOT-LLVM</h1>
+  <!-- The canvas the probe asks Emscripten for by CSS selector. -->
+  <canvas id="glcanvas" width="480" height="480"></canvas>
+  <pre id="log">booting…</pre>
+
+  <script type="module">
+    const log = document.getElementById("log");
+    const line = (s) => { log.textContent += "\n" + s; console.log(s); };
+
+    // Surfaced for the browser check to read without scraping the console.
+    globalThis.__probe = { done: false, exit: null, lines: [] };
+
+    try {
+      const { dotnet } = await import("./dotnet.js");
+      const runtime = await dotnet.withDiagnosticTracing(false).create();
+      log.textContent = "runtime created";
+      const exit = await runtime.runMain("GlProbe", []);
+      line("runMain exit code: " + exit);
+      globalThis.__probe.exit = exit;
+    } catch (e) {
+      line("BOOT FAILED: " + e);
+      globalThis.__probe.exit = -1;
+    } finally {
+      globalThis.__probe.done = true;
+    }
+  </script>
+</body>
+</html>
