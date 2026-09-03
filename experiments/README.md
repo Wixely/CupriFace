@@ -106,6 +106,20 @@ occlude an image.
 antialiased — which is why the box is 308×307 but only 86,242 of its 94,556 pixels are transparent:
 the corners and the badge are not.
 
+**And that UI can be TRANSLUCENT.** Both routes to partial alpha survive the hole and the
+premultiplied-to-straight present, to within a rounding step:
+
+| overlay painted over the hole | measured alpha | expected | pixels |
+|---|---|---|---|
+| opaque `#b87333` | **255** | 255 | 4,799 |
+| `background: rgba(184,115,51,0.45)` | **114** | 114.75 | 4,099 |
+| `opacity: 0.5` | **127** | 127.5 | 4,680 |
+
+10,062 pixels in the hole's box carry partial alpha — real translucency at scale rather than
+antialiasing fringe — and the 3D is visibly tinted through both panels. Worth testing both separately
+because they take different paths: an `rgba()` fill is one command with alpha below 1, while
+`opacity` wraps its subtree in `PushOpacity`. Either could have been flattened on the way out.
+
 **What it cannot do, on the web:** the underlay is ONE canvas beneath the engine's, so the layer
 order is fixed — 3D at the bottom, everything the engine paints above it. A transparent 3D object
 cannot float *in front of* UI per-element, and UI painted *before* the surface is erased inside the
