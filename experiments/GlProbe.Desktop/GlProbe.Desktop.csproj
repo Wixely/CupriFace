@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The desktop leg. Same portable half as GlProbe.Web (shared/Gltf.cs is linked into both, and
+       the GL call sequence is the same); the only difference is that modern entry points arrive as
+       function pointers from wglGetProcAddress rather than as static symbols from Emscripten.
+
+       Silk.NET.Windowing is here for the WINDOW and the proc-address loader only — not for its GL
+       bindings, which are deliberately unused so this leg tests the same hand-rolled call shape the
+       web leg does. CupriFace.Shell already depends on the same package at the same version. -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>CupriFace.Experiments.GlProbe.Desktop</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Silk.NET.Windowing" Version="2.22.0" />
+    <!-- One job: decoding the glb's embedded JPEG. The renderer only ever sees RGBA — the same
+         boundary the web leg keeps, for the same reason. -->
+    <PackageReference Include="SkiaSharp" Version="3.116.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.116.1" Condition="'$(OS)' != 'Windows_NT'" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\shared\Gltf.cs" Link="Gltf.cs" />
+    <None Include="..\assets\teapot.glb" Link="teapot.glb" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
