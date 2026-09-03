@@ -212,7 +212,27 @@ Re-run in full after `shared/SceneRenderer.cs` and `shared/GlRenderer.cs` gained
 because those files are linked into **every** leg and "the change was additive" is the kind of
 reasoning this branch has already been wrong about. Every figure above came back identical.
 
-## Running them
+## Re-establishing all of it
+
+```
+pwsh experiments/verify.ps1
+```
+
+Rebuilds every leg from what is committed and runs the ones this machine can. Legs whose
+prerequisites are missing **SKIP** rather than fail — a box with no OpenGL, no attached device and no
+browser still checks that everything *builds*, which is most of what silently rots. Exit code 1 if
+anything genuinely failed.
+
+The two browser legs stay **MANUAL**: driving a real browser needs Playwright or a devtools client,
+and this script's job is to run anywhere. Their publish is checked (that is where an ILC or emcc link
+would break), and the script prints the command to serve each one.
+
+Why a script at all, when these probes are deliberately outside CI: every number in this file was
+measured in one sitting, which is the weakest kind of evidence. This repo's own history is the
+argument — v0.16.0 exists partly because an Android claim went from "measured once" to "asserted
+every run".
+
+## Running them individually
 
 ```
 # web
