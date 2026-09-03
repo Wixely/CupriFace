@@ -208,6 +208,10 @@ builds" that never built:
 | `GlProbe.WebHost` | Chromium, hole alpha + screenshot | PASS — 3,191 saturated px inside the hole, **0** outside |
 | `GlProbe.Web.Twin` | publish only | builds (it exists to be subtracted) |
 
+Re-run in full after `shared/SceneRenderer.cs` and `shared/GlRenderer.cs` gained the stress mode,
+because those files are linked into **every** leg and "the change was additive" is the kind of
+reasoning this branch has already been wrong about. Every figure above came back identical.
+
 ## Running them
 
 ```
