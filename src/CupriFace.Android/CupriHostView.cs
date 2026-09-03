@@ -37,6 +37,7 @@ public sealed class CupriHostView : SKGLSurfaceView
         host.SelectionChanged += OnSelectionChanged;
         host.TextInputChanged += NotifyAutofillFocus;
         host.FormSubmitted += CommitAutofill;
+        host.CaretMoved += OnCaretMoved;
 
         // WHEN_DIRTY parks the GL thread between frames; RequestRender wakes it. Everything the
         // engine's render-on-demand model needs — Dispatch* returns and HasActiveAnimations —
@@ -84,6 +85,7 @@ public sealed class CupriHostView : SKGLSurfaceView
         var loc = new int[2];
         GetLocationOnScreen(loc);
         _talkBack?.SetViewOrigin(loc[0], loc[1]);        // a11y bounds are SCREEN rects
+        (_originX, _originY) = (loc[0], loc[1]);         // …and so is a CursorAnchorInfo matrix
         global::Android.Util.Log.Info(AndroidHost.Tag,
             $"view origin {loc[0]},{loc[1]} size {Width}x{Height} density {_density}");
     }
@@ -274,6 +276,102 @@ public sealed class CupriHostView : SKGLSurfaceView
     /// <summary>An IME asked to monitor the extracted text; remember who to tell.</summary>
     internal void StartExtractMonitoring(int token) => _extractToken = token;
 
+    // ---- CursorAnchorInfo -----------------------------------------------------------------------
+
+    private bool _cursorMonitor;
+    private int _originX, _originY;
+
+    /// <summary>An IME asked to be told where the caret is until further notice. Remembered rather
+    /// than acted on, because the answer changes on the document thread and is published after a
+    /// frame — see <see cref="AndroidHost.CaretMoved"/>.</summary>
+    internal void StartCursorMonitoring(bool monitor)
+    {
+        _cursorMonitor = monitor;
+        // A marker, always on, for the same reason every other one here is: it is the only window
+        // CI (and a human with logcat) has into whether a keyboard ever ASKED. "The candidate window
+        // is misplaced" and "the IME never requested updates" look identical from outside.
+        global::Android.Util.Log.Info(AndroidHost.Tag, $"cursor-anchor: monitor={monitor}");
+    }
+
+    private void OnCaretMoved(TextInputState state)
+    {
+        if (_cursorMonitor) PublishCursorAnchorInfo(state);
+    }
+
+    /// <summary>Tell the IME where the caret sits ON SCREEN. This is what positions gboard's
+    /// candidate window: without it a keyboard has no idea where the text it is completing is drawn,
+    /// so it falls back to parking the strip against its own top edge — which is why suggestions can
+    /// end up covering the very word being corrected.</summary>
+    internal void PublishCursorAnchorInfo(TextInputState state)
+    {
+        if (Context?.GetSystemService(Context.InputMethodService) is not InputMethodManager imm) return;
+        if (BuildCursorAnchorInfo(state) is not { } info) return;
+        imm.UpdateCursorAnchorInfo(this, info);
+
+        // The published SCREEN rectangle, so the claim is checkable against a screenshot rather than
+        // taken on trust: this is where we told the keyboard the caret is drawn.
+        if (state.CaretRect is { } r)
+        {
+            var scale = _host.Current?.InputScale ?? _density;
+            global::Android.Util.Log.Info(AndroidHost.Tag,
+                $"cursor-anchor: caret screen {_originX + r.X * scale:F0},{_originY + r.Y * scale:F0} " +
+                $"{r.W * scale:F0}x{r.H * scale:F0} (logical {r.X:F1},{r.Y:F1} {r.W:F1}x{r.H:F1} @ {scale:F3})");
+        }
+    }
+
+    /// <summary>The caret as the platform wants it. Coordinates go in the VIEW's own pixel space and
+    /// the matrix maps that to the screen — the convention TextView uses, and the one that keeps this
+    /// correct when the view moves (a status bar appearing, a rotation) without every caret needing
+    /// recomputing.</summary>
+    private CursorAnchorInfo? BuildCursorAnchorInfo(TextInputState state)
+    {
+        if (!state.Focused) return null;
+
+        // The SAME logical->physical factor the canvas, touch and the a11y bounds use. Taking it
+        // from the published snapshot rather than from density alone is what keeps the caret aligned
+        // when the app is zoomed: density is only half of it (AndroidHost folds in the app scale).
+        var scale = _host.Current?.InputScale ?? _density;
+
+        var builder = new CursorAnchorInfo.Builder();
+
+        using (var m = new global::Android.Graphics.Matrix())
+        {
+            m.SetTranslate(_originX, _originY);
+            builder.SetMatrix(m);
+        }
+
+        var text = state.Value ?? "";
+        var selStart = Math.Clamp(state.SelStart, 0, text.Length);
+        var selEnd = Math.Clamp(state.SelEnd, 0, text.Length);
+        builder.SetSelectionRange(selStart, selEnd);
+
+        // The preedit, when there is one. An IME that knows the composing range can underline it in
+        // its own overlay and align corrections to it.
+        if (state.Composing && selEnd > selStart)
+            builder.SetComposingText(selStart, new Java.Lang.String(text[selStart..selEnd]));
+
+        if (state.CaretRect is { } r)
+        {
+            var left = r.X * scale;
+            var top = r.Y * scale;
+            var bottom = (r.Y + r.H) * scale;
+
+            // Whether the caret is actually on screen, which decides where a keyboard is willing to
+            // draw. Any overlap counts as visible — the same rule the semantics tree uses for
+            // Offscreen, so a caret cannot be "visible" to one and hidden to the other.
+            var onScreen = bottom > 0 && top < Height && left >= 0 && left <= Width;
+
+            // No baseline is passed as a baseline: the engine reports the caret's BOX, and the
+            // text baseline is not in it. Handing the bottom to both is honest about that — it is
+            // the line bottom a candidate window is placed from anyway, so nothing that matters
+            // here is being approximated, and inventing a descent ratio would only look precise.
+            builder.SetInsertionMarkerLocation(left, top, bottom, bottom,
+                onScreen ? CursorAnchorFlags.HasVisibleRegion : CursorAnchorFlags.HasInvisibleRegion);
+        }
+
+        return builder.Build();
+    }
+
     public override bool OnCheckIsTextEditor() => _host.ImeState.Focused;
 
     public override IInputConnection? OnCreateInputConnection(EditorInfo? outAttrs)
@@ -282,6 +380,11 @@ public sealed class CupriHostView : SKGLSurfaceView
         // frame showing that focus exists. The snapshot would describe the previous field.
         var state = _host.ImeState;
         if (!state.Focused) return null;
+
+        // A cursor-update request belongs to the CONNECTION that made it. A new connection is a new
+        // conversation — carrying the old one's monitoring into it would keep reporting to a
+        // keyboard that never asked this time, about a field it may not be editing.
+        _cursorMonitor = false;
 
         if (outAttrs is not null)
         {

@@ -125,6 +125,27 @@ internal sealed class CupriInputConnection(CupriHostView view, AndroidHost host)
     public override bool DeleteSurroundingTextInCodePoints(int beforeLength, int afterLength) =>
         DeleteSurroundingText(beforeLength, afterLength);
 
+    /// <summary>An IME asking where the caret is drawn — the call that lets it put its candidate
+    /// window over the word being corrected instead of guessing.
+    ///
+    /// <para>Two INDEPENDENT bits, not an enum: IMMEDIATE means "answer once, now", MONITOR means
+    /// "keep telling me until I say otherwise". Gboard sends both together when it opens a
+    /// suggestion strip, so treating them as alternatives would answer once and then go quiet.
+    /// Unimplemented, this returns false and a keyboard stops asking — which is why the strip had
+    /// nowhere to go but its own top edge.</para></summary>
+    public override bool RequestCursorUpdates(int cursorUpdateMode)
+    {
+        const int Immediate = 1;   // InputConnection.CURSOR_UPDATE_IMMEDIATE
+        const int Monitor = 2;     // InputConnection.CURSOR_UPDATE_MONITOR
+
+        view.StartCursorMonitoring((cursorUpdateMode & Monitor) != 0);
+
+        // Answered from the post-frame snapshot like every other read here, and on the UI thread
+        // we are already on — the IME expects the immediate report before this call returns.
+        if ((cursorUpdateMode & Immediate) != 0) view.PublishCursorAnchorInfo(State);
+        return true;
+    }
+
     /// <summary>Whether the next character should auto-capitalise. Without this a keyboard cannot
     /// shift itself at the start of a sentence, which is most of what "it feels wrong to type in"
     /// amounts to on a phone.</summary>
