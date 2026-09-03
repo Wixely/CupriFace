@@ -246,6 +246,10 @@ internal sealed class Gl3dApp : CupriApp
               this host. Nothing in the engine was changed.</p>
             <div class="stage">
               <div data-cupri-surface="teapot3d" class="viewport"></div>
+              <!-- Painted AFTER the surface, and deliberately overlapping it. ClearHole uses
+                   BlendMode.Src to replace with transparent, so anything drawn later composites on
+                   top — this badge is the test of whether UI can sit in FRONT of the 3D. -->
+              <div class="badge">UI painted after the hole</div>
             </div>
             <p class="body">This paragraph is laid out by the engine and painted over the same canvas
               the hole is punched in. Text before and after the 3D composites correctly, which is what
@@ -260,7 +264,10 @@ internal sealed class Gl3dApp : CupriApp
         .title { font-size:20px; font-weight:bold; }
         .sub { color:#48505c; font-size:13px; margin:8px 0 16px; max-width:560px; }
         .stage { width:320px; height:320px; background:#11141a; border-radius:10px; padding:6px; }
-        .viewport { width:308px; height:308px; }
+        .viewport { width:308px; height:308px; border-radius:14px; }
+        /* Negative margin pulls it back over the viewport it follows. */
+        .badge { margin-top:-70px; margin-left:14px; width:210px; background:#b87333; color:#ffffff;
+                 font-size:13px; padding:9px 12px; border-radius:8px; }
         .body { color:#48505c; font-size:13px; margin-top:16px; max-width:560px; }
         """;
 }

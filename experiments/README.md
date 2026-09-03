@@ -88,6 +88,37 @@ is `ERROR: unsupported shader version` from a `#version 300 es` shader — a dia
 the cause. The probe now asserts the version string at runtime so the context is blamed, not the
 shader.
 
+### What the hole can and cannot do
+
+Measured on the engine's own canvas, not inferred:
+
+```
+transparent hole            86,242 px, box  32,123 -> 339,429
+copper badge painted AFTER   7,461 px, box  46,360 -> 279,394   (entirely inside the hole's box)
+```
+
+**UI in front of the 3D works.** `ClearHole` uses `BlendMode.Src` to replace with transparent, so
+anything drawn later composites on top — the badge is opaque engine pixels sitting inside the hole's
+own rectangle. Paint order is the ordinary one; a later sibling occludes the 3D exactly as it would
+occlude an image.
+
+**The hole is a rounded rect, not a square.** It takes the element's `border-radius` and is
+antialiased — which is why the box is 308×307 but only 86,242 of its 94,556 pixels are transparent:
+the corners and the badge are not.
+
+**What it cannot do, on the web:** the underlay is ONE canvas beneath the engine's, so the layer
+order is fixed — 3D at the bottom, everything the engine paints above it. A transparent 3D object
+cannot float *in front of* UI per-element, and UI painted *before* the surface is erased inside the
+hole rather than showing behind the model. Putting the 3D canvas above the engine's (z-index, plus
+`pointer-events:none`) would invert that globally, but it is a whole-page choice, not a per-element
+one.
+
+**Desktop and Android do not have that limit.** There the surface is a `DrawSurface` command inside
+the display list, so it participates in normal per-element paint order and the `SKImage`'s alpha is
+respected — a transparent, arbitrarily-shaped 3D object can sit in front of some UI and behind other
+UI in the same frame. The asymmetry is the same one video already lives with, and it comes from the
+web host having no GPU context rather than from anything about 3D.
+
 ### What 3D actually costs on the web
 
 Measured against a twin: the same app, same NativeAOT-LLVM settings, same Skia link, same embedded
