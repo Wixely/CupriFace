@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The integration leg: a 3D renderer INSIDE a CupriFace document. It references the engine and
+       the desktop host exactly as any app would, and changes neither — the whole question was
+       whether ISurfaceSource is enough of a seam, and this project is the answer. -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>CupriFace.Experiments.GlProbe.Host</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CupriFace.Shell\CupriFace.Shell.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Silk.NET.Windowing" Version="2.22.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\shared\Gltf.cs" Link="Gltf.cs" />
+    <Compile Include="..\shared\GlRenderer.cs" Link="GlRenderer.cs" />
+    <None Include="..\assets\teapot.glb" Link="teapot.glb" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

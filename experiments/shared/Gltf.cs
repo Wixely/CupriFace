@@ -8,7 +8,7 @@ using System.Text.Json;
 // JsonDocument, not JsonSerializer<T>: the DOM reader uses no reflection, so it is trim-clean by
 // construction under TrimMode=full. A shipping loader would want source-generated contexts for
 // speed; both are AOT-safe, which is the property that matters here and the one Stride cannot meet.
-internal sealed class Gltf
+public sealed class Gltf
 {
     public required float[] Vertices;      // interleaved px,py,pz,nx,ny,nz,u,v, already world-space
     public required uint[] Indices;
