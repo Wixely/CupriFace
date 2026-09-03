@@ -163,12 +163,31 @@ slashes**, which no shell or patch script can mangle that way.
   modes are ignored.
 - Desktop proven on one GPU (NVIDIA), Android on SwiftShader, neither on real mobile silicon.
 
+## Verified together
+
+Every leg built and run from the committed state in one sweep, rather than each having worked at some
+point during development — which is not the same claim, and this branch has already had one "it
+builds" that never built:
+
+| leg | how it was checked | result |
+|-----|--------------------|--------|
+| `GlProbe.Web` | Chromium, console + pixels | PASS — mean rgb 95.8, 91.3, 89.3 |
+| `GlProbe.Desktop` | run, pixels read off the GPU | PASS — mean rgb 97.3, 92.5, 90.5 |
+| `GlProbe.Android` | emulator, logcat + pixels | PASS — mean rgb 93.8, 90.7, 88.0 |
+| `GlProbe.CupriFace` | headless composite, pixels | PASS — 4,240 saturated px beside 94,245 px of text/stage |
+| `GlProbe.WebHost` | Chromium, hole alpha + screenshot | PASS — 3,191 saturated px inside the hole, **0** outside |
+| `GlProbe.Web.Twin` | publish only | builds (it exists to be subtracted) |
+
 ## Running them
 
 ```
 # web
 dotnet publish experiments/GlProbe.Web -c Release -o out/glprobe
 dotnet run --project tools/Serve -- out/glprobe 5299      # then open /index.html
+
+# 3D under a CupriFace web page (host-composited hole)
+dotnet publish experiments/GlProbe.WebHost -c Release -o out/glprobe-webhost
+dotnet run --project tools/Serve -- out/glprobe-webhost 5299
 
 # desktop  (add --show for a visible window)
 dotnet run --project experiments/GlProbe.Desktop -c Release
