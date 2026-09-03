@@ -269,7 +269,12 @@ internal sealed class Gl3dApp : CupriApp
         .wrap { padding:22px 26px; }
         .title { font-size:20px; font-weight:bold; }
         .sub { color:#48505c; font-size:13px; margin:8px 0 16px; max-width:560px; }
-        .stage { width:320px; height:320px; background:#11141a; border-radius:10px; padding:6px; }
+        /* CONTENT-box sizing, which is the engine's model (node.Width = contentW + insets): this
+           320 was written with border-box muscle memory, so the stage came out 332x331 total and
+           left 12px of spare background down the right and bottom of the 308px viewport — a
+           lopsided frame that looked like a rendering artefact and was just arithmetic. 308 makes
+           the content box exactly the viewport, so the 6px padding is the whole frame. */
+        .stage { width:308px; height:308px; background:#11141a; border-radius:10px; padding:6px; }
         .viewport { width:308px; height:308px; border-radius:14px; }
         /* Negative margin pulls it back over the viewport it follows. */
         .badge { margin-top:-232px; margin-left:14px; width:150px; background:#b87333; color:#ffffff;
