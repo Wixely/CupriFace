@@ -19,7 +19,8 @@ if (!File.Exists(glb)) { Console.WriteLine($"glprobe: FAIL asset missing: {glb}"
 Gltf model;
 try { model = Gltf.Load(File.ReadAllBytes(glb)); }
 catch (Exception ex) { Console.WriteLine($"glprobe: FAIL load: {ex.Message}"); return 1; }
-Console.WriteLine($"glprobe: {model.Vertices.Length / 8:n0} vertices, {model.Indices.Length / 3:n0} triangles");
+Console.WriteLine($"glprobe: {model.Primitives.Count} primitive(s), {model.VertexCount:n0} vertices, "
+    + $"{model.TriangleCount:n0} triangles, {model.Images.Count} image(s)");
 
 var app = new TeapotApp(model);
 

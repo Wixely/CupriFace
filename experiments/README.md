@@ -13,22 +13,29 @@ issue there even on desktop.
 ## The answer: yes, on every host, and it costs less than Lottie
 
 The same `teapot.glb` — interleaved accessors at stride 32, a two-node scene graph, `UNSIGNED_INT`
-indices, uvs, and an 838 KB embedded JPEG — rendered, lit and textured on each:
+indices, uvs, and an 838 KB embedded JPEG — rendered with metallic-roughness PBR on each host by
+**one compiled renderer**, not three implementations that agree:
 
-| host | GL | how the symbols arrive | who decoded the JPEG | mean rgb over model pixels |
-|------|----|------------------------|----------------------|-----------------------------|
-| **web** (NativeAOT-LLVM) | WebGL2 / GLES 3.0, Chromium | Emscripten's are **static**; `DirectPInvoke` binds at link time | Skia → RGBA | **50.5, 40.1, 41.8** |
-| **desktop** (Windows) | GL 3.3, NVIDIA GTX 1060 | `opengl32` has GL 1.1 only; the rest are **`wglGetProcAddress` function pointers** | Skia → **BGRA** | **51.1, 40.4, 42.0** |
-| **android** (emulator) | GLES 3.0, SwiftShader | `libGLESv3.so` **exports** them; a plain `DllImport` binds | BitmapFactory → **ARGB** | **50.8, 40.3, 42.0** |
+| host | GL | how a function address is found | who decoded the JPEG | mean rgb over model pixels |
+|------|----|--------------------------------|----------------------|-----------------------------|
+| **web** (NativeAOT-LLVM) | WebGL2 / GLES 3.0, Chromium | symbols are static; `emscripten_GetProcAddress` | Skia → RGBA | **95.8, 91.3, 89.3** |
+| **desktop** (Windows) | GL 3.3, NVIDIA GTX 1060 | `opengl32` has GL 1.1 only; `wglGetProcAddress` | Skia → **BGRA** | **97.3, 92.5, 90.5** |
+| **android** (emulator) | GLES 3.0, SwiftShader | `libGLESv3.so` exports them; **`dlsym`** | BitmapFactory → **ARGB** | **93.8, 90.7, 88.0** |
 
-Three GL implementations, three ways of obtaining a function address, three decoders with three
-different channel layouts — and the rendered mean colour agrees to within **0.6 of 255**.
+`shared/Gltf.cs`, `shared/GlRenderer.cs` and `shared/SceneRenderer.cs` are linked into every leg. Each
+host file now contains **no GL calls at all** — only "get a context", "here is where addresses come
+from", and "here is how this platform decodes an image". That is the portability result: the
+difference between hosts shrank to a single lambda.
 
-That agreement is the finding. `shared/Gltf.cs` and `shared/GlRenderer.cs` are linked into every leg
-and the GL call sequence is the same in each; what differs is confined to how an address is obtained
-and **one `#version` line** (desktop needs `330 core`, web and Android both take `300 es`, because
-WebGL2 *is* GLES 3.0). **None of it requires a bindings package** — which is exactly why Silk.NET's
-absent browser bindings do not block this the way they block Stride.
+The three means agree within about **3.5 of 255**. Wider than the 0.6 the earlier Lambert renderer
+managed, and the reason is not sloppiness: PBR's specular term is view-dependent, and the three
+viewports are not the same shape (480×480 twice, 1080×2400 on the phone), so the camera frames the
+model slightly differently and the highlight lands in a different place. A view-independent shader
+had no way to disagree; this one does, and 3.5/255 is the size of that disagreement.
+
+`dlsym` rather than `eglGetProcAddress` on Android is deliberate. Some EGL implementations return a
+non-null stub for *any* name, which makes a missing entry point look present and then crash on
+call — the same trap CupriFace's own GL loader documents for `glXGetProcAddressARB`.
 
 ### It fits inside a CupriFace document with the engine unchanged
 
@@ -45,7 +52,7 @@ the context Skia is mid-draw on corrupts its state tracking, and the remedy
 The price of that choice, measured rather than assumed:
 
 ```
-draw 0.08 ms    readback 0.60 ms    to-SKImage 1.10–1.67 ms
+draw 0.09 ms    readback 0.83 ms    to-SKImage 0.92 ms
 ```
 
 **Moving the frame costs roughly twenty times the rendering.** That is the number that decides
@@ -65,6 +72,7 @@ cost was measured with.
 
 **A whole 3D renderer is cheaper on the web than the Lottie package** — GL comes from Emscripten, so
 there is no binding library and no native asset, and the image decoder was already being linked.
+(Measured before the PBR/multi-primitive rewrite; the shader is bigger now, the C# barely.)
 
 ## How correctness was checked
 
@@ -77,10 +85,15 @@ invisible — so the render was compared against the source asset's own statisti
 | predicted (× 0.5 `baseColorFactor` × 0.771 mean lighting) | 50.5 | 40.1 | 41.2 |
 | measured, web | 50.5 | 40.1 | 41.8 |
 
-One agreement pins three things at once: channel order, `baseColorFactor` being multiplied in rather
+One agreement pinned three things at once: channel order, `baseColorFactor` being multiplied in rather
 than ignored, and the lighting term.
 
-## Three ways these probes lied, and what fixed them
+Those figures are from the **Lambert** renderer this replaced, and are kept because that is when the
+check was decisive — a closed-form prediction is no longer practical now the shader tonemaps and
+gamma-corrects. What guards it since is the cross-host agreement above: three GL implementations
+landing within 3.5/255 of each other cannot all be wrong about channel order in the same direction.
+
+## Four ways these probes lied, and what fixed them
 
 Worth keeping, because each was a check that passed while something was wrong.
 
@@ -98,6 +111,12 @@ alive", linking a PNG *encoder* the real probe never uses — making the baselin
 subject and 3D appear to cost −169 KB. An impossible sign is a useful kind of wrong. The twin now
 exercises exactly the decode path the real probe does, and nothing else.
 
+**An Android asset went missing after a "safe" repair.** Flattening backslashes to forward slashes
+in the project files changed how MSBuild resolved `Link="Assets/teapot.glb"`, nesting the asset at
+`assets/Assets/teapot.glb`; `AssetManager.Open("teapot.glb")` then threw a FileNotFoundException whose
+message is just the filename, which reads like a missing asset rather than a misplaced one. The Link
+no longer carries a subdirectory.
+
 **A build was reported working that had never built.** The web probe's project file was patched by a
 script whose `\\` collapsed to `\`, turning `..\assets\teapot.glb` into `..` + BEL + `ssets` + TAB +
 `eapot.glb`; MSBuild rejected it with `MSB4025`. The build was backgrounded, the completion
@@ -106,10 +125,13 @@ slashes**, which no shell or patch script can mangle that way.
 
 ## What none of this shows
 
-- **Lambert plus ambient, not PBR.** Enough to prove normals and uvs survived; calling it PBR would
-  be a lie.
-- One mesh, one draw call. No animation, no skinning, no camera or lights from the file, and only the
-  first mesh of a scene is drawn.
+- **No image-based lighting.** The BRDF is real Cook-Torrance metallic-roughness, but the environment
+  term is a flat ambient constant standing in for IBL. Without an environment map a metal has nothing
+  to reflect, so pure metals go dark — visible rather than hidden, and the next thing this would need.
+- **No animation, no skinning**, and no camera or lights taken from the file.
+- The scene walk handles multiple nodes, meshes and primitives with per-primitive materials, but
+  every primitive is drawn every frame: no culling, no sorting, no instancing, and alpha blending
+  modes are ignored.
 - **The web integration is unbuilt.** CupriFace's web hosts render to an `SKBitmap` via
   `putImageData` and have **no GPU context at all**, so the desktop approach does not transfer. The
   lane that fits there is host-composited hole-punching — exactly what `WebVideo` already does

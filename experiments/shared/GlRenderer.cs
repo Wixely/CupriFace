@@ -46,6 +46,8 @@ public static unsafe class Gl
     public static delegate* unmanaged<int, int, byte, float*, void> UniformMatrix4fv;
     public static delegate* unmanaged<int, float, float, float, float, void> Uniform4f;
     public static delegate* unmanaged<int, int, void> Uniform1i;
+    public static delegate* unmanaged<int, float, void> Uniform1f;
+    public static delegate* unmanaged<int, float, float, float, void> Uniform3f;
     public static delegate* unmanaged<int, uint*, void> GenTextures;
     public static delegate* unmanaged<uint, uint, void> BindTexture;
     public static delegate* unmanaged<uint, uint, int, void> TexParameteri;
@@ -123,6 +125,8 @@ public static unsafe class Gl
         UniformMatrix4fv = (delegate* unmanaged<int, int, byte, float*, void>)P("glUniformMatrix4fv");
         Uniform4f = (delegate* unmanaged<int, float, float, float, float, void>)P("glUniform4f");
         Uniform1i = (delegate* unmanaged<int, int, void>)P("glUniform1i");
+        Uniform1f = (delegate* unmanaged<int, float, void>)P("glUniform1f");
+        Uniform3f = (delegate* unmanaged<int, float, float, float, void>)P("glUniform3f");
         GenTextures = (delegate* unmanaged<int, uint*, void>)P("glGenTextures");
         BindTexture = (delegate* unmanaged<uint, uint, void>)P("glBindTexture");
         TexParameteri = (delegate* unmanaged<uint, uint, int, void>)P("glTexParameteri");
@@ -142,201 +146,4 @@ public static unsafe class Gl
     }
 
     public static string Str(byte* p) => p is null ? "(null)" : Marshal.PtrToStringUTF8((nint)p) ?? "(null)";
-}
-
-/// <summary>
-/// The teapot, as a thing that can be uploaded once and drawn many times. Everything host-specific
-/// (where the context came from, where the pixels go) is the caller's problem.
-/// </summary>
-public sealed unsafe class TeapotRenderer
-{
-    private readonly Gltf _model;
-    private uint _prog;
-    private int _mvpLoc;
-    private int _hasTex;
-    // Remembered so Draw can re-bind it. Binding once at init is NOT enough and the way it fails is
-    // silent: the CupriFace host creates its offscreen framebuffer's colour attachment AFTER this
-    // runs, which rebinds TEXTURE_2D to the very texture being rendered into. Sampling your own
-    // render target is undefined and reads black — a fully-shaped, correctly-lit, entirely black
-    // teapot, which looked enough like "a teapot" that the first pixel assertion passed.
-    private uint _tex;
-
-    public TeapotRenderer(Gltf model) => _model = model;
-
-    public Gltf Model => _model;
-
-    private static void Source(uint shader, string src)
-    {
-        var bytes = Encoding.UTF8.GetBytes(src + "\0");
-        fixed (byte* p = bytes)
-        {
-            byte** one = stackalloc byte*[1];
-            one[0] = p;
-            Gl.ShaderSource(shader, 1, one, null);
-        }
-    }
-
-    private static uint Compile(uint type, string src, string label, Action<string> log)
-    {
-        var s = Gl.CreateShader(type);
-        Source(s, src);
-        Gl.CompileShader(s);
-        int ok; Gl.GetShaderiv(s, Gl.COMPILE_STATUS, &ok);
-        if (ok != 0) return s;
-        var buf = stackalloc byte[1024];
-        Gl.GetShaderInfoLog(s, 1024, null, buf);
-        log($"FAIL {label} shader: {Gl.Str(buf)}");
-        return 0;
-    }
-
-    private static int Uniform(uint prog, string name)
-    {
-        var b = Encoding.UTF8.GetBytes(name + "\0");
-        fixed (byte* p = b) return Gl.GetUniformLocation(prog, p);
-    }
-
-    private static void Attrib(uint prog, uint index, string name)
-    {
-        var b = Encoding.UTF8.GetBytes(name + "\0");
-        fixed (byte* p = b) Gl.BindAttribLocation(prog, index, p);
-    }
-
-    /// <summary>Compile, upload and configure. <paramref name="decodeRgba"/> keeps the codec out of
-    /// the renderer: the caller turns encoded bytes into RGBA however its platform already can.</summary>
-    public bool Initialise(Func<byte[], (byte[] Pixels, int W, int H)?> decodeRgba, Action<string> log)
-    {
-        var vs = Compile(Gl.VERTEX_SHADER, """
-            #version 330 core
-            in vec3 aPos;
-            in vec3 aNormal;
-            in vec2 aUv;
-            uniform mat4 uMvp;
-            out vec3 vNormal;
-            out vec2 vUv;
-            void main() { vNormal = aNormal; vUv = aUv; gl_Position = uMvp * vec4(aPos, 1.0); }
-            """, "vertex", log);
-        var fs = Compile(Gl.FRAGMENT_SHADER, """
-            #version 330 core
-            in vec3 vNormal;
-            in vec2 vUv;
-            uniform vec4 uColor;
-            uniform sampler2D uTex;
-            uniform int uHasTex;
-            out vec4 fragColor;
-            void main() {
-                vec3 n = normalize(vNormal);
-                vec3 l = normalize(vec3(0.35, 0.75, 0.55));
-                float d = max(dot(n, l), 0.0);
-                vec3 albedo = uColor.rgb;
-                if (uHasTex == 1) albedo *= texture(uTex, vUv).rgb;
-                fragColor = vec4(albedo * (0.22 + 0.85 * d), uColor.a);
-            }
-            """, "fragment", log);
-        if (vs == 0 || fs == 0) return false;
-
-        _prog = Gl.CreateProgram();
-        Gl.AttachShader(_prog, vs); Gl.AttachShader(_prog, fs);
-        Attrib(_prog, 0, "aPos"); Attrib(_prog, 1, "aNormal"); Attrib(_prog, 2, "aUv");
-        Gl.LinkProgram(_prog);
-        int linked; Gl.GetProgramiv(_prog, Gl.LINK_STATUS, &linked);
-        if (linked == 0)
-        {
-            var buf = stackalloc byte[1024];
-            Gl.GetProgramInfoLog(_prog, 1024, null, buf);
-            log($"FAIL link: {Gl.Str(buf)}");
-            return false;
-        }
-        Gl.UseProgram(_prog);
-
-        uint vao, vbo, ebo;
-        Gl.GenVertexArrays(1, &vao); Gl.BindVertexArray(vao);
-        Gl.GenBuffers(1, &vbo); Gl.BindBuffer(Gl.ARRAY_BUFFER, vbo);
-        fixed (float* v = _model.Vertices)
-            Gl.BufferData(Gl.ARRAY_BUFFER, _model.Vertices.Length * sizeof(float), v, Gl.STATIC_DRAW);
-        var stride = 8 * sizeof(float);
-        Gl.VertexAttribPointer(0, 3, Gl.FLOAT, 0, stride, (void*)0); Gl.EnableVertexAttribArray(0);
-        Gl.VertexAttribPointer(1, 3, Gl.FLOAT, 0, stride, (void*)(3 * sizeof(float))); Gl.EnableVertexAttribArray(1);
-        Gl.VertexAttribPointer(2, 2, Gl.FLOAT, 0, stride, (void*)(6 * sizeof(float))); Gl.EnableVertexAttribArray(2);
-        Gl.GenBuffers(1, &ebo); Gl.BindBuffer(Gl.ELEMENT_ARRAY_BUFFER, ebo);
-        fixed (uint* i = _model.Indices)
-            Gl.BufferData(Gl.ELEMENT_ARRAY_BUFFER, _model.Indices.Length * sizeof(uint), i, Gl.STATIC_DRAW);
-
-        if (_model.BaseColorImage is { Length: > 0 } encoded && decodeRgba(encoded) is { } img)
-        {
-            log($"texture decoded {img.W}x{img.H} -> rgba8888");
-            uint tex; Gl.GenTextures(1, &tex);
-            _tex = tex;
-            Gl.BindTexture(Gl.TEXTURE_2D, _tex);
-            fixed (byte* p = img.Pixels)
-                Gl.TexImage2D(Gl.TEXTURE_2D, 0, (int)Gl.RGBA8, img.W, img.H, 0, Gl.RGBA, Gl.UNSIGNED_BYTE, p);
-            Gl.GenerateMipmap(Gl.TEXTURE_2D);
-            Gl.TexParameteri(Gl.TEXTURE_2D, Gl.TEX_MIN_FILTER, Gl.LINEAR_MIPMAP_LINEAR);
-            Gl.TexParameteri(Gl.TEXTURE_2D, Gl.TEX_MAG_FILTER, Gl.LINEAR);
-            Gl.TexParameteri(Gl.TEXTURE_2D, Gl.TEX_WRAP_S, Gl.REPEAT);
-            Gl.TexParameteri(Gl.TEXTURE_2D, Gl.TEX_WRAP_T, Gl.REPEAT);
-            _hasTex = 1;
-        }
-
-        Gl.Enable(Gl.DEPTH_TEST); Gl.DepthFunc(Gl.LESS);
-        _mvpLoc = Uniform(_prog, "uMvp");
-        Gl.Uniform4f(Uniform(_prog, "uColor"), _model.BaseColor[0], _model.BaseColor[1], _model.BaseColor[2], _model.BaseColor[3]);
-        Gl.Uniform1i(Uniform(_prog, "uTex"), 0);
-        Gl.Uniform1i(Uniform(_prog, "uHasTex"), _hasTex);
-        return true;
-    }
-
-    public bool HasTexture => _hasTex == 1;
-
-    public static float[] Perspective(float fovY, float aspect, float near, float far)
-    {
-        var f = 1f / MathF.Tan(fovY / 2f);
-        var m = new float[16];
-        m[0] = f / aspect; m[5] = f;
-        m[10] = (far + near) / (near - far); m[11] = -1f;
-        m[14] = 2f * far * near / (near - far);
-        return m;
-    }
-
-    public static float[] LookAt(float ex, float ey, float ez, float cx, float cy, float cz)
-    {
-        float zx = ex - cx, zy = ey - cy, zz = ez - cz;
-        var zl = MathF.Sqrt(zx * zx + zy * zy + zz * zz); zx /= zl; zy /= zl; zz /= zl;
-        float xx = zz, xy = 0f, xz = -zx;
-        var xl = MathF.Sqrt(xx * xx + xy * xy + xz * xz); xx /= xl; xy /= xl; xz /= xl;
-        float yx = zy * xz - zz * xy, yy = zz * xx - zx * xz, yz = zx * xy - zy * xx;
-        return new float[16]
-        {
-            xx, yx, zx, 0, xy, yy, zy, 0, xz, yz, zz, 0,
-            -(xx * ex + xy * ey + xz * ez), -(yx * ex + yy * ey + yz * ez), -(zx * ex + zy * ey + zz * ez), 1,
-        };
-    }
-
-    /// <summary>Frame the model from its own bounds. Baked in rather than left to callers because a
-    /// guessed camera distance renders correct geometry off screen, which reads as a failure.</summary>
-    public float[] Mvp(float angle, float aspect)
-    {
-        var m = _model;
-        float cx = (m.Min[0] + m.Max[0]) / 2f, cy = (m.Min[1] + m.Max[1]) / 2f, cz = (m.Min[2] + m.Max[2]) / 2f;
-        float dx = m.Max[0] - m.Min[0], dy = m.Max[1] - m.Min[1], dz = m.Max[2] - m.Min[2];
-        var radius = MathF.Sqrt(dx * dx + dy * dy + dz * dz) / 2f;
-        var fov = 45f * MathF.PI / 180f;
-        var dist = radius / MathF.Sin(fov / 2f) * 1.25f;
-        var proj = Perspective(fov, aspect, radius * 0.01f, dist + radius * 4f);
-        var view = LookAt(cx + MathF.Sin(angle) * dist, cy + dist * 0.35f, cz + MathF.Cos(angle) * dist, cx, cy, cz);
-        return Gltf.Multiply(proj, view);
-    }
-
-    public void Draw(float angle, int w, int h, float bgR, float bgG, float bgB, float bgA)
-    {
-        Gl.UseProgram(_prog);
-        // Re-bind every frame rather than trusting init-time state: whoever owns the context may
-        // have bound something else to TEXTURE_2D since (the offscreen host does exactly that).
-        if (_hasTex == 1) Gl.BindTexture(Gl.TEXTURE_2D, _tex);
-        var mvp = Mvp(angle, (float)w / h);
-        fixed (float* p = mvp) Gl.UniformMatrix4fv(_mvpLoc, 1, 0, p);
-        Gl.Viewport(0, 0, w, h);
-        Gl.ClearColor(bgR, bgG, bgB, bgA);
-        Gl.ClearBits(Gl.COLOR_BUFFER_BIT | Gl.DEPTH_BUFFER_BIT);
-        Gl.DrawElements(Gl.TRIANGLES, _model.Indices.Length, Gl.UNSIGNED_INT, (void*)0);
-    }
 }

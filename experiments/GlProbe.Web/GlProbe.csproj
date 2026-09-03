@@ -48,6 +48,8 @@
     <!-- One loader, both probes. The whole point of the desktop and Android legs is that
          the PORTABLE half is identical and only the symbol loading differs. -->
     <Compile Include="../shared/Gltf.cs" Link="Gltf.cs" />
+    <Compile Include="../shared/GlRenderer.cs" Link="GlRenderer.cs" />
+    <Compile Include="../shared/SceneRenderer.cs" Link="SceneRenderer.cs" />
   </ItemGroup>
 
   <ItemGroup>

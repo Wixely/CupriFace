@@ -25,6 +25,7 @@
   <ItemGroup>
     <Compile Include="../shared/Gltf.cs" Link="Gltf.cs" />
     <Compile Include="../shared/GlRenderer.cs" Link="GlRenderer.cs" />
+    <Compile Include="../shared/SceneRenderer.cs" Link="SceneRenderer.cs" />
     <None Include="../assets/teapot.glb" Link="teapot.glb" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

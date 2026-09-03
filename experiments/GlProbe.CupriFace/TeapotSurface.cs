@@ -80,7 +80,9 @@ public sealed class TeapotSurface : ISurfaceSource, IDisposable
             GlVersion = Gl.Str(Gl.GetString(Gl.VERSION));
             _log($"teapot: offscreen context up, GL_VERSION = {GlVersion}");
 
-            var renderer = new TeapotRenderer(_model);
+            // glslEs: false — this is desktop GL, so the shader header is "#version 330 core".
+            // The web and Android legs pass true and get "#version 300 es" from the same source.
+            var renderer = new SceneRenderer(_model, glslEs: false);
             if (!renderer.Initialise(DecodeWithSkia, m => _log("teapot: " + m)))
             {
                 Status = "failed: renderer init";
