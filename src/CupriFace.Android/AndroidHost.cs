@@ -60,12 +60,24 @@ public sealed class AndroidHost : IDisposable
     private TextInputState _imeStateField;
     private TextInputState _lastImeKind;      // what the view was last told about (GL thread only)
     private (int Start, int End, bool Composing) _lastSel = (-1, -1, false);
+    private (float X, float Y, float W, float H)? _lastCaretRect;
 
     /// <summary>Raised on the UI thread when the caret or selection moves, so the view can report
     /// it to the InputMethodManager. Distinct from <see cref="TextInputChanged"/>, which is about
     /// the KIND of field (and so about showing/hiding/restarting the keyboard): the caret moves
     /// constantly within one field and must not restart anything.</summary>
     public event Action<TextInputState>? SelectionChanged;
+
+    /// <summary>Raised on the UI thread when the caret's on-screen RECTANGLE moves, so the view can
+    /// report it as <c>CursorAnchorInfo</c> and a keyboard can place its candidate window over the
+    /// right word.
+    ///
+    /// <para>Deliberately separate from <see cref="SelectionChanged"/>, which fires on the selection
+    /// INDICES. Those are different questions: the caret's box moves for reasons the indices never
+    /// see — the field scrolls, a reflow shifts the line, the window resizes, the app zooms — and an
+    /// IME drawing over the text needs every one of them. Firing on indices alone would leave the
+    /// candidate window behind exactly when the text moved under it.</para></summary>
+    public event Action<TextInputState>? CaretMoved;
 
     /// <summary>The part of the state the keyboard itself depends on — what must trigger a
     /// show/hide/restart. Caret and value churn on every keystroke and must NOT.</summary>
@@ -353,6 +365,20 @@ public sealed class AndroidHost : IDisposable
             _lastSel = (textInput.SelStart, textInput.SelEnd, textInput.Composing);
             var s = textInput;
             RunOnUi(() => SelectionChanged?.Invoke(s));
+        }
+
+        // …and WHERE it is, which is a different question from what it points at. Reported off the
+        // rect rather than the indices, so a caret that moved because the line reflowed under it is
+        // still reported; deduped on the rect, so a still caret costs one comparison per frame and
+        // no marshal. A null rect means layout is dirty and the answer would be a guess.
+        if (textInput.CaretRect != _lastCaretRect)
+        {
+            _lastCaretRect = textInput.CaretRect;
+            if (textInput.CaretRect is not null)
+            {
+                var c = textInput;
+                RunOnUi(() => CaretMoved?.Invoke(c));
+            }
         }
 
         // TalkBack: republish the semantics tree when content moved (Animate bumps the version
