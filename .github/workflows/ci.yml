@@ -414,7 +414,14 @@ jobs:
   # through that line. Display-size arithmetic lands in the status bar; that lesson cost run 8.
   #
   # What is NOT claimed automatable, stated plainly: real IME COMPOSITION (adb's `input text`
-  # bypasses any IME) — pinned by headless engine tests + a documented manual Gboard pass; and
+  # bypasses any IME) — pinned by headless engine tests + a documented manual Gboard pass. The
+  # keyboard's CursorAnchorInfo request is the same kind of thing and was measured rather than
+  # assumed: across seven local runs Gboard asked in four and declined in three, with no
+  # condition that reliably provoked it (a fresh `adb install -r` came closest and still
+  # declined once). A gate on someone else's discretionary call is a gate that goes red for
+  # reasons that are not ours, so this one is not attempted; the answer path is pinned by the
+  # pixel-exact device measurement recorded with the change (published rect vs the caret's
+  # actually-drawn columns, agreeing on both axes) and by the manual Gboard pass; and
   # SPOKEN TalkBack output — uiautomator proves the exposed tree, actions and geometry, what
   # TalkBack says aloud is a documented human pass, the same standard the Narrator/Orca/VoiceOver
   # gates hold.
@@ -440,6 +447,10 @@ jobs:
           case "$GITHUB_REF_NAME" in v[0-9]*) VER="-p:Version=${GITHUB_REF_NAME#v}" ;; esac
           dotnet publish samples/AndroidViewer/AndroidViewer.csproj -c Release -r android-x64 -o out/x64 $VER
           dotnet publish samples/AndroidViewer/AndroidViewer.csproj -c Release -r android-arm64 -o out/arm64 $VER
+          # The Lottie sample, x64 only: it exists to be DRIVEN on the emulator at the end of this
+          # job, not to be shipped, and the emulator is x64. Published under out/ so the
+          # desktop-native check below sweeps it too, for free.
+          dotnet publish samples/AndroidLottie/AndroidLottie.csproj -c Release -r android-x64 -o out/lottie-x64
           echo "### APK size" >> $GITHUB_STEP_SUMMARY
           for f in $(find out -name "*-Signed.apk"); do
             printf '%-8s %s bytes\n' "$(basename $(dirname $f))" "$(stat -c%s $f)" | tee -a $GITHUB_STEP_SUMMARY
@@ -1066,6 +1077,72 @@ jobs:
 
           echo "### TalkBack bridge assertions all green" >> $GITHUB_STEP_SUMMARY
           echo "switch round-trip via dump bounds; list window followed a fling ($ROWS rows exposed)" >> $GITHUB_STEP_SUMMARY
+
+      # LAST on purpose: this installs and foregrounds a DIFFERENT app, so everything driving the
+      # Viewer has to be finished before it runs.
+      #
+      # The claim being gated is narrow and was, until now, inferred: Skottie's natives ship in all
+      # four Android ABIs, but a resolved symbol is not a rendered frame, and only pixels answer
+      # that. What this does NOT re-prove is the pause path — LottieTests covers the autoplay
+      # attribute headlessly, and tapping a button whose dp anchor was never calibrated for this
+      # skin would be guessing dressed as a check.
+      - name: Lottie renders and animates on the device
+        run: |
+          set -o pipefail
+          fail() { echo "::error::$1"; adb logcat -d -s cupri:I | tail -40; exit 1; }
+
+          adb logcat -c
+          adb install -r out/lottie-x64/*-Signed.apk
+          ACT=$(adb shell cmd package resolve-activity --brief com.cupriface.lottie | tail -1 | tr -d '\r')
+          adb shell am start -n "$ACT" 2>&1 | tee lottie-start.log
+          ! grep -q "Error:" lottie-start.log || fail "the Lottie sample refused to start"
+
+          for i in $(seq 1 30); do
+            adb logcat -d -s cupri:I | grep -q "FIRST FRAME" && break
+            sleep 2
+          done
+          adb logcat -d -s cupri:I | grep -q "FIRST FRAME" || fail "the Lottie sample never painted"
+
+          # Skottie PARSED the file, on this device. That shape could only come from Skia having
+          # read the JSON here, and it is the same one LottieTests asserts on desktop.
+          adb logcat -d -s cupri:I | grep -q "cupri-lottie: skottie parsed 120x120 duration=1.50s" \
+            || fail "Skottie did not parse the animation on the device"
+
+          python3 -m pip install --break-system-packages --quiet pillow \
+            || python3 -m pip install --quiet pillow
+
+          # Fractional crop, not pixel coordinates: this skin is 1080x2340 and a developer's own
+          # emulator is not. The band matters only in so far as it excludes the status-bar clock —
+          # a minute boundary between two captures would otherwise read as movement.
+          {
+            printf '%s\n' "import sys"
+            printf '%s\n' "from PIL import Image"
+            printf '%s\n' "def band(path):"
+            printf '%s\n' "    im = Image.open(path).convert('RGB')"
+            printf '%s\n' "    w, h = im.size"
+            printf '%s\n' "    return list(im.crop((0, int(h * 0.15), w, int(h * 0.60))).getdata())"
+            printf '%s\n' "a, b = band(sys.argv[1]), band(sys.argv[2])"
+            printf '%s\n' "print(sum(1 for x, y in zip(a, b)"
+            printf '%s\n' "          if abs(x[0]-y[0]) > 8 or abs(x[1]-y[1]) > 8 or abs(x[2]-y[2]) > 8))"
+          } > lottie-diff.py
+
+          # Retried, because swiftshader on a headless emulator is slow enough that one window can
+          # genuinely land inside a single frame. Three quiet windows is a stopped animation.
+          MOVED=0
+          for attempt in 1 2 3; do
+            adb exec-out screencap -p > f1.png
+            sleep 1
+            adb exec-out screencap -p > f2.png
+            N=$(python3 lottie-diff.py f1.png f2.png)
+            echo "attempt $attempt: $N pixels changed over 1s"
+            if [ "$N" -gt 200 ]; then MOVED=$N; break; fi
+            sleep 1
+          done
+          test "$MOVED" -gt 200 \
+            || fail "the animation rendered but never moved - Skottie is not advancing on this device"
+
+          echo "### Lottie on Android" >> $GITHUB_STEP_SUMMARY
+          echo "Skottie parsed 120x120/1.50s on the device; $MOVED pixels changed over 1s" >> $GITHUB_STEP_SUMMARY
 
       # Tag-only, for the same reason as the viewer uploads: the release job is its only reader,
       # and the emulator gate above has already installed and driven this APK, so a push that
