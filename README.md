@@ -89,6 +89,7 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 | `samples/AndroidViewer` | The phone-first `MobileApp` on Android (the Showcase reachable from its About page) |
 | `samples/WebWasm` | The Showcase in the browser: three lines of app over `CupriFace.Web.Mono` |
 | `samples/Web` | Web host (alt): a **minimal** Blazor `<SKCanvasView>` embedding example — clicks only, see below |
+| `samples/Demo3d` | The Showcase's **3D** page: a small glTF/PBR renderer behind `ISurfaceSource`, composited two different ways depending on the host |
 
 ## Download
 

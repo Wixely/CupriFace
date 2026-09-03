@@ -1,5 +1,10 @@
 # Promoting this into main
 
+> **Status: A1, A3 and the demo have landed.** This document is kept as written, because the
+> interesting part is now the comparison — what a careful read of the code predicted, against what
+> integration actually cost. Scroll to **[What it actually cost](#what-it-actually-cost)** for the
+> difference. A2 (sharing the engine's `GRContext`) and the Android leg are still open.
+
 The probes answered "can we?". This is "what would it take to ship?", scoped by reading the code
 rather than by estimating. Two pieces, and they are worth separating:
 
@@ -153,3 +158,81 @@ What is missing for that to be a *library* rather than a probe:
 - **A2 + A3** — days each.
 - **The demo** — days, once A1 is in.
 - **B** — months, and probably should not be CupriFace's job.
+
+
+---
+
+## What it actually cost
+
+The estimate above was "days, mostly moving `SyncRects`; the risk is regressing video, not the new
+code". **The direction was right and the risk was named wrongly.** Video never broke in a browser —
+the one video regression was caught by an existing unit test within minutes of writing it (gating the
+underlay walk on `HostComposited` pinned every player at its first laid-out box). Everything that
+actually cost time was somewhere this document did not look: in **ordering**, and in the difference
+between a probe on a dedicated page and a demo inside a real tabbed app.
+
+| what | predicted | what happened |
+|---|---|---|
+| Move `SyncRects` | the work | ~an hour, and it went in clean |
+| Regressing video | **the** risk | never happened; a unit test caught the one attempt |
+| `-sMAX_WEBGL_VERSION=2` | listed as "smaller" (A3) | correct, and it was one line |
+| A canvas's **drawing buffer** | not mentioned | CSS-sized right, rendering into the 300x150 default and stretched — invisible to every managed test |
+| `Ticking` semantics | not mentioned | a constant `true` stopped the host ever idling; surfaced as a **keyboard** failure |
+| Startup ordering | not mentioned | three separate bugs, below |
+
+### The three ordering bugs, which are the real lesson
+
+None of these are visible from reading the code. All three needed the thing to be *running inside a
+real app*, which is exactly what a probe on its own page cannot provide.
+
+1. **A stale selector.** After moving to the seam, `Size()` asked about the new underlay id while the
+   context request still named the probe's hand-rolled `#gl3d`. The canvas existed and was correctly
+   sized; only context creation failed, and it reported as "no WebGL2 context" — three steps from the
+   cause. One `const` now defines it once.
+
+2. **The desktop GL thread raced the host's window.** Two concurrent `glfwInit` calls on Windows
+   collide with "Class already exists", and the loser is whoever is second. When that was the *host*,
+   the whole app silently fell back to the SDL software window — a demo quietly downgrading the
+   application it is demonstrating. Fixed by deferring the thread until the first `Ticking` poll,
+   which by definition means the host is already rendering. A fixed sleep would have hidden it.
+
+3. **A retry budget that expired on another tab.** The web surface waited a bounded number of frames
+   for its canvas — fine on a dedicated page, wrong in the Showcase, where the element does not exist
+   until its section is opened, which may be minutes or never. "Absent" is a normal state with no
+   timeout, not a slow failure.
+
+### `Ticking` is a contract, and it was not read carefully enough
+
+`ISurfaceSource.Ticking` is folded into the document's "something is animating" signal. Returning a
+bare `true` looks harmless for a surface that never hands the engine a frame — and stops a
+render-on-demand host **ever idling**. Nothing looked wrong: the paint count stayed flat, because
+there was no damage to paint. What broke was tabbing to text fields, so an IME would have opened at
+the page origin. Six bisects were needed to get there, because every plausible suspect was innocent:
+registering a surface is fine, matching an element is fine, loading the model is fine, and every
+declarative property is fine — only a surface that *ticks* broke it.
+
+The first fix was wrong in an instructive way: gating on "did the painter ask me for
+`HostComposited`?" looks exact, and is not. The display list is rebuilt every tick to compute damage,
+so the painter consults surfaces inside `display:none` sections too, and the guard never expired.
+`RenderNode.LaidOut` is the discriminator — the one the video path already relies on for the same job.
+
+### What the gate is worth
+
+`tests/WebTouchGate/UnderlayTests.cs` was written to protect the refactor and immediately found a bug
+the refactor had *shipped*. It was also checked for the ability to fail: with the backing-store fix
+removed it reports "drawing buffer is 300x150 but its box is 320x320" — the bug, in the words that
+name the cause. Both properties matter, and this repo's history says the second is the one usually
+skipped.
+
+### Still open
+
+- **A2 — share the engine's `GRContext`.** Unchanged, and still the single biggest win: desktop pays
+  draw ~0.13 ms against readback ~0.54 ms plus to-`SKImage` ~0.78 ms, so moving the frame costs about
+  ten times rendering it.
+- **A3's second half — a real per-frame hook.** Both surfaces still drive rendering from a property
+  getter and both say so. A library cannot ship that.
+- **Android.** The seam works there (the probe proved GL and the painted lane), but the Showcase does
+  not wire it: `AndroidHost.Push(CupriApp)` has no `configure` overload, an offscreen EGL context is
+  more than the probe's `GLSurfaceView` did, and there was no device attached to verify against.
+  Writing GL code that cannot be run is precisely what this project's own README warns about. The
+  page shows its poster there and says so.

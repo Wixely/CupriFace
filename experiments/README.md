@@ -22,7 +22,9 @@ indices, uvs, and an 838 KB embedded JPEG — rendered with metallic-roughness P
 | **desktop** (Windows) | GL 3.3, NVIDIA GTX 1060 | `opengl32` has GL 1.1 only; `wglGetProcAddress` | Skia → **BGRA** | **97.3, 92.5, 90.5** |
 | **android** (emulator) | GLES 3.0, SwiftShader | `libGLESv3.so` exports them; **`dlsym`** | BitmapFactory → **ARGB** | **93.8, 90.7, 88.0** |
 
-`shared/Gltf.cs`, `shared/GlRenderer.cs` and `shared/SceneRenderer.cs` are linked into every leg. Each
+`Gltf.cs`, `GlRenderer.cs` and `SceneRenderer.cs` are linked into every leg. They have since been
+promoted to [`samples/Demo3d/`](../samples/Demo3d/README.md) — where the Showcase's 3D page uses
+them too — and these probes compile the same single copy from there. Each
 host file now contains **no GL calls at all** — only "get a context", "here is where addresses come
 from", and "here is how this platform decodes an image". That is the portability result: the
 difference between hosts shrank to a single lambda.
@@ -253,7 +255,7 @@ builds" that never built:
 | `GlProbe.WebHost` | Chromium, hole alpha + screenshot | PASS — 3,191 saturated px inside the hole, **0** outside |
 | `GlProbe.Web.Twin` | publish only | builds (it exists to be subtracted) |
 
-Re-run in full after `shared/SceneRenderer.cs` and `shared/GlRenderer.cs` gained the stress mode,
+Re-run in full after `SceneRenderer.cs` and `GlRenderer.cs` (now in `samples/Demo3d/`) gained the stress mode,
 because those files are linked into **every** leg and "the change was additive" is the kind of
 reasoning this branch has already been wrong about. Every figure above came back identical.
 
@@ -312,5 +314,5 @@ Each prints the same statistics and a `PASS`/`FAIL` line. The desktop leg exits 
 cannot get a GL context at all — an environment fact rather than a code failure, and this repo
 already knows GL-less machines are common (virtualised GPUs, RDP, CI runners).
 
-`assets/teapot.glb` is a supplied test asset, not original work — check its provenance before it is
+`samples/Demo3d/teapot.glb` is a supplied test asset, not original work — check its provenance before it is
 used anywhere that ships.

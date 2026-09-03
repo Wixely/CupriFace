@@ -13,6 +13,44 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Added
+
+- **Anything can now live under a hole on the web, not just video.** `ISurfaceSource` gains one
+  optional member, `UnderlayElement`. Return `"canvas"` and the web host creates a
+  `<canvas id="cupri-underlay-{key}">` beneath the engine's own, then keeps it glued to the box the
+  engine laid out — through the scroll offset, the clip against every `overflow` ancestor, and the
+  transform chain — and removes it when the element goes. Video returns `null`, keeps owning its
+  element, and is positioned by the same code: this is `WebVideo.SyncRects` generalised, not a second
+  implementation. Nothing to change in an existing app.
+
+- **A 3D page in the Showcase**, on the desktop Viewer and in the browser (`samples/WebLlvm`). One
+  app and one piece of markup, composited two different ways depending on what the host can do:
+  **painted** into the display list on desktop, **host-composited** through a punched hole on the
+  web — and the page reports which lane it got by asking the engine's public surface registry.
+  `ShowcaseApp` holds no reference to a renderer; the surfaces attach at each composition root,
+  exactly where video already does. Hosts that wire nothing (WebWasm, Android) show the poster, which
+  is the engine's ordinary behaviour for a surface with no frames. See `samples/Demo3d/README.md`.
+
+### Fixed
+
+- **A `<canvas>` underlay is given a drawing buffer, not just a CSS box.** A canvas defaults to
+  300x150 regardless of its size on the page, and a `<video>` has no backing store at all — so the
+  video path never needed this. The symptom was not a missing image but a stretched one.
+
+- **`-sMAX_WEBGL_VERSION=2` now flows through `CupriFace.Web.NativeAot`'s build props.** Without it
+  `emscripten_webgl_create_context` silently downgrades to WebGL1, and the first symptom is a shader
+  error blaming `#version 300 es` — three steps from the cause.
+
+### Note for surface authors
+
+`ISurfaceSource.Ticking` feeds the document's "something is animating" signal. Returning a constant
+`true` stops a render-on-demand host ever idling; report it honestly, and gate per-frame work on
+`RenderNode.LaidOut` rather than on whether the painter asked for `HostComposited` — the display list
+is rebuilt every tick to compute damage, so the painter consults surfaces in `display:none` sections
+too.
+
 ## v0.16.0
 
 ### Added
