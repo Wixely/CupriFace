@@ -1,6 +1,7 @@
 using CupriFace.Demo;
 using CupriFace.Media;
 using CupriFace.Media.Decoding;
+using CupriFace.Samples.Viewer;
 using CupriFace.Shell;
 
 // Desktop host showing the full Showcase (controls, overlays, layout, motion — tabbed).
@@ -24,4 +25,9 @@ DesktopHost.Run(new ShowcaseApp(section), doc =>
 {
     if (NativeDecoders.Available)
         doc.UseVideo(new WebmVideoBackend(new NativeDecoders(), SdlAudioSink.TryCreate()));
+
+    // The 3D viewport attaches here for the same reason video does — ShowcaseApp is shared with the
+    // browser and Android hosts and must not reference a desktop GL stack. Returns null (and the
+    // page shows its poster) on a machine with no usable OpenGL; the Showcase is not a 3D app.
+    Teapot3dSurface.TryAttach(doc, Console.WriteLine);
 });

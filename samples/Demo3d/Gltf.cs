@@ -1,5 +1,7 @@
 using System.Text.Json;
 
+namespace CupriFace.Demo.ThreeD;
+
 /// <summary>
 /// A GLB reader small enough to read in one sitting, and deliberately not a library. It exists to
 /// answer one question — does a real exported model survive the whole path from bytes to pixels —

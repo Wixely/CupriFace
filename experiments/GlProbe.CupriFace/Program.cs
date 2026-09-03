@@ -1,3 +1,4 @@
+using CupriFace.Demo.ThreeD;
 using CupriFace;
 using CupriFace.Experiments.GlProbe.Host;
 using CupriFace.Shell;

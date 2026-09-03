@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text;
 using CupriFace;
-using CupriFace.Experiments;
+using CupriFace.Demo.ThreeD;
 using CupriFace.Dom;
 using CupriFace.Interaction;
 using CupriFace.Paint;

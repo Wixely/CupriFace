@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 using Android.Content.PM;
 using Android.Graphics;
 using Android.Opengl;
-using CupriFace.Experiments;
+using CupriFace.Demo.ThreeD;
 using Javax.Microedition.Khronos.Opengles;
 // Both Android.Opengl and Javax...Khronos.Egl define EGLConfig, and GLSurfaceView.IRenderer wants
 // the Khronos one. Aliasing rather than dropping a using: Android.Opengl is where GLSurfaceView

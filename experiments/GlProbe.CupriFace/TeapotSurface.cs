@@ -1,3 +1,4 @@
+using CupriFace.Demo.ThreeD;
 using System.Diagnostics;
 using CupriFace.Paint;
 using SkiaSharp;

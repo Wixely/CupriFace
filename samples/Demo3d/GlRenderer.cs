@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace CupriFace.Experiments;
+namespace CupriFace.Demo.ThreeD;
 
 /// <summary>
 /// The desktop/GLX half of the probe, extracted so more than one host can drive it: the standalone

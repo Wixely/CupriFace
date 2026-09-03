@@ -1,4 +1,4 @@
-using CupriFace.Experiments;
+using CupriFace.Demo.ThreeD;
 using Silk.NET.Windowing;
 using SkiaSharp;
 

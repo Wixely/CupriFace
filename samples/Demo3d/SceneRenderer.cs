@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace CupriFace.Experiments;
+namespace CupriFace.Demo.ThreeD;
 
 /// <summary>
 /// Draws a whole glTF scene: every primitive, each with its own material, shaded with the

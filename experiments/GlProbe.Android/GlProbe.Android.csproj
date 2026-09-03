@@ -28,16 +28,16 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="../shared/Gltf.cs" Link="Gltf.cs" />
-    <Compile Include="../shared/GlRenderer.cs" Link="GlRenderer.cs" />
-    <Compile Include="../shared/SceneRenderer.cs" Link="SceneRenderer.cs" />
+    <Compile Include="../../samples/Demo3d/Gltf.cs" Link="Gltf.cs" />
+    <Compile Include="../../samples/Demo3d/GlRenderer.cs" Link="GlRenderer.cs" />
+    <Compile Include="../../samples/Demo3d/SceneRenderer.cs" Link="SceneRenderer.cs" />
     <!-- An Android asset, not an embedded resource: AssetManager is the platform's own way in, and
          using it keeps this leg free of anything the other two supply. -->
     <!-- Link WITHOUT a subdirectory: a Link of "Assets/teapot.glb" nests it at
          assets/Assets/teapot.glb in the APK, and AssetManager.Open("teapot.glb") then throws
          FileNotFoundException naming only the file, which reads like a missing asset rather
          than a misplaced one. -->
-    <AndroidAsset Include="../assets/teapot.glb" Link="teapot.glb" />
+    <AndroidAsset Include="../../samples/Demo3d/teapot.glb" Link="teapot.glb" />
   </ItemGroup>
 
 </Project>

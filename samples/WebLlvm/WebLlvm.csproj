@@ -64,6 +64,15 @@
     <!-- The browser host, and the SAME app the desktop Viewer, the phone and WebWasm all run. -->
     <ProjectReference Include="..\..\src\CupriFace.Web.NativeAot\CupriFace.Web.NativeAot.csproj" />
     <ProjectReference Include="..\DemoApp\DemoApp.csproj" />
+    <!-- The 3D demo's renderer: portable GL + a GLB reader, no host dependency, so the same
+         code compiles for browser-wasm as for desktop. -->
+    <ProjectReference Include="..\Demo3d\Demo3d.csproj" />
+    <!-- The 3D surface calls emscripten_webgl_* and emscripten_get_canvas_element_size directly.
+         Wasm has NO lazy P/Invoke resolution, so every native import must be named at build time
+         or the first call throws PlatformNotSupportedException at runtime rather than failing the
+         link — a crash inside the frame loop, three steps from a missing line in this file. The
+         host declares js/libSkiaSharp/libHarfBuzzSharp the same way. -->
+    <DirectPInvoke Include="emscripten" />
   </ItemGroup>
 
   <ItemGroup>

@@ -44,7 +44,7 @@
   <ItemGroup>
     <!-- The model rides in the assembly, the same way CupriFace embeds its own assets: no
          fetch, no path resolution, and the browser gets it in the wasm it already downloads. -->
-    <EmbeddedResource Include="../assets/teapot.glb" LogicalName="teapot.glb" />
+    <EmbeddedResource Include="../../samples/Demo3d/teapot.glb" LogicalName="teapot.glb" />
     <!-- One loader, both probes. The whole point of the desktop and Android legs is that
          the PORTABLE half is identical and only the symbol loading differs. -->
   </ItemGroup>

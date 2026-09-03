@@ -12,6 +12,7 @@
       <div class="nav {{NavComponents}}" data-section="components"><cupri-icon name="menu" size="20"></cupri-icon><span class="nav-label">Components</span></div>
       <div class="nav {{NavCharts}}" data-section="charts"><cupri-icon name="bar-chart" size="20"></cupri-icon><span class="nav-label">Charts</span></div>
       <div class="nav {{NavImages}}" data-section="images"><cupri-icon name="image" size="20"></cupri-icon><span class="nav-label">Images</span></div>
+      <div class="nav {{Nav3d}}" data-section="3d"><cupri-icon name="autorenew" size="20"></cupri-icon><span class="nav-label">3D</span></div>
       <div class="nav {{NavOverlays}}" data-section="overlays"><cupri-icon name="layers" size="20"></cupri-icon><span class="nav-label">Overlays</span></div>
       <div class="nav {{NavLayout}}" data-section="layout"><cupri-icon name="dashboard" size="20"></cupri-icon><span class="nav-label">Layout</span></div>
       <div class="nav {{NavMotion}}" data-section="motion"><cupri-icon name="autorenew" size="20"></cupri-icon><span class="nav-label">Motion</span></div>
@@ -369,6 +370,54 @@ doc.RenderToImage(800, 600);
             <cupri-button variant="ghost" data-set-path="VideoMode" data-set-value="small-fast">Small / Fast</cupri-button>
             <cupri-button variant="ghost" data-set-path="VideoMode" data-set-value="large-slow">Large / Slow</cupri-button>
             <cupri-button variant="ghost" data-set-path="VideoMode" data-set-value="small-slow">Small / Slow</cupri-button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3D -->
+      <!-- The point of this page is the COMPOSITING, not the teapot. Everything here is ordinary
+           CupriFace markup: the viewport is one element with data-cupri-surface, and every panel
+           over it is a normal div. No host branch, no renderer reference — the app does not know
+           what 3D is, and {{Lane3d}} asks the engine which lane the host actually took. -->
+      <div class="section" style="display:{{Sec3d}}">
+        <div class="title">3D</div>
+        <p class="sub">An <code>ISurfaceSource</code> is a live picture the engine composites like
+          any other content. A video is one; so is a 3D viewport. The engine has no renderer and
+          knows nothing about GL — the host supplies the pixels, and CupriFace decides how they get
+          into the frame.</p>
+
+        <div class="lane">Lane on this host — <b>{{Lane3d}}</b></div>
+
+        <div style="display:flex; gap:18px; align-items:flex-start; flex-wrap:wrap">
+          <div class="stage3d">
+            <!-- The viewport. A poster shows until (or unless) frames arrive, which is the same
+                 fallback a <cupri-video> uses and is why a host with no 3D wired still looks
+                 deliberate rather than broken. -->
+            <div class="vp3d" data-cupri-surface="showcase3d"
+                 data-cupri-image="Assets/demo-poster.png"></div>
+            <!-- Painted AFTER the viewport and deliberately overlapping it. On the web the hole is
+                 punched with BlendMode.Src, so anything drawn later composites ON TOP — these three
+                 are the test that UI can sit in front of the 3D, at three different alphas. -->
+            <div class="chip3d op">opaque panel</div>
+            <div class="chip3d glass">rgba() fill · 45%</div>
+            <div class="chip3d faded">opacity: 0.5</div>
+          </div>
+
+          <div style="flex:1; min-width:260px">
+            <div class="mlabel">What is actually being shown</div>
+            <p class="sub" style="display:{{Has3d}}">A glTF 2.0 model (<code>teapot.glb</code>,
+              4,032 triangles, one base-colour texture) drawn with a small Cook-Torrance PBR shader.
+              The renderer is a <b>sample</b>, not part of the engine — CupriFace does not ship 3D,
+              and nothing here required changing it.</p>
+            <p class="sub" style="display:{{No3d}}">This host has not wired a 3D surface, so the
+              element shows its poster. That is the engine's ordinary behaviour for a surface with
+              no frames — the page did not have to handle the case.</p>
+            <p class="sub">The panels overlapping the viewport are plain elements at three
+              different alphas. They composite correctly over the 3D on <i>both</i> lanes, which is
+              the part that is hard: on the web the viewport is a real <code>&lt;canvas&gt;</code>
+              underneath the page, kept glued to this box — through the scroll offset, the clip
+              against every <code>overflow</code> ancestor, and any transform on the chain.</p>
+            <p class="sub">Scroll this page and the viewport stays in its box on every host.</p>
           </div>
         </div>
       </div>

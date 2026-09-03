@@ -1,5 +1,6 @@
 using CupriFace;
 using CupriFace.Binding;
+using CupriFace.Paint;
 using CupriFace.Resources;
 using SkiaSharp;
 
@@ -17,7 +18,7 @@ public sealed class ShowcaseApp : CupriApp
     // Section ids a <a href="…"> link may route to (mirrors the sidebar nav). An unknown internal href
     // is ignored rather than blanking every section.
     private static readonly HashSet<string> KnownSections =
-        ["controls", "components", "charts", "images", "overlays", "layout", "motion", "styling",
+        ["controls", "components", "charts", "images", "3d", "overlays", "layout", "motion", "styling",
          "keyboard", "settings", "diag"];
 
     /// <summary>Optionally start on a given section (a sidebar id like "images") — the hosts pass
@@ -178,6 +179,7 @@ public sealed partial class ShowcaseModel
     public string SecComponents => Section == "components" ? "block" : "none";
     public string SecCharts => Section == "charts" ? "block" : "none";
     public string SecImages => Section == "images" ? "block" : "none";
+    public string Sec3d => Section == "3d" ? "block" : "none";
     public string SecOverlays => Section == "overlays" ? "block" : "none";
     public string SecLayout => Section == "layout" ? "block" : "none";
     public string SecMotion => Section == "motion" ? "block" : "none";
@@ -189,6 +191,7 @@ public sealed partial class ShowcaseModel
     public string NavComponents => Section == "components" ? "active" : "";
     public string NavCharts => Section == "charts" ? "active" : "";
     public string NavImages => Section == "images" ? "active" : "";
+    public string Nav3d => Section == "3d" ? "active" : "";
     public string NavOverlays => Section == "overlays" ? "active" : "";
     public string NavLayout => Section == "layout" ? "active" : "";
     public string NavMotion => Section == "motion" ? "active" : "";
@@ -373,6 +376,27 @@ public sealed partial class ShowcaseModel
     // ---- frame-pipeline + video internals (engine-provided; see CupriDocument.LastFrame) --------
     private CupriDocument? _doc;
     internal void AttachDoc(CupriDocument doc) => _doc = doc;
+
+    // ---- 3D section ---------------------------------------------------------
+    // The demo's actual claim is that ONE app gets composited two different ways depending on what
+    // the host can do, so the page says which way it got. Note what this needs to know about 3D:
+    // nothing. It asks the engine's surface registry what kind of surface is registered, which is
+    // public API — no reference to a renderer, and no #if per host. A host that wires nothing
+    // reports it honestly and the element falls through to its poster.
+    private ISurfaceSource? Surface3d => _doc?.Surfaces.Get("showcase3d");
+
+    public string Lane3d => Surface3d switch
+    {
+        null => "not wired on this host — the element falls through to its poster",
+        { HostComposited: true } => "host-composited: the engine punched a transparent hole and a "
+                                    + "WebGL canvas underneath shows through it",
+        _ => "painted: the renderer hands the engine finished frames, drawn into the display list "
+             + "like any other image",
+    };
+
+    /// <summary>Shown beside the viewport so the page never claims 3D it has not got.</summary>
+    public string Has3d => Surface3d is null ? "none" : "block";
+    public string No3d => Surface3d is null ? "block" : "none";
 
     public string FrameBuild
     {

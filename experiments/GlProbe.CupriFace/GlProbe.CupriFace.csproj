@@ -23,10 +23,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="../shared/Gltf.cs" Link="Gltf.cs" />
-    <Compile Include="../shared/GlRenderer.cs" Link="GlRenderer.cs" />
-    <Compile Include="../shared/SceneRenderer.cs" Link="SceneRenderer.cs" />
-    <None Include="../assets/teapot.glb" Link="teapot.glb" CopyToOutputDirectory="PreserveNewest" />
+    <Compile Include="../../samples/Demo3d/Gltf.cs" Link="Gltf.cs" />
+    <Compile Include="../../samples/Demo3d/GlRenderer.cs" Link="GlRenderer.cs" />
+    <Compile Include="../../samples/Demo3d/SceneRenderer.cs" Link="SceneRenderer.cs" />
+    <None Include="../../samples/Demo3d/teapot.glb" Link="teapot.glb" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
