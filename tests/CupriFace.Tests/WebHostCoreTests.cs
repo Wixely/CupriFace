@@ -57,10 +57,12 @@ public class WebHostCoreTests(ITestOutputHelper output)
         public void VideoVolume(int id, double v) => Calls.Add($"videoVolume {id} {v}");
         public void VideoLoop(int id, bool l) => Calls.Add($"videoLoop {id} {l}");
         public void VideoSeek(int id, double s) => Calls.Add($"videoSeek {id} {s}");
-        public void VideoRect(int id, double x, double y, double w, double h,
-                              double ct, double cr, double cb, double cl, bool visible, string fit,
-                              double a, double b, double c, double d, double e, double f)
-        { Rects.Add((id, w, h, visible)); Calls.Add($"videoRect {id} {w}x{h} visible={visible}"); }
+        public void UnderlayOpenCanvas(int id, string key) => Calls.Add($"underlayOpenCanvas {id} {key}");
+        public void UnderlayClose(int id) => Calls.Add($"underlayClose {id}");
+        public void UnderlayRect(int id, double x, double y, double w, double h,
+                                 double ct, double cr, double cb, double cl, bool visible, string fit,
+                                 double a, double b, double c, double d, double e, double f)
+        { Rects.Add((id, w, h, visible)); Calls.Add($"underlayRect {id} {w}x{h} visible={visible}"); }
     }
 
     /// <summary>A remote source, so Open takes the URL path and hands it to the page directly. The
@@ -165,6 +167,50 @@ public class WebHostCoreTests(ITestOutputHelper output)
         var last = js.Rects[^1];
         output.WriteLine($"last rect: {last.W}x{last.H} visible={last.Visible}");
         Assert.True(last.W > 0 && last.H > 0, $"the video was sized to nothing ({last.W}x{last.H})");
+    }
+
+    /// <summary>The generalised underlay: a surface that reports <c>UnderlayElement == "canvas"</c>
+    /// must get an element created for it and then be kept glued to its box, through exactly the
+    /// machinery a video uses. This is the seam a WebGL viewport needs, and it exists because the
+    /// web host has no GPU context to hand a renderer — the browser composites instead.</summary>
+    [Fact]
+    public void A_canvas_underlay_is_created_and_kept_glued_to_its_box()
+    {
+        var js = Boot(new CanvasUnderlayApp());
+        WebHostCore.Tick(320, 240, 16);
+
+        Assert.Contains(js.Calls, c => c.StartsWith("underlayOpenCanvas"));
+        Assert.True(js.Rects.Count > 0,
+            "the canvas underlay was never positioned. Calls: " + string.Join(", ", js.Calls));
+        var last = js.Rects[^1];
+        output.WriteLine($"last rect: {last.W}x{last.H} visible={last.Visible}");
+        Assert.True(last.W > 0 && last.H > 0, $"the underlay was sized to nothing ({last.W}x{last.H})");
+
+        // Created ONCE, however many frames are painted — a canvas recreated per frame would flicker
+        // and leak elements.
+        WebHostCore.Tick(320, 240, 32);
+        WebHostCore.Tick(320, 240, 48);
+        Assert.Equal(1, js.Calls.Count(c => c.StartsWith("underlayOpenCanvas")));
+    }
+
+    /// <summary>A surface asking the host for a canvas. Produces no frames of its own: the whole
+    /// point is that the engine punches a hole and something else fills it.</summary>
+    private sealed class CanvasSurface : CupriFace.Paint.ISurfaceSource
+    {
+        public SkiaSharp.SKImage? CurrentFrame => null;
+        public (int W, int H)? NaturalSize => (256, 256);
+        public bool HostComposited => true;
+        public string? UnderlayElement => "canvas";
+        public bool Ticking => false;
+    }
+
+    private sealed class CanvasUnderlayApp : CupriApp
+    {
+        public override bool Transparent => true;   // straight-alpha present, which a hole needs
+        public override string Html => """
+            <body><div data-cupri-surface="gl" style="width:180px;height:120px"></div></body>
+            """;
+        public override void Configure(CupriDocument doc) => doc.Surfaces.Register("gl", new CanvasSurface());
     }
 
     /// <summary>Transport calls must reach the page. These are the player methods whose static

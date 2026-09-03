@@ -136,71 +136,11 @@ internal sealed class WebVideoBackend(IWebBridge js) : IVideoBackend
 
     internal WebVideoPlayer? Get(int id) => Players.TryGetValue(id, out var p) ? p : null;
 
-    /// <summary>Called after every painted frame: send each player's on-screen rect (physical px,
-    /// matching the canvas backing store), its visible clip against scroll/overflow ancestors
-    /// (a DOM element ignores engine clips — inset clip-path recreates them), and its object-fit.</summary>
-    internal void SyncRects(CupriDocument doc, float scale)
+    /// <summary>The player id backing a surface key, for the underlay syncer — video creates
+    /// its own element, so the syncer has to be told which one rather than allocating.</summary>
+    internal int? IdForSurface(string key)
     {
-        if (Players.Count == 0) return;
-        foreach (var player in Players.Values)
-        {
-            var node = Find(doc.Root, player.SurfaceKey);
-            if (node is null || !node.LaidOut)
-            {
-                _js.VideoRect(player.Id, 0, 0, 0, 0, 0, 0, 0, 0, false, "", 1, 0, 0, 1, 0, 0);
-                continue;
-            }
-
-            var (x, y, w, h) = CupriFace.Interaction.HitTesting.ScreenBox(node);
-
-            // Visible intersection with every clipping ancestor (overflow != visible).
-            float visL = x, visT = y, visR = x + w, visB = y + h;
-            for (var a = node.Parent; a is not null; a = a.Parent)
-            {
-                if (a.Style.Overflow == OverflowMode.Visible) continue;
-                var (ax, ay, aw, ah) = CupriFace.Interaction.HitTesting.ScreenBox(a);
-                visL = MathF.Max(visL, ax);
-                visT = MathF.Max(visT, ay);
-                visR = MathF.Min(visR, ax + aw);
-                visB = MathF.Min(visB, ay + ah);
-            }
-
-            if (visR <= visL || visB <= visT)
-            {
-                _js.VideoRect(player.Id, 0, 0, 0, 0, 0, 0, 0, 0, false, "", 1, 0, 0, 1, 0, 0);
-                continue;
-            }
-
-            var fit = node.Element?.GetAttribute("data-object-fit") ?? "contain";
-
-            // A transformed ancestor (hover lift, transform transition) moves the painted HOLE —
-            // the element must follow the identical mapping. CSS matrix(a,b,c,d,e,f) with
-            // transform-origin 0 0 applies in the element's own frame at its laid-out position P:
-            // final = P + linear·local + (e,f). The engine's mapping is final = M·(P + local),
-            // so e,f = M·P − P (+ M's own translation), computed here in device pixels.
-            var m = CupriFace.Interaction.HitTesting.ScreenTransform(node);
-            double ta = m.ScaleX, tb = m.SkewY, tc = m.SkewX, td = m.ScaleY, te = 0, tf = 0;
-            if (!m.IsIdentity)
-            {
-                var mapped = m.MapPoint(x, y);
-                te = (mapped.X - x) * scale;
-                tf = (mapped.Y - y) * scale;
-            }
-            _js.VideoRect(player.Id,
-                x * scale, y * scale, w * scale, h * scale,
-                (visT - y) * scale,            // clip-path inset: top
-                (x + w - visR) * scale,        // right
-                (y + h - visB) * scale,        // bottom
-                (visL - x) * scale,            // left
-                true, fit, ta, tb, tc, td, te, tf);
-        }
-    }
-
-    private static RenderNode? Find(RenderNode n, string key)
-    {
-        if (n.SurfaceKey == key) return n;
-        foreach (var c in n.Children)
-            if (Find(c, key) is { } f) return f;
+        foreach (var p in Players.Values) if (p.SurfaceKey == key) return p.Id;
         return null;
     }
 }

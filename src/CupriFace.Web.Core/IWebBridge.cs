@@ -65,10 +65,27 @@ public interface IWebBridge
     void VideoLoop(int id, bool loop);
     void VideoSeek(int id, double seconds);
 
+    // ---- underlays: any element the host composites BENEATH the engine's canvas ------------------
+    // Named for the job rather than for video, because none of it is video-specific: a WebGL canvas
+    // under a punched hole needs exactly the same box, clip and transform tracking.
+
+    /// <summary>Create a <c>&lt;canvas&gt;</c> beneath the engine's canvas, for a surface that
+    /// reports <c>UnderlayElement == "canvas"</c>. Video does NOT come through here — it creates its
+    /// own element, because that lifetime belongs to loading and playback rather than to layout.
+    ///
+    /// <para><paramref name="surfaceKey"/> becomes the element's DOM id as
+    /// <c>cupri-underlay-{key}</c>, which is the only way an app can find the canvas the host made
+    /// for it: <c>emscripten_webgl_create_context</c> takes a CSS selector, and a numeric id the app
+    /// never sees would leave the seam unusable.</para></summary>
+    void UnderlayOpenCanvas(int id, string surfaceKey);
+
+    /// <summary>Remove an underlay this host created, when its element leaves the tree.</summary>
+    void UnderlayClose(int id);
+
     /// <summary>Where the underlaid element must sit, in canvas pixels: box, clip insets, whether it
     /// shows at all, the object-fit keyword, and the 2x3 transform matrix of the engine's own
     /// transform chain — the painted hole moves through those, so the element has to move with it.</summary>
-    void VideoRect(int id, double x, double y, double w, double h,
+    void UnderlayRect(int id, double x, double y, double w, double h,
                    double clipTop, double clipRight, double clipBottom, double clipLeft,
                    bool visible, string fit,
                    double a, double b, double c, double d, double e, double f);

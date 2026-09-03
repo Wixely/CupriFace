@@ -72,7 +72,8 @@ try {
     // it into a Uint8Array in a single WASM→JS copy (no managed allocation on the .NET side —
     // bitmap.Bytes would allocate + copy 2.7 MB every frame). We reuse one ImageData per size.
     let img = null;
-    const videos = new Map(); // id → underlaid <video> element (browser-decoded video)
+    const underlays = new Map(); // id -> underlaid element: a <video> the browser decodes,
+                             // or a <canvas> a surface (3D viewport) draws into
     const videoOpen = (id, src) => {
         canvas.style.position = 'relative'; canvas.style.zIndex = '1'; // above all underlays
         const v = document.createElement('video');
@@ -88,7 +89,7 @@ try {
         v.addEventListener('timeupdate', () => I.VideoTime(id, v.currentTime || 0));
         v.addEventListener('ended', () => I.VideoEnded(id));
         document.body.insertBefore(v, canvas);
-        videos.set(id, v);
+        underlays.set(id, v);
     };
     window.__paints = 0; // diagnostic: count actual canvas paints (a paint = one full render)
     setModuleImports('cupri', {
@@ -130,34 +131,50 @@ try {
         // where the element shows and paints its own controls on top. Native controls stay off
         // (they'd be dead under the canvas); the canvas sits above every video (z-index below).
         videoOpen,
+
+        // A canvas underlay: the same lane a video takes, but the app draws into it rather than the
+        // browser. Created by the HOST so element order (beneath the engine canvas) and the
+        // pointer-events rule stay the host's business rather than every 3D app's.
+        underlayOpenCanvas: (id, key) => {
+            canvas.style.position = "relative"; canvas.style.zIndex = "1";   // above all underlays
+            const c = document.createElement("canvas");
+            c.id = "cupri-underlay-" + key;   // how the app finds its own canvas
+            c.style.cssText = "position:absolute;z-index:0;pointer-events:none;display:none;";
+            document.body.insertBefore(c, canvas);
+            underlays.set(id, c);
+        },
+        underlayClose: (id) => {
+            const el = underlays.get(id);
+            if (el) { el.remove(); underlays.delete(id); }
+        },
         // Embedded/file/data: sources arrive as BYTES (resolved through the same pipeline images
         // use) and play from a Blob URL — an app's embedded clip works identically on the web.
         videoOpenBytes: (id, bytes) => {
             const url = URL.createObjectURL(new Blob([bytes.slice()], { type: 'video/webm' }));
             videoOpen(id, url);
-            videos.get(id).dataset.blobUrl = url;   // revoked on close
+            underlays.get(id).dataset.blobUrl = url;   // revoked on close
         },
         videoClose: id => {
-            const v = videos.get(id);
+            const v = underlays.get(id);
             if (v) {
-                v.pause(); v.remove(); videos.delete(id);
+                v.pause(); v.remove(); underlays.delete(id);
                 if (v.dataset.blobUrl) URL.revokeObjectURL(v.dataset.blobUrl);
             }
         },
         // play() rejection (no gesture, unmuted) is expected — the 'pause'-state truth above
         // keeps the engine's controls honest, so the rejection needs no handling here.
-        videoPlay: id => { videos.get(id)?.play().catch(() => {}); },
-        videoPause: id => { videos.get(id)?.pause(); },
-        videoMuted: (id, m) => { const v = videos.get(id); if (v) v.muted = m; },
-        videoVolume: (id, vol) => { const v = videos.get(id); if (v) v.volume = vol; },
-        videoLoop: (id, l) => { const v = videos.get(id); if (v) v.loop = l; },
-        videoSeek: (id, t) => { const v = videos.get(id); if (v) v.currentTime = t; },
+        videoPlay: id => { underlays.get(id)?.play().catch(() => {}); },
+        videoPause: id => { underlays.get(id)?.pause(); },
+        videoMuted: (id, m) => { const v = underlays.get(id); if (v) v.muted = m; },
+        videoVolume: (id, vol) => { const v = underlays.get(id); if (v) v.volume = vol; },
+        videoLoop: (id, l) => { const v = underlays.get(id); if (v) v.loop = l; },
+        videoSeek: (id, t) => { const v = underlays.get(id); if (v) v.currentTime = t; },
         // Position/size/clip in canvas pixels (backing store == CSS px here). clip-path recreates
         // the engine's scroll/overflow clipping, which a DOM element would otherwise ignore; the
         // matrix mirrors any engine transform on the chain (hover lift, transform transition) —
         // the painted hole moves through those, so the element must move identically.
-        videoRect: (id, x, y, w, h, cT, cR, cB, cL, visible, fit, ta, tb, tc, td, te, tf) => {
-            const v = videos.get(id); if (!v) return;
+        underlayRect: (id, x, y, w, h, cT, cR, cB, cL, visible, fit, ta, tb, tc, td, te, tf) => {
+            const v = underlays.get(id); if (!v) return;
             if (!visible) { v.style.display = 'none'; return; }
             const r = canvas.getBoundingClientRect();
             v.style.display = '';
@@ -165,6 +182,15 @@ try {
             v.style.top = (r.top + window.scrollY + y) + 'px';
             v.style.width = w + 'px';
             v.style.height = h + 'px';
+            // A <canvas> has a DRAWING BUFFER separate from its CSS box, defaulting to 300x150. A
+            // <video> has none, so the video path never needed this and the seam inherited the gap:
+            // the underlay was CSS-sized correctly while the app rendered into 300x150, stretched.
+            // Guarded because ASSIGNING width/height RESETS the buffer — unconditionally would clear
+            // the canvas every frame, after the app had drawn into it.
+            if (v.tagName === 'CANVAS') {
+                const bw = Math.max(1, Math.round(w)), bh = Math.max(1, Math.round(h));
+                if (v.width !== bw || v.height !== bh) { v.width = bw; v.height = bh; }
+            }
             v.style.objectFit = fit === 'none' ? 'none' : fit;   // same keyword set as the engine
             v.style.clipPath = (cT || cR || cB || cL) ? `inset(${cT}px ${cR}px ${cB}px ${cL}px)` : '';
             const identity = ta === 1 && tb === 0 && tc === 0 && td === 1 && te === 0 && tf === 0;

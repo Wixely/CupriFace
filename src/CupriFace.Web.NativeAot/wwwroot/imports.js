@@ -58,27 +58,46 @@ mergeInto(LibraryManager.library, {
         const v = globalThis.__cupri.videoOpen(id, url);
         v.dataset.blobUrl = url;
     },
+    // A canvas underlay: same lane as a video, but the app draws into it rather than the browser.
+    // Created here rather than by the app so the element order (beneath the engine canvas) and the
+    // pointer-events rule are the host's business, not every 3D app's.
+    js_underlay_open_canvas: (id, keyP, keyLen) => {
+        const g = globalThis.__cupri;
+        g.canvas.style.position = "relative"; g.canvas.style.zIndex = "1";  // above all underlays
+        const c = document.createElement("canvas");
+        c.id = "cupri-underlay-" + UTF16ToString(keyP);   // how the app finds its own canvas
+        c.style.cssText = "position:absolute;z-index:0;pointer-events:none;display:none;";
+        document.body.insertBefore(c, g.canvas);
+        g.underlays.set(id, c);
+    },
+
+    js_underlay_close: (id) => {
+        const g = globalThis.__cupri;
+        const el = g.underlays.get(id);
+        if (el) { el.remove(); g.underlays.delete(id); }
+    },
+
     js_video_close: (id) => {
         const g = globalThis.__cupri;
-        const v = g.videos.get(id);
+        const v = g.underlays.get(id);
         if (v) {
-            v.pause(); v.remove(); g.videos.delete(id);
+            v.pause(); v.remove(); g.underlays.delete(id);
             if (v.dataset.blobUrl) URL.revokeObjectURL(v.dataset.blobUrl);
         }
     },
     // play() rejection (no gesture, unmuted) is expected — the pause-state event keeps the
     // engine's controls honest, so the rejection needs no handling here.
-    js_video_play: (id) => { globalThis.__cupri.videos.get(id)?.play().catch(() => {}); },
-    js_video_pause: (id) => { globalThis.__cupri.videos.get(id)?.pause(); },
-    js_video_muted: (id, m) => { const v = globalThis.__cupri.videos.get(id); if (v) v.muted = !!m; },
-    js_video_volume: (id, vol) => { const v = globalThis.__cupri.videos.get(id); if (v) v.volume = vol; },
-    js_video_loop: (id, l) => { const v = globalThis.__cupri.videos.get(id); if (v) v.loop = !!l; },
-    js_video_seek: (id, t) => { const v = globalThis.__cupri.videos.get(id); if (v) v.currentTime = t; },
+    js_video_play: (id) => { globalThis.__cupri.underlays.get(id)?.play().catch(() => {}); },
+    js_video_pause: (id) => { globalThis.__cupri.underlays.get(id)?.pause(); },
+    js_video_muted: (id, m) => { const v = globalThis.__cupri.underlays.get(id); if (v) v.muted = !!m; },
+    js_video_volume: (id, vol) => { const v = globalThis.__cupri.underlays.get(id); if (v) v.volume = vol; },
+    js_video_loop: (id, l) => { const v = globalThis.__cupri.underlays.get(id); if (v) v.loop = !!l; },
+    js_video_seek: (id, t) => { const v = globalThis.__cupri.underlays.get(id); if (v) v.currentTime = t; },
     // Position/size/clip in canvas pixels. clip-path recreates the engine's scroll/overflow
     // clipping, which a DOM element would otherwise ignore.
-    js_video_rect: (id, x, y, w, h, cT, cR, cB, cL, visible, fitP, fitLen, ta, tb, tc, td, te, tf) => {
+    js_underlay_rect: (id, x, y, w, h, cT, cR, cB, cL, visible, fitP, fitLen, ta, tb, tc, td, te, tf) => {
         const g = globalThis.__cupri;
-        const v = g.videos.get(id); if (!v) return;
+        const v = g.underlays.get(id); if (!v) return;
         if (!visible) { v.style.display = "none"; return; }
         const r = g.canvas.getBoundingClientRect();
         v.style.display = "";
@@ -86,6 +105,15 @@ mergeInto(LibraryManager.library, {
         v.style.top = (r.top + window.scrollY + y) + "px";
         v.style.width = w + "px";
         v.style.height = h + "px";
+        // A <canvas> has a DRAWING BUFFER separate from its CSS box, and it defaults to 300x150. A
+        // <video> has no such thing, so the video path never needed this and the seam inherited the
+        // gap: the underlay was CSS-sized correctly and the app rendered into 300x150, stretched.
+        // Guarded because ASSIGNING width/height RESETS the buffer — doing it unconditionally would
+        // clear the canvas every frame, after the app had drawn into it.
+        if (v.tagName === "CANVAS") {
+            const bw = Math.max(1, Math.round(w)), bh = Math.max(1, Math.round(h));
+            if (v.width !== bw || v.height !== bh) { v.width = bw; v.height = bh; }
+        }
         const fit = UTF16ToString(fitP);
         v.style.objectFit = fit === "none" ? "none" : fit;   // same keyword set as the engine
         v.style.clipPath = (cT || cR || cB || cL) ? `inset(${cT}px ${cR}px ${cB}px ${cL}px)` : "";

@@ -92,6 +92,8 @@ internal partial class Interop
     [JSImport("windowCommand", "cupri")] internal static partial void WindowCommand(int command);
 
     [JSImport("videoOpen", "cupri")] internal static partial void VideoOpen(int id, string src);
+    [JSImport("underlayOpenCanvas", "cupri")] internal static partial void UnderlayOpenCanvas(int id, string key);
+    [JSImport("underlayClose", "cupri")] internal static partial void UnderlayClose(int id);
     [JSImport("videoOpenBytes", "cupri")] internal static partial void VideoOpenBytes(int id,
         [JSMarshalAs<JSType.MemoryView>] Span<byte> bytes);
     [JSImport("videoClose", "cupri")] internal static partial void VideoClose(int id);
@@ -101,7 +103,7 @@ internal partial class Interop
     [JSImport("videoVolume", "cupri")] internal static partial void VideoVolume(int id, double volume);
     [JSImport("videoLoop", "cupri")] internal static partial void VideoLoop(int id, bool loop);
     [JSImport("videoSeek", "cupri")] internal static partial void VideoSeek(int id, double seconds);
-    [JSImport("videoRect", "cupri")] internal static partial void VideoRect(int id,
+    [JSImport("underlayRect", "cupri")] internal static partial void UnderlayRect(int id,
         double x, double y, double w, double h,
         double cT, double cR, double cB, double cL,
         bool visible, string fit,
@@ -137,9 +139,11 @@ internal sealed unsafe class MonoBridge : IWebBridge
     public void VideoVolume(int id, double volume) => Interop.VideoVolume(id, volume);
     public void VideoLoop(int id, bool loop) => Interop.VideoLoop(id, loop);
     public void VideoSeek(int id, double seconds) => Interop.VideoSeek(id, seconds);
-    public void VideoRect(int id, double x, double y, double w, double h,
-                          double clipTop, double clipRight, double clipBottom, double clipLeft,
-                          bool visible, string fit,
-                          double a, double b, double c, double d, double e, double f) =>
-        Interop.VideoRect(id, x, y, w, h, clipTop, clipRight, clipBottom, clipLeft, visible, fit, a, b, c, d, e, f);
+    public void UnderlayOpenCanvas(int id, string surfaceKey) => Interop.UnderlayOpenCanvas(id, surfaceKey);
+    public void UnderlayClose(int id) => Interop.UnderlayClose(id);
+    public void UnderlayRect(int id, double x, double y, double w, double h,
+                             double clipTop, double clipRight, double clipBottom, double clipLeft,
+                             bool visible, string fit,
+                             double a, double b, double c, double d, double e, double f) =>
+        Interop.UnderlayRect(id, x, y, w, h, clipTop, clipRight, clipBottom, clipLeft, visible, fit, a, b, c, d, e, f);
 }

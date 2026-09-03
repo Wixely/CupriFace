@@ -30,6 +30,20 @@ public interface ISurfaceSource
     /// still paints on top — and the host syncs the underlay to the element's on-screen rect.
     /// Default false: ordinary surfaces hand frames to the engine.</summary>
     bool HostComposited => false;
+
+    /// <summary>What the host should CREATE beneath the hole, when this surface is host-composited
+    /// but does not own an element already. <c>"canvas"</c> asks the web host for a
+    /// <c>&lt;canvas&gt;</c> — which is how a WebGL viewport gets somewhere to draw, given the web
+    /// host has no GPU context of its own to share.
+    ///
+    /// <para>Null (the default) means "I manage my own element, just keep it glued to my box" —
+    /// which is what <c>&lt;cupri-video&gt;</c> does, because a video element's lifetime is tied to
+    /// loading and playback rather than to layout. Either way the host syncs the element's rect,
+    /// clip and transform every painted frame; this only decides who creates it.</para>
+    ///
+    /// <para>Ignored by hosts that composite surfaces themselves (desktop and Android draw the
+    /// frames, so there is no underlay to create).</para></summary>
+    string? UnderlayElement => null;
 }
 
 /// <summary>
