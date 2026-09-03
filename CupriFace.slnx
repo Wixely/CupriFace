@@ -8,6 +8,7 @@
     <Project Path="samples/ControlsGallery/ControlsGallery.csproj" />
     <Project Path="samples/DarkMode/DarkMode.csproj" />
     <Project Path="samples/DataBinding/DataBinding.csproj" />
+    <Project Path="samples/Demo3d/Demo3d.csproj" />
     <Project Path="samples/DemoApp/DemoApp.csproj" />
     <Project Path="samples/GridAdvanced/GridAdvanced.csproj" />
     <Project Path="samples/GridDemo/GridDemo.csproj" />

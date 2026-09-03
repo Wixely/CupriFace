@@ -51,23 +51,42 @@ public class UnderlayTests(WebHostFixture host, ITestOutputHelper output)
     /// listening and is silently dropped, which then reports as "no video underlay" 30 seconds later
     /// and blames the seam. Clicking a nav row again is harmless — it re-selects the same section.</para>
     /// </summary>
-    private static async Task GoToAsync(IPage page, string section, string expect)
+    private static async Task GoToAsync(IPage page, string section, string expect, ITestOutputHelper? log = null)
     {
         var y = ShowcaseNav[section];
-        for (var attempt = 1; attempt <= 12; attempt++)
+
+        // Sweep a little either side of the measured row, and repeat the sweep.
+        //
+        // The offsets are for PORTABILITY: these positions were measured on Windows Chromium, and CI
+        // runs the same gate on ubuntu-latest, where different font metrics can move a 46px row by a
+        // few pixels and would otherwise fail the whole job on typography. The repeats are for
+        // READINESS: neither host publishes a signal meaning "the document is built", and a click
+        // that lands before anything is listening is silently dropped — on the interpreted host that
+        // then reports as "no video underlay" 30 seconds later, blaming the seam.
+        //
+        // Landing on the wrong row cannot fool this: every caller passes the selector that only its
+        // own section has, so a miss simply tries again.
+        int[] offsets = [0, -8, 8, -16, 16, -24, 24];
+        for (var round = 0; round < 3; round++)
         {
-            await page.Mouse.ClickAsync(67, y);
-            try
+            foreach (var dy in offsets)
             {
-                await page.WaitForSelectorAsync(expect, new() { Timeout = 5_000 });
-                return;
+                await page.Mouse.ClickAsync(67, y + dy);
+                try
+                {
+                    await page.WaitForSelectorAsync(expect, new() { Timeout = 2_500 });
+                    if (dy != 0) log?.WriteLine(
+                        $"note: the {section} row answered at y={y + dy}, not the measured {y} — " +
+                        "ShowcaseNav is drifting and should be remeasured.");
+                    return;
+                }
+                catch (TimeoutException) { /* wrong row, or the app was not listening yet */ }
             }
-            catch (TimeoutException) { /* the app may not have been listening yet */ }
         }
         throw new TimeoutException(
-            $"'{expect}' never appeared after 12 clicks on the {section} row at y={y}. Either the app " +
-            "never became interactive, or the sidebar rows have moved and ShowcaseNav needs remeasuring " +
-            "at the fixture's 1100x780 viewport.");
+            $"'{expect}' never appeared after clicking around y={y} for the {section} row. Either the " +
+            "app never became interactive, or the sidebar has changed enough that ShowcaseNav needs " +
+            "remeasuring at the fixture's 1100x780 viewport.");
     }
 
     /// <summary>Every underlay's geometry as the BROWSER sees it, which is the only opinion that
@@ -109,7 +128,7 @@ public class UnderlayTests(WebHostFixture host, ITestOutputHelper output)
         var page = await host.DesktopAsync();
         // Wait for the ELEMENT, not for playback: a poster-only player is still an underlay that
         // has to be in the right place.
-        await GoToAsync(page, "Images", "video");
+        await GoToAsync(page, "Images", "video", output);
 
         var video = (await UnderlaysAsync(page)).FirstOrDefault(u => u.Id == "VIDEO");
         Assert.True(video is not null, $"[{host.Host}] no <video> underlay after opening Images");
@@ -133,7 +152,7 @@ public class UnderlayTests(WebHostFixture host, ITestOutputHelper output)
     public async Task A_canvas_underlay_is_created_sized_and_clipped_by_the_engines_scrolling()
     {
         var page = await host.DesktopAsync();
-        await GoToAsync(page, "3D", "canvas#cupri-underlay-showcase3d");
+        await GoToAsync(page, "3D", "canvas#cupri-underlay-showcase3d", output);
         var before = (await UnderlaysAsync(page)).Single(u => u.Id == "cupri-underlay-showcase3d");
         output.WriteLine($"[{host.Host}] canvas underlay: {before.Left},{before.Top} {before.W}x{before.H} " +
                          $"buffer {before.BufW}x{before.BufH} clip='{before.Clip}'");
