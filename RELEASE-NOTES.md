@@ -13,6 +13,29 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## v0.16.0
+
+### Added
+
+- **Android tells the keyboard where the caret is drawn (`CursorAnchorInfo`).** Nothing to call: any
+  app on the Android host gets it. `requestCursorUpdates` was never implemented, so
+  `BaseInputConnection` answered false and Gboard stopped asking — which left a candidate window with
+  no idea where the text it was completing sat on screen, free to cover the word being corrected.
+  The caret's rectangle is now reported in the view's own pixel space with a matrix onto the screen,
+  scaled by the same factor the canvas, touch and the accessibility bounds already use, so a zoomed
+  app does not drift. Reported off the caret's RECTANGLE rather than the selection indices: a reflow,
+  a scrolled field or a resize move where the caret is drawn without changing what it points at, and
+  an IME drawing over the text needs those too.
+
+### Changed
+
+- **The Android Lottie claim is now enforced on every run, not measured once.** v0.15.0 said
+  `samples/AndroidLottie` renders and animates on a device, on the strength of a local emulator
+  session. The Android CI gate now installs that APK and asserts it itself: that Skottie parsed the
+  file on the device (the same 120x120/1.50s shape the desktop tests assert) and that the frames are
+  actually moving, measured as changed pixels between two captures. Nothing changes for a caller —
+  the claim is simply one that can no longer quietly stop being true.
+
 ## v0.15.0
 
 ### Fixed
