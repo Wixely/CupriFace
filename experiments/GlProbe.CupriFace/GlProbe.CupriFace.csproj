@@ -15,7 +15,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\CupriFace.Shell\CupriFace.Shell.csproj" />
+    <ProjectReference Include="../../src/CupriFace.Shell/CupriFace.Shell.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -23,9 +23,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="..\shared\Gltf.cs" Link="Gltf.cs" />
-    <Compile Include="..\shared\GlRenderer.cs" Link="GlRenderer.cs" />
-    <None Include="..\assets\teapot.glb" Link="teapot.glb" CopyToOutputDirectory="PreserveNewest" />
+    <Compile Include="../shared/Gltf.cs" Link="Gltf.cs" />
+    <Compile Include="../shared/GlRenderer.cs" Link="GlRenderer.cs" />
+    <None Include="../assets/teapot.glb" Link="teapot.glb" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

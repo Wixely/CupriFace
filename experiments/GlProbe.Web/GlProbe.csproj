@@ -44,10 +44,10 @@
   <ItemGroup>
     <!-- The model rides in the assembly, the same way CupriFace embeds its own assets: no
          fetch, no path resolution, and the browser gets it in the wasm it already downloads. -->
-    <EmbeddedResource Include="..ssets	eapot.glb" LogicalName="teapot.glb" />
+    <EmbeddedResource Include="../assets/teapot.glb" LogicalName="teapot.glb" />
     <!-- One loader, both probes. The whole point of the desktop and Android legs is that
          the PORTABLE half is identical and only the symbol loading differs. -->
-    <Compile Include="..\shared\Gltf.cs" Link="Gltf.cs" />
+    <Compile Include="../shared/Gltf.cs" Link="Gltf.cs" />
   </ItemGroup>
 
   <ItemGroup>

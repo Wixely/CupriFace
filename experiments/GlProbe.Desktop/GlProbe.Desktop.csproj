@@ -27,8 +27,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="..\shared\Gltf.cs" Link="Gltf.cs" />
-    <None Include="..\assets\teapot.glb" Link="teapot.glb" CopyToOutputDirectory="PreserveNewest" />
+    <Compile Include="../shared/Gltf.cs" Link="Gltf.cs" />
+    <None Include="../assets/teapot.glb" Link="teapot.glb" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
