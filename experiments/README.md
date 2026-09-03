@@ -257,6 +257,13 @@ Re-run in full after `shared/SceneRenderer.cs` and `shared/GlRenderer.cs` gained
 because those files are linked into **every** leg and "the change was additive" is the kind of
 reasoning this branch has already been wrong about. Every figure above came back identical.
 
+## Getting it into main
+
+[PROMOTING.md](PROMOTING.md) scopes that by reading the code rather than estimating: what
+generalising the web underlay actually touches (less than expected — `js_video_rect` is already
+element-agnostic), what it risks (regressing `<cupri-video>`, which has its own gate), and where a
+Showcase demo belongs (the composition root, exactly how video attaches, so `DemoApp` pays nothing).
+
 ## Re-establishing all of it
 
 ```
