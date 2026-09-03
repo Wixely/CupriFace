@@ -390,11 +390,12 @@ doc.RenderToImage(800, 600);
 
         <div style="display:flex; gap:18px; align-items:flex-start; flex-wrap:wrap">
           <div class="stage3d">
-            <!-- The viewport. A poster shows until (or unless) frames arrive, which is the same
-                 fallback a <cupri-video> uses and is why a host with no 3D wired still looks
-                 deliberate rather than broken. -->
-            <div class="vp3d" data-cupri-surface="showcase3d"
-                 data-cupri-image="Assets/demo-poster.png"></div>
+            <!-- No data-cupri-image here, and that is deliberate. It first carried the VIDEO's
+                 poster, which is a play button — so a 3D viewport flashed "press play" for the
+                 half-second before the first GL frame, promising an interaction that does not
+                 exist. A poster is a still of what is coming; the wrong still is worse than none.
+                 Until frames arrive the dark panel behind shows, which reads as deliberate. -->
+            <div class="vp3d" data-cupri-surface="showcase3d"></div>
             <!-- Painted AFTER the viewport and deliberately overlapping it. On the web the hole is
                  punched with BlendMode.Src, so anything drawn later composites ON TOP — these three
                  are the test that UI can sit in front of the 3D, at three different alphas. -->
@@ -410,8 +411,10 @@ doc.RenderToImage(800, 600);
               The renderer is a <b>sample</b>, not part of the engine — CupriFace does not ship 3D,
               and nothing here required changing it.</p>
             <p class="sub" style="display:{{No3d}}">This host has not wired a 3D surface, so the
-              element shows its poster. That is the engine's ordinary behaviour for a surface with
-              no frames — the page did not have to handle the case.</p>
+              viewport paints nothing and the panel behind it shows through. That is the engine's
+              ordinary behaviour for a surface with no frames — the same fallback that shows a
+              <code>&lt;cupri-video&gt;</code>'s poster — and the page did not have to handle the
+              case.</p>
             <p class="sub">The panels overlapping the viewport are plain elements at three
               different alphas. They composite correctly over the 3D on <i>both</i> lanes, which is
               the part that is hard: on the web the viewport is a real <code>&lt;canvas&gt;</code>

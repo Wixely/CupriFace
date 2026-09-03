@@ -385,11 +385,17 @@ public sealed partial class ShowcaseModel
     // reports it honestly and the element falls through to its poster.
     private ISurfaceSource? Surface3d => _doc?.Surfaces.Get("showcase3d");
 
+    // Asks what the surface IS, not what it is doing this instant. HostComposited alone is a
+    // transient — a producer may report it only once it has pixels (video does, and so does the 3D
+    // surface, so the hole is not punched onto a bare page while a GL context comes up) — so a
+    // caption bound at rebuild time caught it mid-startup and said "painted" about the browser.
+    // UnderlayElement is a declaration and does not move.
     public string Lane3d => Surface3d switch
     {
-        null => "not wired on this host — the element falls through to its poster",
-        { HostComposited: true } => "host-composited: the engine punched a transparent hole and a "
-                                    + "WebGL canvas underneath shows through it",
+        null => "not wired on this host — the viewport paints nothing and the panel behind shows",
+        { UnderlayElement: not null } or { HostComposited: true } =>
+            "host-composited: the engine punches a transparent hole and a WebGL canvas underneath "
+            + "shows through it",
         _ => "painted: the renderer hands the engine finished frames, drawn into the display list "
              + "like any other image",
     };

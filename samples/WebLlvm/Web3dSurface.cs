@@ -36,6 +36,12 @@ internal sealed unsafe class Web3dSurface : ISurfaceSource
     /// key, which is the contract that lets an app find the element it asked for. A const because it
     /// was briefly not — a stale selector left here after a refactor reported as "no WebGL2 context"
     /// while the canvas was present and correctly sized, three steps from the cause.</summary>
+    /// <summary>.stage3d in ShowcaseApp.css. The hole is punched with BlendMode.Src, so it erases
+    /// the element's own CSS background along with everything else painted there — the underlay has
+    /// to supply the backdrop the hole took away, or the same markup renders near-black on desktop
+    /// and white in the browser.</summary>
+    private static readonly (float R, float G, float B) Backdrop = (0x0b / 255f, 0x0f / 255f, 0x18 / 255f);
+
     private const string Key = "showcase3d";
     private const string Target = "#cupri-underlay-" + Key;
 
@@ -117,6 +123,16 @@ internal sealed unsafe class Web3dSurface : ISurfaceSource
     public SKImage? CurrentFrame => null;
     public (int W, int H)? NaturalSize => (512, 512);
 
+    /// <summary>
+    /// Always. The hole is opened from the first frame, and the underlay is painted opaque before
+    /// anything slow happens (see <see cref="Render"/>), so there is no window onto the bare page.
+    ///
+    /// <para>Deferring this until the renderer was ready — the rule <c>&lt;cupri-video&gt;</c>
+    /// follows — was tried and is the wrong tool here. Video's readiness is driven by the browser and
+    /// arrives as an event; this surface's is driven by the engine's own frame loop, so the flip has
+    /// to be noticed, repainted, and kept out of anything bound to the page. Painting the underlay
+    /// opaque immediately solves the same problem in one line and adds no states.</para>
+    /// </summary>
     public bool HostComposited => true;
 
     /// <summary>
@@ -225,6 +241,13 @@ internal sealed unsafe class Web3dSurface : ISurfaceSource
             }
             _log($"3d: underlay context up, GL_VERSION = {ver}");
 
+            // Fill the canvas with the panel colour NOW, while this is still cheap. The hole is
+            // already open, and everything below — shader compile, a 701x561 texture decode and
+            // upload — takes a good half-second, during which a never-drawn canvas is transparent
+            // and the bare page shows through it. One clear closes that window.
+            Gl.ClearColor(Backdrop.R, Backdrop.G, Backdrop.B, 1f);
+            Gl.ClearBits(Gl.COLOR_BUFFER_BIT | Gl.DEPTH_BUFFER_BIT);
+
             // glslEs: true — "#version 300 es", from the same shader source the desktop compiles
             // with a "#version 330 core" header.
             _renderer = new SceneRenderer(_scene, glslEs: true);
@@ -233,6 +256,7 @@ internal sealed unsafe class Web3dSurface : ISurfaceSource
                 _failed = true; Status = "renderer init failed"; _log("3d: " + Status); return;
             }
             Status = "host-composited (WebGL2 underlay)";
+
         }
 
         if (_renderer is null) return;
@@ -250,7 +274,7 @@ internal sealed unsafe class Web3dSurface : ISurfaceSource
         // viewport white while the desktop one was near-black, from identical markup. So the
         // underlay supplies the backdrop the hole took away, and both lanes look the same.
         // (#0b0f18 — .stage3d in ShowcaseApp.css.)
-        _renderer.Draw(0.6f + _frames * 0.01f, w, h, 0x0b / 255f, 0x0f / 255f, 0x18 / 255f, 1f);
+        _renderer.Draw(0.6f + _frames * 0.01f, w, h, Backdrop.R, Backdrop.G, Backdrop.B, 1f);
         _frames++;
     }
 
