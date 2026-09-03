@@ -106,6 +106,32 @@ public sealed class WebHostFixture : IAsyncLifetime
         return page;
     }
 
+    /// <summary>
+    /// A desktop-sized page with a real mouse, at a FIXED viewport.
+    ///
+    /// <para>The size is pinned because the Showcase's sidebar is the only way into a section — the
+    /// engine draws to a canvas, so there is no element to click and no deep link, and the ARIA
+    /// mirror is empty until a screen reader asks for it. Tests therefore click a coordinate, which
+    /// is only reproducible if the viewport never moves. 1100x780 is wide enough that the sidebar is
+    /// the full labelled list rather than the narrow icon rail, which is where the row positions in
+    /// <c>ShowcaseNav</c> were measured.</para>
+    /// </summary>
+    public async Task<IPage> DesktopAsync()
+    {
+        var ctx = await Browser.NewContextAsync(new()
+        {
+            ViewportSize = new() { Width = 1100, Height = 780 },
+            DeviceScaleFactor = 1,
+        });
+        var page = await ctx.NewPageAsync();
+        await page.GotoAsync(Url);
+        await page.WaitForFunctionAsync(
+            "() => { const c = document.getElementById('cupri');" +
+            "  return c && c.width > 0 && typeof (globalThis.__cupri||{}).isCoarse === 'function'; }",
+            null, new() { Timeout = 180_000 });
+        return page;
+    }
+
     public async Task DisposeAsync()
     {
         if (Browser is not null) await Browser.CloseAsync();

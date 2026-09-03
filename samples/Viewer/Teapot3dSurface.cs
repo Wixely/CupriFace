@@ -92,7 +92,7 @@ internal sealed class Teapot3dSurface : ISurfaceSource, IDisposable
             var glb = new byte[s.Length];
             s.ReadExactly(glb);
 
-            var surface = new Teapot3dSurface(Gltf.Load(glb), doc.Surfaces, 512, 512, log);
+            var surface = new Teapot3dSurface(Gltf.Load(glb), doc.Surfaces, 512, 512, log) { _doc = doc };
             doc.Surfaces.Register("showcase3d", surface);
             return surface;
         }
@@ -106,7 +106,40 @@ internal sealed class Teapot3dSurface : ISurfaceSource, IDisposable
 
     public SKImage? CurrentFrame => _frame;
     public (int W, int H)? NaturalSize => (_w, _h);
-    public bool Ticking { get { EnsureStarted(); return _running; } }
+    /// <summary>
+    /// Producing frames — but only while the viewport is actually on screen.
+    ///
+    /// <para>A bare <c>_running</c> is dishonest for a tabbed app: the registry folds this into the
+    /// document's "something is animating" signal, so the host never idles and a GL thread keeps
+    /// drawing a teapot nobody is looking at. The web half of this demo learned it the hard way — a
+    /// permanently-true <c>Ticking</c> span the browser host's frame loop for ever, and the browser
+    /// gate caught it as tabbing no longer reaching text fields.</para>
+    ///
+    /// <para><c>LaidOut</c> is the signal, not "did the painter ask about me": the display list is
+    /// rebuilt every tick to compute damage, so the painter consults surfaces inside
+    /// <c>display:none</c> sections too.</para>
+    /// </summary>
+    public bool Ticking
+    {
+        get
+        {
+            var onScreen = _doc is { } d && Find(d.Root) is { LaidOut: true };
+            _onScreen = onScreen;          // the render loop parks itself when this goes false
+            if (!onScreen) return false;
+            EnsureStarted();
+            return _running;
+        }
+    }
+
+    private volatile bool _onScreen;
+    private CupriDocument? _doc;
+
+    private static RenderNode? Find(RenderNode n)
+    {
+        if (n.SurfaceKey == "showcase3d") return n;
+        foreach (var c in n.Children) if (Find(c) is { } found) return found;
+        return null;
+    }
 
     private unsafe void RenderLoop()
     {
@@ -225,6 +258,11 @@ internal sealed class Teapot3dSurface : ISurfaceSource, IDisposable
 
                 _registry.NotifyFrame();
                 Thread.Sleep(16);       // ~60fps; a demo, not a frame pacer
+
+                // Park while the viewport is off screen. Without this the GPU work continues at full
+                // rate behind a section nobody is looking at — Ticking going false stops the HOST
+                // repainting, which is not the same as stopping the RENDERER.
+                while (_running && !_onScreen) Thread.Sleep(100);
             }
         }
         catch (Exception ex)

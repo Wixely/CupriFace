@@ -74,6 +74,7 @@ internal sealed unsafe class Web3dSurface : ISurfaceSource
         fixed (byte* p = b) return GetProcAddress(p);
     }
 
+    private CupriDocument? _doc;
     private readonly Gltf _scene;
     private readonly Action<string> _log;
     private SceneRenderer? _renderer;
@@ -101,7 +102,7 @@ internal sealed unsafe class Web3dSurface : ISurfaceSource
             var glb = new byte[s.Length];
             s.ReadExactly(glb);
 
-            var surface = new Web3dSurface(Gltf.Load(glb), log);
+            var surface = new Web3dSurface(Gltf.Load(glb), log) { _doc = doc };
             doc.Surfaces.Register(Key, surface);
             return surface;
         }
@@ -115,18 +116,60 @@ internal sealed unsafe class Web3dSurface : ISurfaceSource
     // No frame ever reaches the engine: it must punch, not draw.
     public SKImage? CurrentFrame => null;
     public (int W, int H)? NaturalSize => (512, 512);
+
     public bool HostComposited => true;
+
+    /// <summary>
+    /// Is our element actually on screen? Asked before doing ANY per-frame work.
+    ///
+    /// <para><b>This must be the layout, not the painter.</b> The obvious signal — "did the painter
+    /// ask me for <see cref="HostComposited"/>?" — is wrong, and wrong in a way that looks right: the
+    /// display list is rebuilt every tick to work out the damage, so the painter consults the surface
+    /// for nodes in <c>display:none</c> sections too. Gating on it left the Showcase ticking for ever
+    /// while parked on some other page, which is exactly the busy loop this check exists to avoid.
+    /// <c>LaidOut</c> is the discriminator the video path already relies on for the same job.</para>
+    /// </summary>
+    private bool OnScreen => _doc is { } d && Find(d.Root) is { LaidOut: true };
+
+    private static RenderNode? Find(RenderNode n)
+    {
+        if (n.SurfaceKey == Key) return n;
+        foreach (var c in n.Children) if (Find(c) is { } found) return found;
+        return null;
+    }
 
     /// <summary>Ask the host for a <c>&lt;canvas&gt;</c> beneath the hole. A video returns null here
     /// and keeps owning its own element; both are then positioned by the same code.</summary>
     public string? UnderlayElement => "canvas";
 
-    /// <summary>The per-frame hook. The engine polls this to decide whether a render-on-demand host
-    /// should keep going, so it is reliably called — but it IS a property, and driving rendering from
-    /// one is a shortcut worth naming. A production integration would export a tick and drive the
-    /// underlay from the page's own requestAnimationFrame, independent of the engine's loop; that is
-    /// JS plumbing, not an architectural question, which is why the demo does not spend space on it.</summary>
-    public bool Ticking { get { Render(); return true; } }
+    /// <summary>
+    /// "I am producing frames" — and it must be answered honestly, which this first was not.
+    ///
+    /// <para>Returning a bare <c>true</c> looks harmless for a surface that never hands the engine a
+    /// frame, and is not: the registry folds it into the document's "something is animating" signal,
+    /// so a render-on-demand host NEVER IDLES. Nothing looked wrong — the paint count stayed flat,
+    /// because there was no damage to paint — but the host span the frame loop for ever, and the
+    /// browser gate caught it as a keyboard failure: tabbing stopped reaching text fields, so an IME
+    /// would open at the page origin. A surface that quietly pins the host at 100% is a bad
+    /// neighbour even when it draws correctly, and the Showcase spends most of its life on some
+    /// other section.</para>
+    ///
+    /// <para>So: tick only while our element is actually being painted, which
+    /// <see cref="HostComposited"/> tells us. Driving rendering from a property getter at all is
+    /// still a shortcut this file owns up to — a production integration would export a tick and
+    /// drive the underlay from the page's own requestAnimationFrame, independent of the engine's
+    /// loop. That is JS plumbing rather than an architectural question, which is why the demo does
+    /// not spend space on it.</para>
+    /// </summary>
+    public bool Ticking
+    {
+        get
+        {
+            if (!OnScreen) return false;   // parked on another section: let the host sleep
+            Render();
+            return true;                   // visible: keep frames coming, drawing or still acquiring
+        }
+    }
 
     private void Render()
     {
@@ -148,8 +191,7 @@ internal sealed unsafe class Web3dSurface : ISurfaceSource
             // trace, but the surface keeps trying either way.
             if (Size().W <= 0)
             {
-                if (++_waited == 1800) _log("3d: still no underlay canvas — open the 3D section, or "
-                                            + "the host may not create underlays");
+                if (++_waited == 600) _log("3d: the underlay canvas has not appeared while the viewport is on screen");
                 return;
             }
             _started = true;
