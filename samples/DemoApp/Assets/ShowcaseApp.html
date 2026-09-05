@@ -387,6 +387,11 @@ doc.RenderToImage(800, 600);
           into the frame.</p>
 
         <div class="lane">Lane on this host — <b>{{Lane3d}}</b></div>
+        <!-- The driver's own answer. On the Android emulator this reads "SwiftShader"; on a real
+             phone it names the chip (Adreno, Mali, PowerVR…). That difference is the whole reason
+             it is on screen: a gate running on an emulator cannot prove hardware, and a screenshot
+             of a spinning teapot looks identical either way. -->
+        <div class="lane" style="display:{{HasGpu3d}}">Drawn by — <b>{{Gpu3d}}</b></div>
 
         <div style="display:flex; gap:18px; align-items:flex-start; flex-wrap:wrap">
           <div class="stage3d">

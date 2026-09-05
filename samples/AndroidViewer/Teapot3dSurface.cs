@@ -25,7 +25,7 @@ namespace CupriFace.AndroidViewer;
 /// the same dialect the browser build compiles, because WebGL2 IS GLES 3.0.</description></item>
 /// </list>
 /// </summary>
-internal sealed class Teapot3dSurface : IGpuSurfaceSource
+internal sealed class Teapot3dSurface : IGpuSurfaceSource, CupriFace.Demo.IShowcase3dInfo
 {
     // dlsym against libGLESv3.so rather than eglGetProcAddress, and deliberately: some drivers'
     // EGL implementations return a non-null stub for ANY name, which makes a missing entry point
@@ -47,6 +47,10 @@ internal sealed class Teapot3dSurface : IGpuSurfaceSource
 
     public long Frames;
     public string Status = "starting";
+
+    /// <summary>What the driver says drew this — the emulator answers "SwiftShader", a real phone
+    /// names its GPU. Shown on the page because that is the only difference a user can see.</summary>
+    public string Detail { get; private set; } = "";
 
     private Teapot3dSurface(Gltf model, int w, int h, Action<string> log)
     { _model = model; _w = w; _h = h; _log = log; }
@@ -133,7 +137,8 @@ internal sealed class Teapot3dSurface : IGpuSurfaceSource
             Status = "painted, zero-copy (the engine draws our texture)";
             // The gate greps for this line, so it names the host and the driver rather than just
             // saying "ok" - a PASS that cannot say what it ran on is worth very little.
-            _log($"cupri-gate: 3d ready GL_VERSION={Gl.Str(Gl.GetString(Gl.VERSION))}");
+            Detail = $"{Gl.Str(Gl.GetString(Gl.RENDERER))} — {Gl.Str(Gl.GetString(Gl.VERSION))}";
+            _log($"cupri-gate: 3d ready GL_VERSION={Gl.Str(Gl.GetString(Gl.VERSION))} GL_RENDERER={Gl.Str(Gl.GetString(Gl.RENDERER))}");
         }
 
         Gl.BindFramebuffer(Gl.FRAMEBUFFER, _fbo);

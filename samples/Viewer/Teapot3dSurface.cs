@@ -29,7 +29,7 @@ namespace CupriFace.Samples.Viewer;
 /// fix is a texture-backed SKImage over a context shared with the engine's, which needs the engine
 /// to expose its <c>GRContext</c> — worth doing, and not needed for a demo.</para>
 /// </summary>
-internal sealed class Teapot3dSurface : IGpuSurfaceSource, IDisposable
+internal sealed class Teapot3dSurface : IGpuSurfaceSource, CupriFace.Demo.IShowcase3dInfo, IDisposable
 {
     private readonly int _w, _h;
     private readonly Gltf _model;
@@ -43,6 +43,9 @@ internal sealed class Teapot3dSurface : IGpuSurfaceSource, IDisposable
     /// <summary>Published so the page can report what actually happened rather than assert it.</summary>
     public volatile string Status = "starting";
     public string GlVersion = "(not started)";
+
+    /// <summary>Vendor and renderer as the driver reports them, shown on the page.</summary>
+    public string Detail { get; private set; } = "";
     public double LastDrawMs, LastReadbackMs, LastUploadMs;
     public long Frames;
 
@@ -232,6 +235,7 @@ internal sealed class Teapot3dSurface : IGpuSurfaceSource, IDisposable
             _gpuFbo = fbo; _gpuTex = tex; _gpuDepth = depth;
             _gpuReady = true;
             GlVersion = Gl.Str(Gl.GetString(Gl.VERSION));
+            Detail = $"{Gl.Str(Gl.GetString(Gl.RENDERER))} — {GlVersion}";
             Status = "painted, zero-copy (the engine draws our texture)";
             _log($"3d: zero-copy path up on the host context, GL_VERSION = {GlVersion}");
         }
@@ -299,6 +303,7 @@ internal sealed class Teapot3dSurface : IGpuSurfaceSource, IDisposable
                 return;
             }
             GlVersion = Gl.Str(Gl.GetString(Gl.VERSION));
+            Detail = $"{Gl.Str(Gl.GetString(Gl.RENDERER))} — {GlVersion}";
             _log($"3d: offscreen context up, GL_VERSION = {GlVersion}");
 
             // glslEs: false — desktop GL, so the shader header is "#version 330 core". The web and

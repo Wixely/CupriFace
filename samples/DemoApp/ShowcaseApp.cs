@@ -11,6 +11,21 @@ namespace CupriFace.Demo;
 /// (flex + grid), and motion — plus live binding, navigation, and interaction. A portable
 /// <see cref="CupriApp"/>, so the desktop Viewer and the web hosts run the identical demo.
 /// </summary>
+/// <summary>
+/// Optional extra a 3D surface can offer the Showcase: one line naming what actually drew the
+/// frame. Declared HERE, in the shared app, so the page can display it without referencing any
+/// renderer — each host's surface implements it, and a host that wires nothing simply has none.
+///
+/// <para>It exists to answer a question a screenshot cannot: whether a phone ran the model on its
+/// real GPU or on the emulator's software GL. <c>GL_RENDERER</c> is the driver's own answer —
+/// SwiftShader names itself, hardware names the chip — so it is reported rather than inferred.</para>
+/// </summary>
+public interface IShowcase3dInfo
+{
+    /// <summary>Vendor, renderer and version as the driver reports them.</summary>
+    string Detail { get; }
+}
+
 public sealed class ShowcaseApp : CupriApp
 {
     private readonly ShowcaseModel _model = new();
@@ -486,6 +501,13 @@ public sealed partial class ShowcaseModel
         _ => "painted: the renderer hands the engine finished frames, drawn into the display list "
              + "like any other image",
     };
+
+    /// <summary>What actually drew the frame, straight from the driver — the only way to tell a
+    /// phone's real GPU from the emulator's software GL without attaching a debugger.</summary>
+    public string Gpu3d => Surface3d is IShowcase3dInfo i && i.Detail is { Length: > 0 } d
+        ? d : "not reported by this host";
+
+    public string HasGpu3d => Surface3d is IShowcase3dInfo { Detail.Length: > 0 } ? "block" : "none";
 
     /// <summary>Shown beside the viewport so the page never claims 3D it has not got.</summary>
     public string Has3d => Surface3d is null ? "none" : "block";
