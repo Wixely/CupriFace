@@ -17,6 +17,21 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **A surface can draw on the host's GPU instead of handing over pixels.** Implement
+  `IGpuSurfaceSource` and `RenderOnGpu(GRContext)` is called on the render thread with the host's GL
+  context current, before the frame is recorded; publish a texture-backed `SKImage` and the engine
+  draws it with no copy. The registry calls `GRContext.ResetContext()` after any producer has run,
+  which is what makes issuing raw GL on Skia's own context safe — a producer restores nothing.
+
+  Measured on one desktop with a 512x512 viewport: the old path spent **1.47 ms per frame**
+  transporting the image (`glReadPixels` 0.61 ms, to-`SKImage` 0.86 ms); this spends none, at 8 us
+  of CPU to submit the draw. That is a claim about transport, not about rendering — nothing syncs,
+  so the GPU's own work is not in those numbers.
+
+  Nothing changes for existing surfaces. Hosts without a GPU context — every web host, Android, and
+  a desktop host that fell back to a software window — never call it, so a producer that wants to
+  run everywhere keeps its `CurrentFrame` path and checks `SurfaceRegistry.HasGpuFrameHook`.
+
 - **An app can build a typeahead** (#111). Three gaps that only bit together, so an @-mention list,
   an autocomplete or any "complete this as I type" control was unbuildable without workarounds:
 
@@ -53,6 +68,11 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   is the engine's ordinary behaviour for a surface with no frames. See `samples/Demo3d/README.md`.
 
 ### Fixed
+
+- **`CUPRIFACE_FRAME_DUMP` now works on the GL window too**, not only the SDL software one. The path
+  most people actually run was the one that could not be inspected in a locked session or on CI —
+  and a GPU-composited frame is exactly where a surface texture can come out black while every
+  managed assertion still passes.
 
 - **A `<canvas>` underlay is given a drawing buffer, not just a CSS box.** A canvas defaults to
   300x150 regardless of its size on the page, and a `<video>` has no backing store at all — so the

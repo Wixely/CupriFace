@@ -21,7 +21,7 @@ part that genuinely differs:
 
 | host | where | how the pixels reach the screen |
 |---|---|---|
-| desktop | [`samples/Viewer/Teapot3dSurface.cs`](../Viewer/Teapot3dSurface.cs) | **painted** — GL into an FBO, read back as an `SKImage`, drawn into the display list |
+| desktop | [`samples/Viewer/Teapot3dSurface.cs`](../Viewer/Teapot3dSurface.cs) | **painted** — GL into an FBO on the host's own context, handed over as a texture (`IGpuSurfaceSource`); readback only if the host has no GPU |
 | browser | [`samples/WebLlvm/Web3dSurface.cs`](../WebLlvm/Web3dSurface.cs) | **host-composited** — a transparent hole, with a WebGL2 canvas underneath |
 | Android | not wired | paints nothing; the panel behind shows and the page says so |
 
@@ -59,10 +59,12 @@ A poster is a still of what is coming; the wrong still is worse than none.
 - **`Gl` is a static mutable table** — one global context, wrong the moment there are two (a window
   and an offscreen target at once). A library would need this instanced.
 - **No disposal or resize contract**, and no error surface beyond a status string.
-- **Not zero-copy on desktop.** The frame goes GPU → CPU → GPU: measured here at draw ~0.13 ms,
-  readback ~0.54 ms, to-`SKImage` ~0.78 ms, so *moving* the frame costs about ten times *rendering*
-  it. The fix is a texture-backed `SKImage` over a context shared with the engine's, which needs the
-  engine to expose its `GRContext`.
+- **Zero-copy on desktop where the host has a GPU**, and a readback everywhere else. The sample
+  implements `IGpuSurfaceSource`, so on the GL window it draws on the host's own context and hands
+  the engine a texture-backed `SKImage` — no readback, no row flip, no re-upload. On a host with no
+  `GRContext` (a software window) it falls back to the old private-context path, which costs
+  ~1.47 ms per frame to move a 512x512 frame. That fallback is not dead weight: it is what a
+  software window uses, and what a web or Android host would.
 
 ## Two things that cost real time, so they are written down
 
