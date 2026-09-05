@@ -17,6 +17,20 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **The scaling strategies are in the engine now, with names.** `PresentInfo` gains
+  `Responsive`, `Fixed`, `Zoom` and `Hybrid` as named constructors, and `CupriApp.Present` documents
+  them with a worked example. Hybrid zoom in one line:
+
+  ```csharp
+  public override PresentInfo Present(float w, float h) => PresentInfo.Hybrid(w, h, Width, Height);
+  ```
+
+  Nothing changes for existing apps — the default is still responsive and the record's three fields
+  are unchanged. What changes is that the arithmetic is no longer something each app derives from a
+  record of three floats: it lived only inside `ShowcaseApp`, so "hybrid zoom" was a thing you could
+  read about in the docs and then had to reinvent. `Zoom` and `Hybrid` also clamp, and `Hybrid` falls
+  back to reflowing when handed a zero or negative design size rather than laying out at infinity.
+
 - **The 3D viewport runs on Android**, completing the set: desktop, browser and phone. Android takes
   the same zero-copy path the desktop GL window does — the host renders through an
   `SKGLSurfaceView`, which owns a real `GRContext`, so a surface draws on the host's own context and
@@ -38,6 +52,35 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   `adb shell am start -n <activity> --es section 3d` — mirroring the desktop Viewer's `--section`.
   Any page past the front screen was previously reachable only by tapping through, which a test can
   do only by guessing coordinates.
+
+### Note for `IGpuSurfaceSource` authors — read this if you draw GL
+
+`RenderOnGpu` hands you the **host's** context, so you inherit a pipeline configured by Skia's last
+draw call. Set the state you depend on; do not assume defaults. The 3D sample was corrected on two
+counts after both showed up as rendering bugs on a real phone that a desktop driver had hidden:
+
+- **A bound sampler object overrides every texture parameter.** Skia binds them, so `glTexParameteri`
+  calls for wrap, filtering and LOD were being ignored at draw time in favour of Skia's — which
+  clamps. A model whose UVs run past 1.0 and rely on `REPEAT` then samples one edge texel over most
+  of its surface, which looks exactly like a broken UV map. Call `glBindSampler(unit, 0)` first.
+- **Enables are inherited too** — blend, scissor, stencil, cull, depth mask, colour mask. Skia clips
+  with the scissor box *and* the stencil buffer, so fragments get discarded in patterns that read as
+  speckle, and a leftover blend reads as unwanted transparency.
+
+The reverse direction was already handled: `SurfaceRegistry` calls `GRContext.ResetContext()` after
+every producer, so Skia recovers from you. Nothing but the producer can do the other half.
+
+### Fixed
+
+- **The 3D sample's texture filtering.** It hardcoded `LINEAR_MIPMAP_LINEAR` and generated mipmaps
+  for every texture regardless of what the asset asked for. The loader now carries the glTF sampler
+  (`minFilter`/`magFilter`/`wrapS`/`wrapT`), wrap modes are honoured exactly, and anisotropic
+  filtering is requested where available — which a lathe-style unwrap needs, since its `u` gradient
+  dwarfs `v` and isotropic mip selection takes the worst axis and blurs to a flat average.
+
+- **`samples/Scaling` rendered `scale-none-a/b.png` in responsive mode.** The model defaults to
+  responsive and the sample never selected `"none"`, so two images were named after a mode they had
+  never shown.
 
 ## v0.17.0
 

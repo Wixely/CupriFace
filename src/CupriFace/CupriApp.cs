@@ -5,7 +5,80 @@ using SkiaSharp;
 namespace CupriFace;
 
 /// <summary>How the document is presented into the window (see <see cref="CupriApp.Present"/>).</summary>
-public readonly record struct PresentInfo(float LogicalWidth, float LogicalHeight, float Scale);
+/// <summary>
+/// What <see cref="CupriApp.Present"/> hands the host: the logical viewport the document is laid
+/// out at, and a scale factor the host applies to the canvas (and divides pointer coordinates by).
+///
+/// <para>Those three numbers can express every scaling strategy, which is why the engine takes them
+/// rather than a mode enum — but "can express" is not "explains", and an app author staring at three
+/// floats has to derive the arithmetic themselves. The named constructors below are that arithmetic,
+/// written once: <see cref="Responsive"/>, <see cref="Fixed"/>, <see cref="Zoom"/> and
+/// <see cref="Hybrid"/>. They used to live in a sample, where nobody looking at the engine could
+/// find them.</para>
+/// </summary>
+/// <param name="LogicalWidth">Viewport width the document lays out at, in CSS pixels.</param>
+/// <param name="LogicalHeight">Viewport height the document lays out at, in CSS pixels.</param>
+/// <param name="Scale">Factor the host applies when painting; 1 means logical == physical.</param>
+public readonly record struct PresentInfo(float LogicalWidth, float LogicalHeight, float Scale)
+{
+    /// <summary>Scale factors outside this range stop being a design choice and start being a bug —
+    /// a zero or a NaN silently lays the document out at an absurd size rather than throwing.</summary>
+    public const float MinScale = 0.25f, MaxScale = 4f;
+
+    /// <summary>
+    /// <b>Responsive</b> (the default): lay out at the window, scale 1. The page reflows as it
+    /// resizes, exactly like a web page — more window means more content visible, not bigger content.
+    /// </summary>
+    public static PresentInfo Responsive(float windowWidth, float windowHeight) =>
+        new(windowWidth, windowHeight, 1f);
+
+    /// <summary>
+    /// <b>Fixed</b>: always lay out at the design size, scale 1. The window revealing more space
+    /// reveals background rather than reflowing. Right for a layout that is only correct at one size.
+    /// </summary>
+    public static PresentInfo Fixed(float designWidth, float designHeight) =>
+        new(designWidth, designHeight, 1f);
+
+    /// <summary>
+    /// <b>Zoom</b>: keep the physical window, shrink the logical viewport, and let the host scale up
+    /// — the effect of changing display DPI. Text and vectors are re-rasterised at the new size, so
+    /// they stay crisp rather than being resampled.
+    /// </summary>
+    /// <param name="factor">Clamped to [<see cref="MinScale"/>, <see cref="MaxScale"/>].</param>
+    public static PresentInfo Zoom(float windowWidth, float windowHeight, float factor)
+    {
+        var z = float.IsFinite(factor) ? Math.Clamp(factor, MinScale, MaxScale) : 1f;
+        return new(windowWidth / z, windowHeight / z, z);
+    }
+
+    /// <summary>
+    /// <b>Hybrid zoom</b>: zoom to whichever axis is tighter, and let the other one reflow.
+    ///
+    /// <para><c>z = min(windowW / designW, windowH / designH)</c>. The tighter axis ends up at design
+    /// scale — so a layout tuned for <paramref name="designWidth"/> is never squeezed below it — while
+    /// the roomier axis gets extra logical space and reflows into it. On a phone that usually means
+    /// "fill the width, scroll the length"; on a wide monitor, "fill the height, spread out".</para>
+    ///
+    /// <para>The usual choice for mixed content, because pure <see cref="Zoom"/> letterboxes and pure
+    /// <see cref="Responsive"/> lets a narrow window crush a layout that assumed room.</para>
+    /// </summary>
+    /// <example>
+    /// <code>
+    /// public override int Width =&gt; 940;      // the size the layout was designed at
+    /// public override int Height =&gt; 720;
+    /// public override PresentInfo Present(float w, float h) =&gt; PresentInfo.Hybrid(w, h, Width, Height);
+    /// </code>
+    /// </example>
+    public static PresentInfo Hybrid(float windowWidth, float windowHeight,
+                                     float designWidth, float designHeight)
+    {
+        // A zero or negative design size would divide to infinity and lay out at nothing; treat it as
+        // "no design size given" and reflow, which is the harmless answer rather than a blank window.
+        if (designWidth <= 0 || designHeight <= 0) return Responsive(windowWidth, windowHeight);
+        return Zoom(windowWidth, windowHeight,
+                    MathF.Min(windowWidth / designWidth, windowHeight / designHeight));
+    }
+}
 
 /// <summary>
 /// A portable application definition: markup, styles, components, model, and behaviour —
@@ -124,12 +197,24 @@ public abstract class CupriApp
     public virtual double RefreshIntervalSeconds => 0;
 
     /// <summary>
-    /// Given the window size, return the logical viewport the document is laid out at and a
-    /// scale factor the host applies. Default = responsive (lay out at the window, scale 1).
-    /// Override for zoom/hybrid/fixed scaling.
+    /// Given the window size, return the logical viewport the document is laid out at and a scale
+    /// factor the host applies. Default = <see cref="PresentInfo.Responsive"/>: lay out at the
+    /// window, scale 1, reflowing like a web page.
+    ///
+    /// <para>Override with one of the named strategies rather than deriving the arithmetic:
+    /// <see cref="PresentInfo.Hybrid"/> (zoom the tighter axis, reflow the other — the usual choice
+    /// for mixed content), <see cref="PresentInfo.Zoom"/> (DPI-like), or
+    /// <see cref="PresentInfo.Fixed"/> (one size, no reflow).</para>
+    ///
+    /// <para>Called every frame, so it must be cheap and must not allocate.</para>
     /// </summary>
+    /// <example>
+    /// <code>
+    /// public override PresentInfo Present(float w, float h) =&gt; PresentInfo.Hybrid(w, h, Width, Height);
+    /// </code>
+    /// </example>
     public virtual PresentInfo Present(float windowWidth, float windowHeight) =>
-        new(windowWidth, windowHeight, 1f);
+        PresentInfo.Responsive(windowWidth, windowHeight);
 
     /// <summary>Dev aid: outline every element box in the window (see <see cref="CupriDocument.DebugOverlay"/>).</summary>
     public virtual bool DebugOverlay => false;

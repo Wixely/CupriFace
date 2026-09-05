@@ -10,7 +10,11 @@ using SkiaSharp;
 var app = new ShowcaseApp();
 using var doc = app.CreateDocument();
 
-Nav("settings");                                     // open Settings (default mode = none)
+Nav("settings");                                     // open Settings
+// The model's default is "responsive", not "none" — so these two used to be rendered in responsive
+// mode and named after a mode they never showed. Selecting it explicitly is the difference between
+// a sample that demonstrates fixed scaling and one that claims to.
+PickRadio("none");
 Present(940, 720, "scale-none-a.png");
 Present(1220, 820, "scale-none-b.png");              // same fixed design size, extra background
 
