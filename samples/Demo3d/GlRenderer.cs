@@ -75,6 +75,13 @@ public static unsafe class Gl
     public static delegate* unmanaged<uint, uint, int, int, void> RenderbufferStorage;
     public static delegate* unmanaged<uint, uint, uint, uint, void> FramebufferRenderbuffer;
     public static delegate* unmanaged<uint, uint> CheckFramebufferStatus;
+    // Deleting what we made. Needed only since the renderer gained a teardown hook to honour:
+    // CupriFace.Gl calls IGlContent.Shutdown with the context still current, which is the one
+    // moment any of these are legal.
+    public static delegate* unmanaged<uint, void> DeleteProgram;
+    public static delegate* unmanaged<int, uint*, void> DeleteTextures;
+    public static delegate* unmanaged<int, uint*, void> DeleteVertexArrays;
+    public static delegate* unmanaged<int, uint*, void> DeleteBuffers;
 
     public const uint COLOR_BUFFER_BIT = 0x4000, DEPTH_BUFFER_BIT = 0x0100;
     public const uint VERTEX_SHADER = 0x8B31, FRAGMENT_SHADER = 0x8B30;
@@ -166,6 +173,10 @@ public static unsafe class Gl
         RenderbufferStorage = (delegate* unmanaged<uint, uint, int, int, void>)P("glRenderbufferStorage");
         FramebufferRenderbuffer = (delegate* unmanaged<uint, uint, uint, uint, void>)P("glFramebufferRenderbuffer");
         CheckFramebufferStatus = (delegate* unmanaged<uint, uint>)P("glCheckFramebufferStatus");
+        DeleteProgram = (delegate* unmanaged<uint, void>)P("glDeleteProgram");
+        DeleteTextures = (delegate* unmanaged<int, uint*, void>)P("glDeleteTextures");
+        DeleteVertexArrays = (delegate* unmanaged<int, uint*, void>)P("glDeleteVertexArrays");
+        DeleteBuffers = (delegate* unmanaged<int, uint*, void>)P("glDeleteBuffers");
     }
 
     public static string Str(byte* p) => p is null ? "(null)" : Marshal.PtrToStringUTF8((nint)p) ?? "(null)";

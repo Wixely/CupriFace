@@ -25,16 +25,25 @@ part that genuinely differs:
 | browser | [`samples/WebLlvm/Web3dSurface.cs`](../WebLlvm/Web3dSurface.cs) | **host-composited** — a transparent hole, with a WebGL2 canvas underneath |
 | Android | [`samples/AndroidViewer/Teapot3dSurface.cs`](../AndroidViewer/Teapot3dSurface.cs) | **painted** — GLES 3.0 on the host's own `SKGLSurfaceView` context, handed over as a texture |
 
-One shader source serves all three: `glslEs: false` emits `#version 330 core` for desktop, `true`
-emits `#version 300 es` for Android *and* the browser — because WebGL2 is GLES 3.0. The three hosts
-differ in how a GL context is obtained and how finished pixels reach the screen, never in the
-rendering itself.
+One shader source serves all three: `#version 330 core` for desktop, `#version 300 es` for Android
+*and* the browser — because WebGL2 is GLES 3.0. The three hosts differ in how a GL context is
+obtained and how finished pixels reach the screen, never in the rendering itself.
+
+> **Those three files were 543 code lines between them and are now 91.** Everything that was
+> integration — acquiring a context per platform, sizing a framebuffer, the texture handoff, the
+> readback flip, the state reset, the on-screen gate — moved into the optional
+> [`CupriFace.Gl`](../../src/CupriFace.Gl/) package, which is host-agnostic. The drawing itself is
+> one shared [`TeapotContent`](TeapotContent.cs) implementing `IGlContent`.
+>
+> Of the 91 that remain, **56 are the desktop's offscreen-context implementation** — a hidden 1×1
+> Silk.NET window supplied through `IGlOffscreenContext`, which is a capability rather than glue and
+> is why the package takes it as a factory instead of a dependency. The actual per-host wiring is 17
+> lines on Android and 18 in the browser: which model, which clear colour, where the log goes.
 
 ## Wiring it into an app
 
 At the **composition root**, never in the shared app class — the rule video already follows, because
-the shared class is compiled by the browser and Android hosts too and must not drag a desktop GL
-stack into them:
+each host decides for itself whether 3D is wired at all:
 
 ```csharp
 DesktopHost.Run(new ShowcaseApp(), doc => Teapot3dSurface.TryAttach(doc));
@@ -57,16 +66,18 @@ A poster is a still of what is coming; the wrong still is worse than none.
 ## What it is not
 
 - **Not an engine.** No IBL, animation, skinning, culling, sorting, or alpha blend modes. One
-  directional light and a constant ambient term.
-- **`Gl` is a static mutable table** — one global context, wrong the moment there are two (a window
-  and an offscreen target at once). A library would need this instanced.
-- **No disposal or resize contract**, and no error surface beyond a status string.
-- **Zero-copy on desktop where the host has a GPU**, and a readback everywhere else. The sample
-  implements `IGpuSurfaceSource`, so on the GL window it draws on the host's own context and hands
-  the engine a texture-backed `SKImage` — no readback, no row flip, no re-upload. On a host with no
-  `GRContext` (a software window) it falls back to the old private-context path, which costs
-  ~1.47 ms per frame to move a 512x512 frame. That fallback is not dead weight: it is what a
-  software window uses, and what a web or Android host would.
+  directional light and a constant ambient term. `experiments/PACKAGING-GL.md` sizes what "basic 3D"
+  would actually cost from here, and where it stops being basic.
+- **`Gl` is still a static mutable table** — one global context, wrong the moment there are two (a
+  window and an offscreen target at once). It stays that way because this demo genuinely has one
+  context and can afford it. The difference is that it is now the SAMPLE'S choice: `CupriFace.Gl`
+  publishes no table of its own, only `GlContext.GetProcAddress`, so an app that needs an instanced
+  one builds it without the package standing in the way.
+- **Lane chosen automatically.** The package draws on the host's own context and hands the engine a
+  texture where there is one (desktop GL window, Android); falls back to a private context and a
+  readback where there is not (software window, headless), which costs ~1.47 ms per frame to move a
+  512x512 frame; and host-composites in a browser. `ShowcaseModel.Lane3d` reports which, as a fact
+  from the viewport rather than an inference.
 
 ## Two things that cost real time, so they are written down
 

@@ -21,6 +21,14 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The seam, so this project can express itself as IGlContent and stop caring which host it is
+         on. It is host-AGNOSTIC, not host-coupled: CupriFace.Gl references no host assembly, which
+         is precisely what lets one renderer compile for desktop, Android and browser-wasm alike.
+         SkiaSharp arrives with it and is used for exactly one thing — decoding a PNG to RGBA. -->
+    <ProjectReference Include="..\..\src\CupriFace.Gl\CupriFace.Gl.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Embedded rather than copied: the wasm and Android hosts have no working directory to read
          from, and an embedded asset resolves identically on all four. -->
     <EmbeddedResource Include="teapot.glb" />
