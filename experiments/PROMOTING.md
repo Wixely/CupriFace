@@ -247,7 +247,13 @@ skipped.
     the phone takes the same zero-copy path as the desktop GL window: draw on the host's context,
     hand over a texture. The Android surface has no private context and no readback in it at all.
   - *"no device attached to verify against"* — this one was real, and is answered by the gate rather
-    than by trusting the build. The android job now starts the Showcase on the 3D page
+    than by trusting the build. The android job starts the Showcase on the 3D page
     (`am start --es section 3d`) and asserts on the driver's own `GL_VERSION` and then on a frame
     count, because a surface that fails to initialise leaves the viewport showing its panel, which
     looks deliberate and would pass any "did it launch" check.
+
+    **It is still not proven on real hardware.** The emulator answers with SwiftShader, a software
+    GL, so the gate demonstrates the code path — `#version 300 es` compiles, the framebuffer
+    completes, the texture wraps, 60 frames arrive — and not that a given phone's driver agrees.
+    The `dlsym`-rather-than-`eglGetProcAddress` choice was made for real-driver quirks that
+    SwiftShader cannot exhibit, so precisely the risk it guards against is the one still untested.

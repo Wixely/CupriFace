@@ -1156,9 +1156,15 @@ jobs:
       # Tag-only, for the same reason as the viewer uploads: the release job is its only reader,
       # and the emulator gate above has already installed and driven this APK, so a push that
       # produced no APK cannot reach here green.
-      # The 3D viewport, on the phone's own GPU. This is the only place the GLES leg is exercised
-      # at all: the desktop gate uses desktop GL and the browser gate uses WebGL2, and a driver that
-      # refuses a "#version 300 es" shader or hands back a null texture would be invisible to both.
+      # The 3D viewport on Android. This is the only place the GLES leg is exercised at all: the
+      # desktop gate uses desktop GL and the browser gate uses WebGL2.
+      #
+      # WHAT THIS DOES NOT PROVE. The emulator answers with SwiftShader - a software GL - so this
+      # asserts the CODE PATH (the "#version 300 es" shaders compile, the framebuffer completes, the
+      # texture wraps into an SKImage, frames keep coming) and not that any particular phone's
+      # driver agrees. The dlsym-instead-of-eglGetProcAddress choice in the Android surface exists
+      # for real-driver quirks that SwiftShader will never exhibit. Running this against physical
+      # hardware is a recorded follow-up, not something this job can claim.
       #
       # LAST in the job on purpose: it force-stops the app and relaunches into the Showcase, so
       # every step that expects the phone-first front screen has to have run already.
@@ -1166,7 +1172,7 @@ jobs:
       # Asserted on the DRIVER'S OWN ANSWER (GL_VERSION) and then on a frame count, rather than on
       # the app not crashing: a surface that fails to initialise leaves the viewport showing its
       # panel, which looks deliberate and would pass any "did it launch" check.
-      - name: The 3D viewport draws on the phone GPU
+      - name: The 3D viewport draws through the Android GL stack
         run: |
           set -x
           adb logcat -c || true

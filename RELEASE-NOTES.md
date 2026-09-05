@@ -27,6 +27,10 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   drivers return a non-null stub for any name — which makes a missing entry point look present and
   then crash on the call.
 
+  Gated on a device in CI, which asserts the driver's own `GL_VERSION` and a frame count. Note the
+  limit: the emulator answers with SwiftShader (software GL), so the gate proves the code path
+  rather than any particular phone's driver.
+
 - **`AndroidHost.PaintFrame` now receives the view's `GRContext`**, which is what lets any
   `IGpuSurfaceSource` work on the phone. Nothing to call: apps get it.
 
