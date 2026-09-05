@@ -1,0 +1,93 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A NativeAOT-LLVM wasm app with NO CupriFace reference and no binding package: the point is to
+       test the toolchain claim in isolation, so anything that could be doing the work for us is
+       absent. Everything here is either a restore-time fact (the experimental ILC feed) or a link
+       fact (the Emscripten toolchain paths, which the runtime pack expects the host build to
+       supply). -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- NOT PublishAot: the SDK's own AOT switch rejects browser-wasm (NETSDK1203). ILC is
+         reached through the ILCompiler.LLVM package references below, with PublishTrimmed
+         driving the trim - a different road to the same compiler. -->
+    <PublishTrimmed>true</PublishTrimmed>
+    <DotNetJsApi>true</DotNetJsApi>
+    <UseAppHost>false</UseAppHost>
+    <UsingBrowserRuntimeWorkload>false</UsingBrowserRuntimeWorkload>
+    <WasmEnableLegacyJsInterop>false</WasmEnableLegacyJsInterop>
+    <InvariantTimezone>true</InvariantTimezone>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <TrimMode>full</TrimMode>
+    <DebuggerSupport>false</DebuggerSupport>
+    <EventSourceSupport>false</EventSourceSupport>
+    <DebugType>none</DebugType>
+
+    <!-- THE line under test. MAX_WEBGL_VERSION=2 is what makes Emscripten's GLES3 shim target
+         WebGL2; FULL_ES3 brings in the client-side-array emulation the ES3 entry points need. -->
+    <EmccFlags>$(EmccFlags) -O1 -sMAX_WEBGL_VERSION=2 -sMIN_WEBGL_VERSION=2 -sFULL_ES3 -sSUPPORT_LONGJMP=wasm</EmccFlags>
+
+    <ExecutableExtensionName Condition="$([MSBuild]::IsOSPlatform('Windows'))">.exe</ExecutableExtensionName>
+    <IlcHostRid Condition="'$(IlcHostRid)' == ''">$(NETCoreSdkPortableRuntimeIdentifier)</IlcHostRid>
+    <IlcLlvmVersion Condition="'$(IlcLlvmVersion)' == ''">10.0.0-rc.1.26357.1</IlcLlvmVersion>
+    <RestoreAdditionalProjectSources>
+      https://api.nuget.org/v3/index.json;
+      https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-experimental/nuget/v3/index.json;
+    </RestoreAdditionalProjectSources>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The model rides in the assembly, the same way CupriFace embeds its own assets: no
+         fetch, no path resolution, and the browser gets it in the wasm it already downloads. -->
+    <EmbeddedResource Include="../../samples/Demo3d/teapot.glb" LogicalName="teapot.glb" />
+    <!-- One loader, both probes. The whole point of the desktop and Android legs is that
+         the PORTABLE half is identical and only the symbol loading differs. -->
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.DotNet.ILCompiler.LLVM" Version="$(IlcLlvmVersion)" />
+    <PackageReference Include="runtime.$(IlcHostRid).Microsoft.DotNet.ILCompiler.LLVM" Version="$(IlcLlvmVersion)" />
+
+    <!-- Skia, for ONE job: turning the glb's embedded JPEG into RGBA. A renderer has no business
+         carrying image codecs, and this is the boundary that keeps it that way - the engine takes
+         decoded pixels, the host decodes. Representative rather than convenient: CupriFace already
+         links libSkiaSharp on every host it runs on, this one included, so a real integration pays
+         nothing extra here. -->
+    <PackageReference Include="SkiaSharp" Version="3.116.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.WebAssembly" Version="3.116.1"
+                      GeneratePathProperty="true" ExcludeAssets="all" />
+    <PackageReference Include="HarfBuzzSharp.NativeAssets.WebAssembly" Version="8.3.0.1"
+                      GeneratePathProperty="true" ExcludeAssets="all" />
+  </ItemGroup>
+
+  <!-- The static archives, in the Emscripten 3.1.56 single-thread flavour this workload's toolchain
+       matches. Same shape as CupriFace.Web.NativeAot.targets, which learned the path the hard way. -->
+  <Target Name="AddWasmArchives" BeforeTargets="IlcCompile;LinkNative">
+    <ItemGroup>
+      <NativeLibrary Include="$(PkgSkiaSharp_NativeAssets_WebAssembly)/buildTransitive/netstandard1.0/libSkiaSharp.a/3.1.56/st/libSkiaSharp.a" />
+      <NativeLibrary Include="$(PkgHarfBuzzSharp_NativeAssets_WebAssembly)/buildTransitive/netstandard1.0/libHarfBuzzSharp.a/3.1.56/st/libHarfBuzzSharp.a" />
+    </ItemGroup>
+  </Target>
+
+  <ItemGroup>
+    <!-- Direct, not dynamic. NativeAOT has no dlopen to fall back on, so each of these becomes a
+         plain symbol reference that emcc's own GL and html5 libraries satisfy — which is exactly
+         why no bindings package is required, and why a typo fails the LINK rather than the page. -->
+    <DirectPInvoke Include="libSkiaSharp" />
+    <DirectPInvoke Include="libHarfBuzzSharp" />
+
+    <!-- Emscripten's toolchain paths. Without these emcc reports "LLVM_ROOT is set to empty value"
+         and the link dies; the .emscripten config in the runtime pack expects the host build to
+         supply them. Lifted from CupriFace.Web.NativeAot.targets, which learned it the hard way. -->
+    <EmscriptenEnvVars Include="DOTNET_EMSCRIPTEN_LLVM_ROOT=$(EmscriptenUpstreamBinPath)" />
+    <EmscriptenEnvVars Include="DOTNET_EMSCRIPTEN_BINARYEN_ROOT=$(EmscriptenSdkToolsPath)" />
+    <EmscriptenEnvVars Include="DOTNET_EMSCRIPTEN_NODE_JS=$(EmscriptenNodeBinPath)node$(ExecutableExtensionName)" />
+    <EmscriptenEnvVars Include="EM_CACHE=$(EmscriptenCacheSdkCacheDir)" />
+  </ItemGroup>
+
+</Project>

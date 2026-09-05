@@ -62,9 +62,9 @@ try {
             M.stringToUTF16(s, ptr, (s.length + 1) * 2);
             M["_" + entry](s.length);
         },
-        // Video underlays: id → <video> element BELOW the canvas (imports.js moves the bytes and
+        // Underlays: id -> element BELOW the canvas (a <video>, or a <canvas> a 3D surface draws into) (imports.js moves the bytes and
         // forwards transport; the element + its events live here, where the exports are in scope).
-        videos: new Map(),
+        underlays: new Map(),   // id -> underlaid element: <video> or <canvas>
         videoOpen: (id, src) => {
             canvas.style.position = "relative"; canvas.style.zIndex = "1"; // above all underlays
             const v = document.createElement("video");
@@ -80,7 +80,7 @@ try {
             v.addEventListener("timeupdate", () => M._VideoTime(id, v.currentTime || 0));
             v.addEventListener("ended", () => M._VideoEnded(id));
             document.body.insertBefore(v, canvas);
-            globalThis.__cupri.videos.set(id, v);
+            globalThis.__cupri.underlays.set(id, v);
             return v;
         },
     };

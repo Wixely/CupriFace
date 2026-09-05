@@ -23,5 +23,24 @@
     <!-- The engine and this host are browser-only by construction; an app that writes no interop
          should not inherit the platform-compatibility noise from them. -->
     <NoWarn>$(NoWarn);CA1416</NoWarn>
+
+    <!-- WebGL2 available to anything the app links. The host itself does not use GL — it rasterises
+         with Skia and presents through putImageData — but a surface underlay does, and this is the
+         one setting an app cannot discover from its symptoms: without it
+         emscripten_webgl_create_context SILENTLY DOWNGRADES a version-2 request to WebGL1 rather
+         than refusing it, and the first sign is "ERROR: unsupported shader version" from a
+         `#version 300 es` shader, which points at the shader rather than at the context.
+
+         Additive, so an app can still raise it; MIN is deliberately NOT set, because a page that
+         only ever rasterises has no reason to be refused a WebGL1 context it will never ask for.
+
+         PRICED AND KEPT UNCONDITIONAL. Measured by relinking samples/WebLlvm without it: +9,447
+         bytes of wasm and +56,745 of JS glue, so 66 KB uncompressed that an app which never touches
+         WebGL still carries. Making it opt-in would hand that back, and was rejected: the failure it
+         prevents is invisible at the point it happens. A consumer who has not read this file gets a
+         shader error naming a line they did not write, in a context they cannot inspect, on a build
+         that linked cleanly. 66 KB is a worse trade than one developer losing a day to that. If the
+         payload ever matters more than the trap, the change is one condition here, not a redesign. -->
+    <EmccFlags>$(EmccFlags) -sMAX_WEBGL_VERSION=2</EmccFlags>
   </PropertyGroup>
 </Project>

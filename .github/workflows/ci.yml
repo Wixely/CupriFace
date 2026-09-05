@@ -365,6 +365,9 @@ jobs:
             project: samples/WebLlvm/WebLlvm.csproj
             wwwroot: samples/WebLlvm/bin/Release/net10.0/browser-wasm/publish
             id: llvm
+            # Only this host's composition root wires a 3D surface, so only here is there a canvas
+            # underlay to assert on. WebWasm shows the poster, and the test skips rather than fails.
+            gl3d: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -393,10 +396,16 @@ jobs:
       # Both hosts publish the same automation contract (__cupri.isCoarse), so ONE gate drives
       # either — the tests never learn whether they are talking to JSExports or to Emscripten's
       # module, which is what keeps the two hosts honest about behaving identically.
+      # Also covers the UNDERLAY seam: a <video> the browser decodes and a <canvas> an app renders
+      # into are the same problem — keeping a DOM element glued to a box the ENGINE laid out, through
+      # scroll, overflow clipping and transforms, none of which that element can see. The managed
+      # tests cannot: the canvas backing-store bug (CSS-sized right, rendering into the 300x150
+      # default and stretched) passed every one of them.
       - name: Fingers on glass
         env:
           CUPRI_WEB_WWWROOT: ${{ github.workspace }}/${{ matrix.wwwroot }}
           CUPRI_WEB_HOST: ${{ matrix.id }}
+          CUPRI_WEB_3D: ${{ matrix.gl3d }}
         run: dotnet test tests/WebTouchGate/WebTouchGate.csproj -c Release --no-build --logger "console;verbosity=normal"
 
 

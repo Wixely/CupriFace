@@ -8,6 +8,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
+    <!-- The 3D demo surface issues raw GL through function pointers. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>CupriFace.Samples.Viewer</RootNamespace>
     <!-- NativeAOT publish, opt-in: `dotnet publish -c Release -r win-x64 -p:Aot=true`.
          Gated behind an explicit property (the same convention as WebWasm's wasm AOT) so ordinary
@@ -33,6 +35,9 @@
     <ProjectReference Include="..\..\src\CupriFace.Shell\CupriFace.Shell.csproj" />
     <ProjectReference Include="..\..\src\CupriFace.Media\CupriFace.Media.csproj" />
     <ProjectReference Include="..\DemoApp\DemoApp.csproj" />
+    <!-- The 3D demo's renderer. Referenced HERE and not by DemoApp, for the same reason video is
+         wired here: the shared ShowcaseApp is compiled by the wasm and Android hosts too. -->
+    <ProjectReference Include="..\Demo3d\Demo3d.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -27,6 +27,7 @@ public static class WebHostCore
     private static CupriDocument _doc = null!;
     private static TouchInput _touch = null!;
     private static WebVideoBackend? _video;
+    private static WebUnderlays? _underlays;
 
     private static int _primaryPointer = -1;     // the recognizer follows one finger; apps may hold others
     private static SKColor _bg;
@@ -94,6 +95,7 @@ public static class WebHostCore
         // underlaid element; the engine punches a transparent hole where it shows and paints its own
         // controls on top. Rect/clip sync happens after each painted frame.
         _video = new WebVideoBackend(_js);
+        _underlays = new WebUnderlays(_js);
         _doc.UseVideo(_video);
 
         // Fullscreen requests (the ⛶ control) go to the browser's Fullscreen API. Escape exits
@@ -204,7 +206,7 @@ public static class WebHostCore
         // a staging buffer (Skia unpremultiplies for us). Video holes need the same: their alpha-0
         // pixels only reach the page through the straight-alpha path.
         var present = _bitmap;
-        if (_transparent || (_video?.AnyReady ?? false))
+        if (_transparent || (_video?.AnyReady ?? false) || (_underlays?.Any ?? false))
         {
             var fresh = _straight is null || _straight.Width != width || _straight.Height != height;
             if (fresh)
@@ -255,7 +257,10 @@ public static class WebHostCore
 
         // Keep each underlaid element glued to its box: same painted frame, same page task as the
         // blit above, so the hole and the element cannot shear apart.
-        _video?.SyncRects(_doc, _scale);
+        // One syncer for every underlaid element. Video resolves to the player id it already
+        // owns; a surface asking for a canvas gets one created here. Both then move identically
+        // through the clip and transform chains.
+        _underlays?.Sync(_doc, _scale, key => _video?.IdForSurface(key));
         return true;
     }
 
