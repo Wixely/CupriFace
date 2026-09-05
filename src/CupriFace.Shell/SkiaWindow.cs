@@ -497,9 +497,15 @@ public sealed class SkiaWindow : IDisposable
         {
             _stats.BeginFrame(deltaSeconds);
 
-            Render?.Invoke(new RenderContext(_surface.Canvas, _fbSize.X, _fbSize.Y, _stats));
+            Render?.Invoke(new RenderContext(_surface.Canvas, _fbSize.X, _fbSize.Y, _stats, _grContext));
 
             _grContext!.Flush(); // push the recorded draws to the GL framebuffer before swap
+
+            // CUPRIFACE_FRAME_DUMP, on the GL window too. It existed only on the SDL software
+            // window, which meant the path most people actually run could not be inspected at all
+            // in a locked session or on CI - and a GPU-composited frame is exactly where a surface
+            // texture can come out black while every managed assertion still passes.
+            if (_frameDumpPath is { } dump && ++_presentCount % 15 == 0) DumpPresentedPixels(dump);
 
             _stats.EndFrame();
             _window!.SwapBuffers(); // manual swap: only drawn frames reach the screen
@@ -513,6 +519,28 @@ public sealed class SkiaWindow : IDisposable
 
         if (ShouldClose?.Invoke(_stats) == true)
             _window!.Close();
+    }
+
+    // CUPRIFACE_FRAME_DUMP=<file.png>: read the pixels back FROM THE GPU SURFACE after the flush
+    // and overwrite the file. Ground truth of what this frame contains, for environments where
+    // OS-level screen capture is unavailable. Debug only, hence the env gate; every Nth frame so
+    // the cost stays negligible.
+    private readonly string? _frameDumpPath = Environment.GetEnvironmentVariable("CUPRIFACE_FRAME_DUMP");
+    private int _presentCount;
+
+    private void DumpPresentedPixels(string path)
+    {
+        try
+        {
+            if (_surface is null) return;
+            using var img = _surface.Snapshot();
+            // A GPU-backed snapshot has to come down to the CPU before it can be encoded.
+            using var raster = img.ToRasterImage(ensurePixelData: true);
+            using var data = raster.Encode(SKEncodedImageFormat.Png, 90);
+            using var f = File.Create(path);
+            data.SaveTo(f);
+        }
+        catch { /* diagnostics must never take the window down */ }
     }
 
     private void DisposeGpu()
@@ -534,4 +562,8 @@ public sealed class SkiaWindow : IDisposable
 }
 
 /// <summary>Everything a frame draw callback needs for one frame.</summary>
-public readonly record struct RenderContext(SKCanvas Canvas, int Width, int Height, FrameStats Stats);
+/// <param name="Gpu">The window's Skia GPU context, or null when this frame is being rasterised on
+/// the CPU (the SDL software window). A surface producer that wants to skip the GPU-to-CPU-and-back
+/// round trip needs this; everything else can ignore it. See <c>IGpuSurfaceSource</c>.</param>
+public readonly record struct RenderContext(SKCanvas Canvas, int Width, int Height, FrameStats Stats,
+                                            GRContext? Gpu = null);

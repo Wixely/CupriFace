@@ -29,7 +29,7 @@ namespace CupriFace.Samples.Viewer;
 /// fix is a texture-backed SKImage over a context shared with the engine's, which needs the engine
 /// to expose its <c>GRContext</c> — worth doing, and not needed for a demo.</para>
 /// </summary>
-internal sealed class Teapot3dSurface : ISurfaceSource, IDisposable
+internal sealed class Teapot3dSurface : IGpuSurfaceSource, IDisposable
 {
     private readonly int _w, _h;
     private readonly Gltf _model;
@@ -126,8 +126,14 @@ internal sealed class Teapot3dSurface : ISurfaceSource, IDisposable
             var onScreen = _doc is { } d && Find(d.Root) is { LaidOut: true };
             _onScreen = onScreen;          // the render loop parks itself when this goes false
             if (!onScreen) return false;
-            EnsureStarted();
-            return _running;
+
+            // Prefer the host's GPU hook; only start the private context + readback thread if no
+            // hook turns up. The host sets HasGpuFrameHook during its first Draw, which is AFTER
+            // the first Ticking poll, so "false" means nothing for a frame or two - hence counting
+            // rather than deciding immediately. A software window never sets it, and falls back.
+            if (_gpuReady || _registry.HasGpuFrameHook) return true;
+            if (++_polls > 10) EnsureStarted();
+            return true;
         }
     }
 
@@ -139,6 +145,120 @@ internal sealed class Teapot3dSurface : ISurfaceSource, IDisposable
         if (n.SurfaceKey == "showcase3d") return n;
         foreach (var c in n.Children) if (Find(c) is { } found) return found;
         return null;
+    }
+
+    // ---- the zero-copy path (A2) ---------------------------------------------------------------
+
+    private bool _gpuReady, _gpuFailed;
+    private uint _gpuFbo, _gpuTex, _gpuDepth;
+    private SceneRenderer? _gpuRenderer;
+    private SKImage? _gpuFrame;
+    private readonly System.Diagnostics.Stopwatch _gpuClock = System.Diagnostics.Stopwatch.StartNew();
+
+    /// <summary>CPU time to SUBMIT the frame's GL commands on the zero-copy path - not the time the
+    /// GPU spends rendering it. Nothing here forces a sync, so the driver has queued the work and
+    /// returned; the readback path's numbers look bigger partly because glReadPixels waits for that
+    /// work to finish. The honest claim is about TRANSPORT, which this path does not do at all, not
+    /// about rendering having become free.</summary>
+    public double GpuSubmitMs;
+
+    /// <summary>How many times Ticking has been asked. Used only to decide, once, that no GPU hook
+    /// is coming: the host sets HasGpuFrameHook during its first Draw, which happens AFTER the first
+    /// Ticking poll, so a couple of frames must pass before "false" means anything.</summary>
+    private int _polls;
+
+    // The host's GL context is current inside RenderOnGpu, but there is no Silk.NET window here to
+    // ask for entry points, so they come from the platform loader directly. wglGetProcAddress
+    // answers for extensions while the 1.1 core lives in opengl32 itself, which is why both are
+    // consulted - the classic loader shape, and the reason a single lookup would half-work.
+    [System.Runtime.InteropServices.DllImport("opengl32.dll", CharSet = System.Runtime.InteropServices.CharSet.Ansi)]
+    private static extern nint wglGetProcAddress(string name);
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Ansi)]
+    private static extern nint GetProcAddress(nint module, string name);
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Ansi)]
+    private static extern nint LoadLibrary(string name);
+
+    private static nint HostProc(string name)
+    {
+        var p = wglGetProcAddress(name);
+        // wglGetProcAddress returns these sentinels rather than null for a name it does not know.
+        if (p == 0 || p == 1 || p == 2 || p == 3 || p == -1)
+            p = GetProcAddress(LoadLibrary("opengl32.dll"), name);
+        return p;
+    }
+
+    /// <summary>
+    /// Draw on the HOST'S context, and hand the engine a texture instead of pixels.
+    ///
+    /// <para>This is the whole of A2 from the sample's side: no readback, no row flip, no re-upload.
+    /// The frame never leaves the GPU - SKImage.FromTexture wraps the same colour attachment the
+    /// model was just rendered into, and Skia draws it directly.</para>
+    ///
+    /// <para>Nothing restores GL state here, on purpose: SurfaceRegistry calls
+    /// GRContext.ResetContext() after every producer, which is what makes issuing raw GL on Skia's
+    /// own context safe at all.</para>
+    /// </summary>
+    public unsafe void RenderOnGpu(GRContext context)
+    {
+        if (_gpuFailed) return;
+        if (!_gpuReady)
+        {
+            if (!OperatingSystem.IsWindows()) { _gpuFailed = true; return; }   // the loader above is Win32
+            Gl.Load(HostProc);
+            if (Gl.Missing.Count > 0)
+            {
+                _gpuFailed = true;
+                _log($"3d: zero-copy path unavailable ({Gl.Missing.Count} GL entry points missing)");
+                return;
+            }
+
+            _gpuRenderer = new SceneRenderer(_model, glslEs: false);
+            if (!_gpuRenderer.Initialise(DecodeWithSkia, m => _log("3d: " + m))) { _gpuFailed = true; return; }
+
+            uint fbo, tex, depth;
+            Gl.GenFramebuffers(1, &fbo); Gl.BindFramebuffer(Gl.FRAMEBUFFER, fbo);
+            Gl.GenTextures(1, &tex); Gl.BindTexture(Gl.TEXTURE_2D, tex);
+            Gl.TexImage2D(Gl.TEXTURE_2D, 0, (int)Gl.RGBA8, _w, _h, 0, Gl.RGBA, Gl.UNSIGNED_BYTE, null);
+            Gl.TexParameteri(Gl.TEXTURE_2D, Gl.TEX_MIN_FILTER, Gl.LINEAR);
+            Gl.TexParameteri(Gl.TEXTURE_2D, Gl.TEX_MAG_FILTER, Gl.LINEAR);
+            Gl.FramebufferTexture2D(Gl.FRAMEBUFFER, Gl.COLOR_ATTACHMENT0, Gl.TEXTURE_2D, tex, 0);
+            Gl.GenRenderbuffers(1, &depth); Gl.BindRenderbuffer(Gl.RENDERBUFFER, depth);
+            Gl.RenderbufferStorage(Gl.RENDERBUFFER, Gl.DEPTH_COMPONENT24, _w, _h);
+            Gl.FramebufferRenderbuffer(Gl.FRAMEBUFFER, Gl.DEPTH_ATTACHMENT, Gl.RENDERBUFFER, depth);
+            if (Gl.CheckFramebufferStatus(Gl.FRAMEBUFFER) != Gl.FRAMEBUFFER_COMPLETE)
+            {
+                _gpuFailed = true; _log("3d: zero-copy framebuffer incomplete"); return;
+            }
+            _gpuFbo = fbo; _gpuTex = tex; _gpuDepth = depth;
+            _gpuReady = true;
+            GlVersion = Gl.Str(Gl.GetString(Gl.VERSION));
+            Status = "painted, zero-copy (the engine draws our texture)";
+            _log($"3d: zero-copy path up on the host context, GL_VERSION = {GlVersion}");
+        }
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        Gl.BindFramebuffer(Gl.FRAMEBUFFER, _gpuFbo);
+        _gpuRenderer!.Draw(0.6f + (float)_gpuClock.Elapsed.TotalSeconds * 0.6f, _w, _h, 0f, 0f, 0f, 0f);
+        Gl.BindFramebuffer(Gl.FRAMEBUFFER, 0);
+        GpuSubmitMs = sw.Elapsed.TotalMilliseconds;
+
+        // Wrapped fresh each frame: an SKImage over a texture is a handle, not a copy. The previous
+        // handle is retired after the swap, the same discipline the readback path keeps.
+        var info = new GRGlTextureInfo(Gl.TEXTURE_2D, _gpuTex, Gl.RGBA8);
+        using var backend = new GRBackendTexture(_w, _h, false, info);
+        var img = SKImage.FromTexture(context, backend, GRSurfaceOrigin.BottomLeft, SKColorType.Rgba8888);
+        if (img is null) return;
+        var previous = _gpuFrame;
+        _gpuFrame = img;
+        _frame = img;
+        previous?.Dispose();
+        Frames++;
+
+        // Reported once, warm, so the two transports can be compared rather than asserted. There is
+        // no readback or upload line here because there is no readback or upload.
+        if (Frames == 200)
+            _log($"3d: zero-copy - submit {GpuSubmitMs * 1000:0} us, transport NONE " +
+                 "(the engine draws our texture; GPU render time is not measured here, nothing syncs)");
     }
 
     private unsafe void RenderLoop()
@@ -256,6 +376,10 @@ internal sealed class Teapot3dSurface : ISurfaceSource, IDisposable
                 _retired = previous;
                 Frames++;
 
+                if (Frames == 200)
+                    _log($"3d: readback - draw {LastDrawMs:0.00} ms, glReadPixels {LastReadbackMs:0.00} ms, " +
+                         $"to-SKImage {LastUploadMs:0.00} ms (transport {LastReadbackMs + LastUploadMs:0.00} ms)");
+
                 _registry.NotifyFrame();
                 Thread.Sleep(16);       // ~60fps; a demo, not a frame pacer
 
@@ -288,7 +412,8 @@ internal sealed class Teapot3dSurface : ISurfaceSource, IDisposable
     public void Dispose()
     {
         _running = false;
-        _thread.Join(2000);
+        if (_started == 1) _thread.Join(2000);
+        _gpuFrame?.Dispose();
         _frame?.Dispose(); _retired?.Dispose();
     }
 }

@@ -1,9 +1,9 @@
 # Promoting this into main
 
-> **Status: A1, A3 and the demo have landed.** This document is kept as written, because the
+> **Status: A1, A2, A3 and the demo have landed.** This document is kept as written, because the
 > interesting part is now the comparison — what a careful read of the code predicted, against what
 > integration actually cost. Scroll to **[What it actually cost](#what-it-actually-cost)** for the
-> difference. A2 (sharing the engine's `GRContext`) and the Android leg are still open.
+> difference. The Android leg is still open.
 
 The probes answered "can we?". This is "what would it take to ship?", scoped by reading the code
 rather than by estimating. Two pieces, and they are worth separating:
@@ -226,9 +226,14 @@ skipped.
 
 ### Still open
 
-- **A2 — share the engine's `GRContext`.** Unchanged, and still the single biggest win: desktop pays
-  draw ~0.13 ms against readback ~0.54 ms plus to-`SKImage` ~0.78 ms, so moving the frame costs about
-  ten times rendering it.
+- ~~**A2 — share the engine's `GRContext`.**~~ **Done.** `IGpuSurfaceSource.RenderOnGpu(GRContext)`
+  is called on the render thread with the host's context current, before anything is recorded, and
+  the registry calls `ResetContext()` afterwards — the step this document named as the reason raw GL
+  could not be issued on Skia's context. Measured on the same machine: the readback path spends
+  **1.47 ms per frame** moving a 512x512 frame (`glReadPixels` 0.61 + to-`SKImage` 0.86); the
+  zero-copy path spends **none**, at 8 us of CPU to submit the draw. Note what that number is not:
+  nothing syncs, so it does not say rendering became free — the GPU still does the work. The claim
+  is about transport.
 - **A3's second half — a real per-frame hook.** Both surfaces still drive rendering from a property
   getter and both say so. A library cannot ship that.
 - **Android.** The seam works there (the probe proved GL and the painted lane), but the Showcase does
