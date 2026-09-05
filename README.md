@@ -33,7 +33,7 @@ or whatever else was on the desktop, whereas this can only draw the document.
 | <img src="docs/screenshots/images.jpg" alt="Images"><br>**Images** — `object-fit` modes in a corner-drag `resize: both` frame | ![Overlays](docs/screenshots/overlays.png)<br>**Overlays** — modal dialog over a real backdrop blur; drawers, popovers, toasts, context menus |
 | ![Layout](docs/screenshots/layout.png)<br>**Layout** — flexbox, CSS grid with spans, inline flow, draggable split panes | ![Motion](docs/screenshots/motion.png)<br>**Motion** — `@keyframes`, transforms and CSS transitions |
 | ![Styling](docs/screenshots/styling.png)<br>**Styling** — the cascade, variables, accent theming, shadows and borders | ![Settings](docs/screenshots/settings.png)<br>**Settings** — forms, validation, and the scaling modes |
-| ![3D](docs/screenshots/threed.png)<br>**3D** — a glTF model on the GPU behind live UI, at three alphas. The engine ships no renderer: it composites someone else's pixels | ![Diagnostics](docs/screenshots/diagnostics.png)<br>**Diagnostics** — live frame timings and node counts |
+| ![3D](docs/screenshots/threed.png)<br>**3D** — a glTF model on the GPU behind live UI, at three alphas. The model is drawn by **sample** code; the engine's part is compositing it, and the optional `CupriFace.Gl` package is the seam between the two | ![Diagnostics](docs/screenshots/diagnostics.png)<br>**Diagnostics** — live frame timings and node counts |
 | ![Dark mode](docs/screenshots/inputs-dark.png)<br>**Dark mode** — a CSS variable swap on `body.dark`, cross-faded by a `transition` | |
 
 Run it yourself with `dotnet run --project samples/Viewer` (desktop). The same app also runs in a
@@ -67,11 +67,14 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
   package plays WebM (VP9 + Opus) with decoders for every desktop RID in **one** package —
   build on any OS, run on any OS.
 - **Live surfaces** — anything can supply pixels for an element through `ISurfaceSource`: a video,
-  a camera, a 3D viewport. The engine ships **no** renderer and knows nothing about GL; it decides
-  only how those pixels reach the frame, and picks per host — *painted* into the display list where
-  it can, or *host-composited* through a transparent hole with a real `<canvas>` beneath the page on
-  the web. `IGpuSurfaceSource` lets a producer draw on the host's own GPU context and hand over a
-  texture, so the frame never leaves the GPU. Ordinary UI composites over it at any alpha, and the
+  a camera, a 3D viewport. CupriFace ships **no 3D** renderer; it decides only how those pixels
+  reach the frame, and picks per host — *painted* into the display list where it can, or
+  *host-composited* through a transparent hole with a real `<canvas>` beneath the page on the web.
+  `IGpuSurfaceSource` lets a producer draw on the host's own GPU context and hand over a texture, so
+  the frame never leaves the GPU. The optional **`CupriFace.Gl`** package packages that whole seam —
+  give it something that draws with GL and it acquires the context, sizes the target to the
+  element's device box, keeps the driver in a state Skia survives, and runs on all three hosts
+  unchanged. Ordinary UI composites over it at any alpha, and the
   [3D page](docs/screenshots/threed.png) above is the same `ShowcaseApp` markup on desktop, in a
   browser and on a phone.
 

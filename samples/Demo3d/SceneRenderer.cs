@@ -23,6 +23,8 @@ public sealed unsafe class SceneRenderer
     private int _mvpLoc, _camLoc, _baseColorLoc, _metalLoc, _roughLoc, _hasTexLoc;
     private readonly List<(uint Vao, int IndexCount, Gltf.Primitive Prim)> _draws = [];
     private readonly List<uint> _textures = [];
+    // Tracked only so they can be deleted. Nothing reads this list otherwise.
+    private readonly List<uint> _buffers = [];
 
     public SceneRenderer(Gltf scene, bool glslEs) { _scene = scene; _es = glslEs; }
 
@@ -254,14 +256,14 @@ public sealed unsafe class SceneRenderer
         {
             uint vao, vbo, ebo;
             Gl.GenVertexArrays(1, &vao); Gl.BindVertexArray(vao);
-            Gl.GenBuffers(1, &vbo); Gl.BindBuffer(Gl.ARRAY_BUFFER, vbo);
+            Gl.GenBuffers(1, &vbo); Gl.BindBuffer(Gl.ARRAY_BUFFER, vbo); _buffers.Add(vbo);
             fixed (float* v = prim.Vertices)
                 Gl.BufferData(Gl.ARRAY_BUFFER, prim.Vertices.Length * sizeof(float), v, Gl.STATIC_DRAW);
             var stride = 8 * sizeof(float);
             Gl.VertexAttribPointer(0, 3, Gl.FLOAT, 0, stride, (void*)0); Gl.EnableVertexAttribArray(0);
             Gl.VertexAttribPointer(1, 3, Gl.FLOAT, 0, stride, (void*)(3 * sizeof(float))); Gl.EnableVertexAttribArray(1);
             Gl.VertexAttribPointer(2, 2, Gl.FLOAT, 0, stride, (void*)(6 * sizeof(float))); Gl.EnableVertexAttribArray(2);
-            Gl.GenBuffers(1, &ebo); Gl.BindBuffer(Gl.ELEMENT_ARRAY_BUFFER, ebo);
+            Gl.GenBuffers(1, &ebo); Gl.BindBuffer(Gl.ELEMENT_ARRAY_BUFFER, ebo); _buffers.Add(ebo);
             fixed (uint* i = prim.Indices)
                 Gl.BufferData(Gl.ELEMENT_ARRAY_BUFFER, prim.Indices.Length * sizeof(uint), i, Gl.STATIC_DRAW);
             _draws.Add((vao, prim.Indices.Length, prim));
@@ -406,15 +408,28 @@ public sealed unsafe class SceneRenderer
 
     public void Draw(float angle, int w, int h, float bgR, float bgG, float bgB, float bgA)
     {
-        Gl.UseProgram(_prog);
-        var (mvp, ex, ey, ez) = Camera(angle, (float)w / h);
-        fixed (float* p = mvp) Gl.UniformMatrix4fv(_mvpLoc, 1, 0, p);
-        Gl.Uniform3f(_camLoc, ex, ey, ez);
-
         ResetState();
         Gl.Viewport(0, 0, w, h);
         Gl.ClearColor(bgR, bgG, bgB, bgA);
         Gl.ClearBits(Gl.COLOR_BUFFER_BIT | Gl.DEPTH_BUFFER_BIT);
+        Draw(angle, w, h);
+    }
+
+    /// <summary>
+    /// Draw with the state, viewport and clear ALREADY DONE by whoever owns the context — which is
+    /// what <c>CupriFace.Gl</c> promises its content, and is why this overload exists.
+    ///
+    /// <para>Worth having as a separate entry point rather than a flag: under the package those four
+    /// things are guaranteed, and repeating them here would be a second implementation of a contract
+    /// that has exactly one correct version. The standalone probe, which owns its own window and its
+    /// own context, calls the overload above and still needs them.</para>
+    /// </summary>
+    public void Draw(float angle, int w, int h)
+    {
+        Gl.UseProgram(_prog);
+        var (mvp, ex, ey, ez) = Camera(angle, (float)w / h);
+        fixed (float* p = mvp) Gl.UniformMatrix4fv(_mvpLoc, 1, 0, p);
+        Gl.Uniform3f(_camLoc, ex, ey, ez);
 
         foreach (var (vao, count, prim) in _draws)
         {
@@ -433,5 +448,30 @@ public sealed unsafe class SceneRenderer
             Gl.DrawElements(Gl.TRIANGLES, count, Gl.UNSIGNED_INT, (void*)0);
         }
         Gl.BindVertexArray(0);
+    }
+
+    /// <summary>
+    /// Delete every GL object this renderer made. Must be called with the owning context CURRENT,
+    /// which is exactly the guarantee <c>IGlContent.Shutdown</c> gives — and the reason that hook
+    /// exists rather than a plain IDisposable.
+    ///
+    /// <para>The demo used to leak all of this, which is invisible in something that runs once and
+    /// is a real leak in an app whose user opens and closes a panel. Idempotent, because a teardown
+    /// that can only safely happen once is a teardown that will be called twice.</para>
+    /// </summary>
+    public void Dispose()
+    {
+        if (_prog != 0) { Gl.DeleteProgram(_prog); _prog = 0; }
+
+        void DeleteAll(List<uint> names, delegate* unmanaged<int, uint*, void> del)
+        {
+            foreach (var name in names) { var n = name; del(1, &n); }
+            names.Clear();
+        }
+
+        DeleteAll(_textures, Gl.DeleteTextures);
+        DeleteAll(_buffers, Gl.DeleteBuffers);
+        foreach (var (vao, _, _) in _draws) { var v = vao; Gl.DeleteVertexArrays(1, &v); }
+        _draws.Clear();
     }
 }

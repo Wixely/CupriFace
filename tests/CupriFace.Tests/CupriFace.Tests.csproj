@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\CupriFace\CupriFace.csproj" />
+    <ProjectReference Include="..\..\src\CupriFace.Gl\CupriFace.Gl.csproj" />
     <ProjectReference Include="..\..\src\CupriFace.Lottie\CupriFace.Lottie.csproj" />
     <ProjectReference Include="..\..\src\CupriFace.Media\CupriFace.Media.csproj" />
     <!-- The shipped sample apps: their documents are built headlessly here, so a markup or

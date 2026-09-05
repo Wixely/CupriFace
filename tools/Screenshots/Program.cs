@@ -56,7 +56,18 @@ foreach (var (section, file, dark, waitMs) in shots)
     // Headless has no GRContext, so this takes the private-context readback path — the same one a
     // software window uses, which is why it works here at all.
     IDisposable? surface = null;
-    if (section == "3d") surface = CupriFace.Samples.Viewer.Teapot3dSurface.TryAttach(doc, _ => { });
+    if (section == "3d")
+    {
+        // What a host does every frame, and what this tool must do for the same reason: these images
+        // are captured at 2x, so a viewport told nothing would render at logical resolution and be
+        // upscaled into a panel that is twice as many pixels. One line, and the difference is visible.
+        doc.Surfaces.DeviceScale = Scale;
+        // Draw the model, but not the row that names this machine's GPU. See ShowDriverRow: the
+        // point of headless capture is that a published image shows the document and nothing about
+        // the box it was generated on, and that is a rule rather than a per-string judgement.
+        if (app.Model is ShowcaseModel gm) gm.ShowDriverRow = false;
+        surface = CupriFace.Samples.Viewer.Teapot3dSurface.TryAttach(doc, _ => { });
+    }
 
     doc.Refresh();
     using (doc.RenderToImage(W, H)) { }          // first frame: lays out and warms images
