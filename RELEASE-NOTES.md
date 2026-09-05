@@ -17,6 +17,25 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **An app can build a typeahead** (#111). Three gaps that only bit together, so an @-mention list,
+  an autocomplete or any "complete this as I type" control was unbuildable without workarounds:
+
+  - **A bare `Up`/`Down` now reaches `OnShortcut` while a field has focus.** Those two keys and no
+    others: they are the only editing keys a focused text field does not act on, so they are the
+    only ones that can be offered without taking something away. A bare letter still cannot fire —
+    it would silently eat typing. A focused `data-listbox` still wins, so the built-in combobox is
+    unaffected.
+  - **`doc.SetFieldValue(selector, text)`** writes a bound field *while it has focus*, keeping the
+    caret with the new text. Assigning the bound property does not work there — the component edits
+    a buffer committed only on blur, so the write was discarded and the next keystroke landed at the
+    old offset in the old text.
+  - **`doc.Focus(selector)` and `doc.Blur()`** move keyboard focus from code. Previously the only
+    focus-shaped API was `AccessibilityFocus`, keyed by accessibility path and meant for a screen
+    reader — so any "put this into the input for the user to edit" flow dead-ended.
+
+  The Showcase's **Keyboard** page now carries a working @-mention typeahead built entirely from
+  these; the engine gains no typeahead component.
+
 - **Anything can now live under a hole on the web, not just video.** `ISurfaceSource` gains one
   optional member, `UnderlayElement`. Return `"canvas"` and the web host creates a
   `<canvas id="cupri-underlay-{key}">` beneath the engine's own, then keeps it glued to the box the
