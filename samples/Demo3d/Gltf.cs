@@ -30,6 +30,17 @@ public sealed class Gltf
         public required float Metallic;
         public required float Roughness;
         public required int ImageIndex;        // index into Images, or -1
+
+        /// <summary>The glTF sampler for that image, as GL enums, defaulted per the spec when the
+        /// asset omits one. Carried rather than assumed because the renderer previously hardcoded
+        /// LINEAR_MIPMAP_LINEAR and generated mipmaps for every texture — which the teapot's own
+        /// sampler never asked for (it declares plain LINEAR), and which a PowerVR phone rendered as
+        /// coloured speckle where a desktop NVIDIA driver had looked fine. Mipmaps on a 701x561 NPOT
+        /// texture are legal in GLES 3.0 and evidently not equally well travelled.</summary>
+        public int MinFilter = 0x2601;         // GL_LINEAR
+        public int MagFilter = 0x2601;         // GL_LINEAR
+        public int WrapS = 0x2901;             // GL_REPEAT
+        public int WrapT = 0x2901;             // GL_REPEAT
         public required bool HasUv;
         public required string Name;
     }
@@ -133,6 +144,9 @@ public sealed class Gltf
                 float[] colour = { 1f, 1f, 1f, 1f };
                 float metallic = 1f, roughness = 1f;      // the spec's defaults, not zero
                 var imgIdx = -1;
+                // GL_LINEAR / GL_REPEAT: the spec leaves filtering to the implementation when a
+                // sampler omits it, and plain LINEAR is the choice that needs no mipmap chain.
+                int minFilter = 0x2601, magFilter = 0x2601, wrapS = 0x2901, wrapT = 0x2901;
                 if (prim.TryGetProperty("material", out var mi) && root.TryGetProperty("materials", out var mats))
                 {
                     var mat = mats[mi.GetInt32()];
@@ -149,7 +163,22 @@ public sealed class Gltf
                             && root.TryGetProperty("textures", out var texs)
                             && root.TryGetProperty("images", out var imgs))
                         {
-                            var srcIdx = texs[bct.GetProperty("index").GetInt32()].GetProperty("source").GetInt32();
+                            var texNode = texs[bct.GetProperty("index").GetInt32()];
+                            var srcIdx = texNode.GetProperty("source").GetInt32();
+
+                            // The sampler the ASSET asked for. Absent members keep the spec's
+                            // defaults (repeat, and "let the implementation choose" filtering,
+                            // which we read as plain LINEAR - the conservative choice, and the one
+                            // that needs no mipmap chain).
+                            if (texNode.TryGetProperty("sampler", out var sIdx)
+                                && root.TryGetProperty("samplers", out var samplers))
+                            {
+                                var smp = samplers[sIdx.GetInt32()];
+                                if (smp.TryGetProperty("minFilter", out var smn)) minFilter = smn.GetInt32();
+                                if (smp.TryGetProperty("magFilter", out var smg)) magFilter = smg.GetInt32();
+                                if (smp.TryGetProperty("wrapS", out var ws)) wrapS = ws.GetInt32();
+                                if (smp.TryGetProperty("wrapT", out var wt)) wrapT = wt.GetInt32();
+                            }
                             if (!imageIndexMap.TryGetValue(srcIdx, out imgIdx))
                             {
                                 var img = imgs[srcIdx];
@@ -175,6 +204,7 @@ public sealed class Gltf
                     Vertices = verts, Indices = indices, BaseColor = colour,
                     Metallic = metallic, Roughness = roughness,
                     ImageIndex = imgIdx, HasUv = uv is not null,
+                    MinFilter = minFilter, MagFilter = magFilter, WrapS = wrapS, WrapT = wrapT,
                     Name = meshName,
                 });
             }

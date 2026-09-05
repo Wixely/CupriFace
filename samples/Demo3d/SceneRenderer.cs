@@ -185,12 +185,34 @@ public sealed unsafe class SceneRenderer
                 Gl.BindTexture(Gl.TEXTURE_2D, tex);
                 fixed (byte* p = img.Pixels)
                     Gl.TexImage2D(Gl.TEXTURE_2D, 0, (int)Gl.RGBA8, img.W, img.H, 0, Gl.RGBA, Gl.UNSIGNED_BYTE, p);
-                Gl.GenerateMipmap(Gl.TEXTURE_2D);
-                Gl.TexParameteri(Gl.TEXTURE_2D, Gl.TEX_MIN_FILTER, Gl.LINEAR_MIPMAP_LINEAR);
-                Gl.TexParameteri(Gl.TEXTURE_2D, Gl.TEX_MAG_FILTER, Gl.LINEAR);
-                Gl.TexParameteri(Gl.TEXTURE_2D, Gl.TEX_WRAP_S, Gl.REPEAT);
-                Gl.TexParameteri(Gl.TEXTURE_2D, Gl.TEX_WRAP_T, Gl.REPEAT);
-                log($"texture {_textures.Count} decoded {img.W}x{img.H} -> rgba8888");
+
+                // THE SAMPLER THE ASSET ASKED FOR, not one invented here.
+                //
+                // This used to hardcode LINEAR_MIPMAP_LINEAR and call GenerateMipmap on everything.
+                // The teapot's own sampler declares plain LINEAR and no mipmaps, and forcing them on
+                // its 701x561 NPOT texture rendered as coloured speckle on a PowerVR phone while a
+                // desktop NVIDIA driver showed nothing wrong. NPOT mipmaps are legal in GLES 3.0;
+                // they are evidently not equally well travelled, and the asset never wanted them.
+                //
+                // A primitive carries the sampler, an image is shared, so the first primitive that
+                // names this image supplies it. Two materials sampling one image differently would
+                // need a sampler object per reference — noted rather than built, since this is a
+                // sample and no real asset here does it.
+                var smp = _scene.Primitives.Find(pr => pr.ImageIndex == _textures.Count);
+                var (minF, magF, wrapS, wrapT) = smp is null
+                    ? (0x2601, 0x2601, 0x2901, 0x2901)          // GL_LINEAR / GL_REPEAT
+                    : (smp.MinFilter, smp.MagFilter, smp.WrapS, smp.WrapT);
+
+                // …and only build a mip chain if the filter actually samples one.
+                var wantsMips = minF is 0x2700 or 0x2701 or 0x2702 or 0x2703;
+                if (wantsMips) Gl.GenerateMipmap(Gl.TEXTURE_2D);
+
+                Gl.TexParameteri(Gl.TEXTURE_2D, Gl.TEX_MIN_FILTER, minF);
+                Gl.TexParameteri(Gl.TEXTURE_2D, Gl.TEX_MAG_FILTER, magF);
+                Gl.TexParameteri(Gl.TEXTURE_2D, Gl.TEX_WRAP_S, wrapS);
+                Gl.TexParameteri(Gl.TEXTURE_2D, Gl.TEX_WRAP_T, wrapT);
+                log($"texture {_textures.Count} decoded {img.W}x{img.H} -> rgba8888 " +
+                    $"(min=0x{minF:X4} mag=0x{magF:X4} mips={wantsMips})");
             }
             else log($"WARN image {_textures.Count} did not decode");
             _textures.Add(tex);
@@ -270,6 +292,7 @@ public sealed unsafe class SceneRenderer
     public void DrawInstances(float angle, int w, int h, int instances, float bgR, float bgG, float bgB, float bgA)
     {
         Gl.UseProgram(_prog);
+        ResetState();
         Gl.Viewport(0, 0, w, h);
         Gl.ClearColor(bgR, bgG, bgB, bgA);
         Gl.ClearBits(Gl.COLOR_BUFFER_BIT | Gl.DEPTH_BUFFER_BIT);
@@ -315,6 +338,35 @@ public sealed unsafe class SceneRenderer
         Gl.BindVertexArray(0);
     }
 
+
+    /// <summary>
+    /// Put the pipeline into the state this renderer assumes, instead of inheriting whatever the
+    /// last user of the context left set.
+    ///
+    /// <para>This became necessary the moment a surface started drawing on the HOST'S context
+    /// (<c>IGpuSurfaceSource</c>) rather than a private one. Skia is a heavy user of exactly these
+    /// switches — it clips with the scissor box and the stencil buffer, and it blends almost
+    /// everything — so a producer that sets only the state it changes is really running with a
+    /// pipeline configured by someone else's last draw call. That is invisible until a different
+    /// driver leaves different state behind: on one desktop the teapot looked right, and on a
+    /// PowerVR phone it came out speckled and half-transparent.</para>
+    ///
+    /// <para>The mirror image is already handled: SurfaceRegistry calls
+    /// <c>GRContext.ResetContext()</c> AFTER a producer runs, so Skia recovers from us. This is the
+    /// other direction — us recovering from Skia — and nothing but the producer can do it.</para>
+    /// </summary>
+    private static void ResetState()
+    {
+        Gl.Disable(Gl.BLEND);           // Skia blends constantly; our model is opaque
+        Gl.Disable(Gl.SCISSOR_TEST);    // …and clips with the scissor box, which would crop us
+        Gl.Disable(Gl.STENCIL_TEST);    // …and with the stencil buffer, which would punch holes in us
+        Gl.Disable(Gl.CULL_FACE);       // the teapot is authored single-sided either way
+        Gl.Disable(Gl.DITHER);
+        Gl.Enable(Gl.DEPTH_TEST); Gl.DepthFunc(Gl.LESS);
+        Gl.DepthMask(1);                // a depth-masked context would let the far side draw last
+        Gl.ColorMask(1, 1, 1, 1);       // and a masked channel is how a teapot loses its blue
+    }
+
     public void Draw(float angle, int w, int h, float bgR, float bgG, float bgB, float bgA)
     {
         Gl.UseProgram(_prog);
@@ -322,6 +374,7 @@ public sealed unsafe class SceneRenderer
         fixed (float* p = mvp) Gl.UniformMatrix4fv(_mvpLoc, 1, 0, p);
         Gl.Uniform3f(_camLoc, ex, ey, ez);
 
+        ResetState();
         Gl.Viewport(0, 0, w, h);
         Gl.ClearColor(bgR, bgG, bgB, bgA);
         Gl.ClearBits(Gl.COLOR_BUFFER_BIT | Gl.DEPTH_BUFFER_BIT);

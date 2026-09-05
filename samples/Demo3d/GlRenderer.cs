@@ -22,6 +22,9 @@ public static unsafe class Gl
     public static delegate* unmanaged<float, float, float, float, void> ClearColor;
     public static delegate* unmanaged<uint, void> ClearBits;
     public static delegate* unmanaged<uint, void> Enable;
+    public static delegate* unmanaged<uint, void> Disable;
+    public static delegate* unmanaged<byte, void> DepthMask;
+    public static delegate* unmanaged<byte, byte, byte, byte, void> ColorMask;
     public static delegate* unmanaged<uint, void> DepthFunc;
     public static delegate* unmanaged<uint, uint> CreateShader;
     public static delegate* unmanaged<uint, int, byte**, int*, void> ShaderSource;
@@ -77,6 +80,10 @@ public static unsafe class Gl
     public const uint RGBA = 0x1908, UNSIGNED_BYTE = 0x1401;
     public const uint COMPILE_STATUS = 0x8B81, LINK_STATUS = 0x8B82;
     public const uint VERSION = 0x1F02, RENDERER = 0x1F01, DEPTH_TEST = 0x0B71, LESS = 0x0201;
+    // State a renderer sharing someone else's context must set rather than inherit — see
+    // SceneRenderer.ResetState.
+    public const uint BLEND = 0x0BE2, SCISSOR_TEST = 0x0C11, STENCIL_TEST = 0x0B90,
+                      CULL_FACE = 0x0B44, DITHER = 0x0BD0;
     public const uint TEXTURE_2D = 0x0DE1, RGBA8 = 0x8058;
     public const uint TEX_MIN_FILTER = 0x2801, TEX_MAG_FILTER = 0x2800, TEX_WRAP_S = 0x2802, TEX_WRAP_T = 0x2803;
     public const int LINEAR = 0x2601, LINEAR_MIPMAP_LINEAR = 0x2703, REPEAT = 0x2901;
@@ -104,6 +111,9 @@ public static unsafe class Gl
         ClearColor = (delegate* unmanaged<float, float, float, float, void>)P("glClearColor");
         ClearBits = (delegate* unmanaged<uint, void>)P("glClear");
         Enable = (delegate* unmanaged<uint, void>)P("glEnable");
+        Disable = (delegate* unmanaged<uint, void>)P("glDisable");
+        DepthMask = (delegate* unmanaged<byte, void>)P("glDepthMask");
+        ColorMask = (delegate* unmanaged<byte, byte, byte, byte, void>)P("glColorMask");
         DepthFunc = (delegate* unmanaged<uint, void>)P("glDepthFunc");
         CreateShader = (delegate* unmanaged<uint, uint>)P("glCreateShader");
         ShaderSource = (delegate* unmanaged<uint, int, byte**, int*, void>)P("glShaderSource");
