@@ -167,6 +167,10 @@ public static class WebHostCore
     {
         var p = _app.Present(width, height);
         _scale = p.Scale <= 0 ? 1f : p.Scale;
+        // The same factor the underlay rects are already sent in, published for surfaces that
+        // rasterise to order. A host-composited underlay reads its size from its own backing store
+        // and does not need this; a surface that hands the engine frames does.
+        _doc.Surfaces.DeviceScale = _scale;
 
         if (_bitmap is null || _bitmap.Width != width || _bitmap.Height != height)
         {

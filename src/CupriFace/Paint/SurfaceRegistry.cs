@@ -131,6 +131,28 @@ public sealed class SurfaceRegistry
     /// the paused-seek / first-frame path, where nothing else would wake the render loop.</summary>
     public void NotifyFrame() => _arrived = true;
 
+    /// <summary>
+    /// Device pixels per engine unit, as the host is currently painting — the factor a surface needs
+    /// in order to produce frames at the resolution its element will actually be drawn at.
+    ///
+    /// <para>Set once per frame by the host (it is the same number the host hands
+    /// <c>canvas.Scale</c>, and the same one the web host already applies to underlay rects). Left at
+    /// 1 by a host that does not, which is exactly right for one that never scales.</para>
+    ///
+    /// <para><b>Why a surface cannot work this out for itself.</b> <c>RenderNode.Width</c> is in
+    /// engine units, and nothing else reaches a producer: a surface that sized its buffer from the
+    /// node alone would render a 512-pixel image into a 1536-pixel box on a 3× phone and look soft
+    /// for a reason nobody can see in the markup. Video does not care — the browser scales its own
+    /// element — but anything that RASTERISES to order does.</para>
+    /// </summary>
+    public float DeviceScale
+    {
+        get => _deviceScale;
+        set => _deviceScale = value > 0 && float.IsFinite(value) ? value : 1f;
+    }
+
+    private volatile float _deviceScale = 1f;
+
     /// <summary>True once a host has run <see cref="RenderGpuFrames"/> at least once, so a producer
     /// can tell whether the zero-copy path is actually available to it rather than guessing from the
     /// platform. False on the web, and on a desktop host that fell back to a software window.</summary>
