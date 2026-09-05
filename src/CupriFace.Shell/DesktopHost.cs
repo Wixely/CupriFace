@@ -73,6 +73,13 @@ public static class DesktopHost
 
         void Draw(RenderContext ctx)
         {
+            // GPU surface producers go FIRST, before a single command is recorded for this frame.
+            // They issue raw GL on the same context Skia is about to use, so doing it mid-recording
+            // would corrupt the state Skia believes the driver is in; the registry calls
+            // ResetContext afterwards. A software window passes null here and producers fall back
+            // to publishing ordinary SKImages.
+            if (ctx.Gpu is { } gpu) doc.Surfaces.RenderGpuFrames(gpu);
+
             var p = app.Present(ctx.Width, ctx.Height);
             scale = p.Scale <= 0 ? 1f : p.Scale;
             logicalW = p.LogicalWidth; logicalH = p.LogicalHeight;

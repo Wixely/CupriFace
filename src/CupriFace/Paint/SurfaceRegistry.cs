@@ -47,6 +47,42 @@ public interface ISurfaceSource
 }
 
 /// <summary>
+/// A surface that draws on the HOST'S GPU rather than handing the engine finished pixels.
+///
+/// <para>An ordinary <see cref="ISurfaceSource"/> publishes an <see cref="SKImage"/> from any
+/// thread, which is simple and costs a round trip: the frame is read back from the GPU, wrapped,
+/// and uploaded again when Skia paints it. Measured on one desktop with a small glTF model, drawing
+/// took ~0.13 ms and MOVING the result ~1.3 ms — about ten times more to transport a frame than to
+/// render it.</para>
+///
+/// <para>This interface removes the trip. <see cref="RenderOnGpu"/> is called on the render thread
+/// with the host's GL context already current, before anything is recorded for the frame, so the
+/// producer can draw into its own framebuffer and publish a TEXTURE-BACKED
+/// <see cref="ISurfaceSource.CurrentFrame"/> (<c>SKImage.FromTexture</c>) that Skia then draws
+/// without copying anything.</para>
+///
+/// <para><b>The rule that makes it safe:</b> raw GL issued behind Skia's back invalidates the state
+/// it thinks the driver is in. The registry calls <c>GRContext.ResetContext()</c> after any producer
+/// has run, which is exactly what that method is for — so a producer may issue whatever GL it likes
+/// and does not need to restore anything. Producers must NOT draw with the passed
+/// <see cref="GRContext"/> themselves; it is handed over so a texture can be wrapped, not so the
+/// engine's own recording can be joined.</para>
+///
+/// <para>Hosts without a GPU context never call this (the web host rasterises on the CPU; a desktop
+/// host that fell back to a software window has no <see cref="GRContext"/>), so a producer that
+/// wants to run everywhere still needs an <see cref="ISurfaceSource.CurrentFrame"/> path — see
+/// <see cref="SurfaceRegistry.HasGpuFrameHook"/>.</para>
+/// </summary>
+public interface IGpuSurfaceSource : ISurfaceSource
+{
+    /// <summary>Draw this frame on the host's GPU context, then publish
+    /// <see cref="ISurfaceSource.CurrentFrame"/>. Called on the render thread, context current,
+    /// before the frame is recorded. Throwing here is treated as "no frame this time" rather than
+    /// taking the window down.</summary>
+    void RenderOnGpu(GRContext context);
+}
+
+/// <summary>
 /// The document's live surfaces, keyed by the element attribute <c>data-cupri-surface</c>.
 /// Mirrors <see cref="ImageStore"/>'s host contract: <see cref="TakeArrived"/> is polled once
 /// per host tick (folded into <c>CupriDocument.ConsumeImageArrived</c>) so a frame published
@@ -94,6 +130,50 @@ public sealed class SurfaceRegistry
     /// <summary>Producers call this after swapping <see cref="ISurfaceSource.CurrentFrame"/> —
     /// the paused-seek / first-frame path, where nothing else would wake the render loop.</summary>
     public void NotifyFrame() => _arrived = true;
+
+    /// <summary>True once a host has run <see cref="RenderGpuFrames"/> at least once, so a producer
+    /// can tell whether the zero-copy path is actually available to it rather than guessing from the
+    /// platform. False on the web, and on a desktop host that fell back to a software window.</summary>
+    public bool HasGpuFrameHook { get; private set; }
+
+    /// <summary>
+    /// Give every <see cref="IGpuSurfaceSource"/> its turn on the host's GPU context, then hand the
+    /// context back to Skia in a known state.
+    ///
+    /// <para>Hosts with a <see cref="GRContext"/> call this once per frame, BEFORE recording
+    /// anything — the context must be current and Skia must not be mid-draw. The
+    /// <c>ResetContext</c> afterwards is not optional and is deliberately here rather than in each
+    /// producer: raw GL issued behind Skia's back leaves its state tracking wrong, and a corruption
+    /// that only appears once some unrelated element is painted is not a bug anyone enjoys owning.
+    /// Doing it once, centrally, means a producer cannot forget.</para>
+    /// </summary>
+    /// <returns>True if any producer ran.</returns>
+    public bool RenderGpuFrames(GRContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        HasGpuFrameHook = true;
+
+        IGpuSurfaceSource[] gpu;
+        lock (_lock)
+        {
+            var n = 0;
+            foreach (var s in _sources.Values) if (s is IGpuSurfaceSource) n++;
+            if (n == 0) return false;
+            gpu = new IGpuSurfaceSource[n];
+            var i = 0;
+            foreach (var s in _sources.Values) if (s is IGpuSurfaceSource g) gpu[i++] = g;
+        }
+
+        var ran = false;
+        foreach (var g in gpu)
+        {
+            // One producer's bad frame must not take the window down, nor stop the others drawing.
+            try { g.RenderOnGpu(context); ran = true; }
+            catch { /* treated as "no frame this time"; the last one stays on screen */ }
+        }
+        if (ran) { context.ResetContext(); _arrived = true; }
+        return ran;
+    }
 
     // Frames a host has already seen, per key — so a producer that swaps CurrentFrame without
     // calling NotifyFrame (a decoder thread that knows nothing about hosts) still wakes the next
