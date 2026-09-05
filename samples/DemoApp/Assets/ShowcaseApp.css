@@ -279,3 +279,14 @@ body.dark .pill { color:#8fb8e0; border-color:#345069; }
   .hscroll { overflow:scroll; flex-basis:100%; }
   .hscroll > * { min-width:640px; }
 }
+
+/* The @-mention list on the Keyboard page. Sits under the composer rather than floating over it:
+   an overlay would need positioning machinery the point of the demo does not need. */
+.mention { background:var(--cupri-surface); border-radius:10px; padding:6px; margin-top:8px;
+           max-width:320px; }
+/* The highlighted row is marked with a leading "> " in the bound text rather than a class, because
+   `data-repeat` renders one node per string and there is no per-item attribute to hang a class on.
+   Crude, and honest about what this page is demonstrating: which key moved the highlight, not how
+   prettily it is drawn. */
+.mrow { color:var(--cupri-text); font-size:13px; padding:6px 10px; border-radius:7px;
+        font-family:monospace; }

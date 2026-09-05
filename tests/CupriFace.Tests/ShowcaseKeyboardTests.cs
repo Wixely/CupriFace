@@ -195,4 +195,60 @@ public class ShowcaseKeyboardTests(ITestOutputHelper output)
         Assert.Contains("typed but never blurred", model.KeyLog);
         output.WriteLine($"after Ctrl+Enter: sent={model.SentCount} log={model.KeyLog}");
     }
+
+    // ---- the @-mention typeahead (#111) --------------------------------------
+
+    /// <summary>
+    /// The whole point of #111, driven end to end through the real Showcase: type a partial mention,
+    /// move the highlight with a BARE arrow while the composer still holds focus, commit with Enter,
+    /// and carry on typing where the caret was left. Any one of those three failing puts the feature
+    /// back where it was — buildable only with Ctrl-chords nobody guesses and a keystroke-replay
+    /// workaround.
+    /// </summary>
+    [Fact]
+    public void An_at_mention_completes_with_bare_arrows_and_leaves_the_caret_in_the_composer()
+    {
+        var (doc, model) = OnKeyboardPage();
+        using var _d = doc;
+        Assert.NotNull(TabTo(doc, IsComposer));
+
+        // "da" matches two names, so the highlight has somewhere to move.
+        foreach (var ch in "hi @da") doc.DispatchKey(ch.ToString(), EditKey.None);
+        Frame(doc);
+        Assert.Equal("block", model.MentionOpen);          // the list opened on its own
+        Assert.Equal("hi @da", model.Composer);
+
+        // A bare Down, with the composer focused. This is the key that used to be swallowed.
+        Assert.True(doc.DispatchKey(null, EditKey.Down));
+        Frame(doc);
+        Assert.Equal(1, model.MentionHi);                  // the highlight moved…
+        Assert.Equal("hi @da", model.Composer);            // …and nothing was typed
+
+        doc.DispatchKey(null, EditKey.Enter);              // commit the highlighted name
+        Frame(doc);
+        Assert.Equal("hi @dahlia ", model.Composer);
+
+        // The caret is still in the composer: keep typing and it appends rather than going nowhere
+        // or landing at a stale offset inside the old text.
+        foreach (var ch in "hello") doc.DispatchKey(ch.ToString(), EditKey.None);
+        Assert.Equal("hi @dahlia hello", model.Composer);
+        output.WriteLine($"composer after completing + typing: \"{model.Composer}\"");
+    }
+
+    /// <summary>Enter still SENDS when no list is open — the typeahead must not have stolen the
+    /// composer's own submit key.</summary>
+    [Fact]
+    public void Enter_still_sends_when_no_mention_list_is_open()
+    {
+        var (doc, model) = OnKeyboardPage();
+        using var _d = doc;
+        Assert.NotNull(TabTo(doc, IsComposer));
+
+        foreach (var ch in "no mention here") doc.DispatchKey(ch.ToString(), EditKey.None);
+        Frame(doc);
+        Assert.Equal("none", model.MentionOpen);
+
+        doc.DispatchKey(null, EditKey.Enter);
+        Assert.Equal(1, model.SentCount);
+    }
 }

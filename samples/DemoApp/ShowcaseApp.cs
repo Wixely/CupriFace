@@ -105,7 +105,36 @@ public sealed class ShowcaseApp : CupriApp
         // The composer is marked submit-on-enter, so a plain Enter submits and Shift+Enter still
         // starts a new line. The attribute names WHICH field submitted, exactly as OnAction and
         // OnContext name what was clicked.
-        doc.OnSubmit("data-composer", e => { Send($"Enter on \"{e.Value}\""); return true; });
+        // Enter has two jobs on this page now: commit the highlighted mention if the list is open,
+        // otherwise send. The list wins, which is what every typeahead does.
+        doc.OnSubmit("data-composer", e =>
+        {
+            if (_model.Section == "keyboard" && _model.MentionCompletion() is { } completed)
+            {
+                doc.SetFieldValue("[data-composer] cupri-textarea", completed);
+                _model.MentionClose();
+                _model.KeyLog = "Enter — inserted a mention, caret left in the composer";
+                return true;
+            }
+            Send($"Enter on \"{e.Value}\"");
+            return true;
+        });
+
+        // BARE arrows, delivered while the composer has focus — the capability this page exists to
+        // show. They only reach here because nothing else is using them: a focused field does not
+        // move its caret vertically, so the engine offers them to the app (#111).
+        doc.OnShortcut(CupriFace.Interaction.KeyMods.None, "Down", () =>
+        {
+            if (_model.Section != "keyboard") return;
+            _model.MentionMove(+1);
+            _model.KeyLog = "Down — moved the mention highlight, without leaving the composer";
+        });
+        doc.OnShortcut(CupriFace.Interaction.KeyMods.None, "Up", () =>
+        {
+            if (_model.Section != "keyboard") return;
+            _model.MentionMove(-1);
+            _model.KeyLog = "Up — moved the mention highlight, without leaving the composer";
+        });
 
         void Send(string how)
         {
@@ -214,6 +243,64 @@ public sealed partial class ShowcaseModel
     // and Shift+Tab walk the controls, and the shortcuts are real registrations rather than a
     // printed list. KeyLog is what makes an invisible interaction visible.
     public string Composer { get; set; } = "";
+
+    // ---- the @-mention typeahead (#111) -------------------------------------
+    // Everything here is ordinary app code: the engine has no typeahead component. It is only
+    // buildable because a bare arrow now reaches OnShortcut while the composer has focus, and
+    // because SetFieldValue can write a focused field without losing the caret.
+    // Two names share a prefix on purpose: with all-distinct initials a single letter would always
+    // narrow to one match and the arrow keys — the whole point of the demo — would never do anything.
+    private static readonly string[] People = ["dagger", "dahlia", "scribe", "quill", "ember"];
+    public int MentionHi { get; set; }
+
+    /// <summary>The "@wor" being completed, or null when the list should be closed.</summary>
+    private string? MentionPartial
+    {
+        get
+        {
+            var at = Composer.LastIndexOf('@');
+            if (at < 0) return null;
+            var partial = Composer[(at + 1)..];
+            return partial.Contains(' ') || partial.Contains('\n') ? null : partial;
+        }
+    }
+
+    private List<string> Matches => MentionPartial is { } p
+        ? [.. People.Where(n => n.StartsWith(p, StringComparison.OrdinalIgnoreCase))]
+        : [];
+
+    public string MentionOpen => Matches.Count > 0 ? "block" : "none";
+
+    /// <summary>The rows, with the highlighted one carrying a marker the CSS styles. Bound as text
+    /// rather than as elements because `data-repeat` renders one node per item.</summary>
+    public List<string> MentionRows
+    {
+        get
+        {
+            var m = Matches;
+            var hi = m.Count == 0 ? 0 : Math.Clamp(MentionHi, 0, m.Count - 1);
+            return [.. m.Select((n, i) => (i == hi ? "> @" : "  @") + n)];
+        }
+    }
+
+    internal void MentionMove(int delta)
+    {
+        var n = Matches.Count;
+        if (n == 0) return;
+        MentionHi = Math.Clamp(MentionHi + delta, 0, n - 1);
+    }
+
+    /// <summary>The completion the composer should end up holding, or null if there is nothing to
+    /// complete.</summary>
+    internal string? MentionCompletion()
+    {
+        var m = Matches;
+        if (m.Count == 0 || MentionPartial is not { } partial) return null;
+        var pick = m[Math.Clamp(MentionHi, 0, m.Count - 1)];
+        return Composer[..^partial.Length] + pick + " ";
+    }
+
+    internal void MentionClose() { MentionHi = 0; }
     public string KeyLog { get; set; } = "nothing yet — try Tab, then Ctrl+Enter";
     public int SentCount { get; set; }
     public string SentLabel => SentCount == 1 ? "1 message sent" : $"{SentCount} messages sent";

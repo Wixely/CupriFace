@@ -552,8 +552,21 @@ doc.RenderToImage(800, 600);
                           placeholder="Type a message, then press Enter…"></cupri-textarea>
         </div>
 
+        <!-- An @-mention typeahead, and the reason it can exist: it needs a bare arrow to reach the
+             app while the composer has focus, a way to write the completion INTO a focused field,
+             and a way to leave focus there so the sentence can be finished. Those were three
+             separate gaps (#111); this is what having all of them looks like. -->
+        <div class="mention" style="display:{{MentionOpen}}">
+          <div class="mrow" data-repeat="MentionRows">{{.}}</div>
+        </div>
+
         <div class="row"><span class="lbl">Last key</span><span class="kb-val">{{KeyLog}}</span></div>
         <div class="row"><span class="lbl">Sent</span><span class="kb-val">{{SentLabel}}</span></div>
+
+        <p class="sub">Type <b>@</b> followed by a letter or two in the composer — a name list opens.
+          <b>↓</b> and <b>↑</b> move the highlight <i>while the composer still has focus</i>,
+          <b>Enter</b> inserts the name and leaves the caret after it so you can keep typing, and
+          <b>Escape</b> closes the list. Each of those was impossible before v0.17.0.</p>
 
         <p class="sub"><b>Ctrl+K</b> opens the command palette, <b>Ctrl+Enter</b> sends,
           <b>Escape</b> clears the composer. Try Escape with the palette open: it closes the palette
