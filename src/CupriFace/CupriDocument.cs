@@ -1760,6 +1760,95 @@ public sealed partial class CupriDocument : IDisposable
     }
     private static string ShortcutKey(KeyMods mods, string key) => (mods.HasFlag(KeyMods.Ctrl) ? "ctrl+" : "") + key.ToLowerInvariant();
 
+    /// <summary>
+    /// Move keyboard focus to a bound field, as a click would. Returns false if the selector matches
+    /// nothing or the match is not a bound field.
+    ///
+    /// <para>Exists because an app had no way to do this at all: the only focus-shaped API was
+    /// <see cref="AccessibilityFocus"/>, which is keyed by accessibility path and meant for a screen
+    /// reader rather than for ordinary behaviour. Without it, any "put this into the input for the
+    /// user to edit" flow dead-ends — a right-click "Edit" that loads a message into a composer left
+    /// the text sitting there while typing went nowhere, because choosing the menu item had moved
+    /// focus off the field (#111).</para>
+    ///
+    /// <para>The caret lands at the end of the current value, which is what "carry on typing" wants.
+    /// Use <see cref="SetFieldValue"/> to place text there first.</para>
+    /// </summary>
+    public bool Focus(string selector) => Bump(FocusCore(selector));
+
+    private bool FocusCore(string selector)
+    {
+        EnsureLaidOut();
+        if (_dom?.QuerySelector(selector) is not { } el) return false;
+        if (el.GetAttribute("data-bind-value") is not { Length: > 0 } bind) return false;
+        UpdateFocus(el);                       // no-ops if it is already the focused field
+        var value = _model is null ? "" : BindingEngine.Resolve(_model, bind)?.ToString() ?? "";
+        _editBuffer = null;
+        _caret = _selAnchor = value.Length;
+        _caretMoved = true;
+        return true;
+    }
+
+    /// <summary>Remove keyboard focus from whatever holds it, committing a field's pending edit the
+    /// way clicking away would.</summary>
+    public bool Blur() => Bump(_focusKey is not null && UpdateFocus(null));
+
+    /// <summary>
+    /// Set a bound field's text from the app — including while that field has focus, which is the
+    /// whole point.
+    ///
+    /// <para>Assigning the bound property directly does not work on a focused field: the component
+    /// edits a permissive buffer that is only committed on blur, so the assignment is discarded and
+    /// the next keystroke lands at the old caret offset inside the old text. Completing "@da" to
+    /// "@dagger" and then typing produced "@dalook at thisgger" — the completion vanished and the
+    /// sentence was interleaved into the fragment (#111). This writes the model AND resets the
+    /// buffer and caret together, so the field agrees with the model immediately.</para>
+    ///
+    /// <para>Focus is preserved, so the user carries on typing where they left off. The caret is
+    /// placed at the end of the new text.</para>
+    /// </summary>
+    public bool SetFieldValue(string selector, string text) => Bump(SetFieldValueCore(selector, text));
+
+    private bool SetFieldValueCore(string selector, string text)
+    {
+        EnsureLaidOut();
+        if (_dom?.QuerySelector(selector) is not { } el) return false;
+        if (el.GetAttribute("data-bind-value") is not { Length: > 0 } bind) return false;
+        if (_model is null || !BindingEngine.TrySet(_model, bind, text)) return false;
+        // The buffer outranks the model for the FOCUSED field, so leaving it stale is exactly the
+        // bug this method exists to fix — clearing it makes the next read come from the model.
+        if (bind == _focusKey)
+        {
+            _editBuffer = null;
+            _caret = _selAnchor = text.Length;
+            _caretMoved = true;
+        }
+        Refresh();
+        return true;
+    }
+
+    /// <summary>
+    /// May a BARE Up/Down reach an app's shortcut even though a field has focus?
+    ///
+    /// <para>Up and Down are the only editing keys a focused text field does not act on — there is no
+    /// vertical caret movement in a textarea today — so they are the only ones that can be offered to
+    /// an app without taking something away. Everything else is spoken for: Left/Right/Home/End move
+    /// the caret, Backspace/Delete edit, Enter submits, Space types, Tab traverses, Escape blurs. That
+    /// is why this is a two-key exception and not the general "any bare key falls through" rule: a
+    /// bare-letter binding would silently eat typing, which is what the original no-bare-keys-while-
+    /// focused rule existed to prevent (#111).</para>
+    ///
+    /// <para>An arrow over an OPEN LIST is the one moment an app most needs a bare key, and it is
+    /// exactly the moment a field always has focus — so a typeahead was unbuildable without this.
+    /// A focused <c>data-listbox</c> still wins, because the engine's own combobox is actively using
+    /// those keys; an app's binding only gets what nothing else is using.</para>
+    ///
+    /// <para>If vertical caret movement is ever added to multiline fields, this must shrink to nothing
+    /// and apps must be given a different seam — the premise here is that these two keys are inert.</para>
+    /// </summary>
+    private bool ArrowFreeWhileEditing(EditKey key) =>
+        key is EditKey.Up or EditKey.Down && FocusedListbox() is not { Count: > 0 };
+
     // The editing keys an app may bind by name, and the name each binds under. Keys that cannot
     // meaningfully be bound are absent: None is "no key", ShiftTab is Tab plus a modifier, and SelectAll
     // is already Ctrl+A. A key here is looked up on the way in exactly as a character is.
@@ -3153,7 +3242,7 @@ public sealed partial class CupriDocument : IDisposable
         // is consulted inside HandleEscape, deep enough that an open menu, overlay or video fullscreen
         // still wins over an app's binding.
         var chord = text is { Length: 1 } ? text : key == EditKey.Escape ? null : NameOf(key);
-        if (chord is not null && (mods.HasFlag(KeyMods.Ctrl) || _focusKey is null))
+        if (chord is not null && (mods.HasFlag(KeyMods.Ctrl) || _focusKey is null || ArrowFreeWhileEditing(key)))
         {
             // Refresh: the handler almost certainly mutated the model (open a palette, toggle a panel) —
             // without the rebuild the change only became visible on the NEXT event's ReconcileScope,
