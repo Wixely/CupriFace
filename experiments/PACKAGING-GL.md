@@ -132,6 +132,63 @@ smallest thing that removes the real barrier, and it does not commit anyone to o
 
 ---
 
+## "If we ship the seam, can we build the engine after?"
+
+**Yes, and that is the right order — the seam is a prerequisite either way.** Nothing about shipping
+it first forecloses the renderer; it is the step the renderer would need regardless, it is useful
+alone, and it buys the information the second decision wants (does anyone use it?). There is no
+version of this where building the renderer first is correct.
+
+The real question is not *can we* but *where does "basic" stop being basic* — and that line is not
+set by us. It is set by the assets people load.
+
+### What the sample actually supports today
+
+The loader parses **none** of these:
+
+| | |
+|---|---|
+| `animations` · `skins` | no movement, no rigged characters |
+| `alphaMode` · `doubleSided` | no glass, foliage, or single-sided geometry handling |
+| `normalTexture` · `emissive` · `occlusion` | the maps that make a surface look like a surface |
+| `cameras` · `KHR_materials_*` | no authored viewpoint; no modern material extensions |
+
+What it does support: static triangle meshes with POSITION/NORMAL/TEXCOORD_0, base colour factor and
+texture, metallic/roughness factors, one hardcoded directional light and a flat ambient term. That is
+below what a typical downloaded `.glb` needs to look right.
+
+### The tiers, and where to stop
+
+| tier | what it buys | rough cost |
+|---|---|---|
+| **0 — today** | a static, single-material model lit by one lamp | shipped |
+| **1 — most static models look right** | normal/emissive/occlusion maps, `alphaMode` MASK+BLEND with sorting, `doubleSided`, orbit/zoom camera, resize + DPI | **1–2 weeks** |
+| **2 — what people actually download** | node animation, skinning, IBL/environment (without it metals are black and everything reads flat), the common `KHR_materials_*` | **months** |
+| **3 — engine territory** | shadows, post-processing, culling, LOD, instancing | don't |
+
+"Basic 3D, cross-platform" almost certainly means **tier 1, plus animation from tier 2** — because a
+rigged model that stands still reads as broken, not as basic. Tier 1 is genuinely bounded and worth
+doing. Animation is the first item that is not.
+
+### The design rule that keeps it honest
+
+**Refuse loudly rather than render something wrong.** `Gltf.Load` already throws on
+`extensionsRequired` it cannot honour, and skips non-triangle primitives instead of pretending — that
+instinct is the thing to extend, not abandon, as scope grows. A viewer that silently drops the
+animation track and shows a T-posed character has told the user their file is broken when it is not.
+
+Every unsupported feature should be *named* at load, so "basic" is a documented boundary rather than
+a surprise. That is what makes a small renderer defensible instead of merely small.
+
+### Suggested staging
+
+1. **Ship `CupriFace.Gl`** — the seam, items 1–7 above. Useful alone, and the prerequisite anyway.
+2. **See whether anyone uses it.** This is the cheapest possible answer to "is there demand", and it
+   costs nothing to wait.
+3. **Then tier 1**, as a separate package with a name that promises a *viewer*, not an engine.
+4. **Reassess before animation.** That is the point where the commitment changes shape, and it should
+   be a fresh decision rather than momentum.
+
 ## The decision this needs
 
 1. Is there demand beyond one request? (If not, stop here — the sample is the answer.)
