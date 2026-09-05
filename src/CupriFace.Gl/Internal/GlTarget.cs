@@ -29,9 +29,14 @@ internal sealed unsafe class GlTarget
         error = null;
         if (Ready && w == Width && h == Height) return true;
 
-        // Rebuild rather than glTexImage2D over the existing texture. Reallocating a texture that a
-        // previously handed-out SKImage still wraps would change what that image shows mid-flight;
-        // a fresh object leaves the old one intact until its frame is retired.
+        // Rebuild rather than glTexImage2D over the existing texture: reallocating one that Skia
+        // already holds backend metadata for is a worse bet than a fresh name it has never seen.
+        //
+        // The old texture IS deleted here, and an SKImage handed out earlier still wraps it — which
+        // is safe only because of WHEN this runs. Producers draw before anything is recorded for the
+        // frame, and the caller publishes the new image before returning, so the dead name is never
+        // painted. That ordering is the invariant; if a caller ever resized outside a producer pass,
+        // this would need to defer the delete by a frame instead.
         Delete(fn);
 
         uint fbo, tex, depth;
