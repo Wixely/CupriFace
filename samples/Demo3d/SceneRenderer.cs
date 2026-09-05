@@ -387,6 +387,13 @@ public sealed unsafe class SceneRenderer
     /// </summary>
     private static void ResetState()
     {
+        // A BOUND SAMPLER OBJECT OVERRIDES EVERY TEXTURE PARAMETER. Skia binds them, so our
+        // REPEAT/filter/LOD settings were being ignored at draw time in favour of Skia's — which
+        // clamps. With this model's unwrap running u 0..2, more than half the surface then sampled
+        // one edge texel, which is why it looked like a stretched planar projection rather than a
+        // tiled texture. Unbinding unit 0 hands control back to the texture's own parameters.
+        if (Gl.BindSampler is not null) Gl.BindSampler(0, 0);
+
         Gl.Disable(Gl.BLEND);           // Skia blends constantly; our model is opaque
         Gl.Disable(Gl.SCISSOR_TEST);    // …and clips with the scissor box, which would crop us
         Gl.Disable(Gl.STENCIL_TEST);    // …and with the stencil buffer, which would punch holes in us

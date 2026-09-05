@@ -55,6 +55,7 @@ public static unsafe class Gl
     public static delegate* unmanaged<uint, uint, void> BindTexture;
     public static delegate* unmanaged<uint, uint, int, void> TexParameteri;
     public static delegate* unmanaged<uint, uint, float, void> TexParameterf;
+    public static delegate* unmanaged<uint, uint, void> BindSampler;
     public static delegate* unmanaged<uint, float*, void> GetFloatv;
     public static delegate* unmanaged<uint, int, int, int, int, int, uint, uint, void*, void> TexImage2D;
     public static delegate* unmanaged<uint, void> GenerateMipmap;
@@ -149,6 +150,7 @@ public static unsafe class Gl
         BindTexture = (delegate* unmanaged<uint, uint, void>)P("glBindTexture");
         TexParameteri = (delegate* unmanaged<uint, uint, int, void>)P("glTexParameteri");
         TexParameterf = (delegate* unmanaged<uint, uint, float, void>)P("glTexParameterf");
+        BindSampler = (delegate* unmanaged<uint, uint, void>)P("glBindSampler");
         GetFloatv = (delegate* unmanaged<uint, float*, void>)P("glGetFloatv");
         TexImage2D = (delegate* unmanaged<uint, int, int, int, int, int, uint, uint, void*, void>)P("glTexImage2D");
         GenerateMipmap = (delegate* unmanaged<uint, void>)P("glGenerateMipmap");
