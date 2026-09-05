@@ -286,8 +286,15 @@ public sealed class AndroidHost : IDisposable
     /// <summary>One frame: refresh cadence, animation clock, present-scaled render, snapshot
     /// publish, and the self-chain that keeps animations advancing. Called from the view's
     /// PaintSurface on the GL thread.</summary>
-    internal void PaintFrame(SKCanvas canvas, int physicalWidth, int physicalHeight, float density)
+    internal void PaintFrame(SKCanvas canvas, int physicalWidth, int physicalHeight, float density,
+                             GRContext? gpu = null)
     {
+        // GPU surface producers go FIRST, before anything is recorded for this frame - they issue
+        // raw GL on the same context Skia is about to use, and SurfaceRegistry calls ResetContext
+        // afterwards. Android reaches this the same way the desktop GL window does; the web host,
+        // which rasterises on the CPU, never does.
+        if (gpu is not null) _doc.Surfaces.RenderGpuFrames(gpu);
+
         // The app thinks in density-independent pixels; Android gave us physical ones.
         var dpW = physicalWidth / density;
         var dpH = physicalHeight / density;

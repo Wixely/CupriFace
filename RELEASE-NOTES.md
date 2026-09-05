@@ -13,6 +13,28 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Added
+
+- **The 3D viewport runs on Android**, completing the set: desktop, browser and phone. Android takes
+  the same zero-copy path the desktop GL window does — the host renders through an
+  `SKGLSurfaceView`, which owns a real `GRContext`, so a surface draws on the host's own context and
+  hands over a texture. There is no private context, no offscreen EGL and no readback in the Android
+  surface at all; `IGpuSurfaceSource` turned the host that looked hardest into the shortest one.
+
+  Entry points come from `dlsym` against `libGLESv3.so` rather than `eglGetProcAddress`, because some
+  drivers return a non-null stub for any name — which makes a missing entry point look present and
+  then crash on the call.
+
+- **`AndroidHost.PaintFrame` now receives the view's `GRContext`**, which is what lets any
+  `IGpuSurfaceSource` work on the phone. Nothing to call: apps get it.
+
+- **The Android sample starts on a named Showcase section** from the launch intent —
+  `adb shell am start -n <activity> --es section 3d` — mirroring the desktop Viewer's `--section`.
+  Any page past the front screen was previously reachable only by tapping through, which a test can
+  do only by guessing coordinates.
+
 ## v0.17.0
 
 ### Added

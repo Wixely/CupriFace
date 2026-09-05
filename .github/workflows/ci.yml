@@ -1156,6 +1156,55 @@ jobs:
       # Tag-only, for the same reason as the viewer uploads: the release job is its only reader,
       # and the emulator gate above has already installed and driven this APK, so a push that
       # produced no APK cannot reach here green.
+      # The 3D viewport, on the phone's own GPU. This is the only place the GLES leg is exercised
+      # at all: the desktop gate uses desktop GL and the browser gate uses WebGL2, and a driver that
+      # refuses a "#version 300 es" shader or hands back a null texture would be invisible to both.
+      #
+      # LAST in the job on purpose: it force-stops the app and relaunches into the Showcase, so
+      # every step that expects the phone-first front screen has to have run already.
+      #
+      # Asserted on the DRIVER'S OWN ANSWER (GL_VERSION) and then on a frame count, rather than on
+      # the app not crashing: a surface that fails to initialise leaves the viewport showing its
+      # panel, which looks deliberate and would pass any "did it launch" check.
+      - name: The 3D viewport draws on the phone GPU
+        run: |
+          set -x
+          adb logcat -c || true
+          ACTIVITY=$(adb shell cmd package resolve-activity --brief com.cupriface.viewer | tail -1 | tr -d '\r')
+          # --es section 3d starts in the Showcase on the 3D page; the surface only renders while
+          # its element is laid out, so a gate that just launched the app would measure nothing.
+          adb shell am force-stop com.cupriface.viewer || true
+          adb shell am start -n "$ACTIVITY" --es section 3d 2>&1 | tee start3d.log
+          ! grep -q "Error:" start3d.log
+
+          for i in $(seq 1 30); do
+            adb logcat -d -s cupri:I | grep -q "cupri-gate: 3d ready" && break
+            sleep 2
+          done
+          READY=$(adb logcat -d -s cupri:I | grep "cupri-gate: 3d ready" | tail -1 || true)
+          if [ -z "$READY" ]; then
+            echo "::error::the 3D surface never initialised on the device"
+            adb logcat -d -s cupri:I | tail -40
+            exit 1
+          fi
+          echo "$READY"
+          # GLES 3.x is what the "#version 300 es" shaders require; anything older would have failed
+          # to compile them, so this names what actually answered rather than trusting the request.
+          echo "$READY" | grep -qE "GL_VERSION=OpenGL ES 3"
+
+          # …and it keeps producing frames, not just one.
+          for i in $(seq 1 20); do
+            adb logcat -d -s cupri:I | grep -q "cupri-gate: 3d frames=" && break
+            sleep 2
+          done
+          FRAMES=$(adb logcat -d -s cupri:I | grep "cupri-gate: 3d frames=" | tail -1 || true)
+          if [ -z "$FRAMES" ]; then
+            echo "::error::the 3D surface initialised but never reached 60 frames"
+            adb logcat -d -s cupri:I | tail -40
+            exit 1
+          fi
+          echo "$FRAMES"
+
       - uses: actions/upload-artifact@v4
         if: startsWith(github.ref, 'refs/tags/v')
         with:

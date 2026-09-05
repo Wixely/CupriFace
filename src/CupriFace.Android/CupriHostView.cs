@@ -72,8 +72,11 @@ public sealed class CupriHostView : SKGLSurfaceView
         // reclaims it, SurfaceCreated fires and the retained-frame invalidation covers the rest.
         PreserveEGLContextOnPause = true;
 
+        // GRContext comes along because Android is a GPU host like the desktop GL window: a surface
+        // producer can draw on this very context and hand the engine a texture rather than a copy.
         PaintSurface += (_, e) =>
-            _host.PaintFrame(e.Surface.Canvas, e.BackendRenderTarget.Width, e.BackendRenderTarget.Height, _density);
+            _host.PaintFrame(e.Surface.Canvas, e.BackendRenderTarget.Width, e.BackendRenderTarget.Height,
+                             _density, GRContext);
     }
 
     /// <summary>Publish the view's SCREEN-SPACE geometry whenever layout places it — the status

@@ -23,10 +23,12 @@ part that genuinely differs:
 |---|---|---|
 | desktop | [`samples/Viewer/Teapot3dSurface.cs`](../Viewer/Teapot3dSurface.cs) | **painted** — GL into an FBO on the host's own context, handed over as a texture (`IGpuSurfaceSource`); readback only if the host has no GPU |
 | browser | [`samples/WebLlvm/Web3dSurface.cs`](../WebLlvm/Web3dSurface.cs) | **host-composited** — a transparent hole, with a WebGL2 canvas underneath |
-| Android | not wired | paints nothing; the panel behind shows and the page says so |
+| Android | [`samples/AndroidViewer/Teapot3dSurface.cs`](../AndroidViewer/Teapot3dSurface.cs) | **painted** — GLES 3.0 on the host's own `SKGLSurfaceView` context, handed over as a texture |
 
-The same shader source serves both: `glslEs: false` emits `#version 330 core`, `true` emits
-`#version 300 es`.
+One shader source serves all three: `glslEs: false` emits `#version 330 core` for desktop, `true`
+emits `#version 300 es` for Android *and* the browser — because WebGL2 is GLES 3.0. The three hosts
+differ in how a GL context is obtained and how finished pixels reach the screen, never in the
+rendering itself.
 
 ## Wiring it into an app
 

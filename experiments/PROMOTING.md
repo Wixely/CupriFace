@@ -236,8 +236,18 @@ skipped.
   is about transport.
 - **A3's second half — a real per-frame hook.** Both surfaces still drive rendering from a property
   getter and both say so. A library cannot ship that.
-- **Android.** The seam works there (the probe proved GL and the painted lane), but the Showcase does
-  not wire it: `AndroidHost.Push(CupriApp)` has no `configure` overload, an offscreen EGL context is
-  more than the probe's `GLSurfaceView` did, and there was no device attached to verify against.
-  Writing GL code that cannot be run is precisely what this project's own README warns about. The
-  page shows its poster there and says so.
+- ~~**Android.**~~ **Done, and two of the three reasons given here were wrong.**
+
+  - *"`AndroidHost.Push(CupriApp)` has no `configure` overload"* — it did not need one. `SwapApp`
+    already calls the host-level `_configure` for every document it builds, including the ones a
+    push creates, so `CupriActivity.ConfigureDocument` reaches the pushed Showcase. That was
+    visible in the code the whole time; I read the `Push` signature and stopped.
+  - *"an offscreen EGL context is more than the probe's `GLSurfaceView` did"* — unnecessary once A2
+    landed. The Android host renders through `SKGLSurfaceView`, which owns a real `GRContext`, so
+    the phone takes the same zero-copy path as the desktop GL window: draw on the host's context,
+    hand over a texture. The Android surface has no private context and no readback in it at all.
+  - *"no device attached to verify against"* — this one was real, and is answered by the gate rather
+    than by trusting the build. The android job now starts the Showcase on the 3D page
+    (`am start --es section 3d`) and asserts on the driver's own `GL_VERSION` and then on a frame
+    count, because a surface that fails to initialise leaves the viewport showing its panel, which
+    looks deliberate and would pass any "did it launch" check.
