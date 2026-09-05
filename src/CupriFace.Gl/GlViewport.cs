@@ -154,8 +154,24 @@ public sealed unsafe class GlViewport : IGpuSurfaceSource, IDisposable
             if (_teardownPending) return true;
             if (_state is GlViewportState.Unavailable or GlViewportState.Failed) return false;
 
+            // Everything that reads the document tree happens HERE, on the host's thread, and is
+            // published to the other lanes as plain numbers.
+            //
+            // The private-context lane runs on its own thread, and a RenderNode walk from there is a
+            // race against the host rebuilding the display list — which it does every tick to
+            // compute damage. The symptom would be an intermittent "collection was modified" inside
+            // a GL render loop, caught by the loop's own handler and reported as a viewport failure:
+            // rare, unreproducible, and blaming the wrong thing entirely.
             var onScreen = FindNode() is { LaidOut: true };
             _onScreen = onScreen;
+            if (onScreen && ElementSize() is { } size) { _wantW = size.W; _wantH = size.H; }
+
+            // Driver strings become knowable only after a context comes up, and a page showing them
+            // needs the document rebuilt to bind what was just learned. Deferred to here rather than
+            // done at the point of discovery, because that point may be the private lane's thread
+            // and Refresh is not the host's to call from there.
+            if (_needsRefresh) { _needsRefresh = false; _doc.Refresh(); }
+
             if (!onScreen) return false;
 
             if (_web) { RenderWeb(); return true; }
@@ -169,6 +185,10 @@ public sealed unsafe class GlViewport : IGpuSurfaceSource, IDisposable
     }
 
     private volatile bool _onScreen;
+    // The element's device size, measured on the host's thread and published for the lanes that
+    // cannot safely walk the tree themselves. Zero until the first on-screen poll.
+    private volatile int _wantW, _wantH;
+    private volatile bool _needsRefresh;
     private int _polls;
     private volatile bool _disposed;
     private volatile bool _teardownPending;
@@ -233,7 +253,7 @@ public sealed unsafe class GlViewport : IGpuSurfaceSource, IDisposable
         var gl = Context!;
         var fn = gl.Fn;
 
-        var size = ElementSize() ?? (_lastW > 0 ? (_lastW, _lastH) : _naturalSize);
+        var size = _opt.Size ?? (_wantW > 0 ? (_wantW, _wantH) : _naturalSize);
         if (!_target.EnsureSize(fn, size.W, size.H, out var error)) { Fail(error!); return; }
 
         fn.BindFramebuffer(GlFunctions.FRAMEBUFFER, _target.Fbo);
@@ -302,10 +322,9 @@ public sealed unsafe class GlViewport : IGpuSurfaceSource, IDisposable
         _contentStarted = true;
         _state = GlViewportState.Running;
         Log($"{lane} lane up on {gl.Renderer} — {gl.Version} ({dialect})");
-        // The driver strings become knowable only now, and an app that shows them needs the document
-        // rebuilt to bind what it just learned. Safe from here: producers run before anything is
-        // recorded for the frame.
-        _doc.Refresh();
+        // Requested rather than performed: this runs on whichever thread owns the context, and for
+        // the private-context lane that is not the host's. Ticking picks it up next frame.
+        _needsRefresh = true;
         return true;
     }
 
@@ -451,7 +470,9 @@ public sealed unsafe class GlViewport : IGpuSurfaceSource, IDisposable
                 if (!_onScreen) { Thread.Sleep(100); continue; }
 
                 var swept = Stopwatch.StartNew();
-                var size = ElementSize() ?? _naturalSize;
+                // Published by Ticking on the host's thread — see the note there. Falls back to the
+                // natural size only before the first on-screen poll has measured anything.
+                var size = _opt.Size ?? (_wantW > 0 ? (_wantW, _wantH) : _naturalSize);
                 if (!_target.EnsureSize(fn, size.W, size.H, out var error)) { Fail(error!); return; }
 
                 fn.BindFramebuffer(GlFunctions.FRAMEBUFFER, _target.Fbo);
@@ -571,7 +592,10 @@ public sealed unsafe class GlViewport : IGpuSurfaceSource, IDisposable
 
         if (_web && _webContext != 0)
         {
-            // The browser lane's context is on this (single) thread, so shutdown is simply legal here.
+            // The browser lane's context is on this (single) thread, so shutdown is legal here — but
+            // only once it is actually current, since the page may have made another one current
+            // since the last frame.
+            Emscripten.MakeCurrent(_webContext);
             if (_contentStarted && Context is not null)
                 try { _content.Shutdown(Context); } catch { /* teardown must not throw */ }
             Emscripten.DestroyContext(_webContext);
@@ -582,6 +606,7 @@ public sealed unsafe class GlViewport : IGpuSurfaceSource, IDisposable
         _retired?.Dispose();
         _frame = null;
         _retired = null;
+        _teardownDone.Dispose();
     }
 
     private readonly ManualResetEventSlim _teardownDone = new(false);
