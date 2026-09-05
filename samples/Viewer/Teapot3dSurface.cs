@@ -29,7 +29,7 @@ namespace CupriFace.Samples.Viewer;
 /// fix is a texture-backed SKImage over a context shared with the engine's, which needs the engine
 /// to expose its <c>GRContext</c> — worth doing, and not needed for a demo.</para>
 /// </summary>
-internal sealed class Teapot3dSurface : IGpuSurfaceSource, CupriFace.Demo.IShowcase3dInfo, IDisposable
+public sealed class Teapot3dSurface : IGpuSurfaceSource, CupriFace.Demo.IShowcase3dInfo, IDisposable
 {
     private readonly int _w, _h;
     private readonly Gltf _model;
