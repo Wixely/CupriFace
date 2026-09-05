@@ -1,0 +1,33 @@
+<!-- Regenerates docs/screenshots/*.png from the Showcase, headlessly.
+
+     The images in the README were made by hand, which meant they drifted from the app and nobody
+     could tell which release they showed. This makes them reproducible: one command, same document
+     the hosts render, no window involved.
+
+     Headless is also the safety property. A screen capture of a real window can pick up a title
+     bar, a file path, a desktop — RenderToImage can only draw the document.
+
+     Deliberately OUTSIDE CupriFace.slnx, like tools/Serve: a dev tool, not part of the product,
+     and nothing in CI builds it. -->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>CupriFace.Tools.Screenshots</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The shared app, and the desktop 3D surface so the 3D page has something to show. The
+         surface falls back to its private-context readback path here, because a headless render has
+         no GRContext to hand it — which is the same path a software window uses. -->
+    <ProjectReference Include="..\..\samples\DemoApp\DemoApp.csproj" />
+    <!-- The desktop composition root, for its 3D surface — the 3D page shows an empty panel without
+         one, which is correct behaviour and a poor screenshot. -->
+    <ProjectReference Include="..\..\samples\Viewer\Viewer.csproj" />
+  </ItemGroup>
+
+</Project>
