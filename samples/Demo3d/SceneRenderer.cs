@@ -203,16 +203,46 @@ public sealed unsafe class SceneRenderer
                     ? (0x2601, 0x2601, 0x2901, 0x2901)          // GL_LINEAR / GL_REPEAT
                     : (smp.MinFilter, smp.MagFilter, smp.WrapS, smp.WrapT);
 
-                // …and only build a mip chain if the filter actually samples one.
-                var wantsMips = minF is 0x2700 or 0x2701 or 0x2702 or 0x2703;
-                if (wantsMips) Gl.GenerateMipmap(Gl.TEXTURE_2D);
+                // WRAP is honoured exactly — this teapot's unwrap runs u 0..2 and v -1..1, so REPEAT
+                // is not a preference, it is the difference between a tiled texture and a clamped
+                // smear. MAG is honoured too.
+                //
+                // MIN is the one place the asset is overruled, and only upwards. A texture minified
+                // without a mip chain aliases: this model's base colour is a photograph of paint,
+                // tiled twice in each axis, and at viewport size it broke into shimmering streaks
+                // that read as a broken UV mapping. Exporters emit minFilter=LINEAR by default
+                // rather than as an artistic decision, and no asset means "please alias", so a
+                // non-mipmapped minification filter is upgraded to its mipmapped equivalent.
+                //
+                // Honouring it literally was tried first and made the desktop visibly worse, which
+                // is the evidence for this paragraph existing.
+                var mipped = minF is 0x2700 or 0x2701 or 0x2702 or 0x2703;
+                if (!mipped)
+                {
+                    minF = minF == 0x2600 ? 0x2700 : 0x2703;   // NEAREST->NEAREST_MIPMAP_NEAREST, else LINEAR_MIPMAP_LINEAR
+                    mipped = true;
+                }
+                Gl.GenerateMipmap(Gl.TEXTURE_2D);
 
                 Gl.TexParameteri(Gl.TEXTURE_2D, Gl.TEX_MIN_FILTER, minF);
                 Gl.TexParameteri(Gl.TEXTURE_2D, Gl.TEX_MAG_FILTER, magF);
                 Gl.TexParameteri(Gl.TEXTURE_2D, Gl.TEX_WRAP_S, wrapS);
                 Gl.TexParameteri(Gl.TEXTURE_2D, Gl.TEX_WRAP_T, wrapT);
+
+                // ANISOTROPY, which is what this model actually needs. Its unwrap is a lathe: the u
+                // gradient around the ring is enormous compared with v, so isotropic mip selection
+                // takes the worst axis and picks a level far blurrier than the surface deserves —
+                // a photograph of paint collapsing to a flat average colour. Without mips it
+                // aliases into streaks instead; anisotropy is the option that is neither.
+                //
+                // An extension, so it is asked for and not assumed: query the driver's ceiling and
+                // take the lesser of that and 8. A driver without it leaves the value alone.
+                float maxAniso = 0;
+                Gl.GetFloatv(Gl.MAX_MAX_ANISOTROPY, &maxAniso);
+                if (maxAniso > 1f)
+                    Gl.TexParameterf(Gl.TEXTURE_2D, Gl.MAX_ANISOTROPY, MathF.Min(8f, maxAniso));
                 log($"texture {_textures.Count} decoded {img.W}x{img.H} -> rgba8888 " +
-                    $"(min=0x{minF:X4} mag=0x{magF:X4} mips={wantsMips})");
+                    $"(min=0x{minF:X4} mag=0x{magF:X4} wrap=0x{wrapS:X4} mips={mipped} aniso={MathF.Min(8f, MathF.Max(1f, maxAniso))})");
             }
             else log($"WARN image {_textures.Count} did not decode");
             _textures.Add(tex);

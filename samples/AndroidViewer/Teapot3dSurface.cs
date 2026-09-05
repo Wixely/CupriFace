@@ -138,6 +138,11 @@ internal sealed class Teapot3dSurface : IGpuSurfaceSource, CupriFace.Demo.IShowc
             // The gate greps for this line, so it names the host and the driver rather than just
             // saying "ok" - a PASS that cannot say what it ran on is worth very little.
             Detail = $"{Gl.Str(Gl.GetString(Gl.RENDERER))} — {Gl.Str(Gl.GetString(Gl.VERSION))}";
+            // The page binds this once, and it is only knowable after the first GPU frame —
+            // so ask for a rebind, or the "Drawn by" row stays hidden until something else
+            // happens to rebuild the document. Safe here: producers run before anything is
+            // recorded for the frame.
+            _doc?.Refresh();
             _log($"cupri-gate: 3d ready GL_VERSION={Gl.Str(Gl.GetString(Gl.VERSION))} GL_RENDERER={Gl.Str(Gl.GetString(Gl.RENDERER))}");
         }
 

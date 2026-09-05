@@ -236,6 +236,11 @@ internal sealed class Teapot3dSurface : IGpuSurfaceSource, CupriFace.Demo.IShowc
             _gpuReady = true;
             GlVersion = Gl.Str(Gl.GetString(Gl.VERSION));
             Detail = $"{Gl.Str(Gl.GetString(Gl.RENDERER))} — {GlVersion}";
+            // The page binds this once, and it is only knowable after the first GPU frame —
+            // so ask for a rebind, or the "Drawn by" row stays hidden until something else
+            // happens to rebuild the document. Safe here: producers run before anything is
+            // recorded for the frame.
+            _doc?.Refresh();
             Status = "painted, zero-copy (the engine draws our texture)";
             _log($"3d: zero-copy path up on the host context, GL_VERSION = {GlVersion}");
         }

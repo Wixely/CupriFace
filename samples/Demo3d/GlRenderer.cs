@@ -54,6 +54,8 @@ public static unsafe class Gl
     public static delegate* unmanaged<int, uint*, void> GenTextures;
     public static delegate* unmanaged<uint, uint, void> BindTexture;
     public static delegate* unmanaged<uint, uint, int, void> TexParameteri;
+    public static delegate* unmanaged<uint, uint, float, void> TexParameterf;
+    public static delegate* unmanaged<uint, float*, void> GetFloatv;
     public static delegate* unmanaged<uint, int, int, int, int, int, uint, uint, void*, void> TexImage2D;
     public static delegate* unmanaged<uint, void> GenerateMipmap;
     public static delegate* unmanaged<uint, int, uint, void*, void> DrawElements;
@@ -82,6 +84,9 @@ public static unsafe class Gl
     public const uint VERSION = 0x1F02, RENDERER = 0x1F01, DEPTH_TEST = 0x0B71, LESS = 0x0201;
     // State a renderer sharing someone else's context must set rather than inherit — see
     // SceneRenderer.ResetState.
+    // EXT_texture_filter_anisotropic. An extension, but one every desktop GL and essentially every
+    // GLES 3 driver ships; absence is handled by simply not setting it.
+    public const uint MAX_ANISOTROPY = 0x84FE, MAX_MAX_ANISOTROPY = 0x84FF;
     public const uint BLEND = 0x0BE2, SCISSOR_TEST = 0x0C11, STENCIL_TEST = 0x0B90,
                       CULL_FACE = 0x0B44, DITHER = 0x0BD0;
     public const uint TEXTURE_2D = 0x0DE1, RGBA8 = 0x8058;
@@ -143,6 +148,8 @@ public static unsafe class Gl
         GenTextures = (delegate* unmanaged<int, uint*, void>)P("glGenTextures");
         BindTexture = (delegate* unmanaged<uint, uint, void>)P("glBindTexture");
         TexParameteri = (delegate* unmanaged<uint, uint, int, void>)P("glTexParameteri");
+        TexParameterf = (delegate* unmanaged<uint, uint, float, void>)P("glTexParameterf");
+        GetFloatv = (delegate* unmanaged<uint, float*, void>)P("glGetFloatv");
         TexImage2D = (delegate* unmanaged<uint, int, int, int, int, int, uint, uint, void*, void>)P("glTexImage2D");
         GenerateMipmap = (delegate* unmanaged<uint, void>)P("glGenerateMipmap");
         DrawElements = (delegate* unmanaged<uint, int, uint, void*, void>)P("glDrawElements");
