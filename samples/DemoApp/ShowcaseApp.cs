@@ -199,19 +199,17 @@ public sealed class ShowcaseApp : CupriApp
         return info;
     }
 
+    // The four strategies now live on PresentInfo, in the engine, where someone overriding Present
+    // can find them. This page is what the Settings section switches between — and it is also the
+    // check that the engine's versions are sufficient, since a sample that had to keep its own
+    // arithmetic would be saying the promoted API was not finished.
     private PresentInfo PresentFor(float w, float h) => _model.Scaling switch
     {
-        "none" => new PresentInfo(Width, Height, 1f),                                  // fixed design size
-        "zoom" => Zoomed(w, h, _model.ZoomPct / 100f),                                 // hard DPI-like scale
-        "hybrid" => Zoomed(w, h, MathF.Min(w / Width, h / Height)),                    // fit the tighter axis, reflow the other
-        _ => new PresentInfo(w, h, 1f),                                                // responsive
+        "none" => PresentInfo.Fixed(Width, Height),
+        "zoom" => PresentInfo.Zoom(w, h, _model.ZoomPct / 100f),
+        "hybrid" => PresentInfo.Hybrid(w, h, Width, Height),
+        _ => PresentInfo.Responsive(w, h),
     };
-
-    private static PresentInfo Zoomed(float w, float h, float z)
-    {
-        z = Math.Clamp(z, 0.25f, 4f);
-        return new PresentInfo(w / z, h / z, z);
-    }
 }
 
 [CupriBindable]

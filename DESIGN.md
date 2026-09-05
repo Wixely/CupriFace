@@ -665,11 +665,16 @@ layering is deliberate:
 The host presents a document via `CupriApp.Present(windowW, windowH)` → a **logical
 viewport + scale factor**; the host does `canvas.Scale(scale)` then lays out at the
 logical size, and divides pointer coordinates by `scale`. This unifies four modes:
-- **None** — logical = fixed design size; window resize reveals background (no reflow).
-- **Responsive** — logical = window; reflows every frame (the engine re-layouts cheaply).
-- **Zoom z%** — logical = window/z, scale = z (DPI-like; Skia scales the vectors crisply).
-- **Hybrid** — `z = min(winW/designW, winH/designH)`: the tighter axis sits at design
-  scale, the longer axis gets extra logical space and reflows.
+- **None** — `PresentInfo.Fixed`: logical = fixed design size; window resize reveals background (no reflow).
+- **Responsive** — `PresentInfo.Responsive`: logical = window; reflows every frame (the engine re-layouts cheaply).
+- **Zoom z%** — `PresentInfo.Zoom`: logical = window/z, scale = z (DPI-like; Skia scales the vectors crisply).
+- **Hybrid** — `PresentInfo.Hybrid`: `z = min(winW/designW, winH/designH)`: the tighter axis sits at
+  design scale, the longer axis gets extra logical space and reflows.
+
+All four are named constructors on `PresentInfo` rather than prose an app re-derives. They lived in
+a sample until v0.18.0, which meant the strategies were discoverable only by reading one — and an
+app author (or an agent) looking at the engine saw a record of three floats and no clue what to do
+with them.
 
 The root (body) fills the viewport (initial containing block), so `height:100%` fills the
 window and "None vs Responsive" is just "fixed vs window" logical size. *(Live-resize

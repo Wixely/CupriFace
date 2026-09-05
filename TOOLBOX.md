@@ -761,9 +761,24 @@ doc.OnClick(".save", _ => { Save(); doc.Toast("Changes saved", "success"); });
 `CupriApp.Present(windowW, windowH)` returns a `PresentInfo(LogicalWidth, LogicalHeight, Scale)` —
 the logical viewport the document lays out at and a scale factor the host applies. Common strategies:
 
-- **Responsive** (default): lay out at the window, scale 1 — reflows like a web page.
-- **Zoom**: fixed logical size, hard scale — like changing display DPI.
-- **Hybrid**: zoom the smaller axis, reflow the longer one (a good default for mixed content).
+Each is a named constructor on `PresentInfo`, so the arithmetic is written once in the engine
+rather than re-derived per app:
+
+| strategy | call | behaviour |
+|---|---|---|
+| **Responsive** (default) | `PresentInfo.Responsive(w, h)` | lay out at the window, scale 1 — reflows like a web page |
+| **Fixed** | `PresentInfo.Fixed(designW, designH)` | one size always; a bigger window reveals background, no reflow |
+| **Zoom** | `PresentInfo.Zoom(w, h, factor)` | fixed logical size, hard scale — like changing display DPI |
+| **Hybrid zoom** | `PresentInfo.Hybrid(w, h, designW, designH)` | zoom the tighter axis to design size, reflow the longer one |
+
+**Hybrid** is the usual choice for mixed content: pure Zoom letterboxes, and pure Responsive lets a
+narrow window crush a layout that assumed room. One line in your app:
+
+```csharp
+public override int Width  => 940;      // the size the layout was designed at
+public override int Height => 720;
+public override PresentInfo Present(float w, float h) => PresentInfo.Hybrid(w, h, Width, Height);
+```
 
 The host repaints on demand — after input, on the `RefreshIntervalSeconds` cadence, or while
 something animates — so an idle page costs ~nothing.

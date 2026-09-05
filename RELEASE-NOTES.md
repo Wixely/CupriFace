@@ -17,6 +17,20 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **The scaling strategies are in the engine now, with names.** `PresentInfo` gains
+  `Responsive`, `Fixed`, `Zoom` and `Hybrid` as named constructors, and `CupriApp.Present` documents
+  them with a worked example. Hybrid zoom in one line:
+
+  ```csharp
+  public override PresentInfo Present(float w, float h) => PresentInfo.Hybrid(w, h, Width, Height);
+  ```
+
+  Nothing changes for existing apps — the default is still responsive and the record's three fields
+  are unchanged. What changes is that the arithmetic is no longer something each app derives from a
+  record of three floats: it lived only inside `ShowcaseApp`, so "hybrid zoom" was a thing you could
+  read about in the docs and then had to reinvent. `Zoom` and `Hybrid` also clamp, and `Hybrid` falls
+  back to reflowing when handed a zero or negative design size rather than laying out at infinity.
+
 - **The 3D viewport runs on Android**, completing the set: desktop, browser and phone. Android takes
   the same zero-copy path the desktop GL window does — the host renders through an
   `SKGLSurfaceView`, which owns a real `GRContext`, so a surface draws on the host's own context and
