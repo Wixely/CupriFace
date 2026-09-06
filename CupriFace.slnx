@@ -15,6 +15,7 @@
     <Project Path="samples/HelloBox/HelloBox.csproj" />
     <Project Path="samples/HtmlView/HtmlView.csproj" />
     <Project Path="samples/Interactive/Interactive.csproj" />
+    <Project Path="samples/Khalkos3dBridge/Khalkos3dBridge.csproj" />
     <Project Path="samples/Keyboard/Keyboard.csproj" />
     <Project Path="samples/KeyboardNav/KeyboardNav.csproj" />
     <Project Path="samples/LottieDemo/LottieDemo.csproj" />

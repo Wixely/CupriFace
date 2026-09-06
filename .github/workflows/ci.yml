@@ -24,6 +24,17 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      # GitHub Packages will not serve a NuGet package to an anonymous request, not even a public
+      # one — unlike its npm and Maven registries. So restoring Khalkos3D needs a token even though
+      # the engine is MIT and its repository is public. NuGet.config carries the rest of the story,
+      # including what a developer has to do once on their own machine.
+      - name: Authenticate to GitHub Packages
+        run: >
+          dotnet nuget update source GitHub-Wixely-Packages
+          --username ${{ github.actor }}
+          --password ${{ secrets.GITHUB_TOKEN }}
+          --store-password-in-clear-text
+
       # SkiaSharp's native raster/text stack needs fontconfig at runtime for the render tests.
       - name: Install native deps (Skia)
         if: runner.os == 'Linux'
@@ -97,6 +108,17 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+
+      # GitHub Packages will not serve a NuGet package to an anonymous request, not even a public
+      # one — unlike its npm and Maven registries. So restoring Khalkos3D needs a token even though
+      # the engine is MIT and its repository is public. NuGet.config carries the rest of the story,
+      # including what a developer has to do once on their own machine.
+      - name: Authenticate to GitHub Packages
+        run: >
+          dotnet nuget update source GitHub-Wixely-Packages
+          --username ${{ github.actor }}
+          --password ${{ secrets.GITHUB_TOKEN }}
+          --store-password-in-clear-text
 
       # Skia needs fontconfig to raster text, and xvfb gives the smoke test below a display to
       # open its window on. The at-spi2/pygobject packages are for the accessibility gate further
@@ -322,6 +344,17 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      # GitHub Packages will not serve a NuGet package to an anonymous request, not even a public
+      # one — unlike its npm and Maven registries. So restoring Khalkos3D needs a token even though
+      # the engine is MIT and its repository is public. NuGet.config carries the rest of the story,
+      # including what a developer has to do once on their own machine.
+      - name: Authenticate to GitHub Packages
+        run: >
+          dotnet nuget update source GitHub-Wixely-Packages
+          --username ${{ github.actor }}
+          --password ${{ secrets.GITHUB_TOKEN }}
+          --store-password-in-clear-text
+
       # Emscripten arrives with the wasm-tools workload. The dotnet root is root-owned on Linux.
       - name: Install wasm tooling (Linux)
         if: runner.os == 'Linux'
@@ -374,6 +407,17 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+
+      # GitHub Packages will not serve a NuGet package to an anonymous request, not even a public
+      # one — unlike its npm and Maven registries. So restoring Khalkos3D needs a token even though
+      # the engine is MIT and its repository is public. NuGet.config carries the rest of the story,
+      # including what a developer has to do once on their own machine.
+      - name: Authenticate to GitHub Packages
+        run: >
+          dotnet nuget update source GitHub-Wixely-Packages
+          --username ${{ github.actor }}
+          --password ${{ secrets.GITHUB_TOKEN }}
+          --store-password-in-clear-text
 
       - name: Install wasm tooling
         run: sudo dotnet workload install wasm-tools
@@ -443,6 +487,17 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+
+      # GitHub Packages will not serve a NuGet package to an anonymous request, not even a public
+      # one — unlike its npm and Maven registries. So restoring Khalkos3D needs a token even though
+      # the engine is MIT and its repository is public. NuGet.config carries the rest of the story,
+      # including what a developer has to do once on their own machine.
+      - name: Authenticate to GitHub Packages
+        run: >
+          dotnet nuget update source GitHub-Wixely-Packages
+          --username ${{ github.actor }}
+          --password ${{ secrets.GITHUB_TOKEN }}
+          --store-password-in-clear-text
 
       - name: Install the Android workload
         run: dotnet workload install android --skip-manifest-update
@@ -1222,6 +1277,97 @@ jobs:
   # Attach the standalone executables to a GitHub Release when a v* tag is pushed. Workflow
   # artifacts expire and need a login to fetch; a Release is permanent and public. Gated on the
   # test, viewer and android jobs, so a release can never ship from a red build.
+  sources:
+    name: A restore reaches only the feeds this repo declares
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Authenticate to GitHub Packages
+        run: >
+          dotnet nuget update source GitHub-Wixely-Packages
+          --username ${{ github.actor }}
+          --password ${{ secrets.GITHUB_TOKEN }}
+          --store-password-in-clear-text
+
+      # BOTH workloads, because this restores the WHOLE solution and the Android and wasm projects
+      # will not even resolve without them. Restoring a subset instead would be cheaper and would
+      # quietly stop covering whichever project was left out — and one of the two feeds this job
+      # exists to police is asked for by samples/WebLlvm alone, so a subset that skipped wasm would
+      # be a gate that never sees the source it most needs to check.
+      - name: Install the workloads the solution needs
+        run: |
+          set -euo pipefail
+          sudo dotnet workload install wasm-tools
+          dotnet workload install android --skip-manifest-update
+
+      # WHAT WAS USED, NOT WHAT WAS DECLARED. NuGet.config clears the source list, but a clear can
+      # be removed, a project can add RestoreAdditionalProjectSources, and neither shows up as a
+      # failure — the build simply starts resolving somewhere new and keeps passing. So this asks
+      # the restore itself: every project.assets.json records the sources that produced it, and
+      # those are the ones checked here.
+      #
+      # This exists because it already happened. Before NuGet.config was added, eleven projects in
+      # this tree had restored against a private feed belonging to the author's employer. Nothing
+      # was ever committed and no package came from it, but a public repository that resolves
+      # through a feed nobody else can reach builds for one person and fails for everyone else with
+      # a package-not-found that names no reason.
+      - name: Restore, then check what the restore actually reached
+        run: |
+          set -euo pipefail
+          dotnet restore CupriFace.slnx
+          python3 - <<'PY'
+          import glob, json, sys
+
+          # Every allowed feed, and why it is allowed.
+          ALLOWED = (
+              "https://api.nuget.org/v3/index.json",                  # everything, publicly
+              "https://nuget.pkg.github.com/Wixely/index.json",       # Khalkos3D — see NuGet.config
+              # The experimental ILC feed, asked for by samples/WebLlvm through
+              # RestoreAdditionalProjectSources. Public, Microsoft's, and scoped to that project.
+              "https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-experimental/nuget/v3/index.json",
+          )
+
+          # BOTH artefacts, because they are written at different moments and the first sweep of
+          # this repository checked only the assets files and reported clean while ten dgspec files
+          # still named a private feed. The dgspec is the restore's INPUT graph and the assets file
+          # its OUTPUT; a source can appear in either.
+          bad = {}
+          files = (glob.glob("**/obj/project.assets.json", recursive=True)
+                   + glob.glob("**/obj/*.nuget.dgspec.json", recursive=True))
+          for path in files:
+              with open(path, encoding="utf-8") as handle:
+                  doc = json.load(handle)
+              sources = doc.get("project", {}).get("restore", {}).get("sources", {})
+              # A dgspec nests one restore block per project under "projects".
+              for project in doc.get("projects", {}).values():
+                  sources = {**sources, **project.get("restore", {}).get("sources", {})}
+              for source in sources:
+                  # A local directory is the SDK's own bundled packs, not a feed.
+                  if "://" not in source:
+                      continue
+                  if source.rstrip("/") not in [a.rstrip("/") for a in ALLOWED]:
+                      bad.setdefault(source, []).append(path)
+
+          print(f"checked {len(files)} restore artefacts (assets files and dgspecs)")
+          if not bad:
+              print("ok: every restore reached only declared feeds")
+              sys.exit(0)
+
+          for source, paths in bad.items():
+              print(f"::error::undeclared package source reached during restore: {source}")
+              for path in paths[:10]:
+                  print(f"    {path}")
+              if len(paths) > 10:
+                  print(f"    ...and {len(paths) - 10} more")
+          print("If the feed is legitimate, add it to NuGet.config and to ALLOWED above, with a reason.")
+          sys.exit(1)
+          PY
+
   release:
     needs: [ test, viewer, android ]
     if: startsWith(github.ref, 'refs/tags/v')
@@ -1237,6 +1383,17 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+
+      # GitHub Packages will not serve a NuGet package to an anonymous request, not even a public
+      # one — unlike its npm and Maven registries. So restoring Khalkos3D needs a token even though
+      # the engine is MIT and its repository is public. NuGet.config carries the rest of the story,
+      # including what a developer has to do once on their own machine.
+      - name: Authenticate to GitHub Packages
+        run: >
+          dotnet nuget update source GitHub-Wixely-Packages
+          --username ${{ github.actor }}
+          --password ${{ secrets.GITHUB_TOKEN }}
+          --store-password-in-clear-text
 
       - uses: actions/download-artifact@v4
         with:
