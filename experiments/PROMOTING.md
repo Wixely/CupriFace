@@ -224,6 +224,14 @@ removed it reports "drawing buffer is 300x150 but its box is 320x320" — the bu
 name the cause. Both properties matter, and this repo's history says the second is the one usually
 skipped.
 
+### Should it be a package?
+
+Asked after v0.18.0: could the 3D ship as an optional NuGet package, or as a separate repo — "our
+own 3D engine"? Scoped in **[PACKAGING-GL.md](PACKAGING-GL.md)**, which recommends shipping the
+SEAM and not the renderer, and not starting a second repository. The short version: the valuable
+half cannot leave this repo (it reaches into host internals), and the half that could leave is the
+half not worth maintaining.
+
 ### Still open
 
 - ~~**A2 — share the engine's `GRContext`.**~~ **Done.** `IGpuSurfaceSource.RenderOnGpu(GRContext)`

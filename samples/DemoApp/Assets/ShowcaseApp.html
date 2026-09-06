@@ -381,10 +381,13 @@ doc.RenderToImage(800, 600);
            what 3D is, and {{Lane3d}} asks the engine which lane the host actually took. -->
       <div class="section" style="display:{{Sec3d}}">
         <div class="title">3D</div>
+        <!-- "no renderer" was the original wording and it confused a reader, reasonably: CupriFace
+             is a renderer — of HTML and CSS, through Skia. What it has none of is a 3D one. -->
         <p class="sub">An <code>ISurfaceSource</code> is a live picture the engine composites like
-          any other content. A video is one; so is a 3D viewport. The engine has no renderer and
-          knows nothing about GL — the host supplies the pixels, and CupriFace decides how they get
-          into the frame.</p>
+          any other content. A video is one; so is a 3D viewport. CupriFace ships no <b>3D</b>
+          renderer and knows nothing about GL — the model below is drawn by sample code
+          (<code>samples/Demo3d</code>, in no shipped package). The engine's part is deciding how
+          those pixels reach the frame.</p>
 
         <div class="lane">Lane on this host — <b>{{Lane3d}}</b></div>
         <!-- The driver's own answer. On the Android emulator this reads "SwiftShader"; on a real
