@@ -200,6 +200,72 @@ public class UnderlayTests(WebHostFixture host, ITestOutputHelper output)
             $"[{host.Host}] the underlay vanished while scrolling ({after.W}x{after.H}, " +
             $"display='{after.Display}') — visible content should not be hidden.");
     }
+
+    /// <summary>
+    /// The ENGINE half of the web seam, which nothing else in this repository checks.
+    ///
+    /// <para>Its sibling above proves CupriFace created a canvas, sized its drawing buffer and kept
+    /// it glued to a scrolling box — every one of which passes with nothing whatsoever drawn into
+    /// it. From the DOM, a blank canvas over the right hole is indistinguishable from a working one,
+    /// and until this test the browser gates could not tell the two apart.</para>
+    ///
+    /// <para>So this asserts on the line the engine prints about itself. <c>Khalkos3dContent</c>
+    /// logs <c>ready</c> only once <c>GlRenderer.Create</c> has handed back a renderer, which means
+    /// a WebGL2 context was acquired and the <c>#version 300 es</c> shader compiled and linked;
+    /// anything short of that prints "the engine would not start" instead and this fails on the
+    /// missing line. It also asserts the two libraries AGREE: both decide their dialect by parsing
+    /// <c>GL_VERSION</c> rather than by guessing from the platform, and a disagreement is precisely
+    /// the bug that would otherwise surface as a shader that will not compile on someone's phone.
+    /// WebGL2 is OpenGL ES 3.0, so this is the same dialect the Android device gate runs, reached
+    /// through a completely different driver.</para>
+    ///
+    /// <para>It does NOT prove sustained drawing the way the Android gate's <c>frames=60</c> does.
+    /// A WebGL canvas without <c>preserveDrawingBuffer</c> reads back blank from outside its own
+    /// frame, so there is nothing here for a browser test to sample. Context, compile, link and
+    /// first frame is what a browser can honestly witness from this side.</para>
+    /// </summary>
+    [Underlay3dFact]
+    public async Task The_engine_starts_and_agrees_on_the_dialect_in_a_browser()
+    {
+        var page = await host.DesktopAsync();
+
+        // Subscribed before the SECTION opens rather than before navigation. The viewport acquires
+        // its context the first time it is laid out, which is when the 3D section opens, so this is
+        // early enough — and DesktopAsync owns the initial Goto, so it is also the earliest point
+        // reachable without giving the fixture a console hook that only one test would use.
+        var console = new List<string>();
+        page.Console += (_, m) => { lock (console) console.Add($"{m.Type}: {m.Text}"); };
+        page.PageError += (_, e) => { lock (console) console.Add($"pageerror: {e}"); };
+
+        await GoToAsync(page, "3D", "canvas#cupri-underlay-showcase3d", output);
+
+        // Polled, because the element exists as soon as the painter punches the hole and the context
+        // is acquired a frame or two after that. Fifteen seconds is for the interpreted host, where
+        // everything between the click and the first GL call runs an order of magnitude slower.
+        string? ready = null;
+        for (var i = 0; i < 60 && ready is null; i++)
+        {
+            lock (console) ready = console.FirstOrDefault(l => l.Contains("3d: ready"));
+            if (ready is null) await page.WaitForTimeoutAsync(250);
+        }
+
+        string[] seen;
+        lock (console) seen = [.. console];
+        foreach (var line in seen.Where(l => l.Contains("3d:") || l.StartsWith("error") || l.StartsWith("pageerror")))
+            output.WriteLine($"[{host.Host}] {line}");
+
+        Assert.True(ready is not null,
+            $"[{host.Host}] the engine never reported itself ready in the browser. Every other test " +
+            "in this file would still pass with an empty canvas, so this line is the only thing that " +
+            "separates a working viewport from a hole with nothing behind it. Last console lines: " +
+            string.Join(" | ", seen.TakeLast(15)));
+
+        // GlEs300 on both halves. The engine's answer and the toolkit's answer are computed
+        // independently from the same GL_VERSION string, so this is two readings, not one echoed.
+        Assert.True(ready!.Contains("dialect=GlEs300") && ready.Contains("cupriface=GlEs300"),
+            $"[{host.Host}] WebGL2 is OpenGL ES 3.0, so both libraries should have chosen GlEs300. " +
+            $"They reported: {ready}");
+    }
 }
 
 /// <summary>Opt-in, because only a build with a 3D surface wired at its composition root has a canvas
