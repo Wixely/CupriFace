@@ -1,5 +1,6 @@
 using CupriFace;
 using CupriFace.Binding;
+using CupriFace.Gl;
 using CupriFace.Paint;
 using CupriFace.Resources;
 using SkiaSharp;
@@ -20,12 +21,6 @@ namespace CupriFace.Demo;
 /// real GPU or on the emulator's software GL. <c>GL_RENDERER</c> is the driver's own answer —
 /// SwiftShader names itself, hardware names the chip — so it is reported rather than inferred.</para>
 /// </summary>
-public interface IShowcase3dInfo
-{
-    /// <summary>Vendor, renderer and version as the driver reports them.</summary>
-    string Detail { get; }
-}
-
 public sealed class ShowcaseApp : CupriApp
 {
     private readonly ShowcaseModel _model = new();
@@ -490,22 +485,49 @@ public sealed partial class ShowcaseModel
     // surface, so the hole is not punched onto a bare page while a GL context comes up) — so a
     // caption bound at rebuild time caught it mid-startup and said "painted" about the browser.
     // UnderlayElement is a declaration and does not move.
-    public string Lane3d => Surface3d switch
+    /// <summary>The viewport, when this host wired one. The page reads it; it never drives it.</summary>
+    private GlViewport? Viewport3d => Surface3d as GlViewport;
+
+    /// <summary>
+    /// Which transport the pixels took. The viewport reports this as a fact now rather than leaving
+    /// the page to infer it — and the inference used to be wrong in a way that looked right, because
+    /// HostComposited is a transient a producer may only report once it has pixels.
+    /// </summary>
+    public string Lane3d => Viewport3d?.Lane switch
     {
         null => "not wired on this host — the viewport paints nothing and the panel behind shows",
-        { UnderlayElement: not null } or { HostComposited: true } =>
+        GlLane.HostComposited =>
             "host-composited: the engine punches a transparent hole and a WebGL canvas underneath "
             + "shows through it",
-        _ => "painted: the renderer hands the engine finished frames, drawn into the display list "
-             + "like any other image",
+        GlLane.SharedGpu =>
+            "painted, zero-copy: drawn on the host's own GL context and handed to the engine as a "
+            + "texture, never leaving the GPU",
+        GlLane.OffscreenReadback =>
+            "painted, readback: drawn on a private context, read back and re-uploaded — the lane a "
+            + "software window falls back to",
+        _ => "waiting for a context",
     };
 
     /// <summary>What actually drew the frame, straight from the driver — the only way to tell a
     /// phone's real GPU from the emulator's software GL without attaching a debugger.</summary>
-    public string Gpu3d => Surface3d is IShowcase3dInfo i && i.Detail is { Length: > 0 } d
-        ? d : "not reported by this host";
+    public string Gpu3d => Viewport3d?.Context is { Renderer.Length: > 0 } c
+        ? $"{c.Renderer} — {c.Version}" : "not reported by this host";
 
-    public string HasGpu3d => Surface3d is IShowcase3dInfo { Detail.Length: > 0 } ? "block" : "none";
+    public string HasGpu3d =>
+        ShowDriverRow && Viewport3d?.Context is { Renderer.Length: > 0 } ? "block" : "none";
+
+    /// <summary>
+    /// Whether to show the "Drawn by" row at all. True for anyone RUNNING the Showcase — naming the
+    /// GPU is the entire point of that row, and on a phone it is the only way to tell a real driver
+    /// from the emulator's software GL.
+    ///
+    /// <para>Turned off by <c>tools/Screenshots</c>, and only there. Those images are committed to
+    /// the repository and published in the README, so they should carry nothing derived from
+    /// whichever machine happened to generate them. A GPU model is not sensitive, but "not sensitive"
+    /// is a judgement made once about one string, and the rule that scales is that a published
+    /// screenshot shows the DOCUMENT and not the environment.</para>
+    /// </summary>
+    public bool ShowDriverRow { get; set; } = true;
 
     /// <summary>Shown beside the viewport so the page never claims 3D it has not got.</summary>
     public string Has3d => Surface3d is null ? "none" : "block";

@@ -19,6 +19,10 @@
   <ItemGroup>
     <!-- Portable app: references only the engine (no windowing, no platform code). -->
     <ProjectReference Include="..\..\src\CupriFace\CupriFace.csproj" />
+    <!-- Read-only: the 3D page reports which lane the viewport took and what drew it. Nothing
+         here ATTACHES a viewport - each host's composition root decides that, which is why a
+         host that wires nothing still shows the poster and says so. -->
+    <ProjectReference Include="..\..\src\CupriFace.Gl\CupriFace.Gl.csproj" />
     <!-- AOT-clean binding accessors for this project's [CupriBindable] models. -->
     <ProjectReference Include="..\..\src\CupriFace.Binding.Gen\CupriFace.Binding.Gen.csproj"
                       OutputItemType="Analyzer" ReferenceOutputAssembly="false" />

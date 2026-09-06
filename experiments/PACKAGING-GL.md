@@ -9,6 +9,49 @@ The question here is narrower than it looks, because two different things are cu
 
 ---
 
+## Built — `src/CupriFace.Gl`
+
+**The seam shipped.** This document's recommendation was followed and items 1–7 below are done, so
+what follows is now the reasoning behind a thing that exists rather than a proposal. The scope held:
+no renderer, no second repository.
+
+| item | what it became |
+|---|---|
+| 1 · static `Gl` table | **The package publishes no GL table at all.** It resolves the ~30 entry points the seam itself needs, keeps them private and per-context, and hands an app `GlContext.GetProcAddress` to build whatever it wants. Instanced by construction, and 54 arbitrary entry points chosen for one teapot never became API |
+| 2 · fixed 512×512 | Target follows the element's box × the host's scale, clamped, rebuilt on resize |
+| 3 · reset documented | `GlFunctions.ResetState` runs before every frame on every lane — sampler objects first |
+| 4 · no disposal/resize | `GlTarget` rebuilds on resize; `IGlContent.Shutdown` is called with the context still current, which is the only moment deleting GL objects is legal |
+| 5 · `string Status` | `GlViewportState` (Waiting / Running / **Unavailable** / **Failed**) plus `Diagnostic`. The distinction that matters is "no GL here, carry on" against "GL was here and broke" |
+| 6 · demo-shaped API | `GlViewport.Attach(doc, key, content, options)`; model, size, clear colour, logging and the offscreen factory are all the caller's |
+| 7 · consumer's csproj | `buildTransitive` adds `DirectPInvoke` on wasm and nothing anywhere else, with a CI check that the nupkg actually carries it |
+
+Measured, not asserted: the three host integrations went from **543 code lines to 91**, and 56 of
+those 91 are the desktop's offscreen-context implementation — a capability, not glue. One shared
+`TeapotContent` now draws on all three hosts.
+
+### The estimate was wrong in an instructive direction
+
+Sizing said 1–2 weeks, "least reliable on 1 and 7". Both were *easier* than feared, and for the same
+reason: the right answer to each was to do less. Item 1 dissolved once the question became "what
+should the package NOT publish", and item 7 was one conditional `ItemGroup` because
+`CupriFace.Web.NativeAot` already carried `-sMAX_WEBGL_VERSION=2`.
+
+What actually cost the most was **not on the list at all**. Item 2 reads like a package-local fix —
+stop hardcoding 512×512 — and is not one: no surface can learn the host's scale, because
+`RenderNode.Width` is in engine units and nothing else reaches a producer. So the engine grew
+`SurfaceRegistry.DeviceScale` and three hosts had to publish it. That is the third time running that
+the risk named up front was not the one that bit, and the pattern is worth naming: the estimates keep
+being wrong about **which layer** a fix lives in, not about how hard the fix is.
+
+### Still unverifiable here, and honestly so
+
+The shared-GPU and browser lanes need a driver. What was verified locally is the readback lane end to
+end on real GL (the Showcase's committed 3D screenshot is rendered through the package), 818 unit
+tests, and that all three hosts build. The other two lanes are CI's and a phone's to prove — which is
+the whole argument of the "driver divergence" risk below, now applying to this package's own work.
+
+---
+
 ## Recommendation
 
 **Ship the seam. Do not build a 3D engine. Do not start a second repository.**

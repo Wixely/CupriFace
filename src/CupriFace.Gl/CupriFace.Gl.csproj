@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The GL seam: a correctly set-up OpenGL viewport bound to a CupriFace element, on every host.
+
+       WHAT THIS IS NOT: a renderer. There is no glTF loader here, no shading model, no scene graph
+       and no camera. Those are the app's, and there are excellent libraries for them. What no
+       library outside this repository can write is the half BELOW them — acquiring a context the
+       engine will tolerate sharing, sizing a target to the box the engine laid out, handing back a
+       texture Skia can draw without a copy, and doing the same three things on a phone and in a
+       browser where each of them is different.
+
+       WHY IT IS OPTIONAL AND NOT CORE. Most apps draw no 3D and should carry none of this. The
+       package is managed-only and tiny; what it costs a consumer is the DirectPInvoke line
+       buildTransitive adds on wasm, and nothing at all elsewhere.
+
+       WHY IT DOES NOT DEPEND ON THE HOSTS. There is no reference here to CupriFace.Shell,
+       CupriFace.Android or CupriFace.Web.* — deliberately, because a package that referenced all
+       three would drag a windowing stack onto a phone. It reaches every host through interfaces the
+       ENGINE already publishes: IGpuSurfaceSource for the two GPU hosts, and the host-composited
+       underlay for the browser. If that stops being enough, the missing piece belongs in the engine
+       rather than here. -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <!-- Function pointers and raw buffers: this is a GL loader. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Description>An OpenGL viewport bound to a CupriFace element, on desktop, Android and the browser. Give it something that draws with GL; it acquires the context, sizes the target to the element's device box, keeps the driver in a state Skia can survive, and hands the engine a texture with no copy — or, in the browser, a WebGL2 canvas the host keeps glued to the element's box.
+
+This is the seam, not a renderer: no glTF, no shading, no scene graph. Bring your own drawing code and it runs on all three.</Description>
+    <PackageTags>cupriface;ui;opengl;gl;webgl;gles;3d;skia;html;css</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../CupriFace/CupriFace.csproj" />
+    <!-- Pinned to the engine's own version: GRContext and SKImage cross this boundary, and the
+         managed bindings and the native library are a matched pair. -->
+    <PackageReference Include="SkiaSharp" Version="3.116.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Item 7 of the scoping document, and the only thing this package asks of a consumer's build.
+         See the props file for what it does and why it cannot be avoided. -->
+    <None Include="buildTransitive\CupriFace.Gl.props" Pack="true" PackagePath="buildTransitive\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="CupriFace.Tests" />
+  </ItemGroup>
+
+</Project>

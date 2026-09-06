@@ -289,12 +289,6 @@ public sealed class AndroidHost : IDisposable
     internal void PaintFrame(SKCanvas canvas, int physicalWidth, int physicalHeight, float density,
                              GRContext? gpu = null)
     {
-        // GPU surface producers go FIRST, before anything is recorded for this frame - they issue
-        // raw GL on the same context Skia is about to use, and SurfaceRegistry calls ResetContext
-        // afterwards. Android reaches this the same way the desktop GL window does; the web host,
-        // which rasterises on the CPU, never does.
-        if (gpu is not null) _doc.Surfaces.RenderGpuFrames(gpu);
-
         // The app thinks in density-independent pixels; Android gave us physical ones.
         var dpW = physicalWidth / density;
         var dpH = physicalHeight / density;
@@ -303,6 +297,18 @@ public sealed class AndroidHost : IDisposable
         var inputScale = density * scale;                // ONE factor for canvas AND touch — the
                                                          // probe divided touch by density alone,
                                                          // which mis-hits whenever Present scales.
+
+        // What a logical pixel is worth, published before anything is asked to draw. A phone is
+        // where this matters most: at density 3 a producer that ignored it would render a third of
+        // the pixels its element covers and be upscaled into the panel.
+        _doc.Surfaces.DeviceScale = inputScale;
+
+        // GPU surface producers go FIRST, before anything is recorded for this frame - they issue
+        // raw GL on the same context Skia is about to use, and SurfaceRegistry calls ResetContext
+        // afterwards. Android reaches this the same way the desktop GL window does; the web host,
+        // which rasterises on the CPU, never does. The lines above only compute the scale; nothing
+        // is recorded until the canvas work further down.
+        if (gpu is not null) _doc.Surfaces.RenderGpuFrames(gpu);
 
         // The usable area changed — almost always the soft keyboard arriving or leaving, since its
         // inset is applied as padding and shrinks this surface. The caret has NOT moved, so the

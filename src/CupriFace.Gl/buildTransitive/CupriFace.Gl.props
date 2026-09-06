@@ -1,0 +1,26 @@
+<Project>
+  <!--
+    Flows into apps that consume the CupriFace.Gl nupkg.
+
+    ONE LINE, and it is the one a consumer cannot discover from the symptoms.
+
+    WebAssembly has no lazy P/Invoke resolution. Every native import must be named at BUILD time or
+    the call throws PlatformNotSupportedException at runtime — inside the frame loop, several steps
+    from the missing line in a csproj. This package's browser lane calls emscripten_webgl_* to make
+    a WebGL2 context on the underlay canvas, so "emscripten" has to be declared, and declaring it is
+    exactly the kind of thing a package should do for you rather than document.
+
+    Conditioned on the wasm RID: on desktop and Android this file adds nothing at all, which is the
+    other half of the requirement. A package that quietly changed a phone build to satisfy a browser
+    would be worse than one that made you write the line yourself.
+
+    The companion setting -sMAX_WEBGL_VERSION=2 is NOT here: CupriFace.Web.NativeAot already applies
+    it unconditionally, and it belongs with the host that runs the emcc link rather than with a
+    library that happens to want WebGL. Without it emscripten_webgl_create_context silently
+    downgrades a version-2 request to WebGL1; GlViewport asserts the version it actually got and
+    says so, rather than letting a `#version 300 es` shader error take the blame.
+  -->
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'browser-wasm' Or '$(TargetPlatformIdentifier)' == 'browser'">
+    <DirectPInvoke Include="emscripten" />
+  </ItemGroup>
+</Project>

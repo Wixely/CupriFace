@@ -73,16 +73,21 @@ public static class DesktopHost
 
         void Draw(RenderContext ctx)
         {
+            var p = app.Present(ctx.Width, ctx.Height);
+            scale = p.Scale <= 0 ? 1f : p.Scale;
+            logicalW = p.LogicalWidth; logicalH = p.LogicalHeight;
+            // Tell surfaces what a logical pixel is worth before asking any of them to draw. A
+            // producer that rasterises to order — a GL viewport — sizes its buffer from this, and
+            // without it renders at logical resolution and is upscaled into its box.
+            doc.Surfaces.DeviceScale = scale;
+
             // GPU surface producers go FIRST, before a single command is recorded for this frame.
             // They issue raw GL on the same context Skia is about to use, so doing it mid-recording
             // would corrupt the state Skia believes the driver is in; the registry calls
             // ResetContext afterwards. A software window passes null here and producers fall back
-            // to publishing ordinary SKImages.
+            // to publishing ordinary SKImages. Present() above only computes — it records nothing —
+            // so it is safely on this side of that line.
             if (ctx.Gpu is { } gpu) doc.Surfaces.RenderGpuFrames(gpu);
-
-            var p = app.Present(ctx.Width, ctx.Height);
-            scale = p.Scale <= 0 ? 1f : p.Scale;
-            logicalW = p.LogicalWidth; logicalH = p.LogicalHeight;
 
             // Transparent apps clear to a fully-transparent framebuffer so the desktop shows through
             // (premultiplied output is exactly what the OS compositor wants — no conversion needed).

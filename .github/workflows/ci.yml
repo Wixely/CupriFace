@@ -1308,6 +1308,7 @@ jobs:
           for proj in src/CupriFace/CupriFace.csproj src/CupriFace.Shell/CupriFace.Shell.csproj \
                       src/CupriFace.Media/CupriFace.Media.csproj \
                       src/CupriFace.Lottie/CupriFace.Lottie.csproj \
+                      src/CupriFace.Gl/CupriFace.Gl.csproj \
                       src/CupriFace.Android/CupriFace.Android.csproj \
                       src/CupriFace.Web.Mono/CupriFace.Web.Mono.csproj \
                       src/CupriFace.Web.NativeAot/CupriFace.Web.NativeAot.csproj; do
@@ -1320,6 +1321,13 @@ jobs:
             grep -q 'runtimes/win-x64/native/cupricodecs.dll' pkg.txt \
               || { echo "::error::CupriFace.Media packed without its win-x64 codec native"; cat pkg.txt; exit 1; }
           fi
+          # Same shape of check, same reason: CupriFace.Gl's whole ask of a consumer's build is one
+          # DirectPInvoke line on wasm, and a nupkg that dropped buildTransitive would restore
+          # cleanly and then throw PlatformNotSupportedException inside a browser frame loop —
+          # several steps from the missing file. Cheap to assert, expensive to diagnose.
+          unzip -l dist/CupriFace.Gl."$VERSION".nupkg > glpkg.txt
+          grep -q 'buildTransitive/CupriFace.Gl.props' glpkg.txt \
+            || { echo "::error::CupriFace.Gl packed without its buildTransitive props"; cat glpkg.txt; exit 1; }
           ls -l dist
 
       # Attaching nupkgs to a release makes them downloadable; it does not make them INSTALLABLE.
