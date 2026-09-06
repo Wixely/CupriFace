@@ -10,10 +10,10 @@
        WHY IT LIVES HERE RATHER THAN IN KHALKOS3D. A general-purpose engine taking a dependency on a
        UI toolkit inverts the direction. CupriFace is the consumer, so CupriFace holds the adapter.
 
-       THE SUBMODULE IS TEMPORARY. Khalkos3D is referenced by project through external/Khalkos3D
-       while this is being proved on real hardware; once the GLES and WebGL2 paths are known to work
-       it becomes a package reference and the submodule goes. Referencing by project first means a
-       failure is debuggable by stepping into it rather than by publishing a new package to find out. -->
+       THE SUBMODULE IS GONE. Khalkos3D was referenced by project through external/Khalkos3D while
+       the GLES and WebGL2 paths were unproven, so that a failure could be stepped into rather than
+       diagnosed by publishing another package to find out. Both are proved — on a real GLES driver
+       through the Android device gate and on WebGL2 through the browser gate — so it is a package. -->
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -24,15 +24,19 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Referencing the engine across a submodule boundary has one build-system consequence that is
-         not visible from here: see samples/Directory.Build.props. -->
     <ProjectReference Include="..\..\src\CupriFace.Gl\CupriFace.Gl.csproj" />
-    <ProjectReference Include="..\..\external\Khalkos3D\src\Khalkos3D.Core\Khalkos3D.Core.csproj" />
-    <ProjectReference Include="..\..\external\Khalkos3D\src\Khalkos3D.Formats\Khalkos3D.Formats.csproj" />
-    <ProjectReference Include="..\..\external\Khalkos3D\src\Khalkos3D.Gl\Khalkos3D.Gl.csproj" />
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The engine, as a package. It was a submodule while the GLES and WebGL2 paths were being
+         proved on real drivers, because a failure you can step into beats one you diagnose by
+         publishing another package to find out. They are proved now, so this is a version number.
+
+         Restoring these needs a token even though the packages are public — see NuGet.config. -->
+    <PackageReference Include="Khalkos3D.Core" Version="0.1.0" />
+    <PackageReference Include="Khalkos3D.Formats" Version="0.1.0" />
+    <PackageReference Include="Khalkos3D.Gl" Version="0.1.0" />
+
     <!-- Khalkos3D bundles no image codec on purpose, so a caller supplies one. A CupriFace app
          already has Skia, which is the whole argument for the seam being a delegate. -->
     <PackageReference Include="SkiaSharp" Version="3.116.1" />

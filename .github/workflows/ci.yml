@@ -19,12 +19,21 @@ jobs:
         os: [ ubuntu-latest, windows-latest, macos-latest ]
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: true
 
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+
+      # GitHub Packages will not serve a NuGet package to an anonymous request, not even a public
+      # one — unlike its npm and Maven registries. So restoring Khalkos3D needs a token even though
+      # the engine is MIT and its repository is public. NuGet.config carries the rest of the story,
+      # including what a developer has to do once on their own machine.
+      - name: Authenticate to GitHub Packages
+        run: >
+          dotnet nuget update source GitHub-Wixely-Packages
+          --username ${{ github.actor }}
+          --password ${{ secrets.GITHUB_TOKEN }}
+          --store-password-in-clear-text
 
       # SkiaSharp's native raster/text stack needs fontconfig at runtime for the render tests.
       - name: Install native deps (Skia)
@@ -95,12 +104,21 @@ jobs:
             rid: osx-arm64
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: true
 
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+
+      # GitHub Packages will not serve a NuGet package to an anonymous request, not even a public
+      # one — unlike its npm and Maven registries. So restoring Khalkos3D needs a token even though
+      # the engine is MIT and its repository is public. NuGet.config carries the rest of the story,
+      # including what a developer has to do once on their own machine.
+      - name: Authenticate to GitHub Packages
+        run: >
+          dotnet nuget update source GitHub-Wixely-Packages
+          --username ${{ github.actor }}
+          --password ${{ secrets.GITHUB_TOKEN }}
+          --store-password-in-clear-text
 
       # Skia needs fontconfig to raster text, and xvfb gives the smoke test below a display to
       # open its window on. The at-spi2/pygobject packages are for the accessibility gate further
@@ -321,12 +339,21 @@ jobs:
         os: [ ubuntu-latest, windows-latest ]
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: true
 
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+
+      # GitHub Packages will not serve a NuGet package to an anonymous request, not even a public
+      # one — unlike its npm and Maven registries. So restoring Khalkos3D needs a token even though
+      # the engine is MIT and its repository is public. NuGet.config carries the rest of the story,
+      # including what a developer has to do once on their own machine.
+      - name: Authenticate to GitHub Packages
+        run: >
+          dotnet nuget update source GitHub-Wixely-Packages
+          --username ${{ github.actor }}
+          --password ${{ secrets.GITHUB_TOKEN }}
+          --store-password-in-clear-text
 
       # Emscripten arrives with the wasm-tools workload. The dotnet root is root-owned on Linux.
       - name: Install wasm tooling (Linux)
@@ -376,12 +403,21 @@ jobs:
             gl3d: "1"
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: true
 
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+
+      # GitHub Packages will not serve a NuGet package to an anonymous request, not even a public
+      # one — unlike its npm and Maven registries. So restoring Khalkos3D needs a token even though
+      # the engine is MIT and its repository is public. NuGet.config carries the rest of the story,
+      # including what a developer has to do once on their own machine.
+      - name: Authenticate to GitHub Packages
+        run: >
+          dotnet nuget update source GitHub-Wixely-Packages
+          --username ${{ github.actor }}
+          --password ${{ secrets.GITHUB_TOKEN }}
+          --store-password-in-clear-text
 
       - name: Install wasm tooling
         run: sudo dotnet workload install wasm-tools
@@ -448,11 +484,20 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: true
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+
+      # GitHub Packages will not serve a NuGet package to an anonymous request, not even a public
+      # one — unlike its npm and Maven registries. So restoring Khalkos3D needs a token even though
+      # the engine is MIT and its repository is public. NuGet.config carries the rest of the story,
+      # including what a developer has to do once on their own machine.
+      - name: Authenticate to GitHub Packages
+        run: >
+          dotnet nuget update source GitHub-Wixely-Packages
+          --username ${{ github.actor }}
+          --password ${{ secrets.GITHUB_TOKEN }}
+          --store-password-in-clear-text
 
       - name: Install the Android workload
         run: dotnet workload install android --skip-manifest-update
@@ -1243,12 +1288,21 @@ jobs:
     steps:
       # Checkout FIRST: it cleans the working directory, which would delete downloaded artifacts.
       - uses: actions/checkout@v4
-        with:
-          submodules: true
 
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+
+      # GitHub Packages will not serve a NuGet package to an anonymous request, not even a public
+      # one — unlike its npm and Maven registries. So restoring Khalkos3D needs a token even though
+      # the engine is MIT and its repository is public. NuGet.config carries the rest of the story,
+      # including what a developer has to do once on their own machine.
+      - name: Authenticate to GitHub Packages
+        run: >
+          dotnet nuget update source GitHub-Wixely-Packages
+          --username ${{ github.actor }}
+          --password ${{ secrets.GITHUB_TOKEN }}
+          --store-password-in-clear-text
 
       - uses: actions/download-artifact@v4
         with:
