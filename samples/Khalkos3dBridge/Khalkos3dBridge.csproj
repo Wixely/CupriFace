@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The glue between CupriFace's GL seam and the Khalkos3D engine.
+
+       ABOUT THIRTY LINES OF ACTUAL WORK, which is the point. CupriFace.Gl acquires a context bound
+       to a page element on every host and hands over a proc-address function and a size;
+       Khalkos3D.GlRenderer wants exactly a proc-address function and a size. Neither library knows
+       the other exists, and neither had to change.
+
+       WHY IT LIVES HERE RATHER THAN IN KHALKOS3D. A general-purpose engine taking a dependency on a
+       UI toolkit inverts the direction. CupriFace is the consumer, so CupriFace holds the adapter.
+
+       THE SUBMODULE IS TEMPORARY. Khalkos3D is referenced by project through external/Khalkos3D
+       while this is being proved on real hardware; once the GLES and WebGL2 paths are known to work
+       it becomes a package reference and the submodule goes. Referencing by project first means a
+       failure is debuggable by stepping into it rather than by publishing a new package to find out. -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CupriFace.Gl\CupriFace.Gl.csproj" />
+    <ProjectReference Include="..\..\external\Khalkos3D\src\Khalkos3D.Core\Khalkos3D.Core.csproj" />
+    <ProjectReference Include="..\..\external\Khalkos3D\src\Khalkos3D.Formats\Khalkos3D.Formats.csproj" />
+    <ProjectReference Include="..\..\external\Khalkos3D\src\Khalkos3D.Gl\Khalkos3D.Gl.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Khalkos3D bundles no image codec on purpose, so a caller supplies one. A CupriFace app
+         already has Skia, which is the whole argument for the seam being a delegate. -->
+    <PackageReference Include="SkiaSharp" Version="3.116.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The same model the hand-written sample renderer uses, so the two are comparable. -->
+    <EmbeddedResource Include="..\Demo3d\teapot.glb" LogicalName="teapot.glb" />
+  </ItemGroup>
+
+</Project>

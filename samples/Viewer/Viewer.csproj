@@ -37,6 +37,9 @@
     <ProjectReference Include="..\DemoApp\DemoApp.csproj" />
     <!-- The 3D demo's renderer. Referenced HERE and not by DemoApp, for the same reason video is
          wired here: the shared ShowcaseApp is compiled by the wasm and Android hosts too. -->
+    <ProjectReference Include="..\Khalkos3dBridge\Khalkos3dBridge.csproj" />
+    <!-- Kept: the hand-written renderer the engine was measured against. Switching back is
+         one type name in Teapot3dSurface. -->
     <ProjectReference Include="..\Demo3d\Demo3d.csproj" />
   </ItemGroup>
 

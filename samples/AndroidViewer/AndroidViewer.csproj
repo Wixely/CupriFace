@@ -27,7 +27,7 @@
     <!-- The 3D demo's renderer. Referenced HERE and not by DemoApp, for the same reason it is
          referenced by the desktop Viewer and not the shared app: ShowcaseApp is compiled by
          every host and must not carry a renderer. -->
-    <ProjectReference Include="..\Demo3d\Demo3d.csproj" />
+    <ProjectReference Include="..\Khalkos3dBridge\Khalkos3dBridge.csproj" />
     <ProjectReference Include="..\..\src\CupriFace.Android\CupriFace.Android.csproj" />
   </ItemGroup>
 

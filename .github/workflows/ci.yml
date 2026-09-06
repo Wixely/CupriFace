@@ -19,6 +19,8 @@ jobs:
         os: [ ubuntu-latest, windows-latest, macos-latest ]
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -93,6 +95,8 @@ jobs:
             rid: osx-arm64
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -317,6 +321,8 @@ jobs:
         os: [ ubuntu-latest, windows-latest ]
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -370,6 +376,8 @@ jobs:
             gl3d: "1"
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -440,6 +448,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
@@ -1233,6 +1243,8 @@ jobs:
     steps:
       # Checkout FIRST: it cleans the working directory, which would delete downloaded artifacts.
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - uses: actions/setup-dotnet@v4
         with:

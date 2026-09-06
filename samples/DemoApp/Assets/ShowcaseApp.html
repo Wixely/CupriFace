@@ -389,8 +389,9 @@ doc.RenderToImage(800, 600);
           any other content. A video is one; so is a 3D viewport. The optional
           <code>CupriFace.Gl</code> package gives you a GL context bound to an element on every
           host; what it does not give you is a <b>3D renderer</b>, and CupriFace ships none — the
-          model below is drawn by sample code (<code>samples/Demo3d</code>). The engine's part is
-          deciding how those pixels reach the frame.</p>
+          model below is drawn by <a href="https://github.com/Wixely/Khalkos3D">Khalkos3D</a>, a
+          separate engine, through about thirty lines of glue. The engine's part is deciding how
+          those pixels reach the frame.</p>
 
         <div class="lane">Lane on this host — <b>{{Lane3d}}</b></div>
         <!-- The driver's own answer. On the Android emulator this reads "SwiftShader"; on a real
@@ -418,9 +419,11 @@ doc.RenderToImage(800, 600);
           <div style="flex:1; min-width:260px">
             <div class="mlabel">What is actually being shown</div>
             <p class="sub" style="display:{{Has3d}}">A glTF 2.0 model (<code>teapot.glb</code>,
-              4,032 triangles, one base-colour texture) drawn with a small Cook-Torrance PBR shader.
-              The renderer is a <b>sample</b>, not part of the engine — CupriFace ships the seam
-              that gets it on screen, not the code that draws it.</p>
+              4,032 triangles, one base-colour texture) loaded and drawn by <b>Khalkos3D</b>, which
+              knows nothing about CupriFace: it is handed a function that resolves GL entry points and
+              a size in device pixels, and draws. CupriFace ships the seam that gets it on screen, not
+              the code that draws it — and swapping one renderer for another was a single type name in
+              each host's composition root.</p>
             <p class="sub" style="display:{{No3d}}">This host has not wired a 3D surface, so the
               viewport paints nothing and the panel behind it shows through. That is the engine's
               ordinary behaviour for a surface with no frames — the same fallback that shows a
