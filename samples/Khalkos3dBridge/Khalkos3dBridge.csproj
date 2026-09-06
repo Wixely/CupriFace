@@ -24,6 +24,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Referencing the engine across a submodule boundary has one build-system consequence that is
+         not visible from here: see samples/Directory.Build.props. -->
     <ProjectReference Include="..\..\src\CupriFace.Gl\CupriFace.Gl.csproj" />
     <ProjectReference Include="..\..\external\Khalkos3D\src\Khalkos3D.Core\Khalkos3D.Core.csproj" />
     <ProjectReference Include="..\..\external\Khalkos3D\src\Khalkos3D.Formats\Khalkos3D.Formats.csproj" />
