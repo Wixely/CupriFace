@@ -1294,6 +1294,17 @@ jobs:
           --password ${{ secrets.GITHUB_TOKEN }}
           --store-password-in-clear-text
 
+      # BOTH workloads, because this restores the WHOLE solution and the Android and wasm projects
+      # will not even resolve without them. Restoring a subset instead would be cheaper and would
+      # quietly stop covering whichever project was left out — and one of the two feeds this job
+      # exists to police is asked for by samples/WebLlvm alone, so a subset that skipped wasm would
+      # be a gate that never sees the source it most needs to check.
+      - name: Install the workloads the solution needs
+        run: |
+          set -euo pipefail
+          sudo dotnet workload install wasm-tools
+          dotnet workload install android --skip-manifest-update
+
       # WHAT WAS USED, NOT WHAT WAS DECLARED. NuGet.config clears the source list, but a clear can
       # be removed, a project can add RestoreAdditionalProjectSources, and neither shows up as a
       # failure — the build simply starts resolving somewhere new and keeps passing. So this asks
@@ -1342,7 +1353,7 @@ jobs:
                   if source.rstrip("/") not in [a.rstrip("/") for a in ALLOWED]:
                       bad.setdefault(source, []).append(path)
 
-          print(f"checked {len(files)} project.assets.json files")
+          print(f"checked {len(files)} restore artefacts (assets files and dgspecs)")
           if not bad:
               print("ok: every restore reached only declared feeds")
               sys.exit(0)
