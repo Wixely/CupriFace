@@ -31,10 +31,11 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   **95.4 MB to 20.8 MB**, and the arm64 APK from 22.1 MB to 19.4 MB — still one self-contained file
   each, still no .NET install. Nothing to do: the release assets are simply smaller.
 
-  **If you publish `samples/Viewer` yourself**, the flags are `-p:Trim=true
-  -p:EnableCompressionInSingleFile=true`. `Trim` is a project property rather than
-  `-p:PublishTrimmed=true` because on the command line that reaches the netstandard2.0 source
-  generators and fails there (NETSDK1124).
+- **If you publish `samples/Viewer` yourself**, the flags are `-p:Trim=true
+  -p:EnableCompressionInSingleFile=true`, and `dotnet restore` needs `-p:Trim=true` too if your
+  publish runs `--no-restore`. `Trim` is a project property rather than `-p:PublishTrimmed=true`
+  because on the command line that reaches the netstandard2.0 source generators and fails there
+  (NETSDK1124).
 
 ### Fixed
 
@@ -56,7 +57,10 @@ passes while the build is materially worse:
 - **Hardware GL.** Silk.NET discovers its window backends by scanning for `IWindowPlatform`
   implementations (IL2104), so the trimmer removes them, bring-up throws
   `PlatformNotSupportedException`, and `DesktopHost` catches it and drops to the SDL software window.
-  Fixed with `TrimmerRootAssembly` for the Silk.NET backends, at a cost of ~0.13 MB.
+  Fixed with `TrimmerRootAssembly` for the Silk.NET backends, at a cost of ~0.13 MB. **Verified by
+  hand, not by CI** — GitHub runners have no GPU, so the desktop GL path cannot be gated there and a
+  future regression would not be caught. The Android device gate covers the GLES path; nothing
+  covers this one.
 - **The UIA accessibility bridge.** It marshals `IRawElementProviderSimple` through built-in COM
   (IL2050), which the SDK switches off for trimmed apps. Fixed with
   `BuiltInComInteropSupport=true`, and verified with `tests/UiaSmoke` against the trimmed exe —
