@@ -11,9 +11,11 @@ So this comparison cannot lean on "engine vs framework" or "we render, they
 wrap." The differences are narrower and sharper: **which language you write,
 what the UI is made of, where each one runs, and what surrounds the renderer.**
 
-*Version note: Flutter statements describe the stable 3.x line as of mid-2026 —
-Impeller as the default renderer on iOS and Android, with Skia still in the
-picture elsewhere. Flutter moves quickly; version-sensitive rows say so.*
+*Version note: Flutter statements were checked in September 2026 against
+**Flutter 3.47.2 stable** (released 2026-08-27, Dart 3.13.2) — Impeller as the
+default renderer on iOS and Android, with Skia still in the picture elsewhere.
+Flutter moves quickly; version-sensitive rows say so. CupriFace statements come
+from this repository at **v0.18.0**.*
 
 ## At a glance
 
@@ -31,12 +33,12 @@ picture elsewhere. Flutter moves quickly; version-sensitive rows say so.*
 | State model | Mutate a POCO; the engine rebinds and repaints | `setState` / `InheritedWidget` / Riverpod / Bloc — a whole discourse |
 | Gestures | Scrolling, momentum, overscroll, multi-touch capture, and a drag/pinch/rotate recogniser (`OnManipulate`) — with the raw pointers still exposed underneath | A deeper recogniser library, plus an arbitration *arena* for contests between widgets — which capture-at-down makes unnecessary here |
 | Accessibility | Portable semantics tree → **four bridges** (UIA, AT-SPI, NSAccessibility, TalkBack), each CI-gated by a real AT client | **Same architecture** — a semantics tree bridged per platform — and far more mature |
-| Headless UI testing | First-class: 423 tests click, type, fling, pixel-assert with no display | **Also first-class** — `flutter test` widget tests + golden files. A genuine peer here |
+| Headless UI testing | First-class: **818 tests** click, type, fling, pixel-assert with no display | **Also first-class** — `flutter test` widget tests + golden files. A genuine peer here |
 | Hot reload | None | **Stateful hot reload — best in the industry** |
 | Embedding into your app | `RenderToPixels` into any RGBA buffer you own | Possible (add-to-app, embedder API) but you are hosting the **Flutter engine** |
-| Ecosystem | NuGet; 69 built-in elements | **pub.dev** — enormous; Material + Cupertino widget sets built in |
+| Ecosystem | NuGet; 74 built-in elements | **pub.dev** — enormous; Material + Cupertino widget sets built in |
 | Backing | One repository | **Google**, with a large full-time team |
-| Android app size | ~20.9 MB APK (arm64, measured) | Typically smaller for a comparable app (AOT Dart, tree-shaken, per-ABI splits) |
+| Android app size | **21.1 MB** APK (arm64 — the v0.18.0 release asset) | Typically smaller for a comparable app (AOT Dart, tree-shaken, per-ABI splits) |
 | Web payload | 14.2 MB wasm / **5.5 MB gzipped** (NativeAOT-LLVM host, measured) | CanvasKit/skwasm + compiled app — broadly the same order, often smaller |
 | Maturity | Pre-1.0 | Production since 2018 |
 
@@ -136,7 +138,7 @@ The honest list, and it is the long one:
   development. CupriFace has nothing comparable — its answer is that its inputs
   are plain files and its tests are fast, which is not the same thing.
 - **Ecosystem.** pub.dev covers essentially every need; Material and Cupertino
-  ship in the box. CupriFace has 69 elements and NuGet.
+  ship in the box. CupriFace has 74 elements and NuGet.
 - **Accessibility maturity.** Same architecture, vastly more soak — plus
   platform behaviours (selection handles, screen-reader gestures) that CupriFace
   has not built.
