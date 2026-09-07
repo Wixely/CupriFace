@@ -222,7 +222,11 @@ public static class DesktopHost
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[CupriFace] GPU unavailable ({ex.GetType().Name}); using the SDL software window.");
+            // The message, not just the type: a bare "InvalidOperationException" here was read as a
+            // driverless machine when it was a harness forcing the software path, and a bare
+            // "PlatformNotSupportedException" as a session limit when it was the trimmer removing
+            // Silk.NET's backends (#125, #126). The line is the only witness a fallback leaves.
+            Console.WriteLine($"[CupriFace] GPU unavailable ({ex.GetType().Name}: {ex.Message}); using the SDL software window.");
             using var window = new SdlSoftwareWindow(
                 app.Title,
                 app.Width,

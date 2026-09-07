@@ -17,11 +17,12 @@
          netstandard2.0 source generators, which cannot be AOT'd (NETSDK1207).
          Re-measured 2026-09 (win-x64, this Showcase app): 25.1 MB self-contained — a 12.3 MB exe
          plus 12.7 MB of Skia/HarfBuzz/SDL/GLFW natives, in 5 files rather than one.
-         CAVEAT, and the reason the earlier working-set/startup figures here were flattering: this
-         build silently loses BOTH hardware GL and the UIA bridge (see the trimming notes below),
-         so it runs on the SDL software window. The GL loss is the same Silk.NET reflection problem
-         and would want the same rooting; the UIA loss needs ComWrappers and is NOT fixable with a
-         property. Anything measured on this build is measuring the software path. -->
+         This build used to lose BOTH hardware GL and the UIA bridge, silently (#126): the GL half
+         is the same Silk.NET reflection problem trimming has, and the roots below now apply here
+         too; the UIA half was the runtime's built-in COM interop, which NativeAOT does not have at
+         all, and the bridge now goes through source-generated COM instead. Either regression would
+         show as a software window or a missing accessibility tree with the app otherwise fine, so
+         a figure measured on an AOT build should say which path it took. -->
     <PublishAot Condition="'$(Aot)' == 'true'">true</PublishAot>
     <InvariantGlobalization Condition="'$(Aot)' == 'true'">true</InvariantGlobalization>
 
@@ -41,17 +42,16 @@
          "did it render" passes while the build is materially worse:
            - hardware GL (falls back to the SDL software window), fixed by the TrimmerRootAssembly
              items below;
-           - the UIA accessibility bridge, fixed by BuiltInComInteropSupport.
+           - the UIA accessibility bridge, fixed by moving it to source-generated COM.
          Verified with tests/UiaSmoke against the trimmed exe: identical to the untrimmed build
          (50 elements, 44 from CupriFace, same passes). -->
     <PublishTrimmed Condition="'$(Trim)' == 'true'">true</PublishTrimmed>
 
-    <!-- The UIA bridge marshals IRawElementProviderSimple through built-in COM (IL2050), which the
-         SDK switches OFF for trimmed apps — the bridge then dies with a TypeLoadException that
-         DesktopHost catches and reports before continuing without accessibility. This switches it
-         back on. It does NOT help a NativeAOT publish, where built-in COM marshalling is absent
-         outright; that needs the bridge ported to source-generated ComWrappers. -->
-    <BuiltInComInteropSupport Condition="'$(Trim)' == 'true'">true</BuiltInComInteropSupport>
+    <!-- No BuiltInComInteropSupport here any more, on purpose. The UIA bridge used to need the
+         runtime's built-in COM interop, which the SDK switches off for trimmed apps and NativeAOT
+         lacks outright; it now goes through source-generated COM (UiaInterop.cs), which is plain
+         compiled code and needs no runtime feature switched on. tests/UiaSmoke against the
+         trimmed exe is the proof, and it runs in CI on every build. -->
 
     <!-- REQUIRED whenever this app is published with PublishSingleFile.
          Silk.NET finds SDL2/GLFW through DependencyContext and Assembly.Location, and BOTH are dead
@@ -67,15 +67,14 @@
        implementations, so the trimmer removes them (IL2104) and bring-up fails with
        PlatformNotSupportedException — which DesktopHost catches, silently dropping to the SDL
        software window. Rooting the backend assemblies keeps those reflection targets alive; the
-       cost is ~0.13 MB. CupriFace.Shell is rooted with them because the UIA bridge's COM
-       interfaces are reached the same way. -->
-  <ItemGroup Condition="'$(Trim)' == 'true'">
+       cost is ~0.13 MB. NativeAOT trims the same way and lost the same backends, so the roots
+       apply to it too. -->
+  <ItemGroup Condition="'$(Trim)' == 'true' Or '$(Aot)' == 'true'">
     <TrimmerRootAssembly Include="Silk.NET.Windowing.Glfw" />
     <TrimmerRootAssembly Include="Silk.NET.Input.Glfw" />
     <TrimmerRootAssembly Include="Silk.NET.GLFW" />
     <TrimmerRootAssembly Include="Silk.NET.Windowing.Common" />
     <TrimmerRootAssembly Include="Silk.NET.Input.Common" />
-    <TrimmerRootAssembly Include="CupriFace.Shell" />
   </ItemGroup>
 
   <ItemGroup>

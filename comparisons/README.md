@@ -37,7 +37,7 @@ Flutter 3.47.2, MewUI v0.21.1, Electron 44.2.0. Shared CupriFace figures, re-mea
 **14.2 MB** wasm (5.5 MB gzipped), **~130 MB** idle RSS and **~97 ms** cold start on hardware GL.*
 
 *Three findings from this pass are recorded in the documents rather than smoothed over: the Windows
-UIA bridge **does not initialise under NativeAOT**
+UIA bridge **did not initialise under NativeAOT** — fixed since by moving it to source-generated COM
 ([mewui.md](mewui.md#the-aot-caveat-found-while-measuring)); the download this project shipped was far
 larger than it needed to be, fixed in v0.19.0 ([electron.md](electron.md)); and the idle-memory figure these documents
 carried for a year was measured on the software fallback, so the memory advantage over Electron is

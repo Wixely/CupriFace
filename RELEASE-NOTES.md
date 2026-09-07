@@ -13,6 +13,29 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- **A NativeAOT publish keeps its accessibility bridge and its GPU** (#126). The Windows UIA bridge
+  went through the runtime's built-in COM interop, which the SDK switches off for trimmed apps and
+  NativeAOT does not have at all — so an AOT build opened a window, drew a correct frame, and served
+  no accessibility tree, saying so only on stderr. It now goes through source-generated COM
+  (`[GeneratedComInterface]` / `[GeneratedComClass]` / `[LibraryImport]`), which is ordinary compiled
+  code and needs no runtime feature. The `TrimmerRootAssembly` items that keep Silk.NET's window
+  backends alive under trimming now apply to `-p:Aot=true` as well, so hardware GL comes up too.
+
+  Verified with `tests/UiaSmoke` against the AOT exe — identical to JIT (50 elements, 44 from
+  CupriFace, every pattern) — and by a direct launch taking the SharedGpu lane on a real driver.
+
+  **If you build `samples/Viewer` with `-p:Trim=true` yourself**, `BuiltInComInteropSupport` is no
+  longer set and no longer needed; drop it from any copy you made.
+
+- **The GPU-fallback line says why.** `[CupriFace] GPU unavailable (…)` now carries the exception
+  message, not just its type. A bare type name was misread twice — once as a driverless machine when
+  a test harness was forcing the software path, once as a session limit when the trimmer had removed
+  Silk.NET's backends. That line is the only witness a silent fallback leaves.
+
 ## v0.19.0
 
 ### Added
