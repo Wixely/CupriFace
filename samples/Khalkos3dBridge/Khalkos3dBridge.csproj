@@ -33,9 +33,9 @@
          publishing another package to find out. They are proved now, so this is a version number.
 
          Restoring these needs a token even though the packages are public — see NuGet.config. -->
-    <PackageReference Include="Khalkos3D.Core" Version="0.1.0" />
-    <PackageReference Include="Khalkos3D.Formats" Version="0.1.0" />
-    <PackageReference Include="Khalkos3D.Gl" Version="0.1.0" />
+    <PackageReference Include="Khalkos3D.Core" Version="0.2.2" />
+    <PackageReference Include="Khalkos3D.Formats" Version="0.2.2" />
+    <PackageReference Include="Khalkos3D.Gl" Version="0.2.2" />
 
     <!-- Khalkos3D bundles no image codec on purpose, so a caller supplies one. A CupriFace app
          already has Skia, which is the whole argument for the seam being a delegate. -->

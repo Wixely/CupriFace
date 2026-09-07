@@ -13,6 +13,64 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## v0.19.0
+
+### Added
+
+- **The GL seam is a package: `CupriFace.Gl`.** Hand it something that draws with GL and it acquires
+  the context, sizes the target to the element's device box, keeps the driver in a state Skia
+  survives, and runs on desktop, Android and the browser unchanged. Ordinary UI composites over it at
+  any alpha.
+
+- **The Showcase's 3D is drawn by [Khalkos3D](https://github.com/Wixely/Khalkos3D)**, a separate
+  engine, through about thirty lines of glue — replacing the hand-written sample renderer. The swap
+  is one type name, which is the evidence that the seam is a seam. `samples/Demo3d` stays as the
+  reference the engine was measured against.
+
+- **The standalone downloads are trimmed and compressed.** The win-x64 single file goes from
+  **95.4 MB to 20.8 MB**, and the arm64 APK from 22.1 MB to 19.4 MB — still one self-contained file
+  each, still no .NET install. Nothing to do: the release assets are simply smaller.
+
+- **If you publish `samples/Viewer` yourself**, the flags are `-p:Trim=true
+  -p:EnableCompressionInSingleFile=true`, and `dotnet restore` needs `-p:Trim=true` too if your
+  publish runs `--no-restore`. `Trim` is a project property rather than `-p:PublishTrimmed=true`
+  because on the command line that reaches the netstandard2.0 source generators and fails there
+  (NETSDK1124).
+
+### Fixed
+
+- **The 3D model no longer blurs to a flat colour on a phone** (Khalkos3D 0.2.2). A mip chain was
+  built without anisotropic filtering, and this model's unwrap is a lathe: the `u` gradient around
+  the ring dwarfs `v`, so isotropic mip selection took the worst axis and picked a level far blurrier
+  than the surface deserved. Most of the teapot became its own average colour, which looks exactly
+  like a broken UV map.
+
+  It is minification-dependent, so it was correct on a desktop window and wrong on a phone — found on
+  a real device, against a desktop that had never shown it.
+
+### Note if you trim or AOT your own app
+
+Two things break **silently** under trimming, and both did here before they were fixed. The app still
+opens a window and draws a correct-looking frame, so a smoke test that only asks "did it render"
+passes while the build is materially worse:
+
+- **Hardware GL.** Silk.NET discovers its window backends by scanning for `IWindowPlatform`
+  implementations (IL2104), so the trimmer removes them, bring-up throws
+  `PlatformNotSupportedException`, and `DesktopHost` catches it and drops to the SDL software window.
+  Fixed with `TrimmerRootAssembly` for the Silk.NET backends, at a cost of ~0.13 MB. **Verified by
+  hand, not by CI** — GitHub runners have no GPU, so the desktop GL path cannot be gated there and a
+  future regression would not be caught. The Android device gate covers the GLES path; nothing
+  covers this one.
+- **The UIA accessibility bridge.** It marshals `IRawElementProviderSimple` through built-in COM
+  (IL2050), which the SDK switches off for trimmed apps. Fixed with
+  `BuiltInComInteropSupport=true`, and verified with `tests/UiaSmoke` against the trimmed exe —
+  identical to the untrimmed build.
+
+**A NativeAOT publish still loses both**, and the second one is not fixable with a property: AOT has
+no built-in COM marshalling at all, so the bridge would need porting to source-generated
+ComWrappers. Anything you measure on an AOT build today is measuring the software renderer without a
+screen reader attached. `-p:Aot=true` remains opt-in and is still not run in CI.
+
 ## v0.18.0
 
 ### Added

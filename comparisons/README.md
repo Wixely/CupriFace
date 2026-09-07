@@ -32,14 +32,14 @@ Planned next (no documents yet): Tauri, Blazor Hybrid.
 *All five documents were reviewed in **September 2026** against CupriFace **v0.18.0**, and each
 names the version of the project it compares against: Avalonia 12.1.2, .NET MAUI 10.0.100,
 Flutter 3.47.2, MewUI v0.21.1, Electron 44.2.0. Shared CupriFace figures, re-measured for this pass:
-**818 tests**, **74 `cupri-*` elements**, a **95.4 MB** single-file publish that trimming and bundle
-compression take to **20.8 MB**, a **25.1 MB** NativeAOT publish in 5 files, **21.1 MB** Android APK,
+**818 tests**, **74 `cupri-*` elements**, a **20.8 MB** single-file download from v0.19.0
+(trimmed and compressed; 95.4 MB before that), a **25.1 MB** NativeAOT publish in 5 files, **21.1 MB** Android APK,
 **14.2 MB** wasm (5.5 MB gzipped), **~130 MB** idle RSS and **~97 ms** cold start on hardware GL.*
 
 *Three findings from this pass are recorded in the documents rather than smoothed over: the Windows
 UIA bridge **does not initialise under NativeAOT**
-([mewui.md](mewui.md#the-aot-caveat-found-while-measuring)); the download this project ships is far
-larger than it needs to be ([electron.md](electron.md)); and the idle-memory figure these documents
+([mewui.md](mewui.md#the-aot-caveat-found-while-measuring)); the download this project shipped was far
+larger than it needed to be, fixed in v0.19.0 ([electron.md](electron.md)); and the idle-memory figure these documents
 carried for a year was measured on the software fallback, so the memory advantage over Electron is
 ~2.5–4×, not the order of magnitude previously claimed.*
 

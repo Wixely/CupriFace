@@ -42,7 +42,7 @@ typical-range estimates, not measurements of any one app.*
 | Behaviour language | **C# only** — no JS engine, ever | JavaScript/TypeScript |
 | UI ↔ logic boundary | **None** — the model is a C# object you mutate directly | IPC across a process boundary; `contextIsolation`, preload scripts, serialization |
 | Process model | One process | Main + renderer(s) + GPU + utility; a renderer crash is survivable |
-| Download size | **95.4 MB** as the release command builds it today (self-contained single file, win-x64) — but **20.8 MB** with trimming + bundle compression, still one standalone file, measured and functionally identical | 80–150 MB installer; 100–300 MB installed |
+| Download size | **20.8 MB** — self-contained single file, win-x64, trimmed and bundle-compressed (95.4 MB before, which is what releases up to v0.18.0 shipped) | 80–150 MB installer; 100–300 MB installed |
 | Idle memory | **~130 MB** (measured, steady state, hardware GL) | ~150–200 MB empty; 300–500 MB for a real React app |
 | Cold start to window | **~97 ms** (measured; ~150 ms on a cold self-extract) | typically 1–3 s |
 | Idle CPU | ~0% — repaints only on damage | Compositor/renderer keep working |
@@ -85,8 +85,8 @@ The measured consequences, all from this repository on win-x64, on hardware GL:
 
 | | CupriFace (Showcase) | Typical Electron app |
 |---|---|---|
-| Download, as the release builds it | 95.4 MB (1 file) | 80–150 MB |
-| Download, trimmed + compressed | **20.8 MB** (1 file) | 80–150 MB |
+| Download (v0.19.0 on) | **20.8 MB** (1 file) | 80–150 MB |
+| Download (up to v0.18.0) | 95.4 MB (1 file) | 80–150 MB |
 | Idle RSS | ~130 MB | 300–500 MB |
 | Cold start | ~97 ms | 1–3 s |
 
@@ -95,15 +95,14 @@ much more modest win than this document used to claim — roughly **2.5–4×**,
 order of magnitude. An earlier revision quoted 51 MB, and a later one 64 MB; both
 were measured on the SDL software fallback rather than the GL path a user gets.
 
-**And be careful with the download row**, because it is the one most often quoted
-out of context. The build this project *actually attaches to a release* is in this
-range — the v0.18.0 win-x64 asset is 92 MB, and the same command on current `main`
-builds 95.4 MB — i.e. larger than most Electron installers. The 20.8 MB figure is
-real, measured on that same tree, still a single standalone file, and passes the
-repo's UIA accessibility gate with results identical to the untrimmed build; it
-just needs trimming and bundle compression turned on in the release pipeline,
-which has not happened yet. Until it does, "smaller download than Electron" is
-true of a build you can make and false of the one you can click.
+**The download row was wrong until very recently**, and it is worth saying why,
+because it is the row most often quoted out of context. Every release up to
+v0.18.0 shipped a 95.4 MB single file — *larger* than most Electron installers —
+while this document quoted a NativeAOT figure you had to build yourself. The
+20.8 MB now in the table is what a release actually attaches, from v0.19.0
+onwards: trimmed and bundle-compressed, still one standalone file, and passing
+the repo's UIA accessibility gate with results identical to the untrimmed build.
+The claim and the artefact finally agree.
 
 ## The boundary that disappears
 

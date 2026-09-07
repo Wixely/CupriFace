@@ -15,11 +15,43 @@
          Gated behind an explicit property (the same convention as WebWasm's wasm AOT) so ordinary
          builds never need the C++ toolchain — and so the flag lands HERE rather than flowing to the
          netstandard2.0 source generators, which cannot be AOT'd (NETSDK1207).
-         Measured 2026-08 (win-x64, this Showcase app): 23.3 MB self-contained — a 10.6 MB exe plus
-         12.7 MB of Skia/HarfBuzz/SDL/GLFW natives — with a ~56 MB working set and ~310 ms to the
-         first window. -->
+         Re-measured 2026-09 (win-x64, this Showcase app): 25.1 MB self-contained — a 12.3 MB exe
+         plus 12.7 MB of Skia/HarfBuzz/SDL/GLFW natives, in 5 files rather than one.
+         CAVEAT, and the reason the earlier working-set/startup figures here were flattering: this
+         build silently loses BOTH hardware GL and the UIA bridge (see the trimming notes below),
+         so it runs on the SDL software window. The GL loss is the same Silk.NET reflection problem
+         and would want the same rooting; the UIA loss needs ComWrappers and is NOT fixable with a
+         property. Anything measured on this build is measuring the software path. -->
     <PublishAot Condition="'$(Aot)' == 'true'">true</PublishAot>
     <InvariantGlobalization Condition="'$(Aot)' == 'true'">true</InvariantGlobalization>
+
+    <!-- Trimmed + compressed single-file publish, opt-in. Add these to the existing release
+         publish command (which already passes the RID, self-contained and PublishSingleFile):
+             -p:Trim=true -p:EnableCompressionInSingleFile=true
+         Scoped to a property for the SAME reason PublishAot is: on the command line it flows to
+         the netstandard2.0 source generators and fails there (NETSDK1124).
+
+         Measured 2026-09 (win-x64, this Showcase app): the untrimmed single file is 95.4 MB;
+         trimming alone takes it to 33.8 MB and trimming + compression to 20.8 MB. Extraction on
+         disk drops 85.5 MB -> 24.8 MB, first launch (cold extract) is ~150 ms and later launches
+         ~97 ms, so the compression costs nothing noticeable.
+
+         Two things break under trimming unless the properties below come with it, and BOTH fail
+         silently — the app still opens a window and draws, so a smoke test that only checks
+         "did it render" passes while the build is materially worse:
+           - hardware GL (falls back to the SDL software window), fixed by the TrimmerRootAssembly
+             items below;
+           - the UIA accessibility bridge, fixed by BuiltInComInteropSupport.
+         Verified with tests/UiaSmoke against the trimmed exe: identical to the untrimmed build
+         (50 elements, 44 from CupriFace, same passes). -->
+    <PublishTrimmed Condition="'$(Trim)' == 'true'">true</PublishTrimmed>
+
+    <!-- The UIA bridge marshals IRawElementProviderSimple through built-in COM (IL2050), which the
+         SDK switches OFF for trimmed apps — the bridge then dies with a TypeLoadException that
+         DesktopHost catches and reports before continuing without accessibility. This switches it
+         back on. It does NOT help a NativeAOT publish, where built-in COM marshalling is absent
+         outright; that needs the bridge ported to source-generated ComWrappers. -->
+    <BuiltInComInteropSupport Condition="'$(Trim)' == 'true'">true</BuiltInComInteropSupport>
 
     <!-- REQUIRED whenever this app is published with PublishSingleFile.
          Silk.NET finds SDL2/GLFW through DependencyContext and Assembly.Location, and BOTH are dead
@@ -30,6 +62,21 @@
          again. Costs a one-off ~6 s extraction on the very first launch; later runs are ~1.5 s. -->
     <IncludeAllContentForSelfExtract Condition="'$(PublishSingleFile)' == 'true'">true</IncludeAllContentForSelfExtract>
   </PropertyGroup>
+
+  <!-- Silk.NET 2.x discovers its window/input backends by scanning for IWindowPlatform
+       implementations, so the trimmer removes them (IL2104) and bring-up fails with
+       PlatformNotSupportedException — which DesktopHost catches, silently dropping to the SDL
+       software window. Rooting the backend assemblies keeps those reflection targets alive; the
+       cost is ~0.13 MB. CupriFace.Shell is rooted with them because the UIA bridge's COM
+       interfaces are reached the same way. -->
+  <ItemGroup Condition="'$(Trim)' == 'true'">
+    <TrimmerRootAssembly Include="Silk.NET.Windowing.Glfw" />
+    <TrimmerRootAssembly Include="Silk.NET.Input.Glfw" />
+    <TrimmerRootAssembly Include="Silk.NET.GLFW" />
+    <TrimmerRootAssembly Include="Silk.NET.Windowing.Common" />
+    <TrimmerRootAssembly Include="Silk.NET.Input.Common" />
+    <TrimmerRootAssembly Include="CupriFace.Shell" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\CupriFace.Shell\CupriFace.Shell.csproj" />
