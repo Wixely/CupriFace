@@ -21,23 +21,45 @@
     },
     {
       // The optional Lottie package running on the NativeAOT-LLVM web host. Its own port so it can
-      // sit alongside the plain WebLlvm sample rather than fighting it for 5230.
+      // sit alongside the plain WebLlvm sample rather than fighting it for 5231.
+      //
+      // Runs the server itself and lets serverReadyAction open the system browser, for the same
+      // reason as the plain LLVM entry below — see the comment there.
       "name": "Web (NativeAOT-LLVM) — Lottie",
-      "type": "msedge",
+      "type": "node-terminal",
       "request": "launch",
-      "url": "http://127.0.0.1:5231",
-      "webRoot": "${workspaceFolder}/samples/WebLlvmLottie/bin/Release/net10.0/browser-wasm/publish",
-      "preLaunchTask": "serve-webllvmlottie",
-      "browserAttachLocation": "workspace"
+      "cwd": "${workspaceFolder}",
+      "command": "dotnet run --project tools/Serve -- \"${workspaceFolder}/samples/WebLlvmLottie/bin/Release/net10.0/browser-wasm/publish\" 5231",
+      "preLaunchTask": "publish-webllvmlottie",
+      "serverReadyAction": {
+        "pattern": "on (http://\\S+)",
+        "uriFormat": "%s",
+        "action": "openExternally"
+      }
     },
     {
+      // NOT an msedge launch, deliberately, and it has been one twice by accident.
+      //
+      // The Edge debug adapter fails here with "Unable to launch browser: Unable to attach to
+      // browser" — and attaching a debugger buys nothing on this host anyway: the engine is
+      // NativeAOT-compiled to wasm, so there is no managed debugging, and the loader is minified.
+      // f966ef7 established that in August; fc4c64a then removed the serve.mjs that fix ran and
+      // this config silently went back to msedge, taking the bug with it.
+      //
+      // So: run the server ourselves and let serverReadyAction open the system browser on the URL
+      // the server prints. preLaunchTask only PUBLISHES — the serve-webllvm task stays for CLI use,
+      // and running it here too would start a second server on the same port.
       "name": "Web (NativeAOT-LLVM, experimental) — browser",
-      "type": "msedge",
+      "type": "node-terminal",
       "request": "launch",
-      "url": "http://127.0.0.1:5230",
-      "webRoot": "${workspaceFolder}/samples/WebLlvm/bin/Release/net10.0/browser-wasm/publish",
-      "preLaunchTask": "serve-webllvm",
-      "browserAttachLocation": "workspace"
+      "cwd": "${workspaceFolder}",
+      "command": "dotnet run --project tools/Serve -- \"${workspaceFolder}/samples/WebLlvm/bin/Release/net10.0/browser-wasm/publish\" 5230",
+      "preLaunchTask": "publish-webllvm",
+      "serverReadyAction": {
+        "pattern": "on (http://\\S+)",
+        "uriFormat": "%s",
+        "action": "openExternally"
+      }
     },
     {
       "name": "Web — Blazor WASM (browser + debug)",
