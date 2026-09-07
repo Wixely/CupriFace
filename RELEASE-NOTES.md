@@ -36,6 +36,38 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   a test harness was forcing the software path, once as a session limit when the trimmer had removed
   Silk.NET's backends. That line is the only witness a silent fallback leaves.
 
+- **A screen reader gets the web host's accessibility tree without anyone clicking first.** The ARIA
+  mirror was published only on a settled frame, and the frame after the last animated one was never
+  painted — so on a page that animates from load the mirror stayed empty until the first input.
+  Measured: zero nodes 20 s after boot, 45 nodes 109 ms after a click. It now publishes on the
+  settled frame and once a second while animating.
+
+- **The mirror carries what the tree carries.** Scrolled-away content is `aria-hidden` (the desktop
+  bridge already reported `IsOffscreen`), a field's text content is its value rather than its name,
+  and `data-automation-id` is emitted. The `tabindex` attributes are gone: the engine owns Tab and
+  stops the browser's default, so a tab stop in the mirror was unreachable — measured — and said
+  otherwise. **It is still read-only**: an AT can read a control but not operate it, and it has no
+  geometry. That is the next piece of work: #133.
+
+- **An empty field no longer reports its placeholder as its value — on every bridge.** The tree took
+  a field's value from its rendered text, and an empty field renders its placeholder in the same box;
+  UIA's `IValueProvider.Value` was wrong in the same way, so this was found on the web and fixed for
+  all five. The mirror-image fault is fixed too: a field's **name** was its typed text (a picker's,
+  the date it held), which told a screen reader nothing about what the control was for. A field is
+  now named by `aria-label`, else its placeholder, else nothing — **so label your fields**: a
+  `cupri-number` or a picker with neither is nameless, and the gates say so.
+
+- **The pagination arrows have names** ("Previous page", "Next page"), from the component. Two
+  nameless buttons on every page that used it, on every bridge.
+
+### Gates
+
+- **The web host has an accessibility gate** (`tests/WebTouchGate/A11yTests.cs`), the first of the
+  five bridges' gates to be missing. It asserts through Chromium's own accessibility tree — the tree a
+  screen reader reads — with no prior input: the mirror is populated on arrival, controls resolve by
+  role and name, every interactive node has a name, fields read values not placeholders, offscreen
+  content is hidden, and Tab stays with the engine.
+
 ## v0.19.0
 
 ### Added

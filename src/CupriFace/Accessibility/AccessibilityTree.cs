@@ -243,8 +243,10 @@ public static class AccessibilityTree
                 break;
             case "textbox" or "combobox":
                 // The rendered text IS the live value (the per-keystroke rebuild writes the edit
-                // buffer into the DOM, masked for passwords — so this never leaks one).
-                var text = CollectText(render).Trim();
+                // buffer into the DOM, masked for passwords — so this never leaks one) — minus the
+                // placeholder, which an EMPTY field renders in the same box. Without that exclusion
+                // an empty field reported its placeholder as its value, to every bridge at once.
+                var text = CollectText(render, skipPlaceholders: true).Trim();
                 if (text.Length > 0) sem.Value = text;
                 break;
         }
@@ -257,6 +259,17 @@ public static class AccessibilityTree
     {
         var label = el.GetAttribute("aria-label");
         if (label is { Length: > 0 }) return label;
+
+        // A field's rendered text is its VALUE, not its name. Naming a textbox by what was typed
+        // into it, and a picker by the date it happened to hold, told a screen reader nothing about
+        // what the control was FOR. The placeholder is the name a field has when nothing else
+        // names it; a field with neither is nameless, and the gates say so.
+        if (role is "textbox" or "searchbox" or "combobox" or "spinbutton")
+        {
+            var ph = CollectText(render, placeholdersOnly: true).Trim();
+            if (ph.Length > 0) return ph;
+            return el.GetAttribute("placeholder") is { Length: > 0 } attr ? attr : null;
+        }
 
         // CONTAINERS never take their name from descendant text: a virtualised list's "name"
         // would be every materialised row concatenated — twenty rows read aloud on focus, and
@@ -286,11 +299,26 @@ public static class AccessibilityTree
     private static bool IsLabelable(IElement el) =>
         el.GetAttribute("role") is "switch" or "checkbox" or "radio";
 
-    private static string CollectText(RenderNode n)
+    // Every field renders its placeholder in an element whose class ends in "-ph" (cupri-tf-ph,
+    // cupri-ta-ph, cupri-tag-ph, cupri-dp-ph, cupri-color-ph): one convention, so one test.
+    private static bool IsPlaceholder(RenderNode n)
     {
-        if (n.IsText) return (n.Text ?? "") + " ";
+        if (n.Element is not { } el) return false;
+        foreach (var cls in el.ClassList)
+            if (cls.EndsWith("-ph", StringComparison.Ordinal)) return true;
+        return false;
+    }
+
+    private static string CollectText(RenderNode n, bool skipPlaceholders = false, bool placeholdersOnly = false)
+    {
+        if (IsPlaceholder(n))
+        {
+            if (skipPlaceholders) return "";
+            if (placeholdersOnly) return CollectText(n);   // inside one: take all of it
+        }
+        if (n.IsText) return placeholdersOnly ? "" : (n.Text ?? "") + " ";
         var sb = new StringBuilder();
-        foreach (var c in n.Children) sb.Append(CollectText(c));
+        foreach (var c in n.Children) sb.Append(CollectText(c, skipPlaceholders, placeholdersOnly));
         return sb.ToString();
     }
 

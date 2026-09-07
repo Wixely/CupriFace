@@ -46,7 +46,10 @@ public class AccessibilityTests
         Assert.Contains("aria-valuenow=\"60\"", aria);          // slider value/range
         Assert.Contains("aria-valuemin=\"0\"", aria);
         Assert.Contains("aria-valuemax=\"100\"", aria);
-        Assert.Contains("tabindex=\"0\"", aria);                // focusable controls are reachable
+        // No tab stops, on purpose: the web host owns Tab and stops the browser's default, so a
+        // tabindex in the mirror was a claim about reachability that was never true (measured:
+        // focus never left the keyboard textarea). Screen readers walk the mirror by role.
+        Assert.DoesNotContain("tabindex", aria);
     }
 
     [Fact]
@@ -60,6 +63,36 @@ public class AccessibilityTests
         t.Doc.Refresh();
         Assert.Contains("aria-checked=\"true\"", t.Doc.BuildAriaHtml(400, 300));
     }
+
+    [Fact]
+    public void Aria_html_reads_a_field_value_not_its_placeholder()
+    {
+        // A value-bearing role's text content is its accessible VALUE. It used to be the name, so an
+        // empty field read its own placeholder back as though that had been typed.
+        var html = "<body><cupri-textfield placeholder=\"Type your name…\" value=\"{{Name}}\"></cupri-textfield></body>";
+        using var filled = new TestDoc(html, "", new Person { Name = "Ada" }, components: true);
+        var aria = filled.Doc.BuildAriaHtml(400, 300);
+        Assert.Contains("role=\"textbox\"", aria);
+        Assert.Contains(">Ada<", aria);
+
+        using var empty = new TestDoc(html, "", new Person { Name = "" }, components: true);
+        var ariaEmpty = empty.Doc.BuildAriaHtml(400, 300);
+        Assert.DoesNotContain(">Type your name…<", ariaEmpty);   // the placeholder is the NAME, not the value
+    }
+
+    [Fact]
+    public void Aria_html_hides_content_scrolled_out_of_view()
+    {
+        // The desktop bridge reports IsOffscreen so Narrator skips the control; the mirror says the
+        // same thing with aria-hidden, instead of reading a whole scrolled document as if visible.
+        var html = "<body><cupri-button>Top</cupri-button><div style=\"height:2000px\"></div><cupri-button>Below</cupri-button></body>";
+        using var t = new TestDoc(html, "", new Model(), components: true, width: 400, height: 300);
+        var aria = t.Doc.BuildAriaHtml(400, 300);
+        Assert.Contains("aria-label=\"Below\" aria-hidden=\"true\"", aria);
+        Assert.DoesNotContain("aria-label=\"Top\" aria-hidden", aria);
+    }
+
+    private sealed class Person { public string Name { get; set; } = ""; }
 
     // ---- The additions that carry the desktop AT bridges (UIA first): identity, focus, ---------
     // ---- actions, and bounds that are true on screen rather than true before scrolling. --------
