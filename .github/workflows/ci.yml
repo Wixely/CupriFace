@@ -146,18 +146,28 @@ jobs:
           }
           apt libfontconfig1 xvfb at-spi2-core dbus-x11 python3-gi gir1.2-atspi-2.0 > /dev/null
 
+      # Trim=true here too: the publish below runs --no-restore, and a restore that did not know
+      # the app would be trimmed does not resolve the ILLink package the trimmer needs.
       - name: Restore
-        run: dotnet restore samples/Viewer/Viewer.csproj -r ${{ matrix.rid }}
+        run: dotnet restore samples/Viewer/Viewer.csproj -r ${{ matrix.rid }} -p:Trim=true
 
       # Standalone single executable: self-contained (no .NET install on the target) and one file.
       # IncludeAllContentForSelfExtract comes from the csproj and is load-bearing — see the comment
       # there; without it this exe builds and then crashes on launch.
       # NativeAOT (-p:Aot=true) is deliberately not used: it needs a C++ toolchain, and Skia/SDL
       # stay separate shared libraries, so it is smaller but NOT a single file.
+      #
+      # Trim=true + compression: 95.4 MB -> 20.8 MB on win-x64, still one file. Trim is a property
+      # rather than -p:PublishTrimmed because on the command line it reaches the netstandard2.0
+      # source generators and fails there (NETSDK1124) — see the csproj, which also carries the
+      # TrimmerRootAssembly and BuiltInComInteropSupport that keep hardware GL and the UIA bridge
+      # working. Both break SILENTLY under trimming: the app still opens a window and draws, so the
+      # smoke test below cannot catch either. The UIA gate is what actually covers the second one.
       - name: Publish standalone
         run: >
           dotnet publish samples/Viewer/Viewer.csproj -c Release -r ${{ matrix.rid }}
-          --self-contained -p:PublishSingleFile=true --no-restore -o publish/${{ matrix.rid }}
+          --self-contained -p:PublishSingleFile=true -p:Trim=true
+          -p:EnableCompressionInSingleFile=true --no-restore -o publish/${{ matrix.rid }}
 
       # A publish that links is not a publish that runs: the single-file bundle broke Silk.NET's
       # native lookup and only showed it at startup. Launch the real exe, give it time to unpack
@@ -509,8 +519,13 @@ jobs:
           # distinguishes one APK from the next.
           VER=""
           case "$GITHUB_REF_NAME" in v[0-9]*) VER="-p:Version=${GITHUB_REF_NAME#v}" ;; esac
-          dotnet publish samples/AndroidViewer/AndroidViewer.csproj -c Release -r android-x64 -o out/x64 $VER
-          dotnet publish samples/AndroidViewer/AndroidViewer.csproj -c Release -r android-arm64 -o out/arm64 $VER
+          # AndroidLinkMode=Full trims the app's own assemblies as well as the SDK, which Release
+          # already trimmed (SdkOnly). 22.1 MB -> 19.4 MB on arm64. Unlike the desktop, nothing
+          # regressed: the a11y tree, the GLES lane and the 3D gate below are identical either way,
+          # checked against an untrimmed control on the same emulator before this was turned on.
+          TRIM="-p:AndroidLinkMode=Full -p:TrimMode=full"
+          dotnet publish samples/AndroidViewer/AndroidViewer.csproj -c Release -r android-x64 -o out/x64 $VER $TRIM
+          dotnet publish samples/AndroidViewer/AndroidViewer.csproj -c Release -r android-arm64 -o out/arm64 $VER $TRIM
           # The Lottie sample, x64 only: it exists to be DRIVEN on the emulator at the end of this
           # job, not to be shipped, and the emulator is x64. Published under out/ so the
           # desktop-native check below sweeps it too, for free.
