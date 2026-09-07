@@ -169,6 +169,32 @@ jobs:
           --self-contained -p:PublishSingleFile=true -p:Trim=true
           -p:EnableCompressionInSingleFile=true --no-restore -o publish/${{ matrix.rid }}
 
+      # Silk.NET finds its window backends by scanning for IWindowPlatform implementations, so the
+      # trimmer removes them (IL2104) unless they are rooted — and then bring-up throws
+      # PlatformNotSupportedException, DesktopHost catches it, and the app runs on the SDL SOFTWARE
+      # window having said so only in a log line nobody reads. It still opens a window and draws a
+      # correct frame, so the smoke test below cannot tell the two apart, and runners have no GPU
+      # so no runtime check can either.
+      #
+      # Assert on the POST-TRIM assembly set instead. It needs no GPU and it tests the actual
+      # failure rather than a symptom: measured on win-x64, with the roots all nine Silk.NET
+      # assemblies survive; without them the trimmer deletes exactly these three.
+      - name: The trimmer kept the GL backends
+        shell: bash
+        run: |
+          linked="samples/Viewer/obj/Release/net10.0/${{ matrix.rid }}/linked"
+          if [ ! -d "$linked" ]; then
+            echo "::error::no trimmed assembly set at $linked - did the publish stop trimming?"
+            exit 1
+          fi
+          for a in Silk.NET.Windowing.Glfw Silk.NET.Input.Glfw Silk.NET.GLFW; do
+            if [ ! -f "$linked/$a.dll" ]; then
+              echo "::error::the trimmer removed $a - hardware GL would fall back to the SDL software window, silently. Root it in samples/Viewer/Viewer.csproj."
+              exit 1
+            fi
+          done
+          echo "GL backends survived trimming ($(ls "$linked" | grep -c '^Silk\.NET') Silk.NET assemblies linked)"
+
       # A publish that links is not a publish that runs: the single-file bundle broke Silk.NET's
       # native lookup and only showed it at startup. Launch the real exe, give it time to unpack
       # and open a window, and fail if it died.
@@ -747,16 +773,45 @@ jobs:
           test $(( SETTLED - START )) -gt 50 || fail "coast $(( SETTLED - START ))dp - the integrator barely ran"
 
           # --- the soft keyboard follows focus ---------------------------------------------------
+          # This was a single tap, a fixed `sleep 3` and one dumpsys read, and it was the only
+          # assertion in this gate with no tolerance for a dropped tap. v0.19.0's TAG build died
+          # here: the app's own log shows the field tap never arrived at all, seconds after a fling
+          # that coasted 422dp. The release job is downstream of this one, so nothing published
+          # until a re-run went green with no code change.
+          #
+          # So retry DELIVERY the way the switch taps do, and POLL for the IME rather than assuming
+          # three seconds is enough - the input-method service is slow and contended on a loaded
+          # runner. The assertions are unchanged: the keyboard must appear on focus, and must go
+          # away on blur.
+          ime_shown() { adb shell dumpsys input_method | grep -qE "mInputShown=true|isInputViewShown=true"; }
+          # await_ime shown|hidden [seconds] - returns as soon as the state is reached.
+          await_ime() {
+            local want=$1 limit=${2:-10} i=0
+            while [ "$i" -lt "$limit" ]; do
+              if [ "$want" = shown ]; then
+                if ime_shown; then return 0; fi
+              else
+                if ! ime_shown; then return 0; fi
+              fi
+              sleep 1; i=$(( i + 1 ))
+            done
+            return 1
+          }
+
           nav 2   # Form
-          tap $(( DPW / 2 )) 109
-          sleep 3
-          adb shell dumpsys input_method | grep -qE "mInputShown=true|isInputViewShown=true" \
-            || fail "soft keyboard did not appear on field focus"
+          KB=0
+          for i in 1 2 3; do
+            tap $(( DPW / 2 )) 109
+            if await_ime shown 10; then KB=1; break; fi
+            echo "field tap not delivered, or the IME did not come up within 10s (attempt $i)"
+          done
+          # A tap that landed nowhere is likelier to be a restart than an engine fault, and a
+          # restart names itself - check that before the assert gets to accuse the keyboard.
+          restart_guard
+          [ "$KB" = 1 ] || fail "soft keyboard did not appear on field focus"
+
           adb shell input keyevent 111   # Escape -> the engine blurs the field
-          sleep 3
-          if adb shell dumpsys input_method | grep -qE "mInputShown=true|isInputViewShown=true"; then
-            fail "soft keyboard did not hide on blur"
-          fi
+          await_ime hidden 10 || fail "soft keyboard did not hide on blur"
 
           # --- two fingers: the one platform claim that never had a gate --------------------------
           # `adb shell input` is single-pointer, which is why this seam had no gate while every
