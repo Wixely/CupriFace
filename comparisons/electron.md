@@ -17,11 +17,20 @@ isn't; VS Code, Figma, Slack, Discord and Obsidian are proof. The question is:
 **what do you lose when you keep HTML and CSS but delete the browser, and when
 is that trade worth making?**
 
-*Version note: Electron statements were checked in August 2026 against Electron
-41 (Chromium 146, Node 24 LTS), an 8-week major-release cadence, and a support
-policy covering the latest three stable majors. CupriFace statements were
-re-checked against this repository in August 2026, after the Android host
-landed.*
+*Version note: Electron statements were checked in September 2026 against
+**Electron 44.2.0** (Chromium 152, Node 24.20.0 LTS), an 8-week major-release
+cadence, and a support policy covering the latest three stable majors — Electron
+went 41 → 44 in the time this document sat unrevised, which is the cadence row
+demonstrating itself. CupriFace statements come from this repository at
+**v0.18.0**.*
+
+*Measurement note: CupriFace's win-x64 figures below were measured for this
+revision on the **shipped self-contained single-file build**, running on hardware
+GL (NVIDIA GTX 1060). An earlier pass took them from the NativeAOT build and got
+a much lower memory number — because that build silently falls back to the SDL
+software window, so it was measuring the software path. Read every figure here as
+the GL path, which is what a user actually gets. Electron's figures remain
+typical-range estimates, not measurements of any one app.*
 
 ## At a glance
 
@@ -29,27 +38,27 @@ landed.*
 |---|---|---|
 | What ships | Managed .NET engine + Skia | **Chromium + Node.js + V8**, entire |
 | Authoring | HTML + CSS + a C# model | HTML + CSS + JavaScript/TypeScript |
-| CSS support | A real but **documented subset** | **All of it** — whatever Chromium 146 does |
+| CSS support | A real but **documented subset** | **All of it** — whatever Chromium 152 does |
 | Behaviour language | **C# only** — no JS engine, ever | JavaScript/TypeScript |
 | UI ↔ logic boundary | **None** — the model is a C# object you mutate directly | IPC across a process boundary; `contextIsolation`, preload scripts, serialization |
 | Process model | One process | Main + renderer(s) + GPU + utility; a renderer crash is survivable |
-| Download size | **23.3 MB** (measured, NativeAOT, full Showcase app) | 80–150 MB installer; 100–300 MB installed |
-| Idle memory | **51 MB** (measured, steady state) | ~150–200 MB empty; 300–500 MB for a real React app |
-| Cold start to window | **~310 ms** (measured, median of 4) | typically 1–3 s |
+| Download size | **95.4 MB** as the release command builds it today (self-contained single file, win-x64) — but **20.8 MB** with trimming + bundle compression, still one standalone file, measured and functionally identical | 80–150 MB installer; 100–300 MB installed |
+| Idle memory | **~130 MB** (measured, steady state, hardware GL) | ~150–200 MB empty; 300–500 MB for a real React app |
+| Cold start to window | **~97 ms** (measured; ~150 ms on a cold self-extract) | typically 1–3 s |
 | Idle CPU | ~0% — repaints only on damage | Compositor/renderer keep working |
 | Dependencies | 4 MIT packages (Skia, HarfBuzz, Silk.NET, AngleSharp) | Chromium + Node + your npm tree |
 | Security surface | Small; no JS engine, no remote-code path, no npm | Chromium + V8 + Node + every transitive npm package |
 | Security cadence | Patch when you choose | **Track Electron's 8-week majors**; only latest 3 supported |
 | DevTools | None | **The best UI debugging tooling that exists** |
 | Ecosystem | .NET/NuGet; no UI component market | npm, React/Vue/Svelte/Tailwind — colossal |
-| Accessibility | ARIA roles built in; **four bridges (UIA, AT-SPI, NSAccessibility, TalkBack), each CI-gated by a real AT client**; real a11y tree on the web host | **Chromium's** — best-in-class on every platform |
+| Accessibility | ARIA roles built in; **four bridges (UIA, AT-SPI, NSAccessibility, TalkBack), each CI-gated by a real AT client**; real a11y tree on the web host. *(UIA does not initialise under NativeAOT — see [mewui.md](mewui.md#the-aot-caveat-found-while-measuring))* | **Chromium's** — best-in-class on every platform |
 | Text / i18n | HarfBuzz shaping; bidi partial; **IME composition** (engine preedit model → Android + both web hosts) | Every script, every input method, flawless |
 | Media | Images; charts drawn by the engine; **WebM video** (browser-decoded on web, VP9+Opus package on desktop) | Video incl. H.264/HEVC, WebRTC, WebGL, WebGPU, PDF, audio |
 | Rendering arbitrary web content | **Cannot** — by design | That's the entire point |
-| Testing | **Headless-first**: 423 tests click/type/fling/pixel-assert, no display | Playwright/Spectron — real browser automation |
+| Testing | **Headless-first**: **818 tests** click/type/fling/pixel-assert, no display | Playwright/Spectron — real browser automation |
 | Embedding | `RenderToPixels` into any RGBA buffer | Electron owns the process |
 | Web deployment | Same app → `<canvas>`, 14.2 MB wasm (5.5 MB gzipped) | It *is* web tech, but Electron itself is desktop-only |
-| Mobile | **Android** — same app class, ~21 MB APK (measured, arm64) | **None** — Electron is desktop-only; phones mean a different stack entirely |
+| Mobile | **Android** — same app class, **21.1 MB** APK (the v0.18.0 release asset, arm64) | **None** — Electron is desktop-only; phones mean a different stack entirely |
 | Touch | Two-axis scrolling, momentum, rubber band, multi-touch capture — built into the engine | Chromium's, i.e. the web platform's, which is the standard everything else is measured against |
 | Track record | Young, pre-1.0 | A decade; some of the most-used desktop software on earth |
 
@@ -70,18 +79,31 @@ which you are not in.
 CupriFace's bet is that if you delete the assumption of untrusted code, most of
 the weight goes with it. What remains — parse HTML, resolve a CSS cascade, lay
 out boxes, shape text, paint with Skia — is a solvable amount of engineering,
-and it fits in a 23 MB download and 51 MB of RAM.
+and it fits in a 21 MB download and about 130 MB of RAM.
 
-The measured consequences, all from this repository on win-x64:
+The measured consequences, all from this repository on win-x64, on hardware GL:
 
 | | CupriFace (Showcase) | Typical Electron app |
 |---|---|---|
-| Download | 23.3 MB | 80–150 MB |
-| Idle RSS | 51 MB | 300–500 MB |
-| Cold start | ~310 ms | 1–3 s |
+| Download, as the release builds it | 95.4 MB (1 file) | 80–150 MB |
+| Download, trimmed + compressed | **20.8 MB** (1 file) | 80–150 MB |
+| Idle RSS | ~130 MB | 300–500 MB |
+| Cold start | ~97 ms | 1–3 s |
 
-That is roughly **an order of magnitude of memory** and **5–10× of start-up**,
-for an app with a comparable amount of UI on screen.
+Start-up is the lopsided row: **10–30× faster to a window**. Memory is a real but
+much more modest win than this document used to claim — roughly **2.5–4×**, not an
+order of magnitude. An earlier revision quoted 51 MB, and a later one 64 MB; both
+were measured on the SDL software fallback rather than the GL path a user gets.
+
+**And be careful with the download row**, because it is the one most often quoted
+out of context. The build this project *actually attaches to a release* is in this
+range — the v0.18.0 win-x64 asset is 92 MB, and the same command on current `main`
+builds 95.4 MB — i.e. larger than most Electron installers. The 20.8 MB figure is
+real, measured on that same tree, still a single standalone file, and passes the
+repo's UIA accessibility gate with results identical to the untrimmed build; it
+just needs trimming and bundle compression turned on in the release pipeline,
+which has not happened yet. Until it does, "smaller download than Electron" is
+true of a build you can make and false of the one you can click.
 
 ## The boundary that disappears
 
@@ -154,7 +176,7 @@ This is the section that decides most projects, and it is long on purpose.
   in CupriFace that simply don't exist in Electron.
 - **The npm ecosystem.** React, Vue, Svelte, Tailwind, a component library for
   every problem, and an answer on Stack Overflow for everything. CupriFace has
-  69 built-in elements and NuGet. This gap is enormous and will not close.
+  74 built-in elements and NuGet. This gap is enormous and will not close.
 - **DevTools.** Element inspection, live style editing, the network panel, the
   profiler, breakpoints in your UI code. It is the single best UI development
   experience in software, and CupriFace has no equivalent — its answer is
@@ -242,8 +264,8 @@ that is not just acceptable, it is obviously correct — which is exactly why
 Electron won.
 
 CupriFace's trade is the mirror image: **give up the web platform's completeness
-and its ecosystem, keep HTML and CSS as the authoring model, and get a 23 MB,
-51 MB-resident, 310 ms-cold-start application that is C# all the way down.**
+and its ecosystem, keep HTML and CSS as the authoring model, and get a ~21 MB,
+130 MB-resident, ~100 ms-cold-start application that is C# all the way down.**
 
 The deciding question is usually not about size at all. It's this: **is the web
 platform load-bearing in your product, or is HTML/CSS just how you'd prefer to
