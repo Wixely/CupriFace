@@ -798,6 +798,15 @@ jobs:
             return 1
           }
 
+          # The keyboard SHRINKS the view, and on dismissal grows it back a beat AFTER the IME flag
+          # clears. A tap sent into that resize is dropped: run 34129397451 sent the next nav tap
+          # 0.17s after the last relayout and the app never logged a pointer-down for it, so every
+          # assert after that was measuring the wrong page. The old fixed sleep hid this by luck.
+          # Remember the settled height now and wait for it to come back after blur.
+          view_h() { adb logcat -d -s cupri:I | grep "view origin" | tail -1 | grep -oE 'size [0-9]+x[0-9]+' | grep -oE '[0-9]+$' || true; }
+          H0=$(view_h)
+          [ -n "$H0" ] || fail "no view geometry in the log before the keyboard step"
+
           nav 2   # Form
           KB=0
           for i in 1 2 3; do
@@ -812,6 +821,10 @@ jobs:
 
           adb shell input keyevent 111   # Escape -> the engine blurs the field
           await_ime hidden 10 || fail "soft keyboard did not hide on blur"
+          i=0
+          until [ "$(view_h)" = "$H0" ] || [ "$i" -ge 10 ]; do sleep 1; i=$(( i + 1 )); done
+          [ "$(view_h)" = "$H0" ] || fail "the view did not return to its pre-keyboard height (${H0}px) within 10s of blur"
+          sleep 1   # the insets animation is not in the layout log; one beat for it to finish
 
           # --- two fingers: the one platform claim that never had a gate --------------------------
           # `adb shell input` is single-pointer, which is why this seam had no gate while every
