@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices.Marshalling;
 using System.Runtime.Versioning;
 using CupriFace.Accessibility;
 
@@ -9,30 +10,36 @@ namespace CupriFace.Shell.Accessibility;
 // action is POSTED to the UI thread — no UIA thread ever touches the live document. A path that
 // no longer resolves (the control disappeared in a rebuild) degrades to empty answers, which
 // UIA clients handle as "element gone".
+//
+// [GeneratedComClass] is what makes these reachable from native code without the runtime's
+// built-in COM support: the generator emits the vtables at compile time, so the same objects
+// work JIT, trimmed and under NativeAOT. IComUnknown is implemented so a provider can be handed
+// out as a bare IUnknown (GetPatternProvider, selection arrays) with a single COM identity.
 
 /// <summary>The fragment root: represents the window's whole content (the "document" node).</summary>
 [SupportedOSPlatform("windows")]
-internal sealed class UiaRootProvider :
-    IRawElementProviderSimple, IRawElementProviderFragment, IRawElementProviderFragmentRoot
+[GeneratedComClass]
+internal sealed partial class UiaRootProvider :
+    IComUnknown, IRawElementProviderSimple, IRawElementProviderFragment, IRawElementProviderFragmentRoot
 {
     private readonly UiaBridge _bridge;
     public UiaRootProvider(UiaBridge bridge) => _bridge = bridge;
 
-    public ProviderOptions ProviderOptions =>
+    public ProviderOptions GetProviderOptions() =>
         ProviderOptions.ServerSideProvider | ProviderOptions.UseComThreading;
 
-    public object? GetPatternProvider(int patternId) => null;
+    public IComUnknown? GetPatternProvider(int patternId) => null;
 
-    public object? GetPropertyValue(int propertyId) => propertyId switch
+    public Variant GetPropertyValue(int propertyId) => propertyId switch
     {
-        UiaIds.ControlTypeProperty => UiaIds.Pane,
-        UiaIds.FrameworkIdProperty => "CupriFace",
-        UiaIds.IsControlElementProperty => true,
-        UiaIds.IsContentElementProperty => false,   // the window itself is chrome, not content
-        _ => null,                                  // everything else comes from the HWND host
+        UiaIds.ControlTypeProperty => Variant.From(UiaIds.Pane),
+        UiaIds.FrameworkIdProperty => Variant.From("CupriFace"),
+        UiaIds.IsControlElementProperty => Variant.From(true),
+        UiaIds.IsContentElementProperty => Variant.From(false),   // the window itself is chrome, not content
+        _ => Variant.Empty,                                       // everything else comes from the HWND host
     };
 
-    public IRawElementProviderSimple? HostRawElementProvider => _bridge.HostProvider;
+    public IRawElementProviderSimple? GetHostRawElementProvider() => _bridge.HostProvider;
 
     public IRawElementProviderFragment? Navigate(NavigateDirection direction)
     {
@@ -46,15 +53,15 @@ internal sealed class UiaRootProvider :
         };
     }
 
-    public int[]? GetRuntimeId() => null;   // the host provider supplies the window's id
+    public nint GetRuntimeId() => 0;   // the host provider supplies the window's id
 
-    public UiaRect BoundingRectangle => _bridge.ToScreenRect(_bridge.Current?.Root.Bounds ?? default);
+    public UiaRect GetBoundingRectangle() => _bridge.ToScreenRect(_bridge.Current?.Root.Bounds ?? default);
 
-    public object[]? GetEmbeddedFragmentRoots() => null;
+    public nint GetEmbeddedFragmentRoots() => 0;
 
     public void SetFocus() { /* focusing the window is the OS's business; nothing to do */ }
 
-    public IRawElementProviderFragmentRoot? FragmentRoot => this;
+    public IRawElementProviderFragmentRoot? GetFragmentRoot() => this;
 
     public IRawElementProviderFragment? ElementProviderFromPoint(double x, double y)
     {
@@ -85,8 +92,9 @@ internal sealed class UiaRootProvider :
 /// engine's per-keystroke rebuilds). Implements every pattern; <see cref="GetPatternProvider"/>
 /// gates which ones a given role advertises.</summary>
 [SupportedOSPlatform("windows")]
-internal sealed class UiaNodeProvider :
-    IRawElementProviderSimple, IRawElementProviderFragment,
+[GeneratedComClass]
+internal sealed partial class UiaNodeProvider :
+    IComUnknown, IRawElementProviderSimple, IRawElementProviderFragment,
     IInvokeProvider, IToggleProvider, IRangeValueProvider, IValueProvider,
     ISelectionItemProvider, ISelectionProvider, IExpandCollapseProvider
 {
@@ -108,35 +116,35 @@ internal sealed class UiaNodeProvider :
 
     // ---- IRawElementProviderSimple ----------------------------------------------------------
 
-    public ProviderOptions ProviderOptions =>
+    public ProviderOptions GetProviderOptions() =>
         ProviderOptions.ServerSideProvider | ProviderOptions.UseComThreading;
 
-    public object? GetPatternProvider(int patternId) =>
+    public IComUnknown? GetPatternProvider(int patternId) =>
         Node is { } n && UiaBridge.Supports(patternId, n) ? this : null;
 
-    public object? GetPropertyValue(int propertyId)
+    public Variant GetPropertyValue(int propertyId)
     {
-        if (Node is not { } n) return null;
+        if (Node is not { } n) return Variant.Empty;
         return propertyId switch
         {
-            UiaIds.NameProperty => n.Name,
-            UiaIds.ControlTypeProperty => UiaBridge.ControlTypeOf(n.Role),
-            UiaIds.IsEnabledProperty => !n.Disabled,
-            UiaIds.IsKeyboardFocusableProperty => n.Focusable && !n.Disabled,
-            UiaIds.HasKeyboardFocusProperty => n.Focused,
-            UiaIds.AutomationIdProperty => n.AutomationId,
-            UiaIds.ClassNameProperty => n.Role,
-            UiaIds.FrameworkIdProperty => "CupriFace",
-            UiaIds.IsControlElementProperty => true,
-            UiaIds.IsContentElementProperty => true,
+            UiaIds.NameProperty => Variant.From(n.Name),
+            UiaIds.ControlTypeProperty => Variant.From(UiaBridge.ControlTypeOf(n.Role)),
+            UiaIds.IsEnabledProperty => Variant.From(!n.Disabled),
+            UiaIds.IsKeyboardFocusableProperty => Variant.From(n.Focusable && !n.Disabled),
+            UiaIds.HasKeyboardFocusProperty => Variant.From(n.Focused),
+            UiaIds.AutomationIdProperty => Variant.From(n.AutomationId),
+            UiaIds.ClassNameProperty => Variant.From(n.Role),
+            UiaIds.FrameworkIdProperty => Variant.From("CupriFace"),
+            UiaIds.IsControlElementProperty => Variant.From(true),
+            UiaIds.IsContentElementProperty => Variant.From(true),
             // Scrolled past, or clipped away by an overflow ancestor. Narrator uses this to skip a
             // control rather than read the whole document aloud.
-            UiaIds.IsOffscreenProperty => n.Offscreen,
-            _ => null,
+            UiaIds.IsOffscreenProperty => Variant.From(n.Offscreen),
+            _ => Variant.Empty,
         };
     }
 
-    public IRawElementProviderSimple? HostRawElementProvider => null;
+    public IRawElementProviderSimple? GetHostRawElementProvider() => null;
 
     // ---- IRawElementProviderFragment --------------------------------------------------------
 
@@ -168,16 +176,16 @@ internal sealed class UiaNodeProvider :
         }
     }
 
-    public int[] GetRuntimeId() => new[] { UiaIds.AppendRuntimeId, _runtimeId };
+    public nint GetRuntimeId() => SafeArrays.OfInt32([UiaIds.AppendRuntimeId, _runtimeId]);
 
-    public UiaRect BoundingRectangle =>
+    public UiaRect GetBoundingRectangle() =>
         Node is { } n ? _bridge.ToScreenRect(n.Bounds) : default;
 
-    public object[]? GetEmbeddedFragmentRoots() => null;
+    public nint GetEmbeddedFragmentRoots() => 0;
 
     public void SetFocus() => _bridge.Post(doc => doc.AccessibilityFocus(_path));
 
-    public IRawElementProviderFragmentRoot? FragmentRoot => _bridge.Root;
+    public IRawElementProviderFragmentRoot? GetFragmentRoot() => _bridge.Root;
 
     // ---- Patterns ---------------------------------------------------------------------------
 
@@ -185,7 +193,7 @@ internal sealed class UiaNodeProvider :
 
     public void Toggle() => _bridge.Post(doc => doc.AccessibilityActivate(_path));
 
-    public ToggleState ToggleState => Node?.Checked switch
+    public ToggleState GetToggleState() => Node?.Checked switch
     {
         true => ToggleState.On,
         false => ToggleState.Off,
@@ -198,36 +206,36 @@ internal sealed class UiaNodeProvider :
         _bridge.Post(doc => doc.AccessibilitySetValue(_path, value));
     }
 
-    public double Value => Node?.Now ?? 0;
-    bool IRangeValueProvider.IsReadOnly => Node?.Role is not "slider";
-    public double Maximum => Node?.Max ?? 100;
-    public double Minimum => Node?.Min ?? 0;
-    public double LargeChange => (Maximum - Minimum) / 10;
-    public double SmallChange => 1;
+    double IRangeValueProvider.GetValue() => Node?.Now ?? 0;
+    bool IRangeValueProvider.GetIsReadOnly() => Node?.Role is not "slider";
+    public double GetMaximum() => Node?.Max ?? 100;
+    public double GetMinimum() => Node?.Min ?? 0;
+    public double GetLargeChange() => (GetMaximum() - GetMinimum()) / 10;
+    public double GetSmallChange() => 1;
 
     public void SetValue(string value) => throw new InvalidOperationException(
         "Text is entered through keyboard focus in this version.");   // honest: IsReadOnly says so
 
-    string? IValueProvider.Value => Node?.Value;
-    bool IValueProvider.IsReadOnly => true;
+    string? IValueProvider.GetValue() => Node?.Value;
+    bool IValueProvider.GetIsReadOnly() => true;
 
     public void Select() => _bridge.Post(doc => doc.AccessibilityActivate(_path));
     public void AddToSelection() => _bridge.Post(doc => doc.AccessibilityActivate(_path));
     public void RemoveFromSelection() { /* every selectable here is single-select */ }
-    public bool IsSelected => Node is { } n && (n.Selected ?? n.Checked ?? false);
-    public IRawElementProviderSimple? SelectionContainer =>
+    public bool GetIsSelected() => Node is { } n && (n.Selected ?? n.Checked ?? false);
+    public IRawElementProviderSimple? GetSelectionContainer() =>
         Node?.Parent is { } p && p.Parent is not null ? _bridge.ProviderFor(p) : null;
 
-    public object[]? GetSelection()
+    public nint GetSelection()
     {
-        if (Node is not { } n) return null;
-        var selected = new List<object>();
+        if (Node is not { } n) return 0;
+        var selected = new List<IComUnknown>();
         foreach (var c in n.Children)
             if (c.Selected ?? c.Checked ?? false) selected.Add(_bridge.ProviderFor(c));
-        return selected.Count > 0 ? selected.ToArray() : null;
+        return selected.Count > 0 ? SafeArrays.OfUnknown(selected) : 0;
     }
-    public bool CanSelectMultiple => false;
-    public bool IsSelectionRequired => false;
+    public bool GetCanSelectMultiple() => false;
+    public bool GetIsSelectionRequired() => false;
 
     public void Expand()
     {
@@ -237,7 +245,7 @@ internal sealed class UiaNodeProvider :
     {
         if (Node is { Expanded: true }) _bridge.Post(doc => doc.AccessibilityActivate(_path));
     }
-    public ExpandCollapseState ExpandCollapseState => Node?.Expanded switch
+    public ExpandCollapseState GetExpandCollapseState() => Node?.Expanded switch
     {
         true => ExpandCollapseState.Expanded,
         false => ExpandCollapseState.Collapsed,

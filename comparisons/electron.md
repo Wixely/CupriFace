@@ -51,7 +51,7 @@ typical-range estimates, not measurements of any one app.*
 | Security cadence | Patch when you choose | **Track Electron's 8-week majors**; only latest 3 supported |
 | DevTools | None | **The best UI debugging tooling that exists** |
 | Ecosystem | .NET/NuGet; no UI component market | npm, React/Vue/Svelte/Tailwind — colossal |
-| Accessibility | ARIA roles built in; **four bridges (UIA, AT-SPI, NSAccessibility, TalkBack), each CI-gated by a real AT client**; real a11y tree on the web host. *(UIA does not initialise under NativeAOT — see [mewui.md](mewui.md#the-aot-caveat-found-while-measuring))* | **Chromium's** — best-in-class on every platform |
+| Accessibility | ARIA roles built in; **four bridges (UIA, AT-SPI, NSAccessibility, TalkBack), each CI-gated by a real AT client**; real a11y tree on the web host. *(a NativeAOT build lost this bridge until it moved to source-generated COM — see [mewui.md](mewui.md#the-aot-caveat-found-while-measuring))* | **Chromium's** — best-in-class on every platform |
 | Text / i18n | HarfBuzz shaping; bidi partial; **IME composition** (engine preedit model → Android + both web hosts) | Every script, every input method, flawless |
 | Media | Images; charts drawn by the engine; **WebM video** (browser-decoded on web, VP9+Opus package on desktop) | Video incl. H.264/HEVC, WebRTC, WebGL, WebGPU, PDF, audio |
 | Rendering arbitrary web content | **Cannot** — by design | That's the entire point |

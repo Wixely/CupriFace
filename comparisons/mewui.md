@@ -78,10 +78,10 @@ about the single biggest difference between the two projects:
 | Touch | Two-axis scrolling with momentum and rubber band; multi-touch capture seam | Desktop input (mouse, keyboard); the browser host handles touch and IME on the canvas |
 | Deployment | **20.8 MB** single self-contained file (trimmed + compressed, measured, no runtime install; 95.4 MB untrimmed, which is what releases ship today). NativeAOT is 25.05 MB in 5 files | **The whole point**: single self-contained exe, Hello World **3.17–4.52 MB**, Gallery **7.35–9.24 MB** |
 | Native footprint | Skia (9.16 MB) + HarfBuzz (1.71 MB) + SDL (1.62 MB) + GLFW (0.22 MB) on win-x64, before any app code | Direct2D/GDI ride OS libraries; MewVG is managed — near-zero native payload |
-| AOT posture | Design goal, verified by hand — but **opt-in and explicitly not run in CI**, and both the UIA bridge and hardware GL silently degrade under it | **Non-negotiable design constraint**, validated continuously; `LibraryImport` P/Invoke; DevTools deliberately refuse to ship in a trimmed/AOT build rather than lie |
+| AOT posture | Design goal, verified by hand — **opt-in and explicitly not run in CI**. Both the UIA bridge and hardware GL silently degraded under it until the bridge moved to source-generated COM | **Non-negotiable design constraint**, validated continuously; `LibraryImport` P/Invoke; DevTools deliberately refuse to ship in a trimmed/AOT build rather than lie |
 | Embedding | Core capability: `RenderToPixels` into any RGBA buffer (game texture, canvas, server); `IGpuSurfaceSource` for zero-copy GPU handover | Not a stated goal — the framework hosts the window. (Its `WriteableBitmap` and `WinFormsHost` samples point *inward*: drawing into a MewUI control, hosting WinForms inside MewUI) |
 | Testing | **Headless-first**: engine needs no window; **818 tests** click/type/fling/pixel-assert | Broad and conventional — unit, generator, analyzer, SVG, graphics-backend and benchmark suites, plus a real-window automation suite (`MewUI.WindowAutomationTest`) covering DPI crossing, multi-monitor popups and drag |
-| Accessibility | `role`/`aria-*` in every component; **four bridges — UIA, AT-SPI, NSAccessibility, TalkBack — each CI-gated by a real AT client**; real DOM a11y tree on the web host. *(UIA does not initialise under NativeAOT — see below)* | Focus and tab navigation documented; **no OS accessibility bridge** (no UIA, AT-SPI or NSAccessibility anywhere in the tree) |
+| Accessibility | `role`/`aria-*` in every component; **four bridges — UIA, AT-SPI, NSAccessibility, TalkBack — each CI-gated by a real AT client**; real DOM a11y tree on the web host. *(UIA did not initialise under NativeAOT until the bridge moved to source-generated COM — see below)* | Focus and tab navigation documented; **no OS accessibility bridge** (no UIA, AT-SPI or NSAccessibility anywhere in the tree) |
 | Extras | Charts, kanban, command palette, pickers, Markdown, video, Lottie built in (74 elements) | Thin core + **optional packages**: MewDock (VS-style docking), SVG, Skia, MewCharts, MewvalonEdit (code editor), WebView2 |
 | Dev tooling | Plain text files, any editor; a live diagnostics HUD; no designer, no inspector | **Hot Reload** (no setup), **DevTools** (inspector, visual tree, perf monitor, profiler), **editor preview** as a VS Code extension, plus VS and Rider integrations — a decisive advantage |
 | Getting started | `dotnet run --project samples/Viewer` | Also **one command, no project**: `curl … fba_gallery.cs \| dotnet run -` (file-based app, .NET 10) |
@@ -247,8 +247,16 @@ An honest list, and it got longer:
 
 ## The AOT caveat, found while measuring
 
-Worth its own section because it is new, it was found by writing this document,
-and it cuts against two claims CupriFace makes elsewhere.
+Worth its own section because it was found by writing this document, it cut
+against two claims CupriFace makes elsewhere, and it is now fixed — the finding
+is kept because how it hid is the more useful half.
+
+*Status: fixed after v0.19.0 (#126). The UIA bridge went through the runtime's
+built-in COM interop, which NativeAOT does not have; it now goes through
+source-generated COM, and the Silk.NET roots that keep hardware GL under
+trimming apply to AOT too. Verified with the repo's UIA gate against the AOT
+exe (identical to JIT) and a direct launch taking the GPU lane. What follows is
+the state that shipped in v0.19.0, left as written.*
 
 The NativeAOT Showcase publishes, launches and renders — the frame it produced
 while writing this is the Motion page mid-animation. But it renders on the

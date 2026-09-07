@@ -18,9 +18,10 @@ namespace CupriFace.Shell.Accessibility;
 ///     per-frame tick; each runs through the document's ordinary interaction machinery.
 ///   - Focus changes are detected while publishing (path diff) and raised as UIA focus events.
 ///
-/// This file's callers stay managed: the only native surface is UiaInterop.cs, and attach
-/// failures (COM unavailable — e.g. NativeAOT — or the subclass refused) disable the bridge
-/// rather than the app.
+/// This file's callers stay managed: the only native surface is UiaInterop.cs, which goes through
+/// SOURCE-GENERATED COM rather than the runtime's built-in kind — so the bridge is ordinary code
+/// the compiler can see, and comes up the same JIT, trimmed and under NativeAOT (#126). An attach
+/// failure (the subclass refused, UIA absent) still disables the bridge rather than the app.
 /// </summary>
 [SupportedOSPlatform("windows")]
 internal sealed class UiaBridge
