@@ -32,13 +32,17 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   - Registered faces are keyed by **weight bucket** (100–900), so Light/Regular/Medium/Bold all
     register and CSS's nearest-weight rule picks between them; an italic request with no italic face
     takes the upright one rather than the platform's.
-- **`FontPolicy.RegisteredOnly`** (`doc.FontPolicy`, `CupriApp.FontPolicy`) — for output that must be
-  identical on every machine. A family with no registered face throws `FontNotRegisteredException`
+- **`FontPolicy.RegisteredOnly`** (`doc.FontPolicy`, `CupriApp.FontPolicy`) — for output that must
+  not depend on the machine. A family with no registered face throws `FontNotRegisteredException`
   naming it, an `@font-face` that cannot load is an error at first layout, and glyph fallback for
   characters a face lacks searches the registered faces only, never the platform's. `doc.FontReport`
   lists what every family resolved to (`Registered` / `Platform` / `Default`) and what failed to load;
-  `FontReport.IsDeterministic` is the one-line answer. CI now compares the pixel hash of a page of
-  registered-font text across Windows, Linux and macOS.
+  `FontReport.IsDeterministic` is the one-line answer. What that buys, measured on CI: the same
+  text **lays out identically** on Windows, Linux and macOS (a layout hash is compared across the
+  three), and renders to identical pixels on every machine of one platform — but not across
+  platforms, because Skia's glyph rasteriser is a different one on each (FreeType, DirectWrite,
+  CoreText). A frame renderer gets the same picture wherever it runs on one OS; a pixel test
+  belongs to one OS.
 - **`doc.PendingLoads` / `doc.IsLoaded`** — remote image loads still in flight, so a headless
   renderer can wait for a complete frame instead of one with placeholders in it.
 - **`animation-delay`, `animation-iteration-count`, `animation-fill-mode`**, and the `animation`

@@ -20,10 +20,12 @@ public enum FontSource
 /// <summary>
 /// What a document may resolve a family to. <see cref="Platform"/> is the everyday setting: a
 /// registered face wins, and anything else falls to what the machine has, which is what an app on a
-/// desktop expects. <see cref="RegisteredOnly"/> is the setting for output that must be identical
-/// everywhere — a test image, a rendered frame: a family with no registered face is an error naming
+/// desktop expects. <see cref="RegisteredOnly"/> is the setting for output that must not depend on
+/// the machine — a test image, a rendered frame: a family with no registered face is an error naming
 /// the family, and glyph fallback for missing characters searches the registered faces rather than
-/// the platform's. Nothing about the machine can reach the pixels.
+/// the platform's. Nothing about the machine's FONTS can reach the output; the layout is then the
+/// same on every platform, and the pixels the same on every machine of one platform (Skia's glyph
+/// rasteriser differs between Windows, Linux and macOS, so pixels differ across those).
 /// </summary>
 public enum FontPolicy { Platform, RegisteredOnly }
 

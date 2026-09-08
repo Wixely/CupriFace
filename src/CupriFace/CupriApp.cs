@@ -227,7 +227,7 @@ public abstract class CupriApp
 
     /// <summary>See <see cref="Text.FontPolicy"/>. <see cref="Text.FontPolicy.RegisteredOnly"/> makes
     /// a family with no registered face an error and keeps platform fonts out of glyph fallback —
-    /// the setting for output that must be identical everywhere.</summary>
+    /// the setting for output that must not depend on the machine.</summary>
     public virtual FontPolicy FontPolicy => FontPolicy.Platform;
 
     /// <summary>Build a ready-to-render document — identical on every host.</summary>

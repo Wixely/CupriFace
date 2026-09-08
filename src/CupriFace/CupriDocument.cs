@@ -569,7 +569,8 @@ public sealed partial class CupriDocument : IDisposable
     }
 
     /// <summary>See <see cref="Text.FontPolicy"/>. Set <see cref="Text.FontPolicy.RegisteredOnly"/> for
-    /// output that must be identical on every machine.</summary>
+    /// output that must not depend on the machine (the same layout on every platform; the same
+    /// pixels within one).</summary>
     public FontPolicy FontPolicy
     {
         get => _fonts.Policy;

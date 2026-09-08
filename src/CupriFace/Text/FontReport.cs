@@ -16,7 +16,8 @@ public sealed record FontReport(
     IReadOnlyList<FontFaceProblem> Problems)
 {
     /// <summary>True when every family resolved to a registered face and nothing failed to load —
-    /// the text will be the same everywhere.</summary>
+    /// the text lays out the same on every platform, and renders the same on every machine of one
+    /// platform (Skia's glyph rasteriser differs between Windows, Linux and macOS).</summary>
     public bool IsDeterministic => Problems.Count == 0 && Resolutions.All(r => r.Source == FontSource.Registered);
 
     public override string ToString()

@@ -436,11 +436,14 @@ controls handle their own state.
   `sans-serif`/`system-ui`; `monospace` stays with the platform.
 
   **`FontPolicy.RegisteredOnly`** (`doc.FontPolicy` / `CupriApp.FontPolicy`) is for output that must
-  be identical everywhere — a test image, a rendered frame. A family with no registered face throws
+  not depend on the machine — a test image, a rendered frame. A family with no registered face throws
   `FontNotRegisteredException` naming it, an `@font-face` that fails to load is an error at first
   layout, and glyph fallback for characters a face lacks searches the registered faces only, never
   the platform's emoji font. `doc.FontReport` lists what every family resolved to and what failed;
-  `FontReport.IsDeterministic` is the one-line answer.
+  `FontReport.IsDeterministic` is the one-line answer. What it guarantees: the same layout on every
+  platform, and the same pixels on every machine of one platform. Pixels differ *between* Windows,
+  Linux and macOS — Skia's glyph rasteriser is a different one on each — so a pixel comparison
+  belongs to one OS.
 - **`cursor`.** Sets the pointer shape and **inherits** like normal CSS. Supported keywords: `default`,
   `pointer`, `text`, `wait`, `progress`, `help`, `crosshair`, `move`, `not-allowed`, `grab`, `grabbing`,
   `col-resize`/`ew-resize`, `row-resize`/`ns-resize`, `nwse-resize`, `nesw-resize`, `none` (and `auto` =
