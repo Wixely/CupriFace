@@ -30,4 +30,10 @@
     <ProjectReference Include="..\..\samples\Viewer\Viewer.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The web hosts' Noto faces, registered before capture so the images do not depend on this
+         machine's fonts. -->
+    <None Include="..\..\src\WebFonts\*.ttf" LinkBase="fonts" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

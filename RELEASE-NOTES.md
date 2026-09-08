@@ -15,6 +15,45 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ## Unreleased
 
+### Added
+
+- **Installable fonts.** A document can carry its own faces instead of depending on what the machine
+  has:
+  - `@font-face { font-family: X; src: url(…) format(…); font-weight: 300 700; font-style: italic }`
+    in any stylesheet (app CSS, component CSS, `<style>`). Sources are tried in order; a `url()` takes
+    the same forms an image `src` does (embedded resource, file path, `file:`/`https:` URL, `data:`
+    URI); `local()` is skipped. The declared family, weight (or range) and style are what the cascade
+    matches, overriding the file's own names.
+  - `doc.LoadFont(CupriSource)`, `doc.LoadFont(string src)`, `doc.LoadFonts(directory)` (`.ttf`
+    `.otf` `.ttc` `.woff`), and on an app `override IEnumerable<CupriSource> Fonts` — registered on
+    every document the app creates, before the model binds.
+  - **WOFF 1** is unwrapped in the engine. **WOFF 2** is recognised and refused by name (it needs a
+    Brotli + glyf-transform decoder the engine does not carry yet): convert to TTF/OTF/WOFF 1.
+  - Registered faces are keyed by **weight bucket** (100–900), so Light/Regular/Medium/Bold all
+    register and CSS's nearest-weight rule picks between them; an italic request with no italic face
+    takes the upright one rather than the platform's.
+- **`FontPolicy.RegisteredOnly`** (`doc.FontPolicy`, `CupriApp.FontPolicy`) — for output that must be
+  identical on every machine. A family with no registered face throws `FontNotRegisteredException`
+  naming it, an `@font-face` that cannot load is an error at first layout, and glyph fallback for
+  characters a face lacks searches the registered faces only, never the platform's. `doc.FontReport`
+  lists what every family resolved to (`Registered` / `Platform` / `Default`) and what failed to load;
+  `FontReport.IsDeterministic` is the one-line answer. CI now compares the pixel hash of a page of
+  registered-font text across Windows, Linux and macOS.
+- **`doc.PendingLoads` / `doc.IsLoaded`** — remote image loads still in flight, so a headless
+  renderer can wait for a complete frame instead of one with placeholders in it.
+- **`animation-delay`, `animation-iteration-count`, `animation-fill-mode`**, and the `animation`
+  shorthand reads them (`animation: fade 1s ease 0.5s 2 both`). Timing is a pure function of the
+  document clock — `Animate(t)` at any t, in any order, gives that t's frame — and a finished
+  animation leaves `HasActiveAnimations`, so a host goes idle with it.
+
+### Changed
+
+- **`animation-iteration-count` defaults to `1`, as in CSS.** An animation without `infinite` looped
+  forever before; it now runs once and reverts (or holds its last frame with `forwards`). Add
+  `infinite` to a spinner that relied on the old behaviour — every shipped sample already has it.
+- `tools/Screenshots` registers the web hosts' Noto faces before capture, so `docs/screenshots`
+  shows the document's text rather than the generating machine's sans. The images are regenerated.
+
 ### Fixed
 
 - **A NativeAOT publish keeps its accessibility bridge and its GPU** (#126). The Windows UIA bridge

@@ -8,6 +8,7 @@ using CupriFace.Dom;
 using CupriFace.Interaction;
 using CupriFace.Layout;
 using CupriFace.Paint;
+using CupriFace.Resources;
 using CupriFace.Style;
 using CupriFace.Text;
 using SkiaSharp;
@@ -517,14 +518,120 @@ public sealed partial class CupriDocument : IDisposable
         return this;
     }
 
-    /// <summary>Register a font from raw TTF/OTF bytes (e.g. an embedded resource). Registered faces
-    /// are consulted before platform fonts, and the first registered family becomes the target of the
-    /// generic families (<c>sans-serif</c> etc.) — essential in the browser, where the wasm Skia build
-    /// embeds only a monospace face. Register each style you use (Regular, Bold, …) before rendering.</summary>
+    /// <summary>Register a font from raw TTF/OTF/TTC or WOFF 1 bytes (e.g. an embedded resource).
+    /// Registered faces are consulted before platform fonts, and the first registered family becomes
+    /// the target of the generic families (<c>sans-serif</c> etc.) — essential in the browser, where
+    /// the wasm Skia build embeds only a monospace face. Register each style you use (Regular, Bold, …)
+    /// before rendering. A stylesheet's <c>@font-face</c> rules do the same thing declaratively.</summary>
     public CupriDocument LoadFont(byte[] fontData)
     {
         _fonts.RegisterFont(fontData);
         return this;
+    }
+
+    /// <summary>Register a font from a <see cref="CupriSource"/> — embedded resource, file, or URL.</summary>
+    public CupriDocument LoadFont(CupriSource source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        _fonts.RegisterFont(source.ReadBytes());
+        return this;
+    }
+
+    /// <summary>Register a font by the same kind of <c>src</c> an image takes: a bare embedded-resource
+    /// path (resolved against the <see cref="UseImages"/> assembly), a file path or <c>file:</c> URL, a
+    /// <c>data:</c> URI, or an <c>https:</c> URL under the image URL policy.</summary>
+    public CupriDocument LoadFont(string src)
+    {
+        var bytes = Resources.SourceResolver.Load(src, _sourceAssembly, _images.UrlOptions)
+                    ?? throw new Resources.CupriResourceException($"Font source '{src}' could not be loaded.");
+        _fonts.RegisterFont(bytes);
+        return this;
+    }
+
+    /// <summary>Register every font file in a directory (<c>.ttf</c>, <c>.otf</c>, <c>.ttc</c>,
+    /// <c>.woff</c>; a <c>.woff2</c> is noted in <see cref="FontReport"/> rather than loaded). The
+    /// files' own family/weight/style names are used — the way an OS installs a fonts folder.</summary>
+    public CupriDocument LoadFonts(string directory, bool recursive = false)
+    {
+        var opt = recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+        var files = Directory.EnumerateFiles(directory, "*.*", opt)
+            .Where(f => Path.GetExtension(f).ToLowerInvariant() is ".ttf" or ".otf" or ".ttc" or ".woff" or ".woff2")
+            .OrderBy(f => f, StringComparer.Ordinal); // a stable order: the first family registered becomes the sans default
+        foreach (var file in files)
+        {
+            try { _fonts.RegisterFont(File.ReadAllBytes(file)); }
+            catch (Exception ex) when (ex is NotSupportedException or ArgumentException)
+            {
+                _fontProblems.Add(new FontFaceProblem(Path.GetFileName(file), [file], ex.Message));
+            }
+        }
+        return this;
+    }
+
+    /// <summary>See <see cref="Text.FontPolicy"/>. Set <see cref="Text.FontPolicy.RegisteredOnly"/> for
+    /// output that must be identical on every machine.</summary>
+    public FontPolicy FontPolicy
+    {
+        get => _fonts.Policy;
+        set => _fonts.Policy = value;
+    }
+
+    /// <summary>What the document's text resolved to, and any <c>@font-face</c> or font file that
+    /// could not be loaded. Under <see cref="Text.FontPolicy.Platform"/> the resolutions marked
+    /// <see cref="FontSource.Platform"/> or <see cref="FontSource.Default"/> are the machine-dependent ones.</summary>
+    public FontReport FontReport
+    {
+        get { EnsureFontFaces(); return new(_fonts.Resolutions, _fonts.RegisteredFamilies, _fontProblems.ToList()); }
+    }
+
+    /// <summary>Remote image loads still in flight. Zero means every frame from now on is complete.</summary>
+    public int PendingLoads => _images.PendingCount;
+
+    /// <summary>True when no resource load is pending — the frame a render would produce now has
+    /// nothing missing from it.</summary>
+    public bool IsLoaded => _images.PendingCount == 0;
+
+    private readonly List<FontFaceProblem> _fontProblems = new();
+    private List<FontFaceRule>? _fontFaceRules;   // parsed with the cached rules
+    private bool _fontFacesLoaded = true;         // false while parsed rules await the first layout
+    private readonly HashSet<string> _loadedFaces = new(StringComparer.Ordinal); // family+url, so a rule re-cache does not re-register
+
+    // Text is measured in layout, so this is the last moment a face can arrive; every layout entry
+    // point calls it. A no-op after the first time (and always, for a document with no @font-face).
+    private void EnsureFontFaces()
+    {
+        if (_fontFacesLoaded) return;
+        _fontFacesLoaded = true;
+        LoadFontFaces();
+    }
+
+    private void LoadFontFaces()
+    {
+        foreach (var rule in _fontFaceRules ?? [])
+        {
+            if (!_loadedFaces.Add(rule.Family + "\n" + string.Join("\n", rule.Sources.Select(x => x.Url)))) continue;
+            Exception? last = null;
+            var loaded = false;
+            foreach (var src in rule.Sources)
+            {
+                try
+                {
+                    var bytes = Resources.SourceResolver.Load(src.Url, _sourceAssembly, _images.UrlOptions);
+                    if (bytes is null) { last = new Resources.CupriResourceException($"'{src.Url}' could not be loaded."); continue; }
+                    _fonts.RegisterFont(bytes, rule.Family, rule.WeightMin, rule.WeightMax, rule.Slant);
+                    loaded = true;
+                    break;
+                }
+                catch (Exception ex) { last = ex; }
+            }
+            if (loaded) continue;
+            var problem = new FontFaceProblem(rule.Family, rule.Sources.Select(x => x.Url).ToList(), last?.Message ?? "no url() source");
+            _fontProblems.Add(problem);
+            // Under Platform the family falls to the machine, as it would in a browser; under
+            // RegisteredOnly there is nothing to fall to, so say so now rather than at first paint.
+            if (_fonts.Policy == FontPolicy.RegisteredOnly)
+                throw new Resources.CupriResourceException($"@font-face \"{rule.Family}\" could not be loaded ({problem.Reason}), and the font policy is RegisteredOnly.", last);
+        }
     }
 
     /// <summary>Re-apply bindings with the current model (call after model changes).</summary>
@@ -644,6 +751,15 @@ public sealed partial class CupriDocument : IDisposable
             foreach (var styleEl in dom.QuerySelectorAll("style"))
                 foreach (var (k, frames) in Animation.Parse(styleEl.TextContent)) kf[k] = frames;
 
+            // @font-face rules: same immutable sources, same one-time parse. They are LOADED at the
+            // first layout rather than here: Load() rebuilds before UseImages has named the assembly
+            // an embedded font resolves against, and before the app has chosen a font policy.
+            var faceCss = new List<string?> { _css };
+            if (_components is not null) faceCss.Add(_components.AggregatedCss);
+            foreach (var styleEl in dom.QuerySelectorAll("style")) faceCss.Add(styleEl.TextContent);
+            _fontFaceRules = faceCss.SelectMany(FontFace.Parse).ToList();
+            _fontFacesLoaded = _fontFaceRules.Count == 0;
+
             _cachedRules = rules;
             _cachedKeyframes = kf;
             _hasMedia = rules.Exists(r => r.Media is not null);
@@ -690,6 +806,7 @@ public sealed partial class CupriDocument : IDisposable
         }
         Mark("style+tree");
         _hasActiveAnim = _keyframes.Count > 0 && AnyAnimated(_root);
+        _animRunning = true; // until Animate says the last finite animation has ended
     }
 
     // Per-node interaction state preserved across a rebuild, keyed by structural path (child-index
@@ -814,7 +931,13 @@ public sealed partial class CupriDocument : IDisposable
         if (_toasts.Count > 0 && StepToasts(timeSeconds)) any = true;
         // @keyframes RULES existing is not animation HAPPENING: hosts call Animate whenever rules
         // exist (HasAnimations), but only a visibly animated node makes this frame's output differ.
-        if (_keyframes.Count > 0) { Animation.Apply(_root, _keyframes, timeSeconds); if (_hasActiveAnim) any = true; }
+        if (_keyframes.Count > 0)
+        {
+            // A finite animation that has run its iterations stops driving frames (a `forwards`
+            // fill holds its last frame); a host polling HasActiveAnimations goes idle with it.
+            _animRunning = Animation.Apply(_root, _keyframes, timeSeconds);
+            if (_hasActiveAnim && _animRunning) any = true;
+        }
         if (_transitions.Apply(_root, timeSeconds)) any = true; // interpolate transitions over @keyframes
         if (_maskRevealPos >= 0) // a masked field is peeking its last-typed char — time it out
         {
@@ -853,8 +976,9 @@ public sealed partial class CupriDocument : IDisposable
     /// set only changes when the tree does), so a host may poll it every frame for free. Also true
     /// while a masked field peeks its last-typed char (see <see cref="HasActiveTransitions"/>),
     /// and while any live surface (a playing video) is producing frames.</summary>
-    public bool HasActiveAnimations => _hasActiveAnim || _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || Surfaces.AnyTicking || FlingActive || OverscrollActive;
+    public bool HasActiveAnimations => (_hasActiveAnim && _animRunning) || _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || Surfaces.AnyTicking || FlingActive || OverscrollActive;
     private bool _hasActiveAnim;
+    private bool _animRunning = true;
 
     private static bool AnyAnimated(RenderNode n)
     {
@@ -1273,6 +1397,7 @@ public sealed partial class CupriDocument : IDisposable
             _viewportHeight = height;
             Rebuild();
         }
+        EnsureFontFaces();
         _layout.Layout(_root, width, height);
         CaptureVirtualHeights(_root); // measured pitches + scroll anchoring, before anything reads offsets
         _laidOutWidth = width; _laidOutHeight = height; _layoutDirty = false;
@@ -1704,6 +1829,7 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>Build the committed display-list snapshot without rasterising (the seam).</summary>
     public DisplayList BuildDisplayList(float width, float height)
     {
+        EnsureFontFaces();
         _layout.Layout(_root, width, height);
         return _painter.Build(_root);
     }
@@ -2028,6 +2154,7 @@ public sealed partial class CupriDocument : IDisposable
     private void EnsureLaidOut()
     {
         if (!_layoutDirty || _laidOutWidth <= 0 || _laidOutHeight <= 0) return;
+        EnsureFontFaces();
         _layout.Layout(_root, _laidOutWidth, _laidOutHeight);
         _layoutDirty = false;
     }
@@ -2156,6 +2283,7 @@ public sealed partial class CupriDocument : IDisposable
         float w = width / _zoom, h = height / _zoom;   // same division BuildFrame performs
         if (_layoutDirty || _laidOutWidth != w || _laidOutHeight != h)
         {
+            EnsureFontFaces();
             _layout.Layout(_root, w, h);
             _laidOutWidth = w;
             _laidOutHeight = h;

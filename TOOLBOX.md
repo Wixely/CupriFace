@@ -220,7 +220,7 @@ public sealed class MyApp : CupriApp
 
 `CupriApp.Html`/`Css` default to reading these sources (override either the sources or the strings).
 For a one‑off you can skip the generator with the `EmbeddedAsset("Assets/MyApp.html")` helper. This
-same `CupriSource` (via `ReadBytes()`) is how images/fonts/media will load — see
+same `CupriSource` (via `ReadBytes()`) is how images, fonts and media load — see
 [ROADMAP.md](ROADMAP.md). `samples/DemoApp` is the worked example.
 
 ---
@@ -415,6 +415,32 @@ controls handle their own state.
   .price-was { text-decoration: line-through; }
   blockquote { font-style: italic; }
   ```
+- **Fonts: `@font-face`, `LoadFont`, `LoadFonts`, `CupriApp.Fonts`.** By default a family resolves
+  to whatever the platform has for it — right for an app on a desktop, and the reason the same page
+  looks slightly different on two machines. A document can carry its own faces instead:
+  ```css
+  @font-face { font-family: "Brand"; src: url(Assets/Brand-Regular.woff) format("woff"); }
+  @font-face { font-family: "Brand"; src: url(Assets/Brand-Bold.ttf); font-weight: 700; }
+  @font-face { font-family: "Brand"; src: url(Assets/Brand-Italic.ttf); font-style: italic; }
+  body { font-family: "Brand", sans-serif; }
+  ```
+  A `url()` takes the same forms an image `src` does — an embedded resource (resolved against the app
+  assembly), a file path, a `file:`/`https:` URL, a `data:` URI — and sources are tried in order;
+  `local()` is skipped, being exactly the platform dependency this removes. The declared
+  `font-weight` (a value or a range, `300 700`) and `font-style` are what the cascade matches, so
+  they override the file's own names. TTF, OTF, TTC and **WOFF 1** load; **WOFF 2** is refused by
+  name (convert it). From code: `doc.LoadFont(CupriSource.Embedded(asm, "fonts.Brand.ttf"))`,
+  `doc.LoadFont("Assets/Brand.ttf")`, `doc.LoadFonts(dir)` for a folder, or on an app
+  `public override IEnumerable<CupriSource> Fonts => [...]`, which every document the app creates
+  gets before its model binds. The first registered family becomes the target of
+  `sans-serif`/`system-ui`; `monospace` stays with the platform.
+
+  **`FontPolicy.RegisteredOnly`** (`doc.FontPolicy` / `CupriApp.FontPolicy`) is for output that must
+  be identical everywhere — a test image, a rendered frame. A family with no registered face throws
+  `FontNotRegisteredException` naming it, an `@font-face` that fails to load is an error at first
+  layout, and glyph fallback for characters a face lacks searches the registered faces only, never
+  the platform's emoji font. `doc.FontReport` lists what every family resolved to and what failed;
+  `FontReport.IsDeterministic` is the one-line answer.
 - **`cursor`.** Sets the pointer shape and **inherits** like normal CSS. Supported keywords: `default`,
   `pointer`, `text`, `wait`, `progress`, `help`, `crosshair`, `move`, `not-allowed`, `grab`, `grabbing`,
   `col-resize`/`ew-resize`, `row-resize`/`ns-resize`, `nwse-resize`, `nesw-resize`, `none` (and `auto` =

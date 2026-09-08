@@ -1,5 +1,6 @@
 using CupriFace.Components;
 using CupriFace.Resources;
+using CupriFace.Text;
 using SkiaSharp;
 
 namespace CupriFace;
@@ -219,10 +220,22 @@ public abstract class CupriApp
     /// <summary>Dev aid: outline every element box in the window (see <see cref="CupriDocument.DebugOverlay"/>).</summary>
     public virtual bool DebugOverlay => false;
 
+    /// <summary>Fonts registered on every document this app creates, before the model binds —
+    /// embedded resources, files or URLs, each read once. The files' own family/weight/style are
+    /// used; for declared metadata use an <c>@font-face</c> rule in <see cref="Css"/> instead.</summary>
+    public virtual IEnumerable<CupriSource> Fonts => [];
+
+    /// <summary>See <see cref="Text.FontPolicy"/>. <see cref="Text.FontPolicy.RegisteredOnly"/> makes
+    /// a family with no registered face an error and keeps platform fonts out of glyph fallback —
+    /// the setting for output that must be identical everywhere.</summary>
+    public virtual FontPolicy FontPolicy => FontPolicy.Platform;
+
     /// <summary>Build a ready-to-render document — identical on every host.</summary>
     public CupriDocument CreateDocument()
     {
         var doc = CupriDocument.Load(Html, Css).UseComponents(Components).UseImages(GetType().Assembly);
+        doc.FontPolicy = FontPolicy;
+        foreach (var font in Fonts) doc.LoadFont(font);
         if (Model is { } model) doc.Bind(model);
         doc.DebugOverlay = DebugOverlay;
         Configure(doc);

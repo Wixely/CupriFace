@@ -387,6 +387,9 @@ public sealed class StyleResolver
                 case "animation": ParseAnimation(s, v); break;
                 case "animation-name": s.AnimationName = v; break;
                 case "animation-duration": s.AnimationDuration = ParseSeconds(v); break;
+                case "animation-delay": s.AnimationDelay = ParseSeconds(v); break;
+                case "animation-iteration-count": s.AnimationIterations = ParseIterations(v); break;
+                case "animation-fill-mode": ParseFillMode(s, v); break;
                 case "transition": ParseTransition(s, v); break;
                 case "filter": ParseFilter(s, v); break;
                 case "backdrop-filter" or "-webkit-backdrop-filter": s.BackdropFilter = ParseFilterOps(v); break;
@@ -768,19 +771,50 @@ public sealed class StyleResolver
 
     private static void ParseAnimation(ComputedStyle s, string v)
     {
-        // animation: <name> <duration> [timing] [delay] [iteration] ...
+        // animation: <name> <duration> [timing] [delay] [iteration-count] [direction] [fill-mode].
+        // A shorthand resets every longhand (CSS semantics). The first time token is the duration
+        // and the second the delay; a bare number is the iteration count; the name is whatever
+        // token is none of those and not a keyword.
+        s.AnimationName = null; s.AnimationDuration = 0f; s.AnimationDelay = 0f; s.AnimationIterations = 1f;
+        s.AnimationFillForwards = s.AnimationFillBackwards = false;
+        var times = 0;
         foreach (var tok in v.Split(' ', StringSplitOptions.RemoveEmptyEntries))
         {
-            if (tok.EndsWith("s", StringComparison.OrdinalIgnoreCase) && char.IsDigit(tok[0]))
+            var low = tok.ToLowerInvariant();
+            if (char.IsDigit(low[0]) || (low.Length > 1 && low[0] is '-' or '.' or '+' && (char.IsDigit(low[1]) || low[1] == '.')))
             {
-                if (s.AnimationDuration == 0) s.AnimationDuration = ParseSeconds(tok);
+                if (low.EndsWith('s')) { if (times++ == 0) s.AnimationDuration = ParseSeconds(low); else s.AnimationDelay = ParseSeconds(low); }
+                else if (CssNumber.TryParse(low, out var n)) s.AnimationIterations = Math.Max(0f, n);
+                continue;
             }
-            else if (s.AnimationName is null && tok is not ("linear" or "ease" or "ease-in" or "ease-out"
-                     or "ease-in-out" or "infinite" or "alternate" or "normal" or "both" or "forwards"))
+            switch (low)
             {
-                s.AnimationName = tok;
+                case "infinite": s.AnimationIterations = float.PositiveInfinity; break;
+                case "forwards": s.AnimationFillForwards = true; break;
+                case "backwards": s.AnimationFillBackwards = true; break;
+                case "both": s.AnimationFillForwards = s.AnimationFillBackwards = true; break;
+                case "none" or "linear" or "ease" or "ease-in" or "ease-out" or "ease-in-out" or "step-start" or "step-end"
+                     or "normal" or "reverse" or "alternate" or "alternate-reverse" or "running" or "paused": break;
+                default:
+                    if (low.StartsWith("cubic-bezier") || low.StartsWith("steps")) break;
+                    s.AnimationName ??= tok;
+                    break;
             }
         }
+    }
+
+    private static float ParseIterations(string v)
+    {
+        v = v.Trim().ToLowerInvariant();
+        if (v == "infinite") return float.PositiveInfinity;
+        return CssNumber.TryParse(v, out var n) ? Math.Max(0f, n) : 1f;
+    }
+
+    private static void ParseFillMode(ComputedStyle s, string v)
+    {
+        v = v.Trim().ToLowerInvariant();
+        s.AnimationFillForwards = v is "forwards" or "both";
+        s.AnimationFillBackwards = v is "backwards" or "both";
     }
 
     private static float ParseSeconds(string v)
