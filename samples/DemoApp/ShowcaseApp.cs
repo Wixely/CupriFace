@@ -359,6 +359,10 @@ public sealed partial class ShowcaseModel
     public bool KbNotify { get; set; }
     public string KbPlan { get; set; } = "monthly";
 
+    // A <cupri-select> keeps its open state in the MODEL, so without this the trigger has nothing to
+    // toggle and the dropdown cannot open at all — which is what it did here until it was reported.
+    public bool KbPlanOpen { get; set; }
+
     // 1:1 by default — the window's own pixels, reflowing as it resizes. "hybrid" used to be the
     // default, which scales the whole UI up on a large monitor; that is a demo of the scaling modes,
     // not a sensible starting state for the app. The Settings page still switches between all four.
