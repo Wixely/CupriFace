@@ -13,9 +13,9 @@ using CupriFace.Shell;
 // engine reports how far a drag on it has travelled, and the host moves the window to
 // match. No OS-specific code — transparency, frameless chrome, top-most and repositioning
 // are all portable window traits.
-DesktopHost.Run(new HudApp());
+DesktopHost.Run(new HudApp(!args.Contains("--no-topmost")), preferSoftware: args.Contains("--software"));
 
-sealed class HudApp : CupriApp
+sealed class HudApp(bool topMost) : CupriApp
 {
     public override string Title => "CupriFace — Transparent HUD";
     public override int Width => 340;
@@ -24,7 +24,7 @@ sealed class HudApp : CupriApp
     // The three flags that make this an overlay rather than an ordinary window.
     public override bool Transparent => true;
     public override bool Frameless => true;
-    public override bool TopMost => true;
+    public override bool TopMost => topMost;
 
     // Nothing paints the body, so the corners stay see-through; only the rounded card and its
     // contents are drawn. A translucent (alpha) card background lets the desktop tint through it.

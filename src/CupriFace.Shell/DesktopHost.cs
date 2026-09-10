@@ -32,6 +32,12 @@ public static class DesktopHost
     /// from the optional CupriFace.Media package). Kept OUT of <see cref="CupriApp.Configure"/> on
     /// purpose: the app class is shared with hosts that must not reference desktop codecs.</param>
     public static void Run(CupriApp app, Action<CupriDocument>? configure = null)
+        => Run(app, preferSoftware: false, configure: configure);
+
+    /// <summary>Run with an explicit software-rendering preference. On Windows, frameless
+    /// transparent apps use per-pixel layered presentation, bypassing WGL/DWM alpha issues.
+    /// GPU-only surface producers must provide their software fallback for this mode.</summary>
+    public static void Run(CupriApp app, bool preferSoftware, Action<CupriDocument>? configure = null)
     {
         // Per-Monitor-V2, before ANY window can exist — awareness is a process property that windows
         // inherit at creation, so this is the only moment it can be declared. Ahead of the GL probe
@@ -149,7 +155,7 @@ public static class DesktopHost
         // the SDL software window, which renders the same pixels a little slower. The GL path's
         // known failure modes are handled these days (a broken GL stack raises an ordinary
         // exception and falls through to SDL below) — but an explicit override beats debugging.
-        var forceSoftware = Environment.GetEnvironmentVariable("CUPRIFACE_SOFTWARE") is "1" or "true" or "TRUE";
+        var forceSoftware = preferSoftware || Environment.GetEnvironmentVariable("CUPRIFACE_SOFTWARE") is "1" or "true" or "TRUE";
 
         // macOS with no OpenGL at all (the paravirtual GPU of virtualised Macs — CI runners, UTM
         // guests) kills the process NATIVELY inside GLFW before any managed guard can run: window
@@ -167,7 +173,7 @@ public static class DesktopHost
         try
         {
             if (forceSoftware)
-                throw new InvalidOperationException("CUPRIFACE_SOFTWARE is set; skipping the GL window.");
+                throw new InvalidOperationException("Software rendering requested; skipping the GL window.");
 
             var window = new SkiaWindow(
                 app.Title,
@@ -280,7 +286,9 @@ public static class DesktopHost
             // driverless machine when it was a harness forcing the software path, and a bare
             // "PlatformNotSupportedException" as a session limit when it was the trimmer removing
             // Silk.NET's backends (#125, #126). The line is the only witness a fallback leaves.
-            Console.WriteLine($"[CupriFace] GPU unavailable ({ex.GetType().Name}: {ex.Message}); using the SDL software window.");
+            Console.WriteLine(forceSoftware
+                ? "[CupriFace] Software rendering requested; using the SDL software window."
+                : $"[CupriFace] GPU unavailable ({ex.GetType().Name}: {ex.Message}); using the SDL software window.");
             using var window = new SdlSoftwareWindow(
                 app.Title,
                 app.Width,
