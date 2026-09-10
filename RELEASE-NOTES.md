@@ -13,7 +13,7 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
-## Unreleased
+## v0.19.1
 
 ### Added
 
@@ -101,6 +101,32 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   message, not just its type. A bare type name was misread twice — once as a driverless machine when
   a test harness was forcing the software path, once as a session limit when the trimmer had removed
   Silk.NET's backends. That line is the only witness a silent fallback leaves.
+
+### Fixed in the dev loop (nothing shipped changes)
+
+- **The `Web (NativeAOT-LLVM)` launch configurations start a browser again.** They had gone back to
+  the Edge debug adapter, which fails here with "Unable to attach to browser" — and attaching buys
+  nothing on a host that is NativeAOT-compiled to wasm with a minified loader. They run the server
+  directly and let `serverReadyAction` open the system browser, as they did before the JavaScript
+  serve script was removed. The Lottie entry got the same treatment.
+
+- **A leftover server no longer fails the next launch.** `tools/Serve` announced itself BEFORE
+  binding, so a server that then died of `AddressInUseException` had already told the VS Code task
+  it was ready — and the task exited non-zero, so nothing launched. It now binds first, and an
+  occupied port is only fatal when the incumbent is serving a DIFFERENT directory (it says which).
+  A background task outliving its debug session is normal, so this was most launches.
+
+### Gates
+
+- **Trimming can no longer remove hardware GL unnoticed** (#125). Silk.NET's window backends are
+  found by reflection, so the trimmer drops them unless rooted, and the app then falls back to the
+  software window silently. CI now asserts the three GLFW backends survive into the trimmed assembly
+  set — no GPU needed, and it fails if the roots ever go.
+
+- **The Android soft-keyboard assertion retries delivery** (#127). It was one tap, a fixed sleep and
+  one read: the only assertion in that job with no tolerance for a dropped tap, and it cost v0.19.0's
+  tag build a run. It now retries the tap and polls for the IME, and waits for the view to finish
+  resizing after the keyboard hides before the next tap. The assertions themselves are unchanged.
 
 ## v0.19.0
 
