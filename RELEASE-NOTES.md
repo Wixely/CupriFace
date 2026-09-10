@@ -13,6 +13,31 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- **`<cupri-markdown>` no longer hangs on an h4.** Any line starting with `#` that was not `# `,
+  `## ` or `### ` — an h4/h5/h6 heading, or a bare `#hashtag` — matched no heading branch, fell
+  through to the paragraph branch, and was rejected by that branch's own `!StartsWith("#")` guard.
+  Nothing was consumed, the index never advanced, and the renderer spun forever on one line. Markdown
+  is routinely text somebody else wrote, so that was a denial of service rather than a cosmetic
+  fault. The paragraph branch now always consumes the line that reached it, so forward progress is a
+  property of the branch rather than of a guard a future block type could contradict.
+- **An image renders as an image.** `![alt](src)` used to emit a literal `!` followed by a link,
+  because the link rule matched from index 1. Images are matched first, the link rule refuses a
+  leading `!`, and the result is a `<cupri-image>` — not a raw `<img>`, which the engine has no
+  primitive for and which therefore rendered as an empty box.
+
+### Added
+
+- **`<cupri-markdown>` covers more of the syntax**: headings to `######`, ordered lists (`1.` / `1)`),
+  blockquotes (`> `), thematic breaks (`---` / `***` / `___`) and `~~strikethrough~~`. Still a
+  subset, still no dependency, and still escaped before any inline rule runs — so raw HTML in the
+  source stays text and can never become markup.
+- **A Markdown page in the Showcase** (`samples/DemoApp`) with a live editor beside the rendered
+  output, plus panels for each shape that used to break.
+
 ## v0.20.0
 
 ### Added

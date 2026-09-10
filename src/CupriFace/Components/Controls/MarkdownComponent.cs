@@ -32,6 +32,18 @@ public sealed partial class MarkdownComponent : ComponentBase
         .cupri-md pre { background:var(--cupri-hover,#eef1f5); border:1px solid var(--cupri-border,#e6e9f0);
                         border-radius:8px; padding:12px 14px; margin:0 0 11px; font-family:monospace;
                         font-size:13px; line-height:1.5; overflow:auto; }
+        .cupri-md ol { display:block; margin:0 0 11px; padding-left:8px; }
+        .cupri-md-num { display:inline-block; width:22px; color:var(--cupri-muted,#98a2b3); }
+        .cupri-md blockquote { display:block; margin:0 0 11px; padding:6px 12px;
+                               border-left:3px solid var(--cupri-border,#e6e9f0);
+                               color:var(--cupri-muted,#667085); }
+        .cupri-md hr { display:block; height:1px; margin:16px 0; background:var(--cupri-border,#e6e9f0); }
+        .cupri-md cupri-image { display:block; max-width:100%; margin:0 0 11px; border-radius:6px; }
+        .cupri-md s { color:var(--cupri-muted,#98a2b3); }
+        .cupri-md h4 { font-size:15px; font-weight:bold; margin:12px 0 6px; }
+        .cupri-md h5 { font-size:14px; font-weight:bold; margin:12px 0 6px; }
+        .cupri-md h6 { font-size:13px; font-weight:bold; margin:12px 0 6px;
+                       color:var(--cupri-muted,#667085); }
         .cupri-md-cl { display:block; }
         """;
 
@@ -60,9 +72,9 @@ public sealed partial class MarkdownComponent : ComponentBase
                 i++;
                 sb.Append("</pre>");
             }
-            else if (t.StartsWith("### ")) { sb.Append("<h3>").Append(Inline(t[4..])).Append("</h3>"); i++; }
-            else if (t.StartsWith("## ")) { sb.Append("<h2>").Append(Inline(t[3..])).Append("</h2>"); i++; }
-            else if (t.StartsWith("# ")) { sb.Append("<h1>").Append(Inline(t[2..])).Append("</h1>"); i++; }
+            else if (Heading(t) is var (level, text) && level > 0)  // # .. ###### (ATX, space required)
+            { sb.Append("<h").Append(level).Append('>').Append(Inline(text))
+                .Append("</h").Append(level).Append('>'); i++; }
             else if (IsBullet(t))                                 // bullet list (consecutive - / * lines)
             {
                 sb.Append("<ul>");
@@ -70,13 +82,41 @@ public sealed partial class MarkdownComponent : ComponentBase
                 { sb.Append("<li><span class='cupri-md-bull'>&#8226;</span>").Append(Inline(lines[i].TrimStart()[2..])).Append("</li>"); i++; }
                 sb.Append("</ul>");
             }
+            else if (Ordered(t) > 0)                              // ordered list (consecutive `1. ` lines)
+            {
+                sb.Append("<ol>");
+                var n = 1;
+                while (i < lines.Length && Ordered(lines[i].TrimStart()) is var w && w > 0)
+                {
+                    sb.Append("<li><span class='cupri-md-num'>").Append(n++).Append(".</span>")
+                      .Append(Inline(lines[i].TrimStart()[w..])).Append("</li>");
+                    i++;
+                }
+                sb.Append("</ol>");
+            }
+            else if (t.StartsWith("> "))                          // blockquote (consecutive `> ` lines)
+            {
+                sb.Append("<blockquote>");
+                var para = new StringBuilder();
+                while (i < lines.Length && lines[i].TrimStart().StartsWith("> "))
+                { if (para.Length > 0) para.Append(' '); para.Append(lines[i].TrimStart()[2..].Trim()); i++; }
+                sb.Append(Inline(para.ToString())).Append("</blockquote>");
+            }
+            else if (IsRule(t)) { sb.Append("<hr>"); i++; }       // --- / *** / ___
             else if (t.Length == 0) i++;                          // blank line
             else                                                  // paragraph (join consecutive plain lines)
             {
                 var para = new StringBuilder();
-                while (i < lines.Length && lines[i].TrimStart() is { Length: > 0 } pl
-                       && !pl.StartsWith("#") && !IsBullet(pl) && !pl.StartsWith("```"))
-                { if (para.Length > 0) para.Append(' '); para.Append(lines[i].Trim()); i++; }
+                // ALWAYS consume the line that got us here, THEN join any plain continuations. The
+                // guard below rejects lines that start a different block, and a `####` heading is one
+                // of those — so a version that only consumed inside the loop consumed nothing at all
+                // for it and spun forever on the outer loop. Any line reaching this branch is a
+                // paragraph by definition; forward progress is a property of the branch, not of the
+                // guard, so a future block type cannot reintroduce the hang.
+                para.Append(lines[i].Trim());
+                i++;
+                while (i < lines.Length && lines[i].TrimStart() is { Length: > 0 } pl && !StartsBlock(pl))
+                { para.Append(' ').Append(lines[i].Trim()); i++; }
                 sb.Append("<p>").Append(Inline(para.ToString())).Append("</p>");
             }
         }
@@ -85,13 +125,53 @@ public sealed partial class MarkdownComponent : ComponentBase
 
     private static bool IsBullet(string t) => t.StartsWith("- ") || t.StartsWith("* ");
 
+    /// <summary>A line that begins some OTHER block, and so must not be swallowed into a paragraph.
+    /// Kept in one place so the paragraph guard and the block branches cannot drift apart.</summary>
+    private static bool StartsBlock(string t) =>
+        Heading(t).Level > 0 || IsBullet(t) || Ordered(t) > 0 || t.StartsWith("> ")
+        || t.StartsWith("```") || IsRule(t);
+
+    /// <summary>ATX heading level 1-6, or 0 when this is not one. CommonMark requires the space, so
+    /// `#hashtag` is deliberately NOT a heading — it is ordinary paragraph text.</summary>
+    private static (int Level, string Text) Heading(string t)
+    {
+        var h = 0;
+        while (h < t.Length && h < 6 && t[h] == '#') h++;
+        return h > 0 && h < t.Length && t[h] == ' ' ? (h, t[(h + 1)..]) : (0, t);
+    }
+
+    /// <summary>Width of an ordered-list marker (`1. `, `12) `), or 0 when this is not one.</summary>
+    private static int Ordered(string t)
+    {
+        var d = 0;
+        while (d < t.Length && char.IsAsciiDigit(t[d])) d++;
+        return d > 0 && d + 1 < t.Length && (t[d] == '.' || t[d] == ')') && t[d + 1] == ' ' ? d + 2 : 0;
+    }
+
+    /// <summary>A thematic break: three or more of - * _ alone on the line.</summary>
+    private static bool IsRule(string t)
+    {
+        var c = t.Length > 0 ? t[0] : ' ';
+        if (c is not ('-' or '*' or '_')) return false;
+        var body = t.Replace(" ", "");
+        return body.Length >= 3 && body.All(ch => ch == c);
+    }
+
     // Inline spans. Escape first, then code (its content stays literal), then bold, italic, and links.
     private static string Inline(string s)
     {
         s = Esc(s);
         s = CodeRx().Replace(s, m => "<code>" + m.Groups[1].Value + "</code>");
         s = BoldRx().Replace(s, "<strong>$1</strong>");
+        s = StrikeRx().Replace(s, "<s>$1</s>");
         s = ItalicRx().Replace(s, m => "<em>" + (m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value) + "</em>");
+        // Images BEFORE links, and the link pattern then refuses a leading `!`. Run the other way
+        // round (or without the guard) and `![alt](src)` matches the LINK rule from index 1, leaving
+        // a literal "!" sitting in front of an anchor — which is what it used to render.
+        // <cupri-image>, not <img>: the engine has no raw img primitive, and this component's whole
+        // contract is that it expands to the TOOLKIT's elements. Emitting <img> produced an element
+        // nothing renders — a silently empty box.
+        s = ImageRx().Replace(s, "<cupri-image src=\"$2\" alt=\"$1\"></cupri-image>");
         s = LinkRx().Replace(s, "<a href=\"$2\">$1</a>");
         return s;
     }
@@ -117,5 +197,7 @@ public sealed partial class MarkdownComponent : ComponentBase
     [GeneratedRegex(@"`([^`]+)`")] private static partial Regex CodeRx();
     [GeneratedRegex(@"\*\*([^*]+)\*\*")] private static partial Regex BoldRx();
     [GeneratedRegex(@"(?<!\*)\*(?!\*)([^*]+)\*(?!\*)|_([^_]+)_")] private static partial Regex ItalicRx();
-    [GeneratedRegex(@"\[([^\]]+)\]\(([^)]+)\)")] private static partial Regex LinkRx();
+    [GeneratedRegex(@"(?<!!)\[([^\]]+)\]\(([^)]+)\)")] private static partial Regex LinkRx();
+    [GeneratedRegex(@"!\[([^\]]*)\]\(([^)]+)\)")] private static partial Regex ImageRx();
+    [GeneratedRegex(@"~~([^~]+)~~")] private static partial Regex StrikeRx();
 }
