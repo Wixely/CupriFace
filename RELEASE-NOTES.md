@@ -17,6 +17,16 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **The caret moves when you type a space at the end of a field.** It was measured against the
+  PAINTED text row, and line layout drops trailing whitespace (correct for prose — a line should not
+  end in a visible gap), so the caret stopped at the last non-space glyph and typing more spaces
+  moved nothing. It is now measured against the logical value. Affected `cupri-textfield`,
+  `cupri-textarea` and `cupri-search`.
+
+  **No text was ever lost**: the model held every space throughout. But text you cannot see plus a
+  caret that does not move is indistinguishable from text that was discarded, which is how it was
+  reported. Every text control now has tests for both halves — the value keeps the whitespace, and
+  the caret advances over it.
 - **`<cupri-markdown>` no longer hangs on an h4.** Any line starting with `#` that was not `# `,
   `## ` or `### ` — an h4/h5/h6 heading, or a bare `#hashtag` — matched no heading branch, fell
   through to the paragraph branch, and was rejected by that branch's own `!StartsWith("#")` guard.

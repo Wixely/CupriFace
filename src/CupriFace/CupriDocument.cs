@@ -1576,8 +1576,14 @@ public sealed partial class CupriDocument : IDisposable
         // textarea AND for a single-line field whose long value has soft-wrapped to several rows.
         var rows = BuildTextRows(anchor, value);
         var target = RowForCaret(rows, caret);
-        var col = Math.Clamp(caret - target.Start, 0, target.Text.Length);
-        var cx = target.X + _fonts.MeasureText(anchor.Style, target.Text[..col]);
+        // Measure the LOGICAL text from the row's start to the caret — not the laid-out row's text.
+        // Line layout drops trailing whitespace (correct for prose: a line does not end in a visible
+        // gap), so a caret after "abc  " measured against the painted row measures "abc" and never
+        // leaves the last non-space glyph. The value keeps its spaces; only the painted line does
+        // not, and typing a space at the end of a field must still move the caret.
+        var from = Math.Clamp(target.Start, 0, value.Length);
+        var to = Math.Clamp(caret, from, value.Length);
+        var cx = target.X + _fonts.MeasureText(anchor.Style, value[from..to]);
         var cy = target.Y + (target.Height - ch) / 2f;
         return (cx, cy, 2f, ch);
     }
