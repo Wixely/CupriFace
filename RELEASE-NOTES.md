@@ -37,6 +37,13 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   source stays text and can never become markup.
 - **A Markdown page in the Showcase** (`samples/DemoApp`) with a live editor beside the rendered
   output, plus panels for each shape that used to break.
+- **`CupriDoctor.Check(html, css)`** — a development-time check that names what will not work before
+  you go looking for it on screen: unbalanced tags (reported at the line they *opened* on), `<img>`
+  and other browser habits pointed at their `cupri-*` equivalents, unregistered `cupri-` tags with a
+  "did you mean", `<script>` and `onclick=`, and CSS properties or functions the engine silently
+  ignores. `report.IsClean` / `report.HasErrors` drop straight into a unit test. The checks read
+  from the engine — the render tree, the component registry, the style resolver — rather than from a
+  list that would drift, so adding a feature to the engine stops the checker complaining about it.
 
 ## v0.20.0
 
