@@ -146,6 +146,7 @@ public static class CupriDoctor
         if (doc is not null)
         {
             UnknownComponents(dom, registry, lines, findings);
+            TogglesWithNothingToToggle(dom, lines, findings);
             UnrenderedElements(doc, dom, registry, lines, findings);
             ScriptingHabits(dom, lines, findings);
             doc.Dispose();
@@ -289,6 +290,52 @@ public static class CupriDoctor
                     ? "Register it with registry.Register(new YourComponent()), or check the spelling."
                     : $"Did you mean <{near}>?",
                 LineOf(lines, "<" + tag)));
+        }
+    }
+
+    /// <summary>
+    /// A control whose trigger can never open anything.
+    ///
+    /// <para>Components that open a panel — select, popover, drawer, the pickers — keep their open
+    /// state in the MODEL, so <c>&lt;cupri-select value="{{V}}"&gt;</c> with no
+    /// <c>open="{{Flag}}"</c> expands, lays out, draws its trigger, and is dead. Clicking it is even
+    /// reported as HANDLED, so no return value, log or rendered frame says otherwise. One reached a
+    /// shipped Showcase page that way and was found by a person clicking it.</para>
+    ///
+    /// <para>Checked by walking the path the RUNTIME walks: <c>ToggleNearestOpen</c> starts at the
+    /// clicked node and looks up the ancestors for <c>data-bind-open</c>. If that walk would come up
+    /// empty, the control cannot open. Reading the runtime's own rule rather than keeping a list of
+    /// which components need binding is what keeps this correct as controls are added.</para>
+    /// </summary>
+    private static void TogglesWithNothingToToggle(IDocument? dom, string[] lines, List<Finding> findings)
+    {
+        var reported = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var el in All(dom))
+        {
+            if (!el.HasAttribute("data-cupri-toggle")) continue;
+
+            // Two spellings, because this runs WITHOUT a model. At runtime the binder compiles
+            // open="{{Flag}}" into data-bind-open and ToggleNearestOpen looks for that — but there is
+            // no model here to bind against, so data-bind-open does not exist yet and the raw `open`
+            // attribute is what survives expansion. Checking only the compiled form reported every
+            // working control in the Showcase as broken.
+            var bound = false;
+            for (var n = el; n is not null; n = n.ParentElement)
+                if (n.GetAttribute("data-bind-open") is { Length: > 0 } || n.HasAttribute("open"))
+                { bound = true; break; }
+            if (bound) continue;
+
+            // Name the component, not the generated trigger inside it that nobody wrote.
+            var owner = el;
+            for (var n = el; n is not null; n = n.ParentElement)
+                if (n.LocalName.StartsWith("cupri-", StringComparison.OrdinalIgnoreCase)) { owner = n; break; }
+            if (!reported.Add(owner.LocalName)) continue;
+
+            findings.Add(new Finding(Severity.Error, "CF0021",
+                $"<{owner.LocalName}> can never open — its trigger has no open state to toggle.",
+                "Add open=\"{{SomeFlag}}\" and a bool on your model. The click is reported as handled "
+                + "either way, so nothing else will tell you.",
+                LineOf(lines, "<" + owner.LocalName)));
         }
     }
 

@@ -13,7 +13,7 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
-## Unreleased
+## v0.21.0
 
 ### Fixed
 
@@ -27,6 +27,13 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   caret that does not move is indistinguishable from text that was discarded, which is how it was
   reported. Every text control now has tests for both halves — the value keeps the whitespace, and
   the caret advances over it.
+- **The Showcase's Keyboard-page dropdown can be opened.** It was written
+  `<cupri-select value="{{Plan}}">` with no `open="{{Flag}}"`, and a control that opens a panel keeps
+  its open state in the MODEL — so it expanded, laid out, drew its trigger and was dead.
+
+  **Worth knowing if you use `<cupri-select>`, `<cupri-popover>`, `<cupri-drawer>` or the pickers:**
+  without an `open` binding they can never open, and the click is reported as HANDLED either way, so
+  nothing at any layer tells you. `CupriDoctor` now reports this as `CF0021`.
 - **`<cupri-markdown>` no longer hangs on an h4.** Any line starting with `#` that was not `# `,
   `## ` or `### ` — an h4/h5/h6 heading, or a bare `#hashtag` — matched no heading branch, fell
   through to the paragraph branch, and was rejected by that branch's own `!StartsWith("#")` guard.

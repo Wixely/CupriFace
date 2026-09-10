@@ -41,6 +41,7 @@ if (!report.IsClean) Console.WriteLine(report);
 | `CF0001` | The document could not be built at all |
 | `CF0010` / `CF0011` | A tag never closed, or a close that matches nothing — reported at the line it *opened* on |
 | `CF0020` | A `cupri-*` tag nothing registered, with a "did you mean" for near misses |
+| `CF0021` | A control that can never open — `<cupri-select>` and friends keep open state in the model, and without an `open` binding the trigger is inert while still reporting the click as handled |
 | `CF0030` | `<img>`, `<video>`, `<svg>`, `<canvas>`, `<iframe>` and friends, each pointed at what to use here |
 | `CF0031` | Anything else in your markup that produced no render output |
 | `CF0040` / `CF0041` | `<script>` and `onclick=` — there is no JavaScript engine |
