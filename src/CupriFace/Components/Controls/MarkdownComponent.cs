@@ -44,6 +44,15 @@ public sealed partial class MarkdownComponent : ComponentBase
         .cupri-md h5 { font-size:14px; font-weight:bold; margin:12px 0 6px; }
         .cupri-md h6 { font-size:13px; font-weight:bold; margin:12px 0 6px;
                        color:var(--cupri-muted,#667085); }
+        .cupri-md-code { position:relative; }
+        /* An explicit width, because an absolutely-positioned box here takes its container's width
+           rather than shrinking to its text — which put `right:8px` at 400-400-8 = -8, i.e. a
+           full-width bar hanging off the left edge instead of a button in the corner. */
+        .cupri-md-copy { position:absolute; top:8px; right:8px; z-index:1; width:52px; text-align:center;
+                         padding:3px 0; border-radius:6px; font-size:12px;
+                         background:var(--cupri-surface,#fff); border:1px var(--cupri-border,#e6e9f0);
+                         color:var(--cupri-muted,#667085); }
+        .cupri-md-copy[data-hover] { color:var(--cupri-text,#1e2430); border-color:#98a2b3; }
         .cupri-md-cl { display:block; }
         """;
 
@@ -66,11 +75,26 @@ public sealed partial class MarkdownComponent : ComponentBase
             if (t.StartsWith("```"))                              // fenced code block (verbatim)
             {
                 i++;
-                sb.Append("<pre>");                               // one block per line — text nodes collapse
+                // The raw lines are kept alongside the rendered ones: the <pre> is a stack of divs
+                // with non-breaking spaces standing in for indentation, so its TextContent would come
+                // back as one run with the indentation mangled and the line breaks gone. The copy
+                // button carries what the author actually wrote.
+                var raw = new StringBuilder();
+                var body = new StringBuilder();
                 while (i < lines.Length && !lines[i].TrimStart().StartsWith("```")) // whitespace + honour no
-                { sb.Append("<div class='cupri-md-cl'>").Append(CodeLine(lines[i])).Append("</div>"); i++; } // white-space:pre
+                {
+                    if (raw.Length > 0) raw.Append('\n');
+                    raw.Append(lines[i]);
+                    body.Append("<div class='cupri-md-cl'>").Append(CodeLine(lines[i])).Append("</div>"); // white-space:pre
+                    i++;
+                }
                 i++;
-                sb.Append("</pre>");
+                // The button comes AFTER the <pre>: absolute positioning puts it on top visually
+                // either way, but hit testing walks document order, so a button written first loses
+                // every click to the code block it sits over.
+                sb.Append("<div class='cupri-md-code'><pre>").Append(body).Append("</pre>")
+                  .Append("<div class='cupri-md-copy' role='button' aria-label='Copy code' data-cupri-copy=\"")
+                  .Append(Attr(raw.ToString())).Append("\">Copy</div></div>");
             }
             else if (Heading(t) is var (level, text) && level > 0)  // # .. ###### (ATX, space required)
             { sb.Append("<h").Append(level).Append('>').Append(Inline(text))
@@ -124,6 +148,13 @@ public sealed partial class MarkdownComponent : ComponentBase
     }
 
     private static bool IsBullet(string t) => t.StartsWith("- ") || t.StartsWith("* ");
+
+    /// <summary>Escape for an ATTRIBUTE value. The ampersand goes first or it would double-escape the
+    /// entities the others introduce; newlines are legal inside an attribute and are what make the
+    /// copied text keep its lines.</summary>
+    private static string Attr(string s) => s
+        .Replace("&", "&amp;").Replace("\"", "&quot;")
+        .Replace("<", "&lt;").Replace(">", "&gt;");
 
     /// <summary>A line that begins some OTHER block, and so must not be swallowed into a paragraph.
     /// Kept in one place so the paragraph guard and the block branches cannot drift apart.</summary>

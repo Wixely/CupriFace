@@ -37,6 +37,14 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   source stays text and can never become markup.
 - **A Markdown page in the Showcase** (`samples/DemoApp`) with a live editor beside the rendered
   output, plus panels for each shape that used to break.
+- **A copy button on `<cupri-markdown>` code blocks**, top right. It hands over the RAW source, not
+  the rendered block — the `<pre>` is a stack of divs with non-breaking spaces standing in for
+  indentation, so reading its text back would lose the line breaks and mangle the indentation.
+- **`CupriDocument.ClipboardWriteRequested`** — the document asking its host to put a given string on
+  the clipboard, raised by any control carrying `data-cupri-copy`. Separate from `ContextRequested`,
+  which copies the *selection*; this supplies text the user never selected. Wired in all three hosts
+  (desktop, browser, Android). **If you maintain a host, subscribe to it** alongside
+  `ContextCommand.Copy`, or copy buttons will silently do nothing.
 - **`CupriDoctor.Check(html, css)`** — a development-time check that names what will not work before
   you go looking for it on screen: unbalanced tags (reported at the line they *opened* on), `<img>`
   and other browser habits pointed at their `cupri-*` equivalents, unregistered `cupri-` tags with a

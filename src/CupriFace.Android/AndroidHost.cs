@@ -156,6 +156,9 @@ public sealed class AndroidHost : IDisposable
 
         // The engine's context menu asks the HOST to do clipboard work (the engine never touches
         // an OS clipboard). Same seam as DesktopHost.ContextAction, Android-shaped.
+        // A copy button (data-cupri-copy) supplies its own text rather than copying a selection.
+        doc.ClipboardWriteRequested += PutClipboard;
+
         doc.ContextRequested += cmd =>
         {
             switch (cmd)

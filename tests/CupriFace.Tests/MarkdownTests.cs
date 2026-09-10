@@ -229,6 +229,83 @@ public class MarkdownTests
         Assert.Contains("var x = 1;", Text(t));
     }
 
+    // ---- the copy button --------------------------------------------------------------------------
+
+    private static RenderNode? CopyButton(TestDoc t)
+    {
+        RenderNode? found = null;
+        void Walk(RenderNode n)
+        {
+            if (n.Element?.ClassList.Contains("cupri-md-copy") == true) found ??= n;
+            foreach (var c in n.Children) Walk(c);
+        }
+        Walk(t.Doc.Root);
+        return found;
+    }
+
+    private static string? ClickCopy(TestDoc t)
+    {
+        string? asked = null;
+        t.Doc.ClipboardWriteRequested += v => asked = v;
+        var b = CopyButton(t);
+        Assert.NotNull(b);
+        t.Doc.DispatchClick(b!.X + b.Width / 2, b.Y + b.Height / 2);
+        return asked;
+    }
+
+    /// <summary>
+    /// A fenced block gets a copy button, and clicking it asks the HOST for the clipboard — the
+    /// engine has none of its own.
+    ///
+    /// <para>What it hands over is the RAW source, not the rendered block. The <c>&lt;pre&gt;</c> is a
+    /// stack of divs with non-breaking spaces standing in for indentation, so reading its text back
+    /// would return one run with the indentation mangled and the line breaks gone. The button carries
+    /// what the author actually wrote.</para>
+    /// </summary>
+    [Fact]
+    public void CopyButtonHandsTheHostTheRawCode()
+    {
+        var code = "var x = 1;\n    if (x) return;";
+        using var t = Md("```\n" + code + "\n```");
+
+        Assert.Equal(code, ClickCopy(t));      // exact: the indentation and the line break intact
+    }
+
+    /// <summary>Quotes, ampersands and angle brackets have to survive the attribute the button
+    /// carries them in. The careless version hands back the escaped form, or breaks out of the
+    /// attribute altogether.</summary>
+    [Fact]
+    public void CopiedCodeSurvivesQuotesAmpersandsAndAngleBrackets()
+    {
+        var code = "var s = \"a & b\"; if (a < b && c > d) { }";
+        using var t = Md("```\n" + code + "\n```");
+
+        Assert.Equal(code, ClickCopy(t));
+    }
+
+    /// <summary>Only fenced blocks get one. Inline <c>`code`</c> is a word inside a sentence, and a
+    /// button floating over it would be absurd.</summary>
+    [Fact]
+    public void InlineCodeHasNoCopyButton()
+    {
+        using var t = Md("a line with `inline code` in it");
+
+        Assert.Null(CopyButton(t));
+    }
+
+    /// <summary>The button is a control, so it takes hover and reaches assistive technology like any
+    /// other — it carries a role and a label rather than being a bare div that happens to react.</summary>
+    [Fact]
+    public void CopyButtonIsAControlNotJustAClickableBox()
+    {
+        using var t = Md("```\ncode\n```");
+
+        var b = CopyButton(t);
+        Assert.NotNull(b);
+        Assert.Equal("button", b!.Element!.GetAttribute("role"));
+        Assert.False(string.IsNullOrWhiteSpace(b.Element.GetAttribute("aria-label")));
+    }
+
     // ---- the security property ------------------------------------------------------------------
 
     /// <summary>

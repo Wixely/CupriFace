@@ -178,6 +178,18 @@ public sealed partial class CupriDocument : IDisposable
     /// its own clipboard), keeping platform clipboard code out of the engine.</summary>
     public event Action<Interaction.ContextCommand>? ContextRequested;
 
+    /// <summary>
+    /// The document asks its host to put text on the clipboard — raised by a control carrying
+    /// <c>data-cupri-copy</c>, such as the copy button on a <c>&lt;cupri-markdown&gt;</c> code block.
+    ///
+    /// <para>Separate from <see cref="ContextRequested"/> because that copies the SELECTION, and a
+    /// copy button copies a specific string the user never selected. Every host already has a
+    /// clipboard-write path for the context menu; this is the same path reached with text supplied
+    /// rather than derived. A host that does not subscribe simply does not copy — so if you are
+    /// writing a host, wire this alongside <c>ContextCommand.Copy</c>.</para>
+    /// </summary>
+    public event Action<string>? ClipboardWriteRequested;
+
     /// <summary>Raised when a link (<c>&lt;a href&gt;</c>) is activated with a non-anchor href (see
     /// <see cref="Interaction.NavigateEvent"/>). In-page <c>#anchor</c> links are scrolled into view by the
     /// engine and do not raise this. Multicast: an app can route internal hrefs (e.g. switch a view) while a
@@ -2240,6 +2252,7 @@ public sealed partial class CupriDocument : IDisposable
         || el.LocalName is "a" or "button"
         || el.HasAttribute("data-set-path") || el.HasAttribute("data-set-toggle")
         || el.HasAttribute("data-cupri-toggle") || el.HasAttribute("data-cupri-dismiss")
+        || el.HasAttribute("data-cupri-copy")
         || el.HasAttribute("data-cupri-step")
         || _actionHandlers.Exists(h => el.HasAttribute(h.Attr))
         || _clickHandlers.Exists(h => Matches(el, h.Compiled));
@@ -2841,6 +2854,14 @@ public sealed partial class CupriDocument : IDisposable
                 return BindingEngine.TrySet(_model, togPath, string.Join(",", set));
             }
 
+            // Put this element's text on the host clipboard. The engine has no clipboard of its
+            // own — every host has a different one — so it asks, through the event below.
+            if (el.GetAttribute("data-cupri-copy") is { Length: > 0 } copy)
+            {
+                ClipboardWriteRequested?.Invoke(copy);
+                return true;
+            }
+
             // Overlay open/close: dismiss (backdrop/outside) and trigger toggle.
             if (el.HasAttribute("data-cupri-dismiss")) return SetNearestOpen(node, false);
             if (el.HasAttribute("data-cupri-toggle")) return ToggleNearestOpen(node);
@@ -2894,6 +2915,7 @@ public sealed partial class CupriDocument : IDisposable
                                 or "textbox" or "spinbutton" or "button"
         || (el.LocalName == "a" && el.HasAttribute("href"))
         || el.HasAttribute("data-cupri-toggle")
+        || el.HasAttribute("data-cupri-copy")
         || el.HasAttribute("data-set-path")
         || el.HasAttribute("data-set-toggle")
         || el.HasAttribute("data-cupri-step");
