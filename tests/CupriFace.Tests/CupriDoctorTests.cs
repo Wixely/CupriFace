@@ -166,6 +166,33 @@ public class CupriDoctorTests(ITestOutputHelper output)
         Assert.DoesNotContain(report.Findings, f => f.Code is "CF0020" or "CF0031");
     }
 
+    // ---- controls that can never open ------------------------------------------------------------
+
+    /// <summary>The bug this release fixes, now caught before it ships: a select with no open
+    /// binding renders a trigger that does nothing, and reports the click as handled.</summary>
+    [Fact]
+    public void ASelectWithNoOpenBindingIsReported()
+    {
+        var report = CupriDoctor.Check(
+            "<body><cupri-select value=\"{{V}}\"><cupri-option value='a'>A</cupri-option></cupri-select></body>");
+
+        var f = Assert.Single(report.Findings, x => x.Code == "CF0021");
+        Assert.Equal(Severity.Error, f.Severity);
+        Assert.Contains("cupri-select", f.Message);
+        Assert.Contains("open=", f.Fix);
+    }
+
+    /// <summary>And the mirror, which is what keeps it usable: a bound one is silent.</summary>
+    [Fact]
+    public void ASelectWithAnOpenBindingIsSilent()
+    {
+        var report = CupriDoctor.Check(
+            "<body><cupri-select value=\"{{V}}\" open=\"{{O}}\">"
+            + "<cupri-option value='a'>A</cupri-option></cupri-select></body>");
+
+        Assert.DoesNotContain(report.Findings, f => f.Code == "CF0021");
+    }
+
     // ---- CSS ------------------------------------------------------------------------------------
 
     /// <summary>Derived from the resolver itself, so this cannot drift: the property is reported
