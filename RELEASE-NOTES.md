@@ -52,6 +52,29 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Changed
 
+- **Desktop windows are DPI-aware by default (#137).** On Windows the host now asks for
+  Per-Monitor-V2 before creating a window, and both desktop windows (GL and SDL) lay the document out
+  in LOGICAL pixels while painting at `monitor scale × your PresentInfo.Scale`. Above 100% display
+  scaling this replaces Windows' bitmap stretching with real rasterisation — text and vectors are
+  crisp, the window keeps its logical size when dragged between monitors of different DPI, and UIA
+  bounding rectangles land on the right physical pixels.
+
+  **What a caller must do:** normally nothing. Two cases need attention:
+  - **You assumed `app.Width`/`Height` were physical pixels.** They are logical now, so a window
+    opens *larger* in pixels on a scaled monitor (1024 logical = 1536 pixels at 150%) and the same
+    physical size as before on the desk.
+  - **Your app already declares DPI awareness** in its manifest or by calling
+    `SetProcessDpiAwarenessContext` itself. Yours wins — CupriFace's request is refused by Windows
+    and nothing changes. This is deliberate.
+
+  To opt out: `override bool DpiAware => false` on your `CupriApp`, or set `CUPRIFACE_DPI=0` in the
+  environment to disable it for a run without a rebuild. `override bool TrackMonitorDpi => false`
+  keeps awareness but stops the per-frame check that follows the window between monitors.
+- **`ThreadedRender` now honours `Present` and the device scale.** It never called `app.Present` at
+  all, so it silently ignored `PresentInfo.Hybrid`/`Zoom` as well as DPI, and published accessibility
+  geometry at a hard-coded scale of 1. It now computes exactly what the inline paths do.
+  `ThreadedPresenter.Submit` and `ThreadedRenderer.Commit` take an optional trailing `scale`
+  (default `1`, so existing calls compile and behave unchanged).
 - **`animation-iteration-count` defaults to `1`, as in CSS.** An animation without `infinite` looped
   forever before; it now runs once and reverts (or holds its last frame with `forwards`). Add
   `infinite` to a spinner that relied on the old behaviour — every shipped sample already has it.

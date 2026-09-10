@@ -812,6 +812,31 @@ public override PresentInfo Present(float w, float h) => PresentInfo.Hybrid(w, h
 The host repaints on demand — after input, on the `RefreshIntervalSeconds` cadence, or while
 something animates — so an idle page costs ~nothing.
 
+### Display scaling is not your `Present` scale
+
+The window sizes you receive are **logical**, already divided by the monitor's scale. Your `Present`
+factor multiplies with the monitor's rather than replacing it:
+
+| symbol | what it is | who chooses it |
+|---|---|---|
+| **D** | monitor scale — 1.5 at 144 DPI, 2 on Retina | the OS |
+| **P** | `PresentInfo.Scale` | your app |
+| **T** | `D × P` — what actually reaches the canvas, surfaces, damage and screen readers | neither, it is the product |
+
+So a `Hybrid` app on a 150% monitor is asked to present into a 1280×720 logical window (not the
+1920×1080 framebuffer), and paints at `1.5 × P`. Nothing in your app needs to know D — pointer
+coordinates and layout are already in logical units by the time you see them.
+
+Desktop windows are DPI-aware by default. Two knobs turn it down:
+
+```csharp
+public override bool DpiAware        => false;  // pre-#137 behaviour: physical pixels, OS stretches
+public override bool TrackMonitorDpi => false;  // aware, but stop following the window between monitors
+```
+
+`CUPRIFACE_DPI=0` in the environment does the same as `DpiAware => false` without a rebuild. If your
+executable's manifest already declares an awareness, that wins — CupriFace does not override it.
+
 ---
 
 ## 8. Writing your own component

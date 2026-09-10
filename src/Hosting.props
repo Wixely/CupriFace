@@ -1,0 +1,26 @@
+<Project>
+  <!--
+    Host-side scale arithmetic, shared by SOURCE rather than as a package or a project reference.
+
+    Same reasoning as WebCore.props one directory over, for a smaller unit. HostScale is the
+    logical/device/effective-scale model every windowed host needs (#137) and it is pure managed
+    arithmetic with no dependencies at all — not the engine, not a windowing library.
+
+    Compiled in rather than referenced for three reasons:
+
+      * The ENGINE stays exactly as it is. src/CupriFace has zero P/Invoke and no host concepts in
+        it, and a scale model that only hosts use is not a reason to start.
+      * It never enters the browser hosts' ILC input. CupriFace.Web.NativeAot compiles the whole
+        program when the app publishes; a type that is not in the compile cannot cost a wasm byte,
+        which is a stronger guarantee than trusting the trimmer to remove it.
+      * The TESTS can reach it without a CupriFace.Shell reference, which would pull Silk.NET and
+        SDL into every unit-test run for the sake of arithmetic that needs no window.
+
+    Nothing here crosses an assembly boundary: hosts consume HostScale and hand the engine plain
+    floats, so the type being compiled into more than one assembly is invisible — the same property
+    WebCore.props already relies on.
+  -->
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)CupriFace.Hosting\*.cs" />
+  </ItemGroup>
+</Project>

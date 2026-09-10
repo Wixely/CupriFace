@@ -25,6 +25,9 @@
     <PackageReference Include="Tmds.DBus.Protocol" Version="0.94.2" />
   </ItemGroup>
 
+  <!-- The logical/device/effective-scale model, shared as source with the tests (#137). -->
+  <Import Project="..\Hosting.props" />
+
   <!-- Portable native Skia + HarfBuzz for win/linux/osx (shared with the engine). -->
   <Import Project="..\SkiaNativeAssets.props" />
 
