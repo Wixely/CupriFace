@@ -31,6 +31,8 @@ internal static class KeyDiag
 /// no OpenGL — works on Windows, macOS, and Linux, including over remote sessions.
 /// Frameless transparent windows on Windows present the same bitmap through UpdateLayeredWindow
 /// instead of SDL's opaque streaming texture. Other windows keep the SDL software renderer.
+/// The opt-in layered GPU mode draws on an off-screen GL surface and reads changed frames back
+/// into that bitmap; window/input/presentation stay on this same SDL host.
 /// </summary>
 public sealed unsafe class SdlSoftwareWindow : IDisposable
 {
@@ -52,6 +54,8 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     private SKBitmap? _bitmap;
     private SKCanvas? _canvas;
     private WindowsAlphaPresenter? _alphaPresenter;
+    private LayeredGpuRenderer? _gpuRenderer;
+    internal bool UseLayeredGpu { get; set; }
     private bool _registeredAlphaClass;
     private EventFilter? _resizeWatch; // kept alive: fires during the OS modal resize loop
 
@@ -379,7 +383,8 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         {
             _alphaPresenter = new WindowsAlphaPresenter(Win32Hwnd
                 ?? throw new InvalidOperationException("Transparent SDL window has no HWND."));
-            Console.WriteLine("[CupriFace] Windows per-pixel alpha presentation (software rendering).");
+            if (UseLayeredGpu) _gpuRenderer = new LayeredGpuRenderer();
+            else Console.WriteLine("[CupriFace] Windows per-pixel alpha presentation (software rendering).");
         }
         else
         {
@@ -583,10 +588,10 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         // recreating on the echo would throw away the frame the watch just painted.
         if (_bitmap is not null && w == _width && h == _height) return;
         _width = w; _height = h;
-        _canvas?.Dispose();
+        if (_gpuRenderer is null) _canvas?.Dispose();
         _bitmap?.Dispose();
         _bitmap = new SKBitmap(new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Premul));
-        _canvas = new SKCanvas(_bitmap);
+        _canvas = _gpuRenderer?.Resize(w, h) ?? new SKCanvas(_bitmap);
         if (_texture is not null) _sdl.DestroyTexture(_texture);
         if (_alphaPresenter is null)
             _texture = _sdl.CreateTexture(_renderer, PixelFormatArgb8888, (int)TextureAccess.Streaming, w, h);
@@ -603,6 +608,7 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
             EnsureSurface(size.Width, size.Height);
         }
         if (_canvas is null || _bitmap is null) return;
+        _gpuRenderer?.MakeCurrent();
 
         var delta = _clock.Elapsed.TotalSeconds - _last;
         _last = _clock.Elapsed.TotalSeconds;
@@ -612,12 +618,13 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
             // Damage-aware path: the bitmap retains last frame's pixels; the callback repaints only the
             // changed rect (or nothing). Upload just that region; skip presenting entirely when clean.
             _stats.BeginFrame(delta);
-            var damage = incremental(new RenderContext(_canvas, _width, _height, _stats));
+            var damage = incremental(new RenderContext(_canvas, _width, _height, _stats, _gpuRenderer?.Context));
             _canvas.Flush();
             _stats.EndFrame();
 
             if (damage is { } d && d.Width > 0 && d.Height > 0)
             {
+                _gpuRenderer?.ReadBack(_bitmap);
                 var rect = new Silk.NET.Maths.Rectangle<int>(d.Left, d.Top, d.Width, d.Height);
                 var pixels = (byte*)_bitmap.GetPixels() + d.Top * _width * 4 + d.Left * 4;
                 if (_alphaPresenter is null)
@@ -630,8 +637,9 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         else
         {
             _stats.BeginFrame(delta);
-            Render?.Invoke(new RenderContext(_canvas, _width, _height, _stats));
+            Render?.Invoke(new RenderContext(_canvas, _width, _height, _stats, _gpuRenderer?.Context));
             _canvas.Flush();
+            _gpuRenderer?.ReadBack(_bitmap);
             _stats.EndFrame();
             if (_alphaPresenter is null)
                 _sdl.UpdateTexture(_texture, null, (void*)_bitmap.GetPixels(), _width * 4);
@@ -692,7 +700,9 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         if (_window is not null) _sdl.DestroyWindow(_window);
         _sdl.Quit();
         if (_registeredAlphaClass) { _sdl.UnregisterApp(); _registeredAlphaClass = false; }
-        _canvas?.Dispose();
+        if (_gpuRenderer is null) _canvas?.Dispose();
+        _gpuRenderer?.Dispose();
+        _gpuRenderer = null;
         _bitmap?.Dispose();
     }
 }

@@ -1,7 +1,9 @@
-param([Parameter(Mandatory=$true)][string]$Exe, [switch]$GlBaseline)
+param([Parameter(Mandatory=$true)][string]$Exe, [switch]$GlBaseline, [switch]$LayeredGpu)
 # Run in an unlocked Windows desktop with Windows PowerShell 5.1. Uses only a synthetic
 # backdrop; no screenshots or personal desktop content are written to disk.
 $ErrorActionPreference = 'Stop'
+if($LayeredGpu -and $GlBaseline){throw 'Choose either the layered GPU path or the default GL baseline.'}
+if(($LayeredGpu -or $GlBaseline) -and $env:CUPRIFACE_SOFTWARE -in @('1','true','TRUE')){throw 'Unset CUPRIFACE_SOFTWARE to test GPU rendering.'}
 Add-Type -AssemblyName System.Drawing, System.Windows.Forms
 Add-Type @'
 using System;
@@ -22,7 +24,7 @@ public static class AlphaProbe {
  public struct Rect { public int Left,Top,Right,Bottom; }
  public static IntPtr Find(int id) {
   IntPtr found=IntPtr.Zero;
-  EnumWindows(delegate(IntPtr h,IntPtr p) { uint pid; GetWindowThreadProcessId(h,out pid); var s=new StringBuilder(64); GetClassName(h,s,64); if(pid==id && (s.ToString()=="GLFW30" || s.ToString()=="CupriFaceAlphaWindow")){found=h;return false;}return true;},IntPtr.Zero);
+  EnumWindows(delegate(IntPtr h,IntPtr p) { uint pid; GetWindowThreadProcessId(h,out pid); var s=new StringBuilder(64); GetClassName(h,s,64); if(pid==id && s.ToString()=="CupriFaceAlphaWindow"){found=h;return false;}if(pid==id && s.ToString()=="GLFW30"){found=h;}return true;},IntPtr.Zero);
   return found;
  }
 }
@@ -77,7 +79,7 @@ try {
  $backdrop.Show();Pump
  foreach($topmost in @($true,$false)) {
   $arguments=@()
-  if(!$GlBaseline){$arguments+='--software'}
+  if($LayeredGpu){$arguments+='--layered-gpu'}elseif(!$GlBaseline){$arguments+='--software'}
   if(!$topmost){$arguments+='--no-topmost'}
   $launch=@{FilePath=$exePath;WindowStyle='Hidden';PassThru=$true}
   if($arguments.Count){$launch.ArgumentList=$arguments}

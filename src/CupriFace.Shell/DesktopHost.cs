@@ -38,6 +38,20 @@ public static class DesktopHost
     /// transparent apps use per-pixel layered presentation, bypassing WGL/DWM alpha issues.
     /// GPU-only surface producers must provide their software fallback for this mode.</summary>
     public static void Run(CupriApp app, bool preferSoftware, Action<CupriDocument>? configure = null)
+        => RunCore(app, preferSoftware, layeredGpu: false, configure: configure);
+
+    /// <summary>Windows-only GPU rendering with per-pixel alpha presentation. Draws on an
+    /// off-screen Skia GPU surface and reads changed frames back for UpdateLayeredWindow.
+    /// This is not zero-copy composition. Requires a transparent, frameless app and working GL.
+    /// CUPRIFACE_SOFTWARE=1 explicitly disables GPU rendering for troubleshooting.</summary>
+    public static void RunWithLayeredGpu(CupriApp app, Action<CupriDocument>? configure = null)
+    {
+        if (!OperatingSystem.IsWindows() || !app.Transparent || !app.Frameless)
+            throw new ArgumentException("Layered GPU rendering requires a transparent, frameless Windows app.", nameof(app));
+        RunCore(app, preferSoftware: false, layeredGpu: true, configure: configure);
+    }
+
+    private static void RunCore(CupriApp app, bool preferSoftware, bool layeredGpu, Action<CupriDocument>? configure)
     {
         // Per-Monitor-V2, before ANY window can exist — awareness is a process property that windows
         // inherit at creation, so this is the only moment it can be declared. Ahead of the GL probe
@@ -172,7 +186,7 @@ public static class DesktopHost
 
         try
         {
-            if (forceSoftware)
+            if (forceSoftware || layeredGpu)
                 throw new InvalidOperationException("Software rendering requested; skipping the GL window.");
 
             var window = new SkiaWindow(
@@ -286,7 +300,9 @@ public static class DesktopHost
             // driverless machine when it was a harness forcing the software path, and a bare
             // "PlatformNotSupportedException" as a session limit when it was the trimmer removing
             // Silk.NET's backends (#125, #126). The line is the only witness a fallback leaves.
-            Console.WriteLine(forceSoftware
+            Console.WriteLine(layeredGpu && !forceSoftware
+                ? "[CupriFace] Off-screen GPU rendering requested; using Windows layered presentation."
+                : forceSoftware
                 ? "[CupriFace] Software rendering requested; using the SDL software window."
                 : $"[CupriFace] GPU unavailable ({ex.GetType().Name}: {ex.Message}); using the SDL software window.");
             using var window = new SdlSoftwareWindow(
@@ -300,6 +316,7 @@ public static class DesktopHost
                 app.Background,
                 app.DpiAware,
                 app.TrackMonitorDpi);
+            window.UseLayeredGpu = layeredGpu && !forceSoftware;
             if (icon is { } ic) window.SetIcon(ic.Rgba, ic.W, ic.H);
             deviceScale = () => window.DeviceScale;
 
@@ -329,7 +346,7 @@ public static class DesktopHost
             // Commit-snapshot render thread (opt-in): build the display list on this UI thread and let
             // a background thread rasterise it; present the latest completed frame each vsync. Targets
             // the physical surface (scale 1), so it composes with the responsive present.
-            using var presenter = app.ThreadedRender ? new CupriFace.Threading.ThreadedPresenter() : null;
+            using var presenter = app.ThreadedRender && !window.UseLayeredGpu ? new CupriFace.Threading.ThreadedPresenter() : null;
             void DrawThreaded(RenderContext ctx)
             {
                 presenter!.Present(ctx.Canvas); // draw the previous frame the render thread finished
@@ -356,7 +373,19 @@ public static class DesktopHost
                 a11y.Publish(p.LogicalWidth, p.LogicalHeight, effective, window.ScreenPosition);
             }
 
-            if (presenter is not null)
+            if (window.UseLayeredGpu)
+            {
+                // Reuse the GL host's draw contract, including same-context GPU surface producers.
+                // The retained GPU surface and bitmap make expose-only frames free of readback.
+                window.RenderIncrementalFrame = ctx =>
+                {
+                    if (!NeedsRender()) return null;
+                    Draw(ctx);
+                    a11y.Publish(logicalW, logicalH, effective, window.ScreenPosition);
+                    return new SkiaSharp.SKRectI(0, 0, ctx.Width, ctx.Height);
+                };
+            }
+            else if (presenter is not null)
                 window.Render += DrawThreaded; // threaded path keeps its own pipeline (no damage/skip)
             else
             {

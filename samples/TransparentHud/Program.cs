@@ -13,7 +13,9 @@ using CupriFace.Shell;
 // engine reports how far a drag on it has travelled, and the host moves the window to
 // match. No OS-specific code — transparency, frameless chrome, top-most and repositioning
 // are all portable window traits.
-DesktopHost.Run(new HudApp(!args.Contains("--no-topmost")), preferSoftware: args.Contains("--software"));
+var app = new HudApp(!args.Contains("--no-topmost"));
+if (args.Contains("--layered-gpu")) DesktopHost.RunWithLayeredGpu(app);
+else DesktopHost.Run(app, preferSoftware: args.Contains("--software"));
 
 sealed class HudApp(bool topMost) : CupriApp
 {
