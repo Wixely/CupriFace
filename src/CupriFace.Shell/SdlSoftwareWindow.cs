@@ -379,7 +379,10 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
             finally { _resizingForDpi = false; }
         }
 
-        if (layered)
+        // `layered` already required Windows, but the platform analyser cannot follow a local.
+        // Repeating the check here folds to a constant at JIT and AOT time and makes the invariant
+        // that follows — _alphaPresenter is non-null only on Windows — checkable rather than stated.
+        if (layered && OperatingSystem.IsWindows())
         {
             _alphaPresenter = new WindowsAlphaPresenter(Win32Hwnd
                 ?? throw new InvalidOperationException("Transparent SDL window has no HWND."));
@@ -523,6 +526,7 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
             }
             // Before Tick, so host work on the tick already sees the new scale (#137).
             PollDeviceScale();
+            ReportAlphaState();
             Tick?.Invoke();
             RenderFrame();
             _sdl.Delay(16); // ~60 fps cap
@@ -539,13 +543,6 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     /// turn until the mouse is released.</summary>
     private int ResizeWatch(void* userData, Event* e)
     {
-        // Layered presentation itself updates HWND geometry. Do not call it from inside SDL's
-        // WM_WINDOWPOSCHANGED delivery, before the native geometry has settled. The normal
-        // event pump presents the settled size. Frameless data-window-drag uses that pump too.
-        if (_alphaPresenter is not null)
-        {
-            return 0;
-        }
         // A monitor change is a MOVE before it is a resize, and this watch is the only thing that
         // runs while the window is being dragged — the main loop below gets no turn until the mouse
         // is released. Polling here is what makes a DPI change land mid-drag instead of on release.
@@ -556,11 +553,19 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         }
         if ((EventType)e->Type == EventType.Windowevent && (WindowEventID)e->Window.Event == WindowEventID.SizeChanged)
         {
-            EnsureSurface(e->Window.Data1, e->Window.Data2);
+            // A layered window is sized by UpdateLayeredWindow itself, so the coordinates carried by
+            // THIS event are exactly the stale ones that would be fed back as a resize. RenderFrame
+            // asks the presenter for the window's own settled rect instead, which is why the outer
+            // rect is used there — so it is safe to paint from inside the modal loop, and skipping
+            // this block entirely was costing more than it saved: no frames at all during a drag,
+            // ResizeFrames stuck at 0 (the repo's own instrument for "is this streaming?"), and
+            // PollDeviceScale above never running mid-drag.
+            if (_alphaPresenter is null) EnsureSurface(e->Window.Data1, e->Window.Data2);
             RenderFrame();
             ResizeFrames++;
             if (SkiaWindow.ResizeDebug)
-                Console.Error.WriteLine($"[resize] frame {ResizeFrames} at {e->Window.Data1}x{e->Window.Data2}");
+                Console.Error.WriteLine($"[resize] frame {ResizeFrames} at {e->Window.Data1}x{e->Window.Data2}"
+                    + (_alphaPresenter is not null ? $" (layered; presented {_width}x{_height})" : ""));
         }
         return 0;
     }
@@ -575,7 +580,13 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     {
         // Queued SDL resize events can lag the native size. UpdateLayeredWindow also sets the
         // HWND size, so presenting a stale bitmap would undo the user's resize and feed it back.
-        if (_alphaPresenter is not null) (w, h) = _alphaPresenter.WindowSize;
+        if (OperatingSystem.IsWindows() && _alphaPresenter is not null)
+        {
+            // Null means minimised, or Windows would not say — either way there is nothing to size
+            // to, and the queued SDL event's own numbers are the stale ones we are avoiding.
+            if (_alphaPresenter.WindowSize is not { } native) return;
+            (w, h) = native;
+        }
         if (w <= 0 || h <= 0) return;
         // The logical size is the tracker's business, and it is told the scale read AT THIS MOMENT
         // rather than a cached one — that is what separates a user dragging an edge from the OS
@@ -599,12 +610,28 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         SurfaceRecreated?.Invoke();
     }
 
+    /// <summary>#139 diagnostic: say what the alpha path is actually doing, a few seconds in and
+    /// again later. Frames dropped, the readback cost the GPU mode pays, and whether the resize
+    /// watch is streaming — the three numbers that separate "working" from "looks like it works".</summary>
+    private void ReportAlphaState()
+    {
+        if (!OperatingSystem.IsWindows() || _alphaPresenter is null || _alphaReports >= 3) return;
+        if (_clock.Elapsed.TotalSeconds < (_alphaReports + 1) * 4) return;
+        _alphaReports++;
+        var gpu = _gpuRenderer is { Readbacks: > 0 } g
+            ? $", readback {g.AverageReadbackMs:0.00} ms x{g.Readbacks} at {_width}x{_height}"
+            : "";
+        Console.WriteLine($"[CupriFace] alpha after {_clock.Elapsed.TotalSeconds:0}s: "
+            + $"dropped {_alphaPresenter.DroppedFrames}, resize frames {ResizeFrames}{gpu}");
+    }
+
+    private int _alphaReports;
+
     private void RenderFrame()
     {
-        if (_alphaPresenter is not null)
+        if (OperatingSystem.IsWindows() && _alphaPresenter is not null)
         {
-            var size = _alphaPresenter.WindowSize;
-            if (size.Width <= 0 || size.Height <= 0) return;
+            if (_alphaPresenter.WindowSize is not { } size || size.Width <= 0 || size.Height <= 0) return;
             EnsureSurface(size.Width, size.Height);
         }
         if (_canvas is null || _bitmap is null) return;
@@ -645,9 +672,13 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                 _sdl.UpdateTexture(_texture, null, (void*)_bitmap.GetPixels(), _width * 4);
         }
 
-        if (_alphaPresenter is not null)
+        if (OperatingSystem.IsWindows() && _alphaPresenter is not null)
         {
-            _alphaPresenter.Present(_bitmap);
+            // A refused frame is dropped and reported once; the window keeps what it last showed.
+            // The damage path has already cleared the dirty flag by here, so set it BACK — otherwise
+            // a frame Windows refused during a lock or a monitor change is simply never redrawn, and
+            // the window sits on stale pixels until something else happens to dirty it.
+            if (!_alphaPresenter.Present(_bitmap)) _presentDirty = true;
             if (_frameDumpPath is { } alphaDump && ++_presentCount % 15 == 0) DumpPresentedPixels(alphaDump);
             return;
         }
@@ -691,7 +722,7 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
             _sdl.DelEventWatch(new PfnEventFilter(_resizeWatch), null);
             _resizeWatch = null;
         }
-        _alphaPresenter?.Dispose();
+        if (OperatingSystem.IsWindows()) _alphaPresenter?.Dispose();
         _alphaPresenter = null;
         foreach (var p in _cursors.Values) _sdl.FreeCursor((Cursor*)p);
         _cursors.Clear();

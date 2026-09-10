@@ -57,12 +57,24 @@ internal sealed class LayeredGpuRenderer : IDisposable
         return Surface.Canvas;
     }
 
+    /// <summary>Frames read back, and the total time spent doing it. This is the cost the mode
+    /// trades for working alpha, and it is the number someone needs to decide whether to adopt it —
+    /// so it is measured here rather than described in a caveat.</summary>
+    public int Readbacks { get; private set; }
+    public double ReadbackMs { get; private set; }
+
+    /// <summary>Average milliseconds per readback so far, or 0 before the first one.</summary>
+    public double AverageReadbackMs => Readbacks == 0 ? 0 : ReadbackMs / Readbacks;
+
     public void ReadBack(SKBitmap bitmap)
     {
         MakeCurrent();
+        var t0 = System.Diagnostics.Stopwatch.GetTimestamp();
         Context.Flush();
         if (!Surface.ReadPixels(bitmap.Info, bitmap.GetPixels(), bitmap.RowBytes, 0, 0))
             throw new InvalidOperationException("GPU alpha readback failed.");
+        ReadbackMs += System.Diagnostics.Stopwatch.GetElapsedTime(t0).TotalMilliseconds;
+        Readbacks++;
     }
 
     public void Dispose()

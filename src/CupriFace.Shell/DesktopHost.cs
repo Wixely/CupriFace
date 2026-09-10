@@ -353,6 +353,13 @@ public static class DesktopHost
             // Commit-snapshot render thread (opt-in): build the display list on this UI thread and let
             // a background thread rasterise it; present the latest completed frame each vsync. Targets
             // the physical surface (scale 1), so it composes with the responsive present.
+            // ThreadedRender rasterises on a background thread into the CPU bitmap; the layered GPU
+            // path draws on the GL context and reads back on this thread, so the two cannot both own
+            // the frame. Saying so beats dropping an opt-in silently — an ignored setting is
+            // indistinguishable from a broken one, which is how #137's ThreadedRender bug survived.
+            if (app.ThreadedRender && window.UseLayeredGpu)
+                Console.WriteLine("[CupriFace] ThreadedRender is ignored under layered GPU presentation; "
+                    + "drawing stays on the UI thread.");
             using var presenter = app.ThreadedRender && !window.UseLayeredGpu ? new CupriFace.Threading.ThreadedPresenter() : null;
             void DrawThreaded(RenderContext ctx)
             {
