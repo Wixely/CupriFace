@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using CupriFace.Hosting;
 using CupriFace.Interaction;
 using Silk.NET.SDL;
 using SkiaSharp;
@@ -240,7 +241,8 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     // transparency). Frameless / always-on-top do work through standard SDL window flags.
     public SdlSoftwareWindow(string title = "CupriFace", int width = 1024, int height = 768,
         bool transparent = false, bool frameless = false, bool topMost = false,
-        bool darkWindowChrome = false, SKColor? windowChromeColor = null)
+        bool darkWindowChrome = false, SKColor? windowChromeColor = null,
+        bool dpiAware = true, bool trackMonitorDpi = true)
     {
         _title = title;
         _width = width;
@@ -249,6 +251,81 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         _topMost = topMost;
         _darkWindowChrome = darkWindowChrome;
         _windowChromeColor = windowChromeColor ?? new SKColor(0x20, 0x20, 0x20);
+        _dpiAware = dpiAware && (!OperatingSystem.IsWindows() || WindowsDpi.Enabled);
+        _trackMonitorDpi = trackMonitorDpi;
+        _logicalWidth = width;
+        _logicalHeight = height;
+    }
+
+    // ---- device scale (#137) -------------------------------------------------------------------
+
+    private readonly bool _dpiAware;
+    private readonly bool _trackMonitorDpi;
+    private float _deviceScale = 1f;
+    private int _logicalWidth, _logicalHeight;  // seeds the tracker; it owns the size after that
+    private WindowScaleTracker? _scale;
+    private bool _resizingForDpi;               // re-entrancy: our own resize is not a user's
+
+    /// <summary>D for the monitor this window is on — see <see cref="SkiaWindow.DeviceScale"/>. The
+    /// software path gets the same treatment as the GL one on purpose: this is the window that
+    /// GL-less machines, remote sessions and CI actually run, so a DPI story that only worked on the
+    /// GPU path would miss most of the places this ships.</summary>
+    public float DeviceScale => _deviceScale;
+
+    /// <summary>Raised when the window lands on a monitor with a different scale.</summary>
+    public event Action<float>? DeviceScaleChanged;
+
+    /// <summary>
+    /// D, from the only source that reports it per-monitor here.
+    ///
+    /// <para>Windows only, deliberately. SDL is created without <c>SDL_WINDOW_ALLOW_HIGHDPI</c>, so
+    /// on macOS its drawable stays the same size as its window and there is no backing-scale ratio
+    /// to read — the software path renders at 1x on a Retina panel exactly as it always has.
+    /// Changing that means re-sizing the streaming texture off the RENDERER's output size rather
+    /// than the window's, which is a separate change to this path's whole surface story rather than
+    /// part of the scale model.</para>
+    /// </summary>
+    private float ReadDeviceScale()
+    {
+        if (!_dpiAware || !OperatingSystem.IsWindows()) return 1f;
+        return Win32Hwnd is { } hwnd ? HostScale.Sanitize(WindowsDpi.GetScaleForWindow(hwnd)) : _deviceScale;
+    }
+
+    /// <summary>SDL's pointer coordinates → logical client units. SDL reports the cursor in window
+    /// coordinates, and this window's surface is exactly its window size, so the ratio is simply
+    /// 1/D — the conversion done once, here, for the same reason the GL window does it.</summary>
+    private (float X, float Y) ToLogicalClient(float x, float y) =>
+        _deviceScale == 1f ? (x, y) : (x / _deviceScale, y / _deviceScale);
+
+    /// <summary>Follow the window onto another monitor, keeping its LOGICAL size — the software
+    /// twin of <c>SkiaWindow.PollDeviceScale</c>. The surface is recreated at the new pixel size,
+    /// which raises <see cref="SurfaceRecreated"/> and so restarts the host's damage tracking from a
+    /// full repaint; a retained bitmap from the old scale has nothing valid in it.</summary>
+    private void PollDeviceScale()
+    {
+        if (!_dpiAware || !_trackMonitorDpi || _window is null || _scale is null || _resizingForDpi) return;
+        ApplyDpiResize(_scale.ObserveScale(ReadDeviceScale()));
+    }
+
+    /// <summary>Act on a transition the tracker reported — the software twin of
+    /// <c>SkiaWindow.ApplyDpiResize</c>, including its re-entrancy guard: setting the window size
+    /// delivers a size event that would otherwise be read back as a user resize.</summary>
+    private void ApplyDpiResize((int Width, int Height)? wanted)
+    {
+        if (_scale is null) return;
+        _deviceScale = _scale.DeviceScale;
+        if (wanted is not { } size || _window is null) return;
+
+        _resizingForDpi = true;
+        try
+        {
+            _sdl.SetWindowSize(_window, size.Width, size.Height);
+            EnsureSurface(size.Width, size.Height);
+        }
+        finally { _resizingForDpi = false; }
+
+        _presentDirty = true;
+        DeviceScaleChanged?.Invoke(_deviceScale);
     }
 
     public void Run()
@@ -266,6 +343,24 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         if (_darkWindowChrome && Win32Hwnd is { } hwnd)
         {
             WindowChrome.TryEnableDarkMode(hwnd, _windowChromeColor);
+        }
+
+        // D, now that a window exists to ask about. It was created at the app's size in LOGICAL
+        // units, which SDL took as pixels — so on a scaled monitor it is currently too small, and
+        // this is where it becomes the physical size that logical size deserves.
+        _deviceScale = ReadDeviceScale();
+        _scale = new WindowScaleTracker(_logicalWidth, _logicalHeight, _deviceScale);
+        if (_deviceScale != 1f)
+        {
+            _resizingForDpi = true;
+            try
+            {
+                var wanted = _scale.WantedPhysical;
+                _width = wanted.Width;
+                _height = wanted.Height;
+                _sdl.SetWindowSize(_window, _width, _height);
+            }
+            finally { _resizingForDpi = false; }
         }
 
         _renderer = _sdl.CreateRenderer(_window, -1, (uint)RendererFlags.Software);
@@ -290,17 +385,31 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                     case EventType.Quit:
                         running = false;
                         break;
+                    // Each of these normalises to logical client units first, so the host downstream
+                    // only ever divides out the application's own present scale (#137).
                     case EventType.Mousebuttondown:
-                        if (e.Button.Button == Sdl.ButtonRight) RightPointerDown?.Invoke(e.Button.X, e.Button.Y);
-                        else PointerDown?.Invoke(e.Button.X, e.Button.Y, e.Button.Clicks); // SDL tracks click count
+                    {
+                        var (x, y) = ToLogicalClient(e.Button.X, e.Button.Y);
+                        if (e.Button.Button == Sdl.ButtonRight) RightPointerDown?.Invoke(x, y);
+                        else PointerDown?.Invoke(x, y, e.Button.Clicks); // SDL tracks click count
                         break;
+                    }
                     case EventType.Mousebuttonup:
-                        PointerUp?.Invoke(e.Button.X, e.Button.Y);
+                    {
+                        var (x, y) = ToLogicalClient(e.Button.X, e.Button.Y);
+                        PointerUp?.Invoke(x, y);
                         break;
+                    }
                     case EventType.Mousemotion:
-                        _lastX = e.Motion.X; _lastY = e.Motion.Y;
-                        PointerMove?.Invoke(e.Motion.X, e.Motion.Y);
+                    {
+                        // _lastX/_lastY feed the wheel event, which carries no position of its own —
+                        // so they are stored ALREADY converted, or a wheel would scroll the element
+                        // under a different point than the one the pointer is over.
+                        var (x, y) = ToLogicalClient(e.Motion.X, e.Motion.Y);
+                        _lastX = x; _lastY = y;
+                        PointerMove?.Invoke(x, y);
                         break;
+                    }
                     case EventType.Mousewheel:
                         // The wheel event itself carries no modifier state; ask SDL at delivery time.
                         var wheelMods = ((ushort)_sdl.GetModState() & ((ushort)Keymod.Ctrl | (ushort)Keymod.Gui)) != 0
@@ -369,12 +478,17 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                     case EventType.Windowevent when (WindowEventID)e.Window.Event == WindowEventID.SizeChanged:
                         EnsureSurface(e.Window.Data1, e.Window.Data2);
                         break;
+                    case EventType.Windowevent when (WindowEventID)e.Window.Event == WindowEventID.Moved:
+                        PollDeviceScale();
+                        break;
                     case EventType.Windowevent when (WindowEventID)e.Window.Event
                         is WindowEventID.Exposed or WindowEventID.Shown or WindowEventID.Restored:
                         _presentDirty = true; // window contents may be stale — re-present the texture
                         break;
                 }
             }
+            // Before Tick, so host work on the tick already sees the new scale (#137).
+            PollDeviceScale();
             Tick?.Invoke();
             RenderFrame();
             _sdl.Delay(16); // ~60 fps cap
@@ -391,6 +505,14 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     /// turn until the mouse is released.</summary>
     private int ResizeWatch(void* userData, Event* e)
     {
+        // A monitor change is a MOVE before it is a resize, and this watch is the only thing that
+        // runs while the window is being dragged — the main loop below gets no turn until the mouse
+        // is released. Polling here is what makes a DPI change land mid-drag instead of on release.
+        if ((EventType)e->Type == EventType.Windowevent && (WindowEventID)e->Window.Event == WindowEventID.Moved)
+        {
+            PollDeviceScale();
+            RenderFrame();
+        }
         if ((EventType)e->Type == EventType.Windowevent && (WindowEventID)e->Window.Event == WindowEventID.SizeChanged)
         {
             EnsureSurface(e->Window.Data1, e->Window.Data2);
@@ -411,6 +533,12 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     private void EnsureSurface(int w, int h)
     {
         if (w <= 0 || h <= 0) return;
+        // The logical size is the tracker's business, and it is told the scale read AT THIS MOMENT
+        // rather than a cached one — that is what separates a user dragging an edge from the OS
+        // moving us across a DPI boundary. Deriving it here from _deviceScale is the bug that made
+        // the GL window fail to shrink on the way back, intermittently, and this path had it too.
+        if (_scale is not null && !_resizingForDpi && _trackMonitorDpi)
+            ApplyDpiResize(_scale.ObserveFramebuffer(w, h, ReadDeviceScale()));
         // Same size and alive: keep the retained pixels. This matters beyond thrift — SDL delivers
         // a size change both to the resize WATCH (which repaints) and again from the polled queue;
         // recreating on the echo would throw away the frame the watch just painted.

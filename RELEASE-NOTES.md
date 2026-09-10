@@ -13,6 +13,74 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## v0.20.0
+
+### Added
+
+- **Installable fonts.** A document can carry its own faces instead of depending on what the machine
+  has:
+  - `@font-face { font-family: X; src: url(…) format(…); font-weight: 300 700; font-style: italic }`
+    in any stylesheet (app CSS, component CSS, `<style>`). Sources are tried in order; a `url()` takes
+    the same forms an image `src` does (embedded resource, file path, `file:`/`https:` URL, `data:`
+    URI); `local()` is skipped. The declared family, weight (or range) and style are what the cascade
+    matches, overriding the file's own names.
+  - `doc.LoadFont(CupriSource)`, `doc.LoadFont(string src)`, `doc.LoadFonts(directory)` (`.ttf`
+    `.otf` `.ttc` `.woff`), and on an app `override IEnumerable<CupriSource> Fonts` — registered on
+    every document the app creates, before the model binds.
+  - **WOFF 1** is unwrapped in the engine. **WOFF 2** is recognised and refused by name (it needs a
+    Brotli + glyf-transform decoder the engine does not carry yet): convert to TTF/OTF/WOFF 1.
+  - Registered faces are keyed by **weight bucket** (100–900), so Light/Regular/Medium/Bold all
+    register and CSS's nearest-weight rule picks between them; an italic request with no italic face
+    takes the upright one rather than the platform's.
+- **`FontPolicy.RegisteredOnly`** (`doc.FontPolicy`, `CupriApp.FontPolicy`) — for output that must
+  not depend on the machine. A family with no registered face throws `FontNotRegisteredException`
+  naming it, an `@font-face` that cannot load is an error at first layout, and glyph fallback for
+  characters a face lacks searches the registered faces only, never the platform's. `doc.FontReport`
+  lists what every family resolved to (`Registered` / `Platform` / `Default`) and what failed to load;
+  `FontReport.IsDeterministic` is the one-line answer. What that buys, measured on CI: the same
+  text **lays out identically** on Windows, Linux and macOS (a layout hash is compared across the
+  three), and renders to identical pixels on every machine of one platform — but not across
+  platforms, because Skia's glyph rasteriser is a different one on each (FreeType, DirectWrite,
+  CoreText). A frame renderer gets the same picture wherever it runs on one OS; a pixel test
+  belongs to one OS.
+- **`doc.PendingLoads` / `doc.IsLoaded`** — remote image loads still in flight, so a headless
+  renderer can wait for a complete frame instead of one with placeholders in it.
+- **`animation-delay`, `animation-iteration-count`, `animation-fill-mode`**, and the `animation`
+  shorthand reads them (`animation: fade 1s ease 0.5s 2 both`). Timing is a pure function of the
+  document clock — `Animate(t)` at any t, in any order, gives that t's frame — and a finished
+  animation leaves `HasActiveAnimations`, so a host goes idle with it.
+
+### Changed
+
+- **Desktop windows are DPI-aware by default (#137).** On Windows the host now asks for
+  Per-Monitor-V2 before creating a window, and both desktop windows (GL and SDL) lay the document out
+  in LOGICAL pixels while painting at `monitor scale × your PresentInfo.Scale`. Above 100% display
+  scaling this replaces Windows' bitmap stretching with real rasterisation — text and vectors are
+  crisp, the window keeps its logical size when dragged between monitors of different DPI, and UIA
+  bounding rectangles land on the right physical pixels.
+
+  **What a caller must do:** normally nothing. Two cases need attention:
+  - **You assumed `app.Width`/`Height` were physical pixels.** They are logical now, so a window
+    opens *larger* in pixels on a scaled monitor (1024 logical = 1536 pixels at 150%) and the same
+    physical size as before on the desk.
+  - **Your app already declares DPI awareness** in its manifest or by calling
+    `SetProcessDpiAwarenessContext` itself. Yours wins — CupriFace's request is refused by Windows
+    and nothing changes. This is deliberate.
+
+  To opt out: `override bool DpiAware => false` on your `CupriApp`, or set `CUPRIFACE_DPI=0` in the
+  environment to disable it for a run without a rebuild. `override bool TrackMonitorDpi => false`
+  keeps awareness but stops the per-frame check that follows the window between monitors.
+- **`ThreadedRender` now honours `Present` and the device scale.** It never called `app.Present` at
+  all, so it silently ignored `PresentInfo.Hybrid`/`Zoom` as well as DPI, and published accessibility
+  geometry at a hard-coded scale of 1. It now computes exactly what the inline paths do.
+  `ThreadedPresenter.Submit` and `ThreadedRenderer.Commit` take an optional trailing `scale`
+  (default `1`, so existing calls compile and behave unchanged).
+- **`animation-iteration-count` defaults to `1`, as in CSS.** An animation without `infinite` looped
+  forever before; it now runs once and reverts (or holds its last frame with `forwards`). Add
+  `infinite` to a spinner that relied on the old behaviour — every shipped sample already has it.
+- `tools/Screenshots` registers the web hosts' Noto faces before capture, so `docs/screenshots`
+  shows the document's text rather than the generating machine's sans. The images are regenerated.
+
 ## v0.19.1
 
 ### Fixed

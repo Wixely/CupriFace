@@ -34,6 +34,12 @@
     <ProjectReference Include="..\..\src\CupriFace.Web.Mono\CupriFace.Web.Mono.csproj" />
   </ItemGroup>
 
+  <!-- The host scale model (#137), compiled in the same way CupriFace.Shell compiles it. Shared as
+       SOURCE precisely so this arithmetic is testable without a ProjectReference to the Shell, which
+       would load Silk.NET and SDL into every one of these runs for the sake of maths that needs no
+       window. -->
+  <Import Project="..\..\src\Hosting.props" />
+
   <ItemGroup>
     <!-- Real font files for the registration tests, copied beside the test binary so the tests are
          machine-independent and run anywhere (including CI). They live in src/WebFonts, shared by

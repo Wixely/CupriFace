@@ -46,6 +46,10 @@ foreach (var (section, file, dark, waitMs) in shots)
 {
     var app = new ShowcaseApp(section);
     using var doc = app.CreateDocument();
+    // The Noto faces the web hosts embed, so a published image shows the document's text and not
+    // whichever sans this machine has. (The Showcase also uses `monospace`, which stays on the
+    // platform: no mono face ships, so RegisteredOnly is not on the table here yet.)
+    doc.LoadFonts(Path.Combine(AppContext.BaseDirectory, "fonts"));
     if (app.Model is ShowcaseModel m) m.DarkMode = dark;
 
     // The overlays page is worth showing with something actually open — a screenshot of the buttons

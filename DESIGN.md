@@ -676,6 +676,30 @@ a sample until v0.18.0, which meant the strategies were discoverable only by rea
 app author (or an agent) looking at the engine saw a record of three floats and no clue what to do
 with them.
 
+#### Device scale is the host's, not the app's
+`PresentInfo.Scale` is the **application's** factor and never the monitor's. The host owns a second
+one and multiplies:
+
+```
+D = OS device scale (1.5 at 144 DPI, 2 on Retina)   — the host reads it
+P = PresentInfo.Scale                                — the app chooses it
+T = D * P                                            — canvas, surfaces, damage, a11y geometry
+    app.Present(framebuffer / D)                     — the app is asked in LOGICAL units
+```
+
+The model is `HostScale` in `src/CupriFace.Hosting`, shared into hosts **as source** (like
+`WebCore.props`) so it stays out of the engine — which has no host concepts and no P/Invoke — and out
+of the browser hosts' ILC input. Two rules matter more than the arithmetic:
+
+- **Each backend normalises its own pointer coordinates to logical client units once.** GLFW reports
+  pixels on Windows and points on macOS; the host must not learn the difference, and must not divide
+  by D a second time.
+- **T is applied exactly once.** Every consumer reads one field, so there is nowhere for a second
+  multiply to hide.
+
+Android has done this since its first host (`density * scale`); the desktop host caught up in #137.
+The web host still presents at CSS pixels and has not yet plumbed `devicePixelRatio` (§9.1).
+
 The root (body) fills the viewport (initial containing block), so `height:100%` fills the
 window and "None vs Responsive" is just "fixed vs window" logical size. *(Live-resize
 fluidity during the OS modal resize loop is a per-backend follow-up — the reflow itself

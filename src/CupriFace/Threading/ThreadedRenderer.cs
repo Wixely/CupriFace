@@ -25,6 +25,7 @@ public sealed class ThreadedRenderer : IDisposable
     private readonly AutoResetEvent _signal = new(false);
     private DisplayList? _pending;
     private int _width, _height;
+    private float _scale = 1f;
     private SKColor _clear;
     private volatile bool _running = true;
 
@@ -40,9 +41,20 @@ public sealed class ThreadedRenderer : IDisposable
     }
 
     /// <summary>Hand the render thread the latest committed snapshot (non-blocking).</summary>
-    public void Commit(DisplayList list, int width, int height, SKColor clear)
+    /// <param name="width">Target surface width in DEVICE pixels.</param>
+    /// <param name="height">Target surface height in DEVICE pixels.</param>
+    /// <param name="scale">Logical-to-device factor the render thread applies before painting —
+    /// the host's effective scale (monitor DPI × the app's present scale). The display list is built
+    /// in logical units, so without this the snapshot is rasterised at logical resolution and then
+    /// stretched into a physical surface, which is exactly the softness DPI awareness exists to
+    /// avoid. Defaults to 1, which is the identity and the previous behaviour.</param>
+    public void Commit(DisplayList list, int width, int height, SKColor clear, float scale = 1f)
     {
-        lock (_lock) { _pending = list; _width = width; _height = height; _clear = clear; }
+        lock (_lock)
+        {
+            _pending = list; _width = width; _height = height; _clear = clear;
+            _scale = float.IsFinite(scale) && scale > 0 ? scale : 1f;
+        }
         _signal.Set();
     }
 
@@ -51,12 +63,20 @@ public sealed class ThreadedRenderer : IDisposable
         while (_running)
         {
             _signal.WaitOne();
-            DisplayList? list; int w, h; SKColor clear;
-            lock (_lock) { list = _pending; _pending = null; w = _width; h = _height; clear = _clear; }
+            DisplayList? list; int w, h; SKColor clear; float scale;
+            lock (_lock)
+            {
+                list = _pending; _pending = null; w = _width; h = _height; clear = _clear; scale = _scale;
+            }
             if (list is null || !_running || w <= 0 || h <= 0) continue;
 
             using var surface = SKSurface.Create(new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Premul));
             surface.Canvas.Clear(clear);
+            // The list is in logical units and the surface is in device pixels; this is the one
+            // multiply between them. Vectors and glyphs are re-rasterised at the target size rather
+            // than resampled, which is the entire point of doing it here instead of stretching the
+            // finished image on present.
+            if (scale != 1f) surface.Canvas.Scale(scale);
             _rasterizer.Paint(surface.Canvas, list);
             surface.Canvas.Flush();
 

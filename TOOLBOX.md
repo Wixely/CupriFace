@@ -220,7 +220,7 @@ public sealed class MyApp : CupriApp
 
 `CupriApp.Html`/`Css` default to reading these sources (override either the sources or the strings).
 For a one‑off you can skip the generator with the `EmbeddedAsset("Assets/MyApp.html")` helper. This
-same `CupriSource` (via `ReadBytes()`) is how images/fonts/media will load — see
+same `CupriSource` (via `ReadBytes()`) is how images, fonts and media load — see
 [ROADMAP.md](ROADMAP.md). `samples/DemoApp` is the worked example.
 
 ---
@@ -415,6 +415,35 @@ controls handle their own state.
   .price-was { text-decoration: line-through; }
   blockquote { font-style: italic; }
   ```
+- **Fonts: `@font-face`, `LoadFont`, `LoadFonts`, `CupriApp.Fonts`.** By default a family resolves
+  to whatever the platform has for it — right for an app on a desktop, and the reason the same page
+  looks slightly different on two machines. A document can carry its own faces instead:
+  ```css
+  @font-face { font-family: "Brand"; src: url(Assets/Brand-Regular.woff) format("woff"); }
+  @font-face { font-family: "Brand"; src: url(Assets/Brand-Bold.ttf); font-weight: 700; }
+  @font-face { font-family: "Brand"; src: url(Assets/Brand-Italic.ttf); font-style: italic; }
+  body { font-family: "Brand", sans-serif; }
+  ```
+  A `url()` takes the same forms an image `src` does — an embedded resource (resolved against the app
+  assembly), a file path, a `file:`/`https:` URL, a `data:` URI — and sources are tried in order;
+  `local()` is skipped, being exactly the platform dependency this removes. The declared
+  `font-weight` (a value or a range, `300 700`) and `font-style` are what the cascade matches, so
+  they override the file's own names. TTF, OTF, TTC and **WOFF 1** load; **WOFF 2** is refused by
+  name (convert it). From code: `doc.LoadFont(CupriSource.Embedded(asm, "fonts.Brand.ttf"))`,
+  `doc.LoadFont("Assets/Brand.ttf")`, `doc.LoadFonts(dir)` for a folder, or on an app
+  `public override IEnumerable<CupriSource> Fonts => [...]`, which every document the app creates
+  gets before its model binds. The first registered family becomes the target of
+  `sans-serif`/`system-ui`; `monospace` stays with the platform.
+
+  **`FontPolicy.RegisteredOnly`** (`doc.FontPolicy` / `CupriApp.FontPolicy`) is for output that must
+  not depend on the machine — a test image, a rendered frame. A family with no registered face throws
+  `FontNotRegisteredException` naming it, an `@font-face` that fails to load is an error at first
+  layout, and glyph fallback for characters a face lacks searches the registered faces only, never
+  the platform's emoji font. `doc.FontReport` lists what every family resolved to and what failed;
+  `FontReport.IsDeterministic` is the one-line answer. What it guarantees: the same layout on every
+  platform, and the same pixels on every machine of one platform. Pixels differ *between* Windows,
+  Linux and macOS — Skia's glyph rasteriser is a different one on each — so a pixel comparison
+  belongs to one OS.
 - **`cursor`.** Sets the pointer shape and **inherits** like normal CSS. Supported keywords: `default`,
   `pointer`, `text`, `wait`, `progress`, `help`, `crosshair`, `move`, `not-allowed`, `grab`, `grabbing`,
   `col-resize`/`ew-resize`, `row-resize`/`ns-resize`, `nwse-resize`, `nesw-resize`, `none` (and `auto` =
@@ -782,6 +811,31 @@ public override PresentInfo Present(float w, float h) => PresentInfo.Hybrid(w, h
 
 The host repaints on demand — after input, on the `RefreshIntervalSeconds` cadence, or while
 something animates — so an idle page costs ~nothing.
+
+### Display scaling is not your `Present` scale
+
+The window sizes you receive are **logical**, already divided by the monitor's scale. Your `Present`
+factor multiplies with the monitor's rather than replacing it:
+
+| symbol | what it is | who chooses it |
+|---|---|---|
+| **D** | monitor scale — 1.5 at 144 DPI, 2 on Retina | the OS |
+| **P** | `PresentInfo.Scale` | your app |
+| **T** | `D × P` — what actually reaches the canvas, surfaces, damage and screen readers | neither, it is the product |
+
+So a `Hybrid` app on a 150% monitor is asked to present into a 1280×720 logical window (not the
+1920×1080 framebuffer), and paints at `1.5 × P`. Nothing in your app needs to know D — pointer
+coordinates and layout are already in logical units by the time you see them.
+
+Desktop windows are DPI-aware by default. Two knobs turn it down:
+
+```csharp
+public override bool DpiAware        => false;  // pre-#137 behaviour: physical pixels, OS stretches
+public override bool TrackMonitorDpi => false;  // aware, but stop following the window between monitors
+```
+
+`CUPRIFACE_DPI=0` in the environment does the same as `DpiAware => false` without a rebuild. If your
+executable's manifest already declares an awareness, that wins — CupriFace does not override it.
 
 ---
 

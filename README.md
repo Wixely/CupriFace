@@ -55,6 +55,13 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 - **Component model** — custom elements expand into themed, accessible primitives;
   ships `<cupri-slider>`, `<cupri-switch>`, `<cupri-progress>`, `<cupri-button>`,
   `<cupri-badge>` with `role`/`aria-*` baked in.
+- **Installable fonts** — `@font-face` with `url()` sources (embedded resource, file, `https:`,
+  `data:`), `doc.LoadFont`/`LoadFonts`, or `override Fonts` on the app. `FontPolicy.RegisteredOnly`
+  makes output that cannot depend on what the machine happens to have installed.
+- **Display scaling** — desktop windows are Per-Monitor-V2 aware: the document lays out in logical
+  pixels and paints at `monitor scale × your PresentInfo.Scale`, so text and vectors are rasterised
+  crisply rather than bitmap-stretched, and a window keeps its logical size when dragged between
+  monitors of different DPI. `samples/DpiProbe` shows the live numbers.
 - **Screen readers** — those semantics reach assistive tech on **four platforms**: UIA
   (Windows), AT-SPI (Linux), NSAccessibility (macOS) and TalkBack (Android), each proven
   in CI by a real assistive-technology client, plus a real-DOM ARIA mirror on the web host.
@@ -88,7 +95,10 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 | `src/CupriFace.Web.Mono` | Browser host on the Mono wasm runtime: `WebHost.Run` + canvas blit + touch/IME + ARIA mirror + browser-decoded video (no Blazor) |
 | `src/CupriFace.Web.NativeAot` | Browser host compiled AOT (NativeAOT-LLVM): same `WebHost.Run`, faster, experimental toolchain |
 | `src/CupriFace.Media` | Optional: WebM (VP9 + Opus) video for `<cupri-video>` on desktop |
+| `src/CupriFace.Gl` | Optional: an OpenGL viewport bound to an element — the `IGpuSurfaceSource` seam packaged, on all three hosts |
+| `src/CupriFace.Lottie` | Optional: Lottie (After Effects JSON) playback via `<cupri-lottie>`, through Skia's own Skottie — managed only |
 | `src/CupriFace.Binding.Gen` | Roslyn source generator for AOT-clean binding accessors |
+| `src/CupriFace.Resources.Gen` | Roslyn source generator turning `Assets/*.html\|.css` into typed members |
 | `samples/HelloBox` | M0 shell smoke (window / CPU-raster) |
 | `samples/HtmlView` | A real HTML/CSS document (flex, text, i18n) |
 | `samples/GridDemo` · `GridAdvanced` | CSS Grid: tracks/spans; `minmax()` + row spans |
@@ -106,6 +116,9 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 | `samples/WebWasm` | The Showcase in the browser: three lines of app over `CupriFace.Web.Mono` |
 | `samples/Web` | Web host (alt): a **minimal** Blazor `<SKCanvasView>` embedding example — clicks only, see below |
 | `samples/Demo3d` | The Showcase's **3D** page: a small glTF/PBR renderer behind `ISurfaceSource`, composited two different ways depending on the host |
+| `samples/WebLlvm` | The Showcase in the browser compiled AOT (NativeAOT-LLVM) — same app, faster, experimental toolchain |
+| `samples/Scaling` | The four `PresentInfo` strategies side by side (headless PNGs) |
+| `samples/DpiProbe` | Live display-scaling readout: monitor scale, app scale, effective scale, and the callbacks behind them |
 
 ## Download
 
@@ -237,7 +250,7 @@ the feature working and then quietly stopping, which is the hardest kind to trac
 | | Where the engine runs | Download | Needs a WASM build? |
 |---|---|---|---|
 | `samples/WebWasm` | In the browser (.NET WASM → `<canvas>`), Mono-interpreted | the whole engine | yes |
-| `samples/WebLlvm` | In the browser, NativeAOT-LLVM — same engine, ~7x faster than interpreted | 14.2 MB (5.5 MB gzipped) | yes |
+| `samples/WebLlvm` | In the browser, NativeAOT-LLVM — same engine, ~7x faster than interpreted | 16.9 MB (6.9 MB gzipped, measured 2026-09) | yes |
 
 Both compile the *same* `ShowcaseApp`; only the compiler differs. `WebLlvm` is where this is
 heading — it removes the interpreter tax (a hover restyle measured at 2.1 ms against 16.2 ms) — and
@@ -246,5 +259,5 @@ heading — it removes the interpreter tax (a hover restyle measured at 2.1 ms a
 ## License note
 
 All third-party dependencies are permissive (MIT / Apache-2.0): SkiaSharp,
-HarfBuzzSharp, Silk.NET, AngleSharp. The flexbox engine is our own managed code (no
+HarfBuzzSharp, Silk.NET, AngleSharp, Tmds.DBus.Protocol (the Linux AT-SPI bridge). The flexbox engine is our own managed code (no
 native Yoga), keeping the stack fully managed and AOT-friendly.

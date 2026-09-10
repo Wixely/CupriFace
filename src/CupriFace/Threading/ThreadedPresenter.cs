@@ -25,9 +25,11 @@ public sealed class ThreadedPresenter : IDisposable
     /// <summary>Frames the render thread has rasterised so far.</summary>
     public long FramesRendered => _renderer.FramesRendered;
 
-    /// <summary>Hand the render thread the latest snapshot to rasterise (non-blocking; latest wins).</summary>
-    public void Submit(DisplayList list, int width, int height, SKColor clear) =>
-        _renderer.Commit(list, width, height, clear);
+    /// <summary>Hand the render thread the latest snapshot to rasterise (non-blocking; latest wins).
+    /// <paramref name="scale"/> is the host's logical-to-device factor (monitor DPI × the app's
+    /// present scale); 1 means the display list is already in device pixels.</summary>
+    public void Submit(DisplayList list, int width, int height, SKColor clear, float scale = 1f) =>
+        _renderer.Commit(list, width, height, clear, scale);
 
     /// <summary>Draw the latest completed frame onto <paramref name="canvas"/> (UI thread). Returns
     /// false if no frame has been rendered yet.</summary>
