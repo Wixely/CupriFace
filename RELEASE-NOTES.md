@@ -13,7 +13,7 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
-## v0.19.1
+## v0.20.0
 
 ### Added
 
@@ -80,6 +80,8 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   `infinite` to a spinner that relied on the old behaviour — every shipped sample already has it.
 - `tools/Screenshots` registers the web hosts' Noto faces before capture, so `docs/screenshots`
   shows the document's text rather than the generating machine's sans. The images are regenerated.
+
+## v0.19.1
 
 ### Fixed
 
