@@ -284,6 +284,8 @@ public static class DesktopHost
             };
             window.Shortcut += (ch, mods) => { Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             doc.ContextRequested += cmd => { ContextAction(doc, cmd, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
+            // A copy button (data-cupri-copy) supplies its own text rather than copying a selection.
+            doc.ClipboardWriteRequested += v => window.ClipboardText = v;
             doc.WindowCommandRequested += cmd => window.SetFullscreen(cmd switch
             {
                 WindowCommand.EnterFullscreen => true,
@@ -472,6 +474,8 @@ public static class DesktopHost
             };
             window.Shortcut += (ch, mods) => { Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             doc.ContextRequested += cmd => { ContextAction(doc, cmd, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
+            // A copy button (data-cupri-copy) supplies its own text rather than copying a selection.
+            doc.ClipboardWriteRequested += v => window.ClipboardText = v;
             doc.WindowCommandRequested += cmd => window.SetFullscreen(cmd switch
             {
                 WindowCommand.EnterFullscreen => true,

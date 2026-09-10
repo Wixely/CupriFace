@@ -11,6 +11,57 @@ app up, how binding/interaction/styling work, and gives a reference entry for ev
 
 ---
 
+
+## Checking a document while you build it
+
+The engine is forgiving at run time on purpose — an unsupported CSS property is ignored, an element
+it has no primitive for lays out and then stays empty — so a stylesheet written for a browser cannot
+crash your app. The cost is that a mistake looks exactly like a layout you have not finished:
+nothing throws, nothing logs, the box is just blank.
+
+`CupriDoctor` turns that silence into a list:
+
+```csharp
+using CupriFace.Diagnostics;
+
+var report = CupriDoctor.Check(app.Html, app.Css, app.Components);
+if (!report.IsClean) Console.WriteLine(report);
+```
+
+```
+7 findings (4 error, 3 warning, 0 info)
+  error CF0010 (line 2): <div> is never closed — the </body> on line 11 closes its parent first.  -> Add </div> before that.
+  error CF0030 (line 4): <img> is not something the engine draws — it lays out, and then stays empty.  -> Use <cupri-image src="..."> — the engine has no raw <img> primitive.
+  error CF0020 (line 5): <cupri-slidr> is not a registered component, so it renders nothing.  -> Did you mean <cupri-slider>?
+  warning CF0050 (line 1): CSS property 'float' is not supported and was ignored.  -> Use flexbox (display:flex) — there is no float layout.
+```
+
+| Code | Finds |
+|---|---|
+| `CF0001` | The document could not be built at all |
+| `CF0010` / `CF0011` | A tag never closed, or a close that matches nothing — reported at the line it *opened* on |
+| `CF0020` | A `cupri-*` tag nothing registered, with a "did you mean" for near misses |
+| `CF0021` | A control that can never open — `<cupri-select>` and friends keep open state in the model, and without an `open` binding the trigger is inert while still reporting the click as handled |
+| `CF0030` | `<img>`, `<video>`, `<svg>`, `<canvas>`, `<iframe>` and friends, each pointed at what to use here |
+| `CF0031` | Anything else in your markup that produced no render output |
+| `CF0040` / `CF0041` | `<script>` and `onclick=` — there is no JavaScript engine |
+| `CF0050` / `CF0051` | A CSS property, or a function like `repeating-linear-gradient()`, that is silently ignored |
+
+`report.IsClean` and `report.HasErrors` are the one-line answers, so this drops into a unit test:
+
+```csharp
+[Fact] public void MarkupIsSound() =>
+    Assert.False(CupriDoctor.Check(new MyApp().Html, new MyApp().Css).HasErrors);
+```
+
+**It reads the engine rather than describing it.** Unrendered elements come from diffing the real
+render tree, unknown components from the real `ComponentRegistry`, and unsupported CSS from the real
+`StyleResolver` reporting what it threw away — so adding an element or a property to the engine stops
+the checker complaining about it, with no list to update. A checker with false positives gets turned
+off, and a turned-off checker finds nothing.
+
+---
+
 ## 1. Mental model
 
 Three inputs, one output:
@@ -604,7 +655,7 @@ to the bottom as new lines arrive (logging), *unless* the user has scrolled up:
 | `<cupri-card>` | Padded rounded surface | — | arbitrary | — |
 | `<cupri-divider>` | Horizontal rule | — | — | `separator` |
 | `<cupri-stat>` | Metric value + caption | `value`, `label` | — | — |
-| `<cupri-markdown>` | Renders a Markdown subset — `#`/`##`/`###` headings, `**bold**`, `*italic*`/`_italic_`, inline `` `code` `` + fenced ```` ``` ```` blocks, `-`/`*` bullet lists, `[text](url)` links, blank‑line paragraphs — into the toolkit's own elements (never raw HTML) | `text` (bindable; falls back to the element's own text) | Markdown text (when no `text` attr) | — |
+| `<cupri-markdown>` | Renders a Markdown subset — `#`…`######` headings, `**bold**`, `*italic*`/`_italic_`, `~~strike~~`, inline `` `code` `` + fenced ```` ``` ```` blocks, `-`/`*` bullet lists, `1.`/`1)` ordered lists, `> ` blockquotes, `---` rules, `[text](url)` links, `![alt](src)` images, blank‑line paragraphs — into the toolkit's own elements (never raw HTML) | `text` (bindable; falls back to the element's own text) | Markdown text (when no `text` attr) | — |
 
 ### Navigation & disclosure
 
