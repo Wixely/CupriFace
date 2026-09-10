@@ -1,6 +1,8 @@
 param([Parameter(Mandatory=$true)][string]$Exe, [switch]$GlBaseline, [switch]$LayeredGpu)
 # Run in an unlocked Windows desktop with Windows PowerShell 5.1. Uses only a synthetic
 # backdrop; no screenshots or personal desktop content are written to disk.
+# A pass proves composition only on this machine/session/backend. It does not prove
+# that issue #139 is fixed on other machines or on the default GL presentation path.
 $ErrorActionPreference = 'Stop'
 if($LayeredGpu -and $GlBaseline){throw 'Choose either the layered GPU path or the default GL baseline.'}
 if(($LayeredGpu -or $GlBaseline) -and $env:CUPRIFACE_SOFTWARE -in @('1','true','TRUE')){throw 'Unset CUPRIFACE_SOFTWARE to test GPU rendering.'}

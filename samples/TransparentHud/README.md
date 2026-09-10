@@ -31,7 +31,9 @@ This is GPU drawing **with CPU readback**, not zero-copy GPU composition. It has
 copy/synchronization cost and is not promised to be faster for a small static UI.
 No global driver settings are changed.
 
-This mode requires Windows, `Transparent=true`, `Frameless=true`, and usable OpenGL.
+The layered mode requires Windows, `Transparent=true`, `Frameless=true`, and usable OpenGL.
+On other platforms or with other window flags, this entry point reports a diagnostic
+and uses the normal desktop renderer instead; the application call site stays portable.
 GL failures are reported rather than silently claiming GPU operation. The explicit
 `CUPRIFACE_SOFTWARE=1` override selects the CPU path. GPU surface producers use the
 same context and draw contract as the normal GL host. `ThreadedRender` is bypassed
@@ -77,3 +79,28 @@ also passed all eight checks with 0% black pixels and correct fractional blendin
 Windows 10 and mixed-monitor DPI transitions
 still require testing for this change. OS version alone has not been isolated as
 the cause of the original GPU failure.
+
+## Linux / WSLg portability check
+
+Without installing a Linux SDK, publish on Windows and run the Linux executable
+from WSL (replace `/mnt/c/path/to/repo` with the checkout location):
+
+```powershell
+dotnet publish samples/TransparentHud -c Release -r linux-x64 --self-contained true -o artifacts/linux-hud
+wsl -- /mnt/c/path/to/repo/artifacts/linux-hud/TransparentHud --layered-gpu
+```
+
+The diagnostic must say that normal desktop rendering is being used, not throw.
+Set `CUPRIFACE_GL_DEBUG=1` in the Linux process environment to identify the actual
+renderer. A working GL context does not necessarily mean hardware acceleration:
+WSLg may select Mesa llvmpipe. Where the installed Mesa supports it,
+`env GALLIUM_DRIVER=d3d12 CUPRIFACE_GL_DEBUG=1 ./TransparentHud --layered-gpu`
+selects the WSLg D3D12 driver for that process without changing system settings.
+
+Verified on 2026-09-10 in Ubuntu 24.04 / WSL2 / WSLg: the previous entry point
+threw before creating a window; the fallback starts the HUD with both Mesa
+llvmpipe and D3D12 (NVIDIA RTX 3090). A periodically refreshed transparent probe
+using the same entry point produced 340x224 GL readbacks with corner alpha 0
+and panel RGBA (18,20,26,217) on both renderers. These are **render-surface**
+checks, not assertions about WSLg's final desktop composition. They do not exercise
+Win32 layered presentation or replace native Linux desktop acceptance testing.

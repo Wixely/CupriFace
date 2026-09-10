@@ -42,12 +42,17 @@ public static class DesktopHost
 
     /// <summary>Windows-only GPU rendering with per-pixel alpha presentation. Draws on an
     /// off-screen Skia GPU surface and reads changed frames back for UpdateLayeredWindow.
-    /// This is not zero-copy composition. Requires a transparent, frameless app and working GL.
+    /// This is not zero-copy composition. Uses normal desktop rendering on other platforms
+    /// or for apps that are not transparent and frameless. The Windows layered path needs working GL.
     /// CUPRIFACE_SOFTWARE=1 explicitly disables GPU rendering for troubleshooting.</summary>
     public static void RunWithLayeredGpu(CupriApp app, Action<CupriDocument>? configure = null)
     {
         if (!OperatingSystem.IsWindows() || !app.Transparent || !app.Frameless)
-            throw new ArgumentException("Layered GPU rendering requires a transparent, frameless Windows app.", nameof(app));
+        {
+            Console.WriteLine("[CupriFace] Layered GPU presentation requires Windows and a transparent, frameless app; using normal desktop rendering.");
+            Run(app, configure);
+            return;
+        }
         RunCore(app, preferSoftware: false, layeredGpu: true, configure: configure);
     }
 
