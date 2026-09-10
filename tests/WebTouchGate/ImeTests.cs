@@ -18,11 +18,19 @@ namespace CupriFace.WebTouchGate;
 [Collection("web")]
 public class ImeTests(WebHostFixture host)
 {
-    /// <summary>Tab until the engine reports a focused text input, so the test needs no coordinates
-    /// and works identically on either host.</summary>
+    /// <summary>
+    /// Tab until the engine reports a focused text input, so the test needs no coordinates and works
+    /// identically on either host.
+    ///
+    /// <para>The bound is a stop against looping forever, NOT an assertion about how many tab stops
+    /// the Showcase has — but it was 25, and the Showcase reached its first text field on the 25th
+    /// tab, so it had no headroom at all. Adding one nav item took it to 26 and this failed for a
+    /// reason that had nothing to do with IME placement. Measured headlessly rather than guessed:
+    /// 25 on main, 26 with one page added.</para>
+    /// </summary>
     private static async Task<bool> TabToATextFieldAsync(IPage page)
     {
-        for (var i = 0; i < 25; i++)
+        for (var i = 0; i < 60; i++)
         {
             await page.Keyboard.PressAsync("Tab");
             await page.WaitForTimeoutAsync(60);

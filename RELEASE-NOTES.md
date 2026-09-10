@@ -13,6 +13,56 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- **The caret moves when you type a space at the end of a field.** It was measured against the
+  PAINTED text row, and line layout drops trailing whitespace (correct for prose — a line should not
+  end in a visible gap), so the caret stopped at the last non-space glyph and typing more spaces
+  moved nothing. It is now measured against the logical value. Affected `cupri-textfield`,
+  `cupri-textarea` and `cupri-search`.
+
+  **No text was ever lost**: the model held every space throughout. But text you cannot see plus a
+  caret that does not move is indistinguishable from text that was discarded, which is how it was
+  reported. Every text control now has tests for both halves — the value keeps the whitespace, and
+  the caret advances over it.
+- **`<cupri-markdown>` no longer hangs on an h4.** Any line starting with `#` that was not `# `,
+  `## ` or `### ` — an h4/h5/h6 heading, or a bare `#hashtag` — matched no heading branch, fell
+  through to the paragraph branch, and was rejected by that branch's own `!StartsWith("#")` guard.
+  Nothing was consumed, the index never advanced, and the renderer spun forever on one line. Markdown
+  is routinely text somebody else wrote, so that was a denial of service rather than a cosmetic
+  fault. The paragraph branch now always consumes the line that reached it, so forward progress is a
+  property of the branch rather than of a guard a future block type could contradict.
+- **An image renders as an image.** `![alt](src)` used to emit a literal `!` followed by a link,
+  because the link rule matched from index 1. Images are matched first, the link rule refuses a
+  leading `!`, and the result is a `<cupri-image>` — not a raw `<img>`, which the engine has no
+  primitive for and which therefore rendered as an empty box.
+
+### Added
+
+- **`<cupri-markdown>` covers more of the syntax**: headings to `######`, ordered lists (`1.` / `1)`),
+  blockquotes (`> `), thematic breaks (`---` / `***` / `___`) and `~~strikethrough~~`. Still a
+  subset, still no dependency, and still escaped before any inline rule runs — so raw HTML in the
+  source stays text and can never become markup.
+- **A Markdown page in the Showcase** (`samples/DemoApp`) with a live editor beside the rendered
+  output, plus panels for each shape that used to break.
+- **A copy button on `<cupri-markdown>` code blocks**, top right. It hands over the RAW source, not
+  the rendered block — the `<pre>` is a stack of divs with non-breaking spaces standing in for
+  indentation, so reading its text back would lose the line breaks and mangle the indentation.
+- **`CupriDocument.ClipboardWriteRequested`** — the document asking its host to put a given string on
+  the clipboard, raised by any control carrying `data-cupri-copy`. Separate from `ContextRequested`,
+  which copies the *selection*; this supplies text the user never selected. Wired in all three hosts
+  (desktop, browser, Android). **If you maintain a host, subscribe to it** alongside
+  `ContextCommand.Copy`, or copy buttons will silently do nothing.
+- **`CupriDoctor.Check(html, css)`** — a development-time check that names what will not work before
+  you go looking for it on screen: unbalanced tags (reported at the line they *opened* on), `<img>`
+  and other browser habits pointed at their `cupri-*` equivalents, unregistered `cupri-` tags with a
+  "did you mean", `<script>` and `onclick=`, and CSS properties or functions the engine silently
+  ignores. `report.IsClean` / `report.HasErrors` drop straight into a unit test. The checks read
+  from the engine — the render tree, the component registry, the style resolver — rather than from a
+  list that would drift, so adding a feature to the engine stops the checker complaining about it.
+
 ## v0.20.0
 
 ### Added

@@ -426,6 +426,13 @@ public sealed class StyleResolver
                 // Shorthand and longhand both land here: we only support the *line* part, so any
                 // colour/style words in the shorthand are ignored rather than mis-parsed.
                 case "text-decoration" or "text-decoration-line": s.Decorations = ParseDecorations(v); break;
+                // Everything else is silently ignored, which is the right runtime behaviour — a
+                // stylesheet written for a browser must not throw here. But "silently" is exactly
+                // what makes a typo'd or unsupported property hard to find, so when a checker is
+                // listening it hears about each one. Reporting from the REAL switch is the point: a
+                // list of supported properties kept anywhere else would drift from this one and
+                // start accusing working CSS of being broken.
+                default: UnsupportedProperty?.Invoke(prop, v); break;
             }
         }
         return sawViewportUnit;
@@ -524,6 +531,17 @@ public sealed class StyleResolver
     /// turns it into <c>auto</c> — never a definite zero. That mattered: <c>height:100vh</c> was
     /// parsed as a definite <c>0px</c>, which under <c>overflow:hidden</c> clipped an entire
     /// populated subtree away and rendered a black screen (#71).</summary>
+    /// <summary>
+    /// Diagnostics hook: raised for every declaration this resolver does not understand, with the
+    /// property name and its value. Null in normal operation, so it costs one null check per unknown
+    /// declaration and nothing at all for supported ones.
+    ///
+    /// <para>Set by <c>CupriDoctor</c> while it checks a document, and cleared afterwards. Not
+    /// thread-safe and not meant to be — it exists for a development-time check, not a running
+    /// app.</para>
+    /// </summary>
+    internal static Action<string, string>? UnsupportedProperty;
+
     private static string SubstituteViewportUnits(string value, float vw, float vh, out bool used)
     {
         used = false;

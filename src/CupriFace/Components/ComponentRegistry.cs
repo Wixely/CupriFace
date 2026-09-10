@@ -19,6 +19,11 @@ public sealed class ComponentRegistry
     }
 
     /// <summary>Concatenated default CSS of all registered components (low priority).</summary>
+    /// <summary>Every tag this registry can expand. The single source of truth for "is that a real
+    /// component?" — a checker or a tool asks here rather than keeping its own list, which would go
+    /// stale the moment a control is added.</summary>
+    public IReadOnlyCollection<string> Tags => _components.Keys;
+
     public string AggregatedCss => string.Join("\n", _components.Values.Select(c => c.DefaultCss));
 
     public void Expand(IDocument document)
