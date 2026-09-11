@@ -5096,7 +5096,11 @@ public sealed partial class CupriDocument : IDisposable
                     sb.Append("   << EMPTY BOX, has children");
                 else if (Diagnostics.BoxOverflow.Overshoot(n) is { } over)
                     sb.Append($"   << CONTENT OVERFLOWS by {over:0}px");
-                sb.AppendLine();
+                // '\n', not AppendLine: this output exists to be diffed between runs and parsed by
+                // whatever is reading it, and Environment.NewLine would make the same tree differ
+                // between Windows and Linux by line endings alone — and leave a trailing '\r' on
+                // every token for anyone splitting on '\n', which is what a reader naturally does.
+                sb.Append('\n');
             }
             if (maxDepth > 0 && depth >= maxDepth) return;
             foreach (var c in n.Children)
