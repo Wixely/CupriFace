@@ -5049,6 +5049,76 @@ public sealed partial class CupriDocument : IDisposable
     private static bool Matches(IElement el, AngleSharp.Css.Dom.ISelector? compiled) =>
         compiled is not null && compiled.Match(el, null);
 
+    /// <summary>
+    /// The laid-out render tree as indented text: what each node IS, and where it ended up.
+    ///
+    /// <code>
+    /// body                    0,0    320x190
+    ///   div.panel             14,14  292x44
+    ///     div.row             20,20  280x26   "Alpha"
+    /// </code>
+    ///
+    /// <para><b>Why text as well as a picture.</b> A screenshot shows you THAT something is wrong;
+    /// this shows you WHAT. A card that renders as nothing is a blank rectangle in an image and a
+    /// <c>292x0</c> in one line here — and a blank rectangle has many possible causes while a zero
+    /// height has one. It is also greppable, diffable between two runs, and cheap to assert on in a
+    /// unit test, none of which an image is.</para>
+    ///
+    /// <para>Coordinates are ABSOLUTE, so the numbers are the ones to hand to
+    /// <see cref="DispatchClick"/> — the dump tells you where to click as well as what is there.
+    /// Call it after <see cref="Refresh"/> and at least one render, or every box reads 0x0 because
+    /// nothing has been laid out yet.</para>
+    /// </summary>
+    /// <param name="maxDepth">Stop descending past this depth (0 = no limit). A deep component
+    /// expands into a lot of primitives; 3 or 4 is usually the level a person is thinking at.</param>
+    /// <param name="includeText">Include text nodes. Off gives you the box structure alone.</param>
+    public string DumpTree(int maxDepth = 0, bool includeText = true)
+    {
+        var sb = new System.Text.StringBuilder();
+        Walk(_root, 0, 0, 0);
+        return sb.ToString().TrimEnd();
+
+        void Walk(RenderNode n, int depth, float ox, float oy)
+        {
+            var x = ox + n.X;
+            var y = oy + n.Y;
+            if (n.IsText && !includeText) return;
+            if (maxDepth <= 0 || depth <= maxDepth)
+            {
+                var label = new string(' ', depth * 2) + Describe(n);
+                sb.Append(label.PadRight(Math.Max(34, label.Length + 1)))
+                  .Append($"{x:0},{y:0}".PadRight(12))
+                  .Append($"{n.Width:0}x{n.Height:0}");
+                // The two shapes that explain most "why is nothing there": a box with no height, and
+                // content that does not fit the box it was given. Flagged inline because the whole
+                // point of the dump is to answer that question without a second tool.
+                if (!n.IsText && (n.Width <= 0.5f || n.Height <= 0.5f) && n.Children.Count > 0)
+                    sb.Append("   << EMPTY BOX, has children");
+                else if (Diagnostics.BoxOverflow.Overshoot(n) is { } over)
+                    sb.Append($"   << CONTENT OVERFLOWS by {over:0}px");
+                sb.AppendLine();
+            }
+            if (maxDepth > 0 && depth >= maxDepth) return;
+            foreach (var c in n.Children)
+                Walk(c, depth + 1, x + n.ContentLeftInset, y + n.ContentTopInset);
+        }
+
+        static string Describe(RenderNode n)
+        {
+            if (n.IsText)
+            {
+                var t = n.Text!.Replace("\n", " ").Trim();
+                if (t.Length > 30) t = t[..29] + "…";
+                return $"\"{t}\"";
+            }
+            var name = n.Tag.Length > 0 ? n.Tag : "?";
+            if (n.Element?.Id is { Length: > 0 } id) name += "#" + id;
+            if (n.Element?.GetAttribute("class") is { Length: > 0 } cls)
+                name += "." + cls.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0];
+            return name;
+        }
+    }
+
     /// <summary>Convenience CPU-raster render to an image (headless/tests).</summary>
     public SKImage RenderToImage(int width, int height, SKColor? clear = null)
     {

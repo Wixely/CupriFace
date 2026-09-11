@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using AngleSharp.Dom;
 using CupriFace.Components;
 using CupriFace.Dom;
@@ -92,7 +93,7 @@ public sealed class DoctorReport
 ///
 /// <para>Development-time only. Nothing here runs while an app is running.</para>
 /// </summary>
-public static class CupriDoctor
+public static partial class CupriDoctor
 {
     /// <summary>Check markup and, if you have one, a stylesheet.</summary>
     /// <param name="html">Document markup — the same string you would give <c>CupriApp.Html</c>.</param>
@@ -101,9 +102,14 @@ public static class CupriDoctor
     /// which is what an app that does not override <c>CupriApp.Components</c> gets.</param>
     /// <param name="width">Viewport for the trial layout.</param>
     /// <param name="height">Viewport height for the trial layout.</param>
+    /// <param name="model">The binding model, if the document has one. Supplying it unlocks the
+    /// checks that cannot be done without it: whether every <c>{{path}}</c> names something real,
+    /// and whether the boxes still fit once actual content is in them. Without it those are skipped
+    /// rather than guessed.</param>
     public static DoctorReport Check(string html, string? css = null,
                                      ComponentRegistry? components = null,
-                                     int width = 1024, int height = 768)
+                                     int width = 1024, int height = 768,
+                                     object? model = null)
     {
         var findings = new List<Finding>();
         var registry = components ?? ComponentRegistry.Default();
@@ -116,16 +122,22 @@ public static class CupriDoctor
         CupriDocument? doc = null;
         IDocument? dom = null;
         var unsupportedCss = new List<string>();
+        var missingGlyphs = new SortedSet<int>();
         try
         {
             // The CSS hook goes on BEFORE the document is built. Styles resolve during the first
             // build and the result is cached, so a hook attached afterwards hears nothing at all —
             // which is exactly how the first version of this quietly reported no CSS problems ever.
             StyleResolver.UnsupportedProperty = (p, _) => unsupportedCss.Add(p);
+            Text.FontService.GlyphMissing = cp => missingGlyphs.Add(cp);
             try
             {
                 doc = CupriDocument.Load(html, css ?? "");
                 doc.UseComponents(registry);
+                // Bound BEFORE the layout below, so the boxes measured are the ones real content
+                // produces. Checking an unbound template would measure empty strings and miss
+                // precisely the overflow that appears once the data arrives.
+                if (model is not null) doc.Bind(model);
                 // The expanded DOM, from the document's own rebuild hook. These are the same element
                 // instances the render tree points at, which is what makes the "did this draw
                 // anything?" comparison exact rather than by-name. Registering the handler is not
@@ -134,7 +146,7 @@ public static class CupriDoctor
                 doc.Refresh();
                 using (doc.RenderToImage(width, height)) { }
             }
-            finally { StyleResolver.UnsupportedProperty = null; }
+            finally { StyleResolver.UnsupportedProperty = null; Text.FontService.GlyphMissing = null; }
         }
         catch (Exception ex)
         {
@@ -149,9 +161,12 @@ public static class CupriDoctor
             TogglesWithNothingToToggle(dom, lines, findings);
             UnrenderedElements(doc, dom, registry, lines, findings);
             ScriptingHabits(dom, lines, findings);
+            BoxesThatDoNotFit(doc, lines, findings);
+            if (model is not null) UnresolvedBindings(html, model, lines, findings);
             doc.Dispose();
         }
 
+        MissingGlyphs(missingGlyphs, findings);
         UnsupportedCssProperties(unsupportedCss, css, findings);
         UnsupportedCssFunctions(css, findings);
 
@@ -487,6 +502,209 @@ public static class CupriDoctor
     // ---- shared helpers ------------------------------------------------------------------------
 
     private static IEnumerable<IElement> All(IDocument? dom) => dom is null ? [] : dom.All;
+
+    // ---- 5b. characters no font on this machine can draw ---------------------------------------
+
+    /// <summary>
+    /// Codepoints that found no face and will paint as .notdef boxes — tofu.
+    ///
+    /// <para>Falling back to an empty box is correct behaviour: a missing glyph must never take an
+    /// app down. But tofu in a screenshot is routinely misread as a font-size, encoding or shaping
+    /// problem, and the actual cause — "this machine has no font with that character" — is not
+    /// visible from the markup at all. Naming the character and its codepoint turns a mystery box
+    /// into a one-line answer.</para>
+    ///
+    /// <para>Reported as a warning, not an error, and deliberately so: it is a property of the
+    /// MACHINE, not the document. The same markup is fine on a box with the right fonts installed,
+    /// which is itself the thing worth knowing before shipping a screenshot or a build.</para>
+    ///
+    /// <para><b>It under-reports on some platforms, and a clean result is not proof of no tofu.</b>
+    /// This fires only when the system font manager returns NOTHING for a character. macOS ships a
+    /// LastResort face that matches every codepoint and draws a placeholder box for it, so the user
+    /// sees tofu while <c>MatchCharacter</c> reports success and nothing is raised. Trust a CF0080
+    /// finding; do not trust its absence as coverage. Look at the render.</para>
+    /// </summary>
+    private static void MissingGlyphs(SortedSet<int> codepoints, List<Finding> findings)
+    {
+        if (codepoints.Count == 0) return;
+
+        var shown = codepoints.Take(8)
+            .Select(cp => $"U+{cp:X4} ({char.ConvertFromUtf32(cp)})");
+        var more = codepoints.Count > 8 ? $" and {codepoints.Count - 8} more" : "";
+
+        findings.Add(new Finding(Severity.Warning, "CF0080",
+            $"No available font can draw {string.Join(", ", shown)}{more} — "
+            + "they render as empty .notdef boxes.",
+            "Register a face that covers them with doc.LoadFonts(dir) — emoji, CJK and symbol ranges "
+            + "are the usual gaps. This is about the fonts on THIS machine, so the same markup may "
+            + "look fine elsewhere, which is the trap."));
+    }
+
+    // ---- 6. do the boxes fit what is in them? --------------------------------------------------
+
+    /// <summary>
+    /// Content that does not fit the box it was given, and boxes with no area at all.
+    ///
+    /// <para>This is the check whose absence is felt most, because the SCREENSHOT LIES. A fixed
+    /// height smaller than its contents does not clip — <c>overflow: visible</c> is the CSS default —
+    /// so the children paint outside it while the next sibling is placed using the declared height.
+    /// What you see is two unrelated elements drawn over each other, which reads as a paint or
+    /// z-order fault and sends you to the wrong part of the codebase entirely.</para>
+    ///
+    /// <para>The rule itself lives in <see cref="BoxOverflow"/> so that this and
+    /// <c>CupriDocument.DumpTree</c> cannot drift apart on what counts as overflow.</para>
+    /// </summary>
+    private static void BoxesThatDoNotFit(CupriDocument doc, string[] lines, List<Finding> findings)
+    {
+        var reported = new HashSet<string>(StringComparer.Ordinal);
+
+        // A collapsed box collapses everything inside it, so its children are symptoms rather than
+        // separate faults. Reporting the outermost one and stopping is the difference between one
+        // actionable line and a wall of them.
+        void Walk(RenderNode n, bool insideCollapsed)
+        {
+            if (insideCollapsed)
+            {
+                foreach (var c in n.Children) Walk(c, true);
+                return;
+            }
+            var collapsed = false;
+            if (BoxOverflow.Overshoot(n) is { } over)
+            {
+                var name = Name(n);
+                if (reported.Add("o:" + name))
+                    findings.Add(new Finding(Severity.Warning, "CF0070",
+                        $"{name} is {n.Height:0}px tall but its contents need {n.Height + over:0}px — "
+                        + $"they overflow it by {over:0}px and paint over whatever follows.",
+                        "Remove the fixed height and let it grow, or set overflow:scroll to keep the "
+                        + "size and scroll inside it. It does not clip on its own.",
+                        LineOf(lines, ClassNeedle(n))));
+            }
+            else if (BoxOverflow.IsEmptyBoxWithContent(n))
+            {
+                collapsed = true;
+                var name = Name(n);
+                if (reported.Add("e:" + name))
+                    findings.Add(new Finding(Severity.Warning, "CF0071",
+                        $"{name} laid out {n.Width:0}x{n.Height:0} but has content inside it, so none of it is visible.",
+                        "Usually a percentage height with no sized parent, a flex item given no basis, "
+                        + "or an image whose size never resolved.",
+                        LineOf(lines, ClassNeedle(n))));
+            }
+            foreach (var c in n.Children) Walk(c, collapsed);
+        }
+        Walk(doc.Root, false);
+
+        static string Name(RenderNode n) =>
+            n.Element?.GetAttribute("class") is { Length: > 0 } cls
+                ? $"<{n.Tag} class='{cls}'>"
+                : "<" + (n.Tag.Length > 0 ? n.Tag : "?") + ">";
+
+        static string ClassNeedle(RenderNode n) =>
+            n.Element?.GetAttribute("class") is { Length: > 0 } cls
+                ? cls.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0]
+                : "<" + n.Tag;
+    }
+
+    // ---- 7. does every binding name something real? --------------------------------------------
+
+    /// <summary>
+    /// <c>{{Paths}}</c> that resolve to nothing on the model.
+    ///
+    /// <para>A misspelt binding is the quietest failure in the engine: an unknown property resolves
+    /// to null, null formats as the empty string, and the element renders perfectly with nothing in
+    /// it. On screen it is indistinguishable from a model that has no data yet, so it survives both
+    /// a code review and a screenshot.</para>
+    ///
+    /// <para><b>Existence, not value.</b> The question asked is whether the PROPERTY EXISTS, by
+    /// reflection on the concrete type. A property that exists and is legitimately null or empty is
+    /// not a finding and must not be, or this would fire on every loading state and get switched
+    /// off.</para>
+    ///
+    /// <para><b>Repeat scopes.</b> Inside <c>data-repeat="Items"</c> a path is relative to one item,
+    /// not the root. Rather than track scopes through the template, a path that fails against the
+    /// root is retried against the element type of every repeat collection in the document, and
+    /// reported only when it matches nothing anywhere. That trades a few missed typos for never
+    /// crying wolf on correct markup — the right way round for a tool someone has to choose to
+    /// run.</para>
+    /// </summary>
+    private static void UnresolvedBindings(string html, object model, string[] lines, List<Finding> findings)
+    {
+        var scopes = new List<Type> { model.GetType() };
+        foreach (Match r in RepeatAttr().Matches(html))
+            if (ItemType(model.GetType(), r.Groups[1].Value.Trim()) is { } item && !scopes.Contains(item))
+                scopes.Add(item);
+
+        var reported = new HashSet<string>(StringComparer.Ordinal);
+        foreach (Match m in Mustache().Matches(html))
+        {
+            var path = m.Groups[1].Value.Trim();
+            if (path.Length == 0 || path is "this" or ".") continue;
+            if (!reported.Add(path)) continue;
+            if (scopes.Any(t => PathExists(t, path))) continue;
+
+            var leaf = path.Split('.').Last();
+            var near = Nearest(leaf, PropertyNames(scopes));
+            findings.Add(new Finding(Severity.Error, "CF0060",
+                $"{{{{{path}}}}} does not name anything on {model.GetType().Name}, so it renders as empty text.",
+                near is null
+                    ? $"Add the property, or check the spelling — nothing in scope is close to '{leaf}'."
+                    : $"Did you mean {{{{{near}}}}}?",
+                LineOf(lines, "{{" + path)));
+        }
+    }
+
+    [GeneratedRegex(@"\{\{\s*([^}]+?)\s*\}\}")]
+    private static partial Regex Mustache();
+
+    [GeneratedRegex("""data-repeat\s*=\s*["']([^"']+)["']""")]
+    private static partial Regex RepeatAttr();
+
+    /// <summary>Walk a dotted path across TYPES rather than values, so an existing property holding
+    /// null is not mistaken for a missing one.</summary>
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2070",
+        Justification = "Development-time checker; never runs inside a published app.")]
+    private static bool PathExists(Type type, string path)
+    {
+        var current = type;
+        foreach (var segRaw in path.Split('.', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var seg = segRaw.Trim();
+            if (seg is "this" or ".") continue;
+            var prop = current.GetProperty(seg, PublicInstance);
+            if (prop is null) return false;
+            current = prop.PropertyType;
+        }
+        return true;
+    }
+
+    /// <summary>The element type behind a repeat collection, so paths inside the repeat are checked
+    /// against an item instead of the root.</summary>
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2070",
+        Justification = "Development-time checker; never runs inside a published app.")]
+    private static Type? ItemType(Type modelType, string path)
+    {
+        var current = modelType;
+        foreach (var segRaw in path.Split('.', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var prop = current.GetProperty(segRaw.Trim(), PublicInstance);
+            if (prop is null) return null;
+            current = prop.PropertyType;
+        }
+        if (current.IsArray) return current.GetElementType();
+        foreach (var i in current.GetInterfaces())
+            if (i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>))
+                return i.GetGenericArguments()[0];
+        return null;
+    }
+
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2070",
+        Justification = "Development-time checker; never runs inside a published app.")]
+    private static string[] PropertyNames(IEnumerable<Type> types) =>
+        [.. types.SelectMany(t => t.GetProperties(PublicInstance)).Select(p => p.Name).Distinct()];
+
+    private const System.Reflection.BindingFlags PublicInstance =
+        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance;
 
     /// <summary>First line containing <paramref name="needle"/>, 1-based, or 0. Approximate on
     /// purpose: it points at the right region without a position-tracking parse, and a finding with
