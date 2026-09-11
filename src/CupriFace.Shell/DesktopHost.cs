@@ -553,7 +553,8 @@ public static class DesktopHost
     private static bool DesktopFinger(CupriDocument doc, int pointerId, PointerPhase phase, float x, float y) =>
         phase switch
         {
-            PointerPhase.Down => DesktopPointerDown(doc, x, y, 1, pointerId),
+            // A finger taps (touch-adjusted); only the mouse clicks exactly where it points.
+            PointerPhase.Down => doc.DispatchPointer(pointerId, PointerPhase.Down, x, y) || doc.DispatchTap(x, y),
             PointerPhase.Move => DesktopPointerMove(doc, x, y, pointerId),
             _ => DesktopPointerUp(doc, x, y, pointerId),
         };

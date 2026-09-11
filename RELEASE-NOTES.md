@@ -26,6 +26,15 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   is a policy decision not yet made. Known gap: on a scaled Wayland desktop the drawable is larger
   than the window and that ratio is not yet folded into D — the startup line says so when it happens.
 
+- **Touch adjustment: a finger that lands beside a control presses it.** `DispatchTap` is a click
+  from a finger; within `TouchAdjustRadius` (12 logical px by default, 0 to disable) it moves the
+  tap onto the nearest interactive element — to the nearest point inside its box, so a slider edge
+  stays an edge. A tap already on a control is never moved, a disabled control never attracts one,
+  and the snap is verified by a real hit test so nothing under an overlay can be reached through
+  it. Fingers only: the mouse keeps `DispatchClick` and means what it points at. Wired on the
+  desktop, Android and web hosts. Reported from a Steam Deck as touch being "a bit too accurate",
+  which is what a 1 px pointer feels like under a 9 mm fingertip.
+
 ### Fixed
 
 - **Desktop builds deliver touch (#143).** The SDL window handles `SDL_FINGER*`: each finger gets a

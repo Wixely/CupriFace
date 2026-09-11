@@ -87,7 +87,7 @@ public sealed class TouchInput(CupriDocument document)
             // Dedicated drag affordances drag from the FIRST touch — this is the one case where
             // the mouse semantics (activation on down) are also the touch semantics.
             _mode = Mode.Dragging;
-            return document.DispatchClick(x, y);
+            return document.DispatchTap(x, y);
         }
 
         // Everything else defers: press feedback now, the decision later.
@@ -138,7 +138,7 @@ public sealed class TouchInput(CupriDocument document)
                 // not up: the finger may have wobbled inside the slop, and the user pressed what
                 // they first touched.
                 _lastTapT = t; _lastTapX = _downX; _lastTapY = _downY;
-                var clicked = document.DispatchClick(_downX, _downY, _clicks);
+                var clicked = document.DispatchTap(_downX, _downY, _clicks);
                 var upped = document.DispatchPointerUp(_downX, _downY);
                 return clicked || upped;
             }

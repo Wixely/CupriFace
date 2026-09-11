@@ -207,6 +207,25 @@ public class AgentDiagnosticsTests(ITestOutputHelper output)
         Assert.DoesNotContain('\r', dump);
     }
 
+    /// <summary>An inline element has no box of its own - a link inside a paragraph lays out
+    /// through text fragments and reads 0x0 - and the dump must not call that an empty box. The
+    /// first version did, for every link in every paragraph, because it restated the doctor's rule
+    /// instead of calling it.</summary>
+    [Fact]
+    public void The_tree_dump_does_not_flag_inline_elements_as_empty()
+    {
+        using var doc = CupriDocument.Load(
+            "<body><p>Read the <a href='#x'>documentation</a> first.</p></body>",
+            "body { font-family:sans-serif; }");
+        doc.Refresh();
+        using (doc.RenderToImage(400, 100)) { }
+
+        var dump = doc.DumpTree();
+        output.WriteLine(dump);
+        Assert.Contains("a", dump.Split('\n').Select(l => l.Trim().Split(' ')[0]));
+        Assert.DoesNotContain("EMPTY BOX", dump);
+    }
+
     /// <summary>Coordinates are absolute so they can be handed straight to DispatchClick — the dump
     /// says where to click as well as what is there. Verified by clicking what it reports.</summary>
     [Fact]
