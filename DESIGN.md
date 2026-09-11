@@ -588,8 +588,10 @@ headless environment can't run — see caveats).
 - **Accessibility (M7)** — platform-neutral **semantics tree** (verified dump) + Windows
   **UIA bridge** scaffold (role→pattern mapping).
 - **AOT (M8)** — ILC compiles the whole engine **trim-clean (0 warnings)**.
-- **Shells** — GPU **GL** window, **Win32 GDI** software window, **SDL** cross-platform
-  software window; the Viewer auto-selects GL → software.
+- **Shells** — GPU **GL** window (GLFW), and the **SDL** cross-platform window in two modes:
+  software (CPU raster, no GPU needed) or, with `CUPRIFACE_SDL_GL=1`, a real GL context of its
+  own — GPU rendering **and** touch in one window, which GLFW cannot offer because it has no touch
+  API. The Viewer auto-selects GL → SDL software; the SDL GL mode is opt-in.
 - **Web (M9)** — Blazor **WASM** host renders the engine to `<canvas>` via
   `SKCanvasView`; canvas clicks route through the same hit-test/dispatch.
 
@@ -599,9 +601,12 @@ The stack is layered so OS-specific code is isolated and opt-in:
   calls. Native Skia/HarfBuzz are referenced for **win + linux + osx** via
   `src/SkiaNativeAssets.props` (publish deploys only the target RID); WASM natives come
   from `SkiaSharp.Views.Blazor`.
-- **Windowing (`CupriFace.Shell`)** — two cross-platform backends: **GL** (Silk.NET) and
-  **SDL software** (no-GPU present). Both reach native code through *managed* Silk.NET
-  bindings, so windowing ships **no hand-written P/Invoke**. The engine has **no** windowing
+- **Windowing (`CupriFace.Shell`)** — two cross-platform backends: **GL** (Silk.NET/GLFW) and
+  **SDL** (software present, or its own GL context). Both reach native code through *managed*
+  Silk.NET bindings. The Windows-only helpers beside them — per-monitor DPI, layered alpha
+  presentation, the UIA bridge, the tray icon — are `LibraryImport` declarations, and the
+  macOS accessibility bridge binds AppKit the same way; measured, the shell assembly carries a
+  few dozen such imports, all platform-gated, none in the engine. The engine has **no** windowing
   dependency at all. (An earlier Win32 GDI backend was removed in favour of SDL to keep our
   code fully managed.)
 - **Accessibility** — the semantics tree is portable; the bridges are not, and they are the
