@@ -7,6 +7,12 @@
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <RootNamespace>CupriFace.Samples.TransparentHud</RootNamespace>
+
+    <!-- REQUIRED with PublishSingleFile, for the same reason spelled out in DpiProbe.csproj:
+         Silk.NET finds SDL2/GLFW through DependencyContext and Assembly.Location, both of which are
+         dead inside a single-file bundle. Without this the exe builds and then dies on its first
+         window with "Could not load from any of the possible library names!". -->
+    <IncludeAllContentForSelfExtract Condition="'$(PublishSingleFile)' == 'true'">true</IncludeAllContentForSelfExtract>
   </PropertyGroup>
 
   <ItemGroup>
