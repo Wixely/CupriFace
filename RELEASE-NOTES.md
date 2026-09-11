@@ -13,6 +13,49 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- **A refused frame no longer kills a transparent Windows app.** `UpdateLayeredWindow` and
+  `GetWindowRect` fail transiently during ordinary desktop upheaval — a session lock, an RDP
+  transition, a monitor change — and per-pixel alpha presentation runs them on every frame, so an
+  exception there turned a compositor hiccup into a dead process. A refused frame is now dropped and
+  counted, the window keeps what it last showed, and the next frame retries. Construction still
+  throws: failing to make a window layered at startup is permanent, and the caller must not show a
+  window it cannot present to.
+
+- **Transparent windows repaint while you drag them.** The resize watch is the only thing that runs
+  during an OS modal drag loop — the frame tick is starved until the mouse comes up — and layered
+  windows were returning from it immediately. That meant no frames at all during a drag, and the
+  #137 DPI poll never ran mid-drag. It now streams frames again; what it skips is feeding the SDL
+  event's own (stale) coordinates back as a size, because `UpdateLayeredWindow` sizes the window
+  itself and the settled outer rect is read from the window instead.
+
+- **Transparent windows report `modal frames` alongside `resize frames`.** Both count work done from
+  inside the SDL event watch — `ModalFrames` every frame, `ResizeFrames` the subset driven by a size
+  change. Read a zero carefully: a frameless window has no OS resize border and SDL raises no MOVED
+  event for a move it initiated itself, so an ordinary `data-window-drag` on a single monitor leaves
+  both at 0 no matter how healthy the path is. They climb for geometry changes the OS initiates —
+  which is what a cross-monitor DPI change is, and the case the early return used to swallow.
+
+### Changed
+
+- **`ThreadedRender` under layered GPU presentation now says it is ignored.** The two cannot both own
+  the frame — one rasterises on a background thread into the CPU bitmap, the other draws on the GL
+  context and reads back on the UI thread. It was already ignored; now it is ignored out loud.
+
+- **The layered GPU readback is measured, not described.** Transparent windows print their dropped
+  frames, resize-frame count and average readback cost a few seconds in, so the price this mode pays
+  for working alpha is a number rather than a caveat. Measured at **0.3–0.5 ms** per frame at
+  510x336 (RTX 5090 and GTX 1060), i.e. well inside a 60 fps budget.
+
+- **The transparent HUD sample shows a live pulse instead of fixed numbers.** Its readout was
+  hardcoded strings, so a frozen window looked exactly like a working one — the animation is driven
+  by the render, so it stops dead when frames stop. `TransparentHud.csproj` also gained the
+  `IncludeAllContentForSelfExtract` that single-file publishing needs, which `DpiProbe.csproj`
+  already documented.
+
 ## v0.21.0
 
 ### Fixed

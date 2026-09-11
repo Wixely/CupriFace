@@ -32,6 +32,31 @@ public static class DesktopHost
     /// from the optional CupriFace.Media package). Kept OUT of <see cref="CupriApp.Configure"/> on
     /// purpose: the app class is shared with hosts that must not reference desktop codecs.</param>
     public static void Run(CupriApp app, Action<CupriDocument>? configure = null)
+        => Run(app, preferSoftware: false, configure: configure);
+
+    /// <summary>Run with an explicit software-rendering preference. On Windows, frameless
+    /// transparent apps use per-pixel layered presentation, bypassing WGL/DWM alpha issues.
+    /// GPU-only surface producers must provide their software fallback for this mode.</summary>
+    public static void Run(CupriApp app, bool preferSoftware, Action<CupriDocument>? configure = null)
+        => RunCore(app, preferSoftware, layeredGpu: false, configure: configure);
+
+    /// <summary>Windows-only GPU rendering with per-pixel alpha presentation. Draws on an
+    /// off-screen Skia GPU surface and reads changed frames back for UpdateLayeredWindow.
+    /// This is not zero-copy composition. Uses normal desktop rendering on other platforms
+    /// or for apps that are not transparent and frameless. The Windows layered path needs working GL.
+    /// CUPRIFACE_SOFTWARE=1 explicitly disables GPU rendering for troubleshooting.</summary>
+    public static void RunWithLayeredGpu(CupriApp app, Action<CupriDocument>? configure = null)
+    {
+        if (!OperatingSystem.IsWindows() || !app.Transparent || !app.Frameless)
+        {
+            Console.WriteLine("[CupriFace] Layered GPU presentation requires Windows and a transparent, frameless app; using normal desktop rendering.");
+            Run(app, configure);
+            return;
+        }
+        RunCore(app, preferSoftware: false, layeredGpu: true, configure: configure);
+    }
+
+    private static void RunCore(CupriApp app, bool preferSoftware, bool layeredGpu, Action<CupriDocument>? configure)
     {
         // Per-Monitor-V2, before ANY window can exist — awareness is a process property that windows
         // inherit at creation, so this is the only moment it can be declared. Ahead of the GL probe
@@ -149,7 +174,7 @@ public static class DesktopHost
         // the SDL software window, which renders the same pixels a little slower. The GL path's
         // known failure modes are handled these days (a broken GL stack raises an ordinary
         // exception and falls through to SDL below) — but an explicit override beats debugging.
-        var forceSoftware = Environment.GetEnvironmentVariable("CUPRIFACE_SOFTWARE") is "1" or "true" or "TRUE";
+        var forceSoftware = preferSoftware || Environment.GetEnvironmentVariable("CUPRIFACE_SOFTWARE") is "1" or "true" or "TRUE";
 
         // macOS with no OpenGL at all (the paravirtual GPU of virtualised Macs — CI runners, UTM
         // guests) kills the process NATIVELY inside GLFW before any managed guard can run: window
@@ -166,8 +191,8 @@ public static class DesktopHost
 
         try
         {
-            if (forceSoftware)
-                throw new InvalidOperationException("CUPRIFACE_SOFTWARE is set; skipping the GL window.");
+            if (forceSoftware || layeredGpu)
+                throw new InvalidOperationException("Software rendering requested; skipping the GL window.");
 
             var window = new SkiaWindow(
                 app.Title,
@@ -282,7 +307,11 @@ public static class DesktopHost
             // driverless machine when it was a harness forcing the software path, and a bare
             // "PlatformNotSupportedException" as a session limit when it was the trimmer removing
             // Silk.NET's backends (#125, #126). The line is the only witness a fallback leaves.
-            Console.WriteLine($"[CupriFace] GPU unavailable ({ex.GetType().Name}: {ex.Message}); using the SDL software window.");
+            Console.WriteLine(layeredGpu && !forceSoftware
+                ? "[CupriFace] Off-screen GPU rendering requested; using Windows layered presentation."
+                : forceSoftware
+                ? "[CupriFace] Software rendering requested; using the SDL software window."
+                : $"[CupriFace] GPU unavailable ({ex.GetType().Name}: {ex.Message}); using the SDL software window.");
             using var window = new SdlSoftwareWindow(
                 app.Title,
                 app.Width,
@@ -294,6 +323,7 @@ public static class DesktopHost
                 app.Background,
                 app.DpiAware,
                 app.TrackMonitorDpi);
+            window.UseLayeredGpu = layeredGpu && !forceSoftware;
             if (icon is { } ic) window.SetIcon(ic.Rgba, ic.W, ic.H);
             deviceScale = () => window.DeviceScale;
 
@@ -323,7 +353,14 @@ public static class DesktopHost
             // Commit-snapshot render thread (opt-in): build the display list on this UI thread and let
             // a background thread rasterise it; present the latest completed frame each vsync. Targets
             // the physical surface (scale 1), so it composes with the responsive present.
-            using var presenter = app.ThreadedRender ? new CupriFace.Threading.ThreadedPresenter() : null;
+            // ThreadedRender rasterises on a background thread into the CPU bitmap; the layered GPU
+            // path draws on the GL context and reads back on this thread, so the two cannot both own
+            // the frame. Saying so beats dropping an opt-in silently — an ignored setting is
+            // indistinguishable from a broken one, which is how #137's ThreadedRender bug survived.
+            if (app.ThreadedRender && window.UseLayeredGpu)
+                Console.WriteLine("[CupriFace] ThreadedRender is ignored under layered GPU presentation; "
+                    + "drawing stays on the UI thread.");
+            using var presenter = app.ThreadedRender && !window.UseLayeredGpu ? new CupriFace.Threading.ThreadedPresenter() : null;
             void DrawThreaded(RenderContext ctx)
             {
                 presenter!.Present(ctx.Canvas); // draw the previous frame the render thread finished
@@ -350,7 +387,19 @@ public static class DesktopHost
                 a11y.Publish(p.LogicalWidth, p.LogicalHeight, effective, window.ScreenPosition);
             }
 
-            if (presenter is not null)
+            if (window.UseLayeredGpu)
+            {
+                // Reuse the GL host's draw contract, including same-context GPU surface producers.
+                // The retained GPU surface and bitmap make expose-only frames free of readback.
+                window.RenderIncrementalFrame = ctx =>
+                {
+                    if (!NeedsRender()) return null;
+                    Draw(ctx);
+                    a11y.Publish(logicalW, logicalH, effective, window.ScreenPosition);
+                    return new SkiaSharp.SKRectI(0, 0, ctx.Width, ctx.Height);
+                };
+            }
+            else if (presenter is not null)
                 window.Render += DrawThreaded; // threaded path keeps its own pipeline (no damage/skip)
             else
             {

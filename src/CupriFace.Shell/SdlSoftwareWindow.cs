@@ -28,9 +28,11 @@ internal static class KeyDiag
 /// <summary>
 /// Cross-platform no-GPU window (DESIGN.md §7.5). Renders to a CPU <see cref="SKBitmap"/>
 /// and presents it through SDL's *software* renderer (a streaming texture), so it needs
-/// no OpenGL — works on Windows, macOS, and Linux, including over remote sessions. This is
-/// the sole CPU present path: it reaches SDL through managed Silk.NET bindings, so the
-/// project ships **no hand-written P/Invoke** (only the `unsafe` pointers the SDL API needs).
+/// no OpenGL — works on Windows, macOS, and Linux, including over remote sessions.
+/// Frameless transparent windows on Windows present the same bitmap through UpdateLayeredWindow
+/// instead of SDL's opaque streaming texture. Other windows keep the SDL software renderer.
+/// The opt-in layered GPU mode draws on an off-screen GL surface and reads changed frames back
+/// into that bitmap; window/input/presentation stay on this same SDL host.
 /// </summary>
 public sealed unsafe class SdlSoftwareWindow : IDisposable
 {
@@ -51,6 +53,10 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     private Texture* _texture;
     private SKBitmap? _bitmap;
     private SKCanvas? _canvas;
+    private WindowsAlphaPresenter? _alphaPresenter;
+    private LayeredGpuRenderer? _gpuRenderer;
+    internal bool UseLayeredGpu { get; set; }
+    private bool _registeredAlphaClass;
     private EventFilter? _resizeWatch; // kept alive: fires during the OS modal resize loop
 
     public event Action<RenderContext>? Render;
@@ -236,9 +242,8 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     private readonly bool _frameless, _topMost, _darkWindowChrome;
     private readonly SKColor _windowChromeColor;
 
-    // NOTE: the SDL software path is opaque — its streaming texture blits over the window with no
-    // per-pixel alpha against the desktop, so `transparent` has no effect here (the GL path handles
-    // transparency). Frameless / always-on-top do work through standard SDL window flags.
+    // Windows frameless transparent windows use UpdateLayeredWindow instead of SDL's opaque blit.
+    private readonly bool _transparent;
     public SdlSoftwareWindow(string title = "CupriFace", int width = 1024, int height = 768,
         bool transparent = false, bool frameless = false, bool topMost = false,
         bool darkWindowChrome = false, SKColor? windowChromeColor = null,
@@ -248,6 +253,7 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         _width = width;
         _height = height;
         _frameless = frameless;
+        _transparent = transparent;
         _topMost = topMost;
         _darkWindowChrome = darkWindowChrome;
         _windowChromeColor = windowChromeColor ?? new SKColor(0x20, 0x20, 0x20);
@@ -330,10 +336,20 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
 
     public void Run()
     {
+        var layered = _transparent && _frameless && OperatingSystem.IsWindows();
+        if (layered)
+        {
+            // WS_EX_LAYERED must not be used with CS_OWNDC/CS_CLASSDC. SDL's default class has
+            // CS_OWNDC; register a software-only class before SDL_Init registers its default.
+            if (_sdl.RegisterApp("CupriFaceAlphaWindow", 0, (void*)0) != 0)
+                throw new InvalidOperationException($"SDL_RegisterApp failed: {_sdl.GetErrorS()}");
+            _registeredAlphaClass = true;
+        }
         if (_sdl.Init(Sdl.InitVideo) != 0)
             throw new InvalidOperationException($"SDL_Init failed: {_sdl.GetErrorS()}");
 
         var flags = WindowFlags.Resizable;
+        if (layered) flags |= WindowFlags.Hidden;
         if (_frameless) flags |= WindowFlags.Borderless;
         if (_topMost) flags |= WindowFlags.AlwaysOnTop;
         _window = _sdl.CreateWindow(_title, Sdl.WindowposCentered, Sdl.WindowposCentered,
@@ -363,10 +379,30 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
             finally { _resizingForDpi = false; }
         }
 
-        _renderer = _sdl.CreateRenderer(_window, -1, (uint)RendererFlags.Software);
-        if (_renderer is null) throw new InvalidOperationException($"SDL_CreateRenderer failed: {_sdl.GetErrorS()}");
+        // `layered` already required Windows, but the platform analyser cannot follow a local.
+        // Repeating the check here folds to a constant at JIT and AOT time and makes the invariant
+        // that follows — _alphaPresenter is non-null only on Windows — checkable rather than stated.
+        if (layered && OperatingSystem.IsWindows())
+        {
+            _alphaPresenter = new WindowsAlphaPresenter(Win32Hwnd
+                ?? throw new InvalidOperationException("Transparent SDL window has no HWND."));
+            if (UseLayeredGpu) _gpuRenderer = new LayeredGpuRenderer();
+            else Console.WriteLine("[CupriFace] Windows per-pixel alpha presentation (software rendering).");
+        }
+        else
+        {
+            if (_transparent)
+                Console.Error.WriteLine("[CupriFace] Software desktop transparency requires a frameless Windows window; this window will be opaque.");
+            _renderer = _sdl.CreateRenderer(_window, -1, (uint)RendererFlags.Software);
+            if (_renderer is null) throw new InvalidOperationException($"SDL_CreateRenderer failed: {_sdl.GetErrorS()}");
+        }
 
         EnsureSurface(_width, _height);
+        if (layered)
+        {
+            RenderFrame();
+            _sdl.ShowWindow(_window);
+        }
         _sdl.StartTextInput(); // deliver Textinput events (handles IME composition)
 
         // Repaint DURING resize: Windows/macOS run a modal loop that blocks the main loop,
@@ -383,6 +419,7 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                 switch ((EventType)e.Type)
                 {
                     case EventType.Quit:
+                    case EventType.Windowevent when (WindowEventID)e.Window.Event == WindowEventID.Close:
                         running = false;
                         break;
                     // Each of these normalises to logical client units first, so the host downstream
@@ -489,6 +526,7 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
             }
             // Before Tick, so host work on the tick already sees the new scale (#137).
             PollDeviceScale();
+            ReportAlphaState();
             Tick?.Invoke();
             RenderFrame();
             _sdl.Delay(16); // ~60 fps cap
@@ -503,6 +541,26 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     /// <summary>SDL delivers size events to an event watch synchronously, from INSIDE the OS's modal
     /// resize loop — which is the whole reason this exists, because <see cref="Run"/>'s loop gets no
     /// turn until the mouse is released.</summary>
+    /// <summary>
+    /// Frames rendered from inside the event watch rather than from the frame tick.
+    ///
+    /// <para><b>Read the zero carefully.</b> This counts events the watch actually receives, and SDL
+    /// does not deliver a MOVED event for a move SDL ITSELF initiated — measured, not assumed: 60
+    /// <see cref="MoveBy"/> calls produce 0 of these, while 60 moves driven from another process
+    /// produce 60. So a <c>data-window-drag</c>, which is the host calling MoveBy on the tick,
+    /// legitimately leaves this at 0, and so does any frameless window's (nonexistent) resize
+    /// border. A zero here means "the watch saw nothing", which is the normal state; it is only
+    /// evidence of a fault when something OUTSIDE the app moved or resized the window.</para>
+    ///
+    /// <para>Kept because that outside case is real, and confirmed on a mixed-DPI machine: dragging
+    /// a transparent window across a scale boundary gave <c>resize 1</c> at 340x224 and then
+    /// <c>resize 2</c> at 510x336 as the surface followed the new scale. Windows resizes the window
+    /// itself on a DPI change, so <c>SizeChanged</c> DOES reach a frameless window — just never from
+    /// a user dragging an edge it does not have. That is the case the layered early return swallowed
+    /// entirely, and the original #137 symptom of a window that only resized once you let go.</para>
+    /// </summary>
+    public int ModalFrames { get; private set; }
+
     private int ResizeWatch(void* userData, Event* e)
     {
         // A monitor change is a MOVE before it is a resize, and this watch is the only thing that
@@ -512,14 +570,24 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         {
             PollDeviceScale();
             RenderFrame();
+            ModalFrames++;
         }
         if ((EventType)e->Type == EventType.Windowevent && (WindowEventID)e->Window.Event == WindowEventID.SizeChanged)
         {
-            EnsureSurface(e->Window.Data1, e->Window.Data2);
+            // A layered window is sized by UpdateLayeredWindow itself, so the coordinates carried by
+            // THIS event are exactly the stale ones that would be fed back as a resize. RenderFrame
+            // asks the presenter for the window's own settled rect instead, which is why the outer
+            // rect is used there — so it is safe to paint from inside the modal loop, and skipping
+            // this block entirely was costing more than it saved: no frames at all during a drag,
+            // ResizeFrames stuck at 0 (the repo's own instrument for "is this streaming?"), and
+            // PollDeviceScale above never running mid-drag.
+            if (_alphaPresenter is null) EnsureSurface(e->Window.Data1, e->Window.Data2);
             RenderFrame();
             ResizeFrames++;
+            ModalFrames++;
             if (SkiaWindow.ResizeDebug)
-                Console.Error.WriteLine($"[resize] frame {ResizeFrames} at {e->Window.Data1}x{e->Window.Data2}");
+                Console.Error.WriteLine($"[resize] frame {ResizeFrames} at {e->Window.Data1}x{e->Window.Data2}"
+                    + (_alphaPresenter is not null ? $" (layered; presented {_width}x{_height})" : ""));
         }
         return 0;
     }
@@ -532,6 +600,15 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
 
     private void EnsureSurface(int w, int h)
     {
+        // Queued SDL resize events can lag the native size. UpdateLayeredWindow also sets the
+        // HWND size, so presenting a stale bitmap would undo the user's resize and feed it back.
+        if (OperatingSystem.IsWindows() && _alphaPresenter is not null)
+        {
+            // Null means minimised, or Windows would not say — either way there is nothing to size
+            // to, and the queued SDL event's own numbers are the stale ones we are avoiding.
+            if (_alphaPresenter.WindowSize is not { } native) return;
+            (w, h) = native;
+        }
         if (w <= 0 || h <= 0) return;
         // The logical size is the tracker's business, and it is told the scale read AT THIS MOMENT
         // rather than a cached one — that is what separates a user dragging an edge from the OS
@@ -544,18 +621,44 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         // recreating on the echo would throw away the frame the watch just painted.
         if (_bitmap is not null && w == _width && h == _height) return;
         _width = w; _height = h;
-        _canvas?.Dispose();
+        if (_gpuRenderer is null) _canvas?.Dispose();
         _bitmap?.Dispose();
         _bitmap = new SKBitmap(new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Premul));
-        _canvas = new SKCanvas(_bitmap);
+        _canvas = _gpuRenderer?.Resize(w, h) ?? new SKCanvas(_bitmap);
         if (_texture is not null) _sdl.DestroyTexture(_texture);
-        _texture = _sdl.CreateTexture(_renderer, PixelFormatArgb8888, (int)TextureAccess.Streaming, w, h);
+        if (_alphaPresenter is null)
+            _texture = _sdl.CreateTexture(_renderer, PixelFormatArgb8888, (int)TextureAccess.Streaming, w, h);
+        _presentDirty = true;
         SurfaceRecreated?.Invoke();
     }
 
+    /// <summary>#139 diagnostic: say what the alpha path is actually doing, a few seconds in and
+    /// again later. Frames dropped, the readback cost the GPU mode pays, and whether the resize
+    /// watch is streaming — the three numbers that separate "working" from "looks like it works".</summary>
+    private void ReportAlphaState()
+    {
+        if (!OperatingSystem.IsWindows() || _alphaPresenter is null || _alphaReports >= 3) return;
+        if (_clock.Elapsed.TotalSeconds < (_alphaReports + 1) * 4) return;
+        _alphaReports++;
+        var gpu = _gpuRenderer is { Readbacks: > 0 } g
+            ? $", readback {g.AverageReadbackMs:0.00} ms x{g.Readbacks} at {_width}x{_height}"
+            : "";
+        Console.WriteLine($"[CupriFace] alpha after {_clock.Elapsed.TotalSeconds:0}s: "
+            + $"dropped {_alphaPresenter.DroppedFrames}, modal frames {ModalFrames} "
+            + $"(resize {ResizeFrames}){gpu}");
+    }
+
+    private int _alphaReports;
+
     private void RenderFrame()
     {
+        if (OperatingSystem.IsWindows() && _alphaPresenter is not null)
+        {
+            if (_alphaPresenter.WindowSize is not { } size || size.Width <= 0 || size.Height <= 0) return;
+            EnsureSurface(size.Width, size.Height);
+        }
         if (_canvas is null || _bitmap is null) return;
+        _gpuRenderer?.MakeCurrent();
 
         var delta = _clock.Elapsed.TotalSeconds - _last;
         _last = _clock.Elapsed.TotalSeconds;
@@ -565,15 +668,17 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
             // Damage-aware path: the bitmap retains last frame's pixels; the callback repaints only the
             // changed rect (or nothing). Upload just that region; skip presenting entirely when clean.
             _stats.BeginFrame(delta);
-            var damage = incremental(new RenderContext(_canvas, _width, _height, _stats));
+            var damage = incremental(new RenderContext(_canvas, _width, _height, _stats, _gpuRenderer?.Context));
             _canvas.Flush();
             _stats.EndFrame();
 
             if (damage is { } d && d.Width > 0 && d.Height > 0)
             {
+                _gpuRenderer?.ReadBack(_bitmap);
                 var rect = new Silk.NET.Maths.Rectangle<int>(d.Left, d.Top, d.Width, d.Height);
                 var pixels = (byte*)_bitmap.GetPixels() + d.Top * _width * 4 + d.Left * 4;
-                _sdl.UpdateTexture(_texture, &rect, pixels, _width * 4); // pitch = the full row stride
+                if (_alphaPresenter is null)
+                    _sdl.UpdateTexture(_texture, &rect, pixels, _width * 4); // pitch = the full row stride
                 _presentDirty = true;
             }
             if (!_presentDirty) return; // unchanged and not exposed — don't even present
@@ -582,12 +687,24 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         else
         {
             _stats.BeginFrame(delta);
-            Render?.Invoke(new RenderContext(_canvas, _width, _height, _stats));
+            Render?.Invoke(new RenderContext(_canvas, _width, _height, _stats, _gpuRenderer?.Context));
             _canvas.Flush();
+            _gpuRenderer?.ReadBack(_bitmap);
             _stats.EndFrame();
-            _sdl.UpdateTexture(_texture, null, (void*)_bitmap.GetPixels(), _width * 4);
+            if (_alphaPresenter is null)
+                _sdl.UpdateTexture(_texture, null, (void*)_bitmap.GetPixels(), _width * 4);
         }
 
+        if (OperatingSystem.IsWindows() && _alphaPresenter is not null)
+        {
+            // A refused frame is dropped and reported once; the window keeps what it last showed.
+            // The damage path has already cleared the dirty flag by here, so set it BACK — otherwise
+            // a frame Windows refused during a lock or a monitor change is simply never redrawn, and
+            // the window sits on stale pixels until something else happens to dirty it.
+            if (!_alphaPresenter.Present(_bitmap)) _presentDirty = true;
+            if (_frameDumpPath is { } alphaDump && ++_presentCount % 15 == 0) DumpPresentedPixels(alphaDump);
+            return;
+        }
         _sdl.RenderClear(_renderer);
         _sdl.RenderCopy(_renderer, _texture, null, null);
         // Throttled: a full read-back + PNG encode per present would starve the UI thread (and
@@ -608,7 +725,11 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         try
         {
             using var bmp = new SKBitmap(new SKImageInfo(_width, _height, SKColorType.Bgra8888, SKAlphaType.Premul));
-            if (_sdl.RenderReadPixels(_renderer, null, PixelFormatArgb8888, (void*)bmp.GetPixels(), _width * 4) != 0) return;
+            if (_alphaPresenter is not null)
+            {
+                if (!_bitmap!.CopyTo(bmp)) return;
+            }
+            else if (_sdl.RenderReadPixels(_renderer, null, PixelFormatArgb8888, (void*)bmp.GetPixels(), _width * 4) != 0) return;
             using var img = SKImage.FromBitmap(bmp);
             using var png = img.Encode(SKEncodedImageFormat.Png, 90);
             using var f = File.Create(path);
@@ -619,13 +740,23 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
 
     public void Dispose()
     {
+        if (_resizeWatch is not null)
+        {
+            _sdl.DelEventWatch(new PfnEventFilter(_resizeWatch), null);
+            _resizeWatch = null;
+        }
+        if (OperatingSystem.IsWindows()) _alphaPresenter?.Dispose();
+        _alphaPresenter = null;
         foreach (var p in _cursors.Values) _sdl.FreeCursor((Cursor*)p);
         _cursors.Clear();
         if (_texture is not null) _sdl.DestroyTexture(_texture);
         if (_renderer is not null) _sdl.DestroyRenderer(_renderer);
         if (_window is not null) _sdl.DestroyWindow(_window);
         _sdl.Quit();
-        _canvas?.Dispose();
+        if (_registeredAlphaClass) { _sdl.UnregisterApp(); _registeredAlphaClass = false; }
+        if (_gpuRenderer is null) _canvas?.Dispose();
+        _gpuRenderer?.Dispose();
+        _gpuRenderer = null;
         _bitmap?.Dispose();
     }
 }
