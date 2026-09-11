@@ -233,6 +233,11 @@ public sealed partial class CupriDocument
             return false;                                      // never consume a lift
         }
 
+        // A pointer that never went DOWN is not a finger on the page, however much it moves. A
+        // mouse hovering is a Move with no Up ever coming, and admitting it here made pointer 0 a
+        // permanent phantom finger: the first real finger then arrived as the second of a pair, its
+        // Down was consumed as a pinch, and no tap on the Steam Deck ever reached a click.
+        if (phase is PointerPhase.Move && !_pageFingers.ContainsKey(id)) return false;
         _pageFingers[id] = (xHost, yHost);
         if (_pageFingers.Count < 2) return false;              // one finger is not a pinch
 

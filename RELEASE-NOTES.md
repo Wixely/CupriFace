@@ -13,6 +13,49 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Added
+
+- **The SDL window can own a real GL context: `CUPRIFACE_SDL_GL=1`.** GPU rendering and touch in one
+  window, which neither existing path could offer — the GLFW window has the GPU but no touch API,
+  the SDL window had touch but rasterised on the CPU. This draws straight into the window's
+  framebuffer and swaps: no readback, no hidden window, no new dependency. GPU surface producers run
+  on it unchanged (the Showcase 3D page brought its shared-GPU lane up on the SDL context). Opt-in
+  for now; `CUPRIFACE_SOFTWARE=1` still wins a tie. Choosing it automatically on touchscreen machines
+  is a policy decision not yet made. Known gap: on a scaled Wayland desktop the drawable is larger
+  than the window and that ratio is not yet folded into D — the startup line says so when it happens.
+
+- **Touch adjustment: a finger that lands beside a control presses it.** `DispatchTap` is a click
+  from a finger; within `TouchAdjustRadius` (12 logical px by default, 0 to disable) it moves the
+  tap onto the nearest interactive element — to the nearest point inside its box, so a slider edge
+  stays an edge. A tap already on a control is never moved, a disabled control never attracts one,
+  and the snap is verified by a real hit test so nothing under an overlay can be reached through
+  it. Fingers only: the mouse keeps `DispatchClick` and means what it points at. Wired on the
+  desktop, Android and web hosts. Reported from a Steam Deck as touch being "a bit too accurate",
+  which is what a 1 px pointer feels like under a 9 mm fingertip.
+
+### Fixed
+
+- **Desktop builds deliver touch (#143).** The SDL window handles `SDL_FINGER*`: each finger gets a
+  pointer id of its own from 1 (the mouse keeps 0), coordinates are scaled from SDL's normalised
+  0..1 into the same space the mouse arrives in, and mouse events SDL manufactures from touch are
+  dropped — every tap arrived twice before. Measured on a Steam Deck. The GLFW window is untouched
+  because GLFW has no touch API; X11 emulates a mouse from touch and Wayland does not, which is why
+  the same build looked fine in a desktop session and was inert in Game Mode. Reaching the SDL
+  window on a machine with working GL needs `CUPRIFACE_SOFTWARE=1` or `CUPRIFACE_SDL_GL=1`.
+- **Taps no longer accumulate phantom fingers.** An uncaptured lift was routed past the engine, and
+  the page-zoom tracker only forgets a finger when it sees its Up — so two taps looked like two
+  fingers and the next drag became a pinch against a meaningless baseline ("any kind of drag
+  massively zooms in"). Every pointer phase now goes through `DispatchPointer`. It was never
+  touch-only: a mouse click left pointer 0 on the books the same way.
+- **A hovering mouse is not a finger.** The fix above exposed its mirror image on the Steam Deck:
+  routing every mouse Move through the pointer path registered the trackpad cursor — which never
+  lifts, because a hover has no Up — as a permanent finger on the page. The first real finger then
+  arrived as the second of a pair, its Down was consumed as a pinch, and no tap reached a click
+  while every drag zoomed. The engine now ignores a Move for a pointer it never saw go Down. This is
+  in `CupriDocument`, so every host gets it.
+
 ## v0.22.0
 
 ### Added

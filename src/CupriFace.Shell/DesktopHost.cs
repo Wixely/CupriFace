@@ -175,6 +175,10 @@ public static class DesktopHost
         // known failure modes are handled these days (a broken GL stack raises an ordinary
         // exception and falls through to SDL below) — but an explicit override beats debugging.
         var forceSoftware = preferSoftware || Environment.GetEnvironmentVariable("CUPRIFACE_SOFTWARE") is "1" or "true" or "TRUE";
+        // The SDL window with a real GL context (#143): touch and GPU rendering together. Opt-in
+        // for now — making touchscreen machines pick it automatically is a policy decision, and
+        // CUPRIFACE_SOFTWARE stays the kill switch above it, so software always wins a tie.
+        var sdlGl = !forceSoftware && Environment.GetEnvironmentVariable("CUPRIFACE_SDL_GL") is "1" or "true" or "TRUE";
 
         // macOS with no OpenGL at all (the paravirtual GPU of virtualised Macs — CI runners, UTM
         // guests) kills the process NATIVELY inside GLFW before any managed guard can run: window
@@ -191,7 +195,7 @@ public static class DesktopHost
 
         try
         {
-            if (forceSoftware || layeredGpu)
+            if (forceSoftware || layeredGpu || sdlGl)
                 throw new InvalidOperationException("Software rendering requested; skipping the GL window.");
 
             var window = new SkiaWindow(
@@ -307,7 +311,9 @@ public static class DesktopHost
             // driverless machine when it was a harness forcing the software path, and a bare
             // "PlatformNotSupportedException" as a session limit when it was the trimmer removing
             // Silk.NET's backends (#125, #126). The line is the only witness a fallback leaves.
-            Console.WriteLine(layeredGpu && !forceSoftware
+            Console.WriteLine(sdlGl
+                ? "[CupriFace] SDL window with a GL context requested (CUPRIFACE_SDL_GL=1): GPU rendering with touch."
+                : layeredGpu && !forceSoftware
                 ? "[CupriFace] Off-screen GPU rendering requested; using Windows layered presentation."
                 : forceSoftware
                 ? "[CupriFace] Software rendering requested; using the SDL software window."
@@ -324,6 +330,7 @@ public static class DesktopHost
                 app.DpiAware,
                 app.TrackMonitorDpi);
             window.UseLayeredGpu = layeredGpu && !forceSoftware;
+            window.UseGl = sdlGl;
             if (icon is { } ic) window.SetIcon(ic.Rgba, ic.W, ic.H);
             deviceScale = () => window.DeviceScale;
 
@@ -357,10 +364,10 @@ public static class DesktopHost
             // path draws on the GL context and reads back on this thread, so the two cannot both own
             // the frame. Saying so beats dropping an opt-in silently — an ignored setting is
             // indistinguishable from a broken one, which is how #137's ThreadedRender bug survived.
-            if (app.ThreadedRender && window.UseLayeredGpu)
+            if (app.ThreadedRender && (window.UseLayeredGpu || window.UseGl))
                 Console.WriteLine("[CupriFace] ThreadedRender is ignored under layered GPU presentation; "
                     + "drawing stays on the UI thread.");
-            using var presenter = app.ThreadedRender && !window.UseLayeredGpu ? new CupriFace.Threading.ThreadedPresenter() : null;
+            using var presenter = app.ThreadedRender && !window.UseLayeredGpu && !window.UseGl ? new CupriFace.Threading.ThreadedPresenter() : null;
             void DrawThreaded(RenderContext ctx)
             {
                 presenter!.Present(ctx.Canvas); // draw the previous frame the render thread finished
@@ -387,7 +394,7 @@ public static class DesktopHost
                 a11y.Publish(p.LogicalWidth, p.LogicalHeight, effective, window.ScreenPosition);
             }
 
-            if (window.UseLayeredGpu)
+            if (window.UseLayeredGpu || window.UseGl)
             {
                 // Reuse the GL host's draw contract, including same-context GPU surface producers.
                 // The retained GPU surface and bitmap make expose-only frames free of readback.
@@ -444,6 +451,12 @@ public static class DesktopHost
                 window.SetCursor(doc.CursorAt(logicalX, logicalY));
             };
             window.RightPointerDown += (x, y) => Mark(doc.DispatchContextMenu(x / scale, y / scale));
+            // Touch (#143). Only the SDL window can carry this: GLFW exposes no touch API at
+            // all, which is why a tap reaches nothing on a Wayland desktop today — X11 emulates a
+            // core pointer from touch and Wayland does not, so one build looks fine in a desktop
+            // session and is inert in Game Mode.
+            window.TouchPointer += (pointerId, phase, x, y) =>
+                Mark(DesktopFinger(doc, pointerId, phase, x / scale, y / scale));
             window.PointerMove += (x, y) =>
             {
                 var logicalX = x / scale;
@@ -502,18 +515,49 @@ public static class DesktopHost
 
     // Raw-pointer elements get first refusal so a desktop mouse can drive the same captured hold /
     // drag interactions as touch. Everything else keeps the ordinary click/hover/drag path.
-    private static bool DesktopPointerDown(CupriDocument doc, float x, float y, int clickCount) =>
-        doc.DispatchPointer(0, PointerPhase.Down, x, y) || doc.DispatchClick(x, y, clickCount);
+    //
+    // The pointer id is a PARAMETER rather than the constant 0 it used to be, because a finger is
+    // not the mouse and several can be down at once (#143). The mouse keeps 0 for ever; fingers get
+    // 1 upwards from the window. Passing 0 for a finger would make two fingers one pointer, and
+    // capture would then be handed back and forth between them.
+    // EVERY phase goes through DispatchPointer first — including a pointer nothing owns, and
+    // including the lift. That is not tidiness: an uncaptured pointer is exactly what the engine's
+    // page-zoom tracker follows, and the ONLY thing that retires a finger from that set is seeing
+    // its Up. Routing an uncaptured lift straight to the single-pointer path (which is what the
+    // capture check used to do) leaves the finger on the page's books for ever. Two taps then look
+    // like two fingers, the next press starts a "pinch" against a meaningless baseline, and the
+    // page zooms away under the user — measured on a Steam Deck as "any kind of drag, even
+    // accidental, massively zooms in". It bit the mouse too: a click left pointer 0 on the books,
+    // so one later finger was enough to make a phantom pair.
+    //
+    // When the engine declines, the ordinary click/hover/drag path still runs, so nothing that
+    // worked before changes.
+    private static bool DesktopPointerDown(CupriDocument doc, float x, float y, int clickCount, int pointerId = 0) =>
+        doc.DispatchPointer(pointerId, PointerPhase.Down, x, y) || doc.DispatchClick(x, y, clickCount);
 
-    private static bool DesktopPointerMove(CupriDocument doc, float x, float y) =>
-        doc.IsPointerCaptured(0)
-            ? doc.DispatchPointer(0, PointerPhase.Move, x, y)
-            : doc.DispatchPointerMove(x, y);
+    private static bool DesktopPointerMove(CupriDocument doc, float x, float y, int pointerId = 0) =>
+        doc.DispatchPointer(pointerId, PointerPhase.Move, x, y) || doc.DispatchPointerMove(x, y);
 
-    private static bool DesktopPointerUp(CupriDocument doc, float x, float y) =>
-        doc.IsPointerCaptured(0)
-            ? doc.DispatchPointer(0, PointerPhase.Up, x, y)
-            : doc.DispatchPointerUp(x, y);
+    private static bool DesktopPointerUp(CupriDocument doc, float x, float y, int pointerId = 0) =>
+        doc.DispatchPointer(pointerId, PointerPhase.Up, x, y) || doc.DispatchPointerUp(x, y);
+
+    /// <summary>
+    /// One finger from the SDL window (#143).
+    ///
+    /// <para>A tap goes through the same door a click does — raw pointer first, then the ordinary
+    /// click path — so a control that works with a mouse works with a finger and nothing needs a
+    /// touch-specific branch. What differs is the id, and that only the FIRST finger drives hover
+    /// and the cursor: a second finger is part of a gesture, not a second mouse, and moving the
+    /// cursor to it would fight the first.</para>
+    /// </summary>
+    private static bool DesktopFinger(CupriDocument doc, int pointerId, PointerPhase phase, float x, float y) =>
+        phase switch
+        {
+            // A finger taps (touch-adjusted); only the mouse clicks exactly where it points.
+            PointerPhase.Down => doc.DispatchPointer(pointerId, PointerPhase.Down, x, y) || doc.DispatchTap(x, y),
+            PointerPhase.Move => DesktopPointerMove(doc, x, y, pointerId),
+            _ => DesktopPointerUp(doc, x, y, pointerId),
+        };
 
     // Launch ourselves with --cupriface-gl-probe and read the verdict off the exit code: 0 means the
     // child brought GL up end to end; anything else — a managed throw, a native SIGSEGV, a hang —

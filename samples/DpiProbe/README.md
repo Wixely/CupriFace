@@ -16,6 +16,7 @@ DpiProbe.exe --no-track         aware, but stops following the window between mo
 
 set CUPRIFACE_DPI=0             the environment kill switch (same effect as --no-dpi, no rebuild)
 set CUPRIFACE_SOFTWARE=1        the SDL software window instead of the GL one
+set CUPRIFACE_SDL_GL=1          the SDL window with a real GL context (GPU + touch)
 ```
 
 The published build is self-contained: copy the folder to a machine with no .NET installed and run

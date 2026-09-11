@@ -157,12 +157,13 @@ public class LayeredAlphaTests(ITestOutputHelper output)
     public void An_ignored_threaded_render_says_so()
     {
         var src = Shell("DesktopHost.cs");
-        Assert.Contains("app.ThreadedRender && window.UseLayeredGpu", src, StringComparison.Ordinal);
+        // Both GPU-on-SDL modes own the frame on the UI thread, so both must say so.
+        Assert.Contains("app.ThreadedRender && (window.UseLayeredGpu || window.UseGl)", src, StringComparison.Ordinal);
         Assert.Contains("ThreadedRender is ignored under layered GPU presentation", src,
             StringComparison.Ordinal);
 
         // …and actually ignored, not half-applied.
-        Assert.Contains("app.ThreadedRender && !window.UseLayeredGpu ? new CupriFace.Threading.ThreadedPresenter()",
+        Assert.Contains("app.ThreadedRender && !window.UseLayeredGpu && !window.UseGl ? new CupriFace.Threading.ThreadedPresenter()",
             src, StringComparison.Ordinal);
     }
 

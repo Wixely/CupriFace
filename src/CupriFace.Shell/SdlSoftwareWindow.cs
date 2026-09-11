@@ -56,6 +56,10 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     private WindowsAlphaPresenter? _alphaPresenter;
     private LayeredGpuRenderer? _gpuRenderer;
     internal bool UseLayeredGpu { get; set; }
+    /// <summary>Draw on a real GL context owned by this SDL window (see <see cref="SdlGlPresenter"/>):
+    /// GPU rendering AND touch in one window, which neither of the other two paths can offer.</summary>
+    internal bool UseGl { get; set; }
+    private SdlGlPresenter? _gl;
     private bool _registeredAlphaClass;
     private EventFilter? _resizeWatch; // kept alive: fires during the OS modal resize loop
 
@@ -72,6 +76,20 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     public event Action<float, float>? PointerMove;
     public event Action<float, float>? PointerUp;
     public event Action<float, float, float, KeyMods>? PointerWheel; // x, y, deltaY (notches), mods — Ctrl+wheel is zoom
+
+    /// <summary>
+    /// A finger, in logical client units: pointer id, phase, x, y (#143).
+    ///
+    /// <para>Separate from <see cref="PointerDown"/> and friends because a finger is not a mouse:
+    /// there can be several at once, each needs its own pointer id, and an id must never collide
+    /// with the mouse's — which is fixed at 0. Ids here start at 1.</para>
+    ///
+    /// <para>Coordinates are NOT clamped to the window. A finger that leaves the window reports
+    /// normalised values outside 0..1 (measured on a Steam Deck during a pinch: <c>-0.098</c>), and
+    /// that is information, not corruption: a captured drag must keep tracking past the edge, the
+    /// same as a mouse dragged out of the window. Hit testing simply finds nothing out there.</para>
+    /// </summary>
+    public event Action<int, PointerPhase, float, float>? TouchPointer;
     public event Action<string>? TextEntered;               // printable text (IME-aware)
     public event Action<EditKey, KeyMods>? EditKeyPressed;  // key + Shift/Ctrl modifiers
     public event Action<char, KeyMods>? Shortcut;           // Ctrl/Cmd + letter (a/c/x/v …) or =/-/0 (zoom)
@@ -297,6 +315,53 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         return Win32Hwnd is { } hwnd ? HostScale.Sanitize(WindowsDpi.GetScaleForWindow(hwnd)) : _deviceScale;
     }
 
+    /// <summary>
+    /// <c>SDL_TOUCH_MOUSEID</c> — the <c>which</c> SDL puts on a mouse event it manufactured from a
+    /// touch. Spelled out here because it is a bare <c>#define</c> in SDL's headers and Silk.NET
+    /// binds no constant for it; the value was confirmed against a Steam Deck, which reports it as
+    /// 4294967295 on every synthesised event.
+    /// </summary>
+    private const uint TouchMouseId = 0xFFFFFFFFu;
+
+    /// <summary>SDL finger id → the pointer id the engine sees. Allocated on the way down and
+    /// released on the way up, so a long session does not climb for ever.</summary>
+    private readonly Dictionary<long, int> _fingerPointers = new();
+    private int _nextFingerPointer = 1;   // 0 belongs to the mouse, permanently
+
+    /// <summary>
+    /// One finger, converted into the same space the mouse arrives in and given a pointer id of
+    /// its own.
+    ///
+    /// <para>SDL reports fingers NORMALISED to 0..1 rather than in pixels, so they are multiplied
+    /// by the window size before <see cref="ToLogicalClient"/> divides out the device scale — the
+    /// same two-step the mouse path does implicitly, and the step whose omission puts every tap in
+    /// the wrong place on a scaled display.</para>
+    ///
+    /// <para>A finger id is a <c>long</c> and, on the Steam Deck, climbs for the life of the
+    /// session (354, 355, 356 …). It is mapped rather than cast: the engine's pointer ids are small
+    /// integers, and pointer 0 is the mouse's for ever.</para>
+    /// </summary>
+    private void DispatchFinger(EventType type, TouchFingerEvent f)
+    {
+        var phase = type switch
+        {
+            EventType.Fingerdown => PointerPhase.Down,
+            EventType.Fingerup => PointerPhase.Up,
+            _ => PointerPhase.Move,
+        };
+
+        if (phase == PointerPhase.Down && !_fingerPointers.ContainsKey(f.FingerId))
+            _fingerPointers[f.FingerId] = _nextFingerPointer++;
+        // A move or an up for a finger whose down was never seen (the window gained focus mid-touch)
+        // has no id to use, and inventing one would open a pointer nothing will ever close.
+        if (!_fingerPointers.TryGetValue(f.FingerId, out var pointerId)) return;
+
+        var (x, y) = ToLogicalClient(f.X * _width, f.Y * _height);
+        TouchPointer?.Invoke(pointerId, phase, x, y);
+
+        if (phase is PointerPhase.Up) _fingerPointers.Remove(f.FingerId);
+    }
+
     /// <summary>SDL's pointer coordinates → logical client units. SDL reports the cursor in window
     /// coordinates, and this window's surface is exactly its window size, so the ratio is simply
     /// 1/D — the conversion done once, here, for the same reason the GL window does it.</summary>
@@ -349,12 +414,44 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
             throw new InvalidOperationException($"SDL_Init failed: {_sdl.GetErrorS()}");
 
         var flags = WindowFlags.Resizable;
+        if (UseGl)
+        {
+            // Read by SDL_CreateWindow. Set a line later and they are silently ignored.
+            SdlGlPresenter.RequestAttributes(_sdl);
+            flags |= WindowFlags.Opengl;
+        }
         if (layered) flags |= WindowFlags.Hidden;
         if (_frameless) flags |= WindowFlags.Borderless;
         if (_topMost) flags |= WindowFlags.AlwaysOnTop;
         _window = _sdl.CreateWindow(_title, Sdl.WindowposCentered, Sdl.WindowposCentered,
             _width, _height, (uint)flags);
         if (_window is null) throw new InvalidOperationException($"SDL_CreateWindow failed: {_sdl.GetErrorS()}");
+        if (UseGl)
+        {
+            // Survivable, never silent: a machine with no usable GL gets the software renderer and
+            // a line saying so, rather than a dead window. The line names the exception because a
+            // bare fallback is how the trimmed-GL and headless-runner hunts went blind before.
+            try
+            {
+                _gl = new SdlGlPresenter(_sdl, _window);
+                var (dw, dh) = _gl.DrawableSize;
+                // Report the ratio, not a diagnosis. A Steam Deck answered 940x717 against a 940x720
+                // window — three pixels, a compositor's decoration accounting, nothing to do with
+                // scale — and the first version of this line confidently blamed HiDPI for it. Only
+                // a ratio that could BE a scale factor gets the scaling note.
+                var ratio = _height > 0 ? (float)dh / _height : 1f;
+                var note = dw == _width && dh == _height ? ""
+                    : ratio is < 0.9f or > 1.1f
+                        ? $" — NOTE: drawable is {ratio:0.00}x the window; that scale is not yet folded into D, so taps will land short by that factor"
+                        : " (differs by a few pixels — decoration accounting, harmless)";
+                Console.WriteLine($"[CupriFace] SDL GL window: {_gl.Renderer}; drawable {dw}x{dh}, window {_width}x{_height}{note}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[CupriFace] SDL GL context unavailable ({ex.GetType().Name}: {ex.Message}); using the SDL software renderer.");
+                _gl = null;
+            }
+        }
         ApplyPendingIcon();
         if (_darkWindowChrome && Win32Hwnd is { } hwnd)
         {
@@ -393,8 +490,11 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         {
             if (_transparent)
                 Console.Error.WriteLine("[CupriFace] Software desktop transparency requires a frameless Windows window; this window will be opaque.");
-            _renderer = _sdl.CreateRenderer(_window, -1, (uint)RendererFlags.Software);
-            if (_renderer is null) throw new InvalidOperationException($"SDL_CreateRenderer failed: {_sdl.GetErrorS()}");
+            if (_gl is null)
+            {
+                _renderer = _sdl.CreateRenderer(_window, -1, (uint)RendererFlags.Software);
+                if (_renderer is null) throw new InvalidOperationException($"SDL_CreateRenderer failed: {_sdl.GetErrorS()}");
+            }
         }
 
         EnsureSurface(_width, _height);
@@ -424,6 +524,16 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                         break;
                     // Each of these normalises to logical client units first, so the host downstream
                     // only ever divides out the application's own present scale (#137).
+                    // A tap arrives TWICE: SDL manufactures a mouse event from it as well as the
+                    // finger events below, and both were measured on a Steam Deck (131 of 166 mouse
+                    // events in one session were synthetic). Handling fingers without dropping these
+                    // would deliver every tap as two presses — two clicks, two drags fighting each
+                    // other. Dropped here rather than by setting SDL_TOUCH_MOUSE_EVENTS=0, because
+                    // filtering works whatever a platform's default for that hint happens to be.
+                    case EventType.Mousebuttondown when e.Button.Which == TouchMouseId:
+                    case EventType.Mousebuttonup when e.Button.Which == TouchMouseId:
+                    case EventType.Mousemotion when e.Motion.Which == TouchMouseId:
+                        break;
                     case EventType.Mousebuttondown:
                     {
                         var (x, y) = ToLogicalClient(e.Button.X, e.Button.Y);
@@ -435,6 +545,13 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                     {
                         var (x, y) = ToLogicalClient(e.Button.X, e.Button.Y);
                         PointerUp?.Invoke(x, y);
+                        break;
+                    }
+                    case EventType.Fingerdown:
+                    case EventType.Fingermotion:
+                    case EventType.Fingerup:
+                    {
+                        DispatchFinger((EventType)e.Type, e.Tfinger);
                         break;
                     }
                     case EventType.Mousemotion:
@@ -616,6 +733,18 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         // the GL window fail to shrink on the way back, intermittently, and this path had it too.
         if (_scale is not null && !_resizingForDpi && _trackMonitorDpi)
             ApplyDpiResize(_scale.ObserveFramebuffer(w, h, ReadDeviceScale()));
+        if (_gl is not null)
+        {
+            // No bitmap and no texture: the surface is framebuffer 0 at the DRAWABLE size, which the
+            // presenter measures itself. _width/_height stay the window size, because that is the
+            // space pointer and finger coordinates arrive in.
+            var changed = w != _width || h != _height;
+            _width = w; _height = h;
+            _gl.EnsureSurface();
+            _presentDirty = true;
+            if (changed) SurfaceRecreated?.Invoke();
+            return;
+        }
         // Same size and alive: keep the retained pixels. This matters beyond thrift — SDL delivers
         // a size change both to the resize WATCH (which repaints) and again from the polled queue;
         // recreating on the echo would throw away the frame the watch just painted.
@@ -652,6 +781,7 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
 
     private void RenderFrame()
     {
+        if (_gl is not null) { RenderFrameGl(); return; }
         if (OperatingSystem.IsWindows() && _alphaPresenter is not null)
         {
             if (_alphaPresenter.WindowSize is not { } size || size.Width <= 0 || size.Height <= 0) return;
@@ -713,6 +843,59 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         _sdl.RenderPresent(_renderer);
     }
 
+    /// <summary>
+    /// The GL frame: draw into framebuffer 0 and swap — or, when nothing changed, do neither.
+    ///
+    /// <para>The default framebuffer is not retained across a swap, so this path has no "re-present
+    /// the old pixels" move: an expose must be a full redraw. <see cref="SurfaceRecreated"/> is how
+    /// the host is told to redraw everything, so an exposed window raises it and the next
+    /// <see cref="RenderIncrementalFrame"/> call sees the host's dirty flag. A frame that is not
+    /// drawn is not swapped, and the front buffer keeps what it last showed — the same rule as the
+    /// GL window's manual swap.</para>
+    /// </summary>
+    private void RenderFrameGl()
+    {
+        _gl!.MakeCurrent();
+        var canvas = _gl.EnsureSurface();
+        if (canvas is null) return;
+        var (dw, dh) = _gl.DrawableSize;
+
+        if (_presentDirty) { SurfaceRecreated?.Invoke(); _presentDirty = false; }
+
+        var delta = _clock.Elapsed.TotalSeconds - _last;
+        _last = _clock.Elapsed.TotalSeconds;
+        _stats.BeginFrame(delta);
+        bool drew;
+        if (RenderIncrementalFrame is { } incremental)
+        {
+            var damage = incremental(new RenderContext(canvas, dw, dh, _stats, _gl.Context));
+            drew = damage is { } d && d.Width > 0 && d.Height > 0;
+        }
+        else
+        {
+            Render?.Invoke(new RenderContext(canvas, dw, dh, _stats, _gl.Context));
+            drew = true;
+        }
+        _stats.EndFrame();
+        if (!drew) return;
+
+        _gl.Present();
+        if (_frameDumpPath is { } dump && ++_presentCount % 15 == 0) DumpGlPixels(dump);
+    }
+
+    private void DumpGlPixels(string path)
+    {
+        try
+        {
+            using var img = _gl?.Snapshot();
+            if (img is null) return;
+            using var data = img.Encode(SKEncodedImageFormat.Png, 90);
+            using var f = File.Create(path);
+            data.SaveTo(f);
+        }
+        catch { /* diagnostics never throw */ }
+    }
+
     // CUPRIFACE_FRAME_DUMP=<file.png>: periodically read the pixels BACK FROM THE RENDER TARGET
     // (not our bitmap — the texture upload is exactly what can silently go wrong) and overwrite
     // the file. Ground truth of what the window presents, for environments where OS-level screen
@@ -749,6 +932,7 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         _alphaPresenter = null;
         foreach (var p in _cursors.Values) _sdl.FreeCursor((Cursor*)p);
         _cursors.Clear();
+        _gl?.Dispose(); _gl = null;
         if (_texture is not null) _sdl.DestroyTexture(_texture);
         if (_renderer is not null) _sdl.DestroyRenderer(_renderer);
         if (_window is not null) _sdl.DestroyWindow(_window);

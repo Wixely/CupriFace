@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>CupriFace.Samples.TouchProbe</RootNamespace>
+
+    <!-- REQUIRED with PublishSingleFile, for the reason spelled out in DpiProbe.csproj: Silk.NET
+         finds SDL2 through DependencyContext and Assembly.Location, both dead inside a bundle, so
+         without this the exe builds and then dies on its first window. This probe is meant to be
+         copied to a Steam Deck as one file, so it would fail exactly where it cannot be debugged. -->
+    <IncludeAllContentForSelfExtract Condition="'$(PublishSingleFile)' == 'true'">true</IncludeAllContentForSelfExtract>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The ENGINE only, deliberately not CupriFace.Shell. The question is what SDL delivers, and a
+         probe that went through DesktopHost could have its answer shaped by the host it is testing. -->
+    <ProjectReference Include="..\..\src\CupriFace\CupriFace.csproj" />
+    <PackageReference Include="Silk.NET.SDL" Version="2.22.0" />
+  </ItemGroup>
+
+</Project>

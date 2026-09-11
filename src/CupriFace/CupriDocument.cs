@@ -2426,7 +2426,7 @@ public sealed partial class CupriDocument : IDisposable
     /// bound model, and refresh. Returns true if anything handled it (→ needs repaint).
     /// </summary>
     public bool DispatchClick(float x, float y, int clickCount = 1) => Bump(DispatchClickCore(Zc(x), Zc(y), clickCount));
-    private bool DispatchClickCore(float x, float y, int clickCount)
+    private bool DispatchClickCore(float x, float y, int clickCount, float adjustRadius = 0f)
     {
         EnsureLaidOut();
         _textDrag = false;
@@ -2456,6 +2456,9 @@ public sealed partial class CupriDocument : IDisposable
         }
 
         var hit = HitTesting.HitTest(_root, x, y);
+        // A finger that missed by a little is moved onto what it meant (CupriDocument.Touch.cs).
+        // Zero for a mouse, which means what it points at.
+        if (adjustRadius > 0) (hit, x, y) = AdjustForTouch(hit, x, y, adjustRadius);
 
         // Click-away: close any open bound-flag popup (picker/select/popover) the click landed outside.
         // Doesn't consume the click, so it still does its normal thing; the refresh below applies it.
@@ -5092,11 +5095,18 @@ public sealed partial class CupriDocument : IDisposable
                 // The two shapes that explain most "why is nothing there": a box with no height, and
                 // content that does not fit the box it was given. Flagged inline because the whole
                 // point of the dump is to answer that question without a second tool.
-                if (!n.IsText && (n.Width <= 0.5f || n.Height <= 0.5f) && n.Children.Count > 0)
-                    sb.Append("   << EMPTY BOX, has children");
+                // The SAME predicate the doctor uses (BoxOverflow), not a private restatement of it:
+                // the first version of this line was a restatement, lacked the inline exclusion,
+                // and flagged every link in every paragraph as an empty box.
+                if (Diagnostics.BoxOverflow.IsEmptyBoxWithContent(n))
+                    sb.Append("   << EMPTY BOX, has visible content");
                 else if (Diagnostics.BoxOverflow.Overshoot(n) is { } over)
                     sb.Append($"   << CONTENT OVERFLOWS by {over:0}px");
-                sb.AppendLine();
+                // '\n', not AppendLine: this output exists to be diffed between runs and parsed by
+                // whatever is reading it, and Environment.NewLine would make the same tree differ
+                // between Windows and Linux by line endings alone — and leave a trailing '\r' on
+                // every token for anyone splitting on '\n', which is what a reader naturally does.
+                sb.Append('\n');
             }
             if (maxDepth > 0 && depth >= maxDepth) return;
             foreach (var c in n.Children)
