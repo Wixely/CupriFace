@@ -13,6 +13,34 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Added
+
+- **The SDL window can own a real GL context: `CUPRIFACE_SDL_GL=1`.** GPU rendering and touch in one
+  window, which neither existing path could offer — the GLFW window has the GPU but no touch API,
+  the SDL window had touch but rasterised on the CPU. This draws straight into the window's
+  framebuffer and swaps: no readback, no hidden window, no new dependency. GPU surface producers run
+  on it unchanged (the Showcase 3D page brought its shared-GPU lane up on the SDL context). Opt-in
+  for now; `CUPRIFACE_SOFTWARE=1` still wins a tie. Choosing it automatically on touchscreen machines
+  is a policy decision not yet made. Known gap: on a scaled Wayland desktop the drawable is larger
+  than the window and that ratio is not yet folded into D — the startup line says so when it happens.
+
+### Fixed
+
+- **Desktop builds deliver touch (#143).** The SDL window handles `SDL_FINGER*`: each finger gets a
+  pointer id of its own from 1 (the mouse keeps 0), coordinates are scaled from SDL's normalised
+  0..1 into the same space the mouse arrives in, and mouse events SDL manufactures from touch are
+  dropped — every tap arrived twice before. Measured on a Steam Deck. The GLFW window is untouched
+  because GLFW has no touch API; X11 emulates a mouse from touch and Wayland does not, which is why
+  the same build looked fine in a desktop session and was inert in Game Mode. Reaching the SDL
+  window on a machine with working GL needs `CUPRIFACE_SOFTWARE=1` or `CUPRIFACE_SDL_GL=1`.
+- **Taps no longer accumulate phantom fingers.** An uncaptured lift was routed past the engine, and
+  the page-zoom tracker only forgets a finger when it sees its Up — so two taps looked like two
+  fingers and the next drag became a pinch against a meaningless baseline ("any kind of drag
+  massively zooms in"). Every pointer phase now goes through `DispatchPointer`. It was never
+  touch-only: a mouse click left pointer 0 on the books the same way.
+
 ## v0.22.0
 
 ### Added

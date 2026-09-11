@@ -145,7 +145,7 @@ The first launch unpacks the bundle and takes a few seconds; later launches are 
 
 On Linux without a GPU the app renders through Mesa's software rasteriser automatically. If you
 ever want to skip the OpenGL path entirely (or are on a build from before 2026-08, which crashed
-in that configuration), `CUPRIFACE_SOFTWARE=1 ./Viewer` forces the SDL software window.
+in that configuration), `CUPRIFACE_SOFTWARE=1 ./Viewer` forces the SDL software window. `CUPRIFACE_SDL_GL=1 ./Viewer` takes the SDL window with a real GL context instead — GPU rendering and touch in one window, for touchscreen Linux machines such as the Steam Deck, where the GLFW window has no touch API. `CUPRIFACE_SOFTWARE=1` wins if both are set.
 
 To **build against** CupriFace rather than just run the demo, the same release carries NuGet
 packages (`.nupkg` + `.snupkg` symbols): `CupriFace` is the engine, `CupriFace.Shell` the desktop

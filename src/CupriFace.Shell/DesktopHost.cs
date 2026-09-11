@@ -175,6 +175,10 @@ public static class DesktopHost
         // known failure modes are handled these days (a broken GL stack raises an ordinary
         // exception and falls through to SDL below) — but an explicit override beats debugging.
         var forceSoftware = preferSoftware || Environment.GetEnvironmentVariable("CUPRIFACE_SOFTWARE") is "1" or "true" or "TRUE";
+        // The SDL window with a real GL context (#143): touch and GPU rendering together. Opt-in
+        // for now — making touchscreen machines pick it automatically is a policy decision, and
+        // CUPRIFACE_SOFTWARE stays the kill switch above it, so software always wins a tie.
+        var sdlGl = !forceSoftware && Environment.GetEnvironmentVariable("CUPRIFACE_SDL_GL") is "1" or "true" or "TRUE";
 
         // macOS with no OpenGL at all (the paravirtual GPU of virtualised Macs — CI runners, UTM
         // guests) kills the process NATIVELY inside GLFW before any managed guard can run: window
@@ -191,7 +195,7 @@ public static class DesktopHost
 
         try
         {
-            if (forceSoftware || layeredGpu)
+            if (forceSoftware || layeredGpu || sdlGl)
                 throw new InvalidOperationException("Software rendering requested; skipping the GL window.");
 
             var window = new SkiaWindow(
@@ -307,7 +311,9 @@ public static class DesktopHost
             // driverless machine when it was a harness forcing the software path, and a bare
             // "PlatformNotSupportedException" as a session limit when it was the trimmer removing
             // Silk.NET's backends (#125, #126). The line is the only witness a fallback leaves.
-            Console.WriteLine(layeredGpu && !forceSoftware
+            Console.WriteLine(sdlGl
+                ? "[CupriFace] SDL window with a GL context requested (CUPRIFACE_SDL_GL=1): GPU rendering with touch."
+                : layeredGpu && !forceSoftware
                 ? "[CupriFace] Off-screen GPU rendering requested; using Windows layered presentation."
                 : forceSoftware
                 ? "[CupriFace] Software rendering requested; using the SDL software window."
@@ -324,6 +330,7 @@ public static class DesktopHost
                 app.DpiAware,
                 app.TrackMonitorDpi);
             window.UseLayeredGpu = layeredGpu && !forceSoftware;
+            window.UseGl = sdlGl;
             if (icon is { } ic) window.SetIcon(ic.Rgba, ic.W, ic.H);
             deviceScale = () => window.DeviceScale;
 
@@ -357,10 +364,10 @@ public static class DesktopHost
             // path draws on the GL context and reads back on this thread, so the two cannot both own
             // the frame. Saying so beats dropping an opt-in silently — an ignored setting is
             // indistinguishable from a broken one, which is how #137's ThreadedRender bug survived.
-            if (app.ThreadedRender && window.UseLayeredGpu)
+            if (app.ThreadedRender && (window.UseLayeredGpu || window.UseGl))
                 Console.WriteLine("[CupriFace] ThreadedRender is ignored under layered GPU presentation; "
                     + "drawing stays on the UI thread.");
-            using var presenter = app.ThreadedRender && !window.UseLayeredGpu ? new CupriFace.Threading.ThreadedPresenter() : null;
+            using var presenter = app.ThreadedRender && !window.UseLayeredGpu && !window.UseGl ? new CupriFace.Threading.ThreadedPresenter() : null;
             void DrawThreaded(RenderContext ctx)
             {
                 presenter!.Present(ctx.Canvas); // draw the previous frame the render thread finished
@@ -387,7 +394,7 @@ public static class DesktopHost
                 a11y.Publish(p.LogicalWidth, p.LogicalHeight, effective, window.ScreenPosition);
             }
 
-            if (window.UseLayeredGpu)
+            if (window.UseLayeredGpu || window.UseGl)
             {
                 // Reuse the GL host's draw contract, including same-context GPU surface producers.
                 // The retained GPU surface and bitmap make expose-only frames free of readback.
