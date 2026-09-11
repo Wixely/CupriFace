@@ -435,8 +435,16 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
             {
                 _gl = new SdlGlPresenter(_sdl, _window);
                 var (dw, dh) = _gl.DrawableSize;
-                Console.WriteLine($"[CupriFace] SDL GL window: {_gl.Renderer}; drawable {dw}x{dh}, window {_width}x{_height}"
-                    + (dw != _width || dh != _height ? " — NOTE: drawable differs from window; HiDPI Wayland scaling is not yet folded into D" : ""));
+                // Report the ratio, not a diagnosis. A Steam Deck answered 940x717 against a 940x720
+                // window — three pixels, a compositor's decoration accounting, nothing to do with
+                // scale — and the first version of this line confidently blamed HiDPI for it. Only
+                // a ratio that could BE a scale factor gets the scaling note.
+                var ratio = _height > 0 ? (float)dh / _height : 1f;
+                var note = dw == _width && dh == _height ? ""
+                    : ratio is < 0.9f or > 1.1f
+                        ? $" — NOTE: drawable is {ratio:0.00}x the window; that scale is not yet folded into D, so taps will land short by that factor"
+                        : " (differs by a few pixels — decoration accounting, harmless)";
+                Console.WriteLine($"[CupriFace] SDL GL window: {_gl.Renderer}; drawable {dw}x{dh}, window {_width}x{_height}{note}");
             }
             catch (Exception ex)
             {

@@ -40,6 +40,12 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   fingers and the next drag became a pinch against a meaningless baseline ("any kind of drag
   massively zooms in"). Every pointer phase now goes through `DispatchPointer`. It was never
   touch-only: a mouse click left pointer 0 on the books the same way.
+- **A hovering mouse is not a finger.** The fix above exposed its mirror image on the Steam Deck:
+  routing every mouse Move through the pointer path registered the trackpad cursor — which never
+  lifts, because a hover has no Up — as a permanent finger on the page. The first real finger then
+  arrived as the second of a pair, its Down was consumed as a pinch, and no tap reached a click
+  while every drag zoomed. The engine now ignores a Move for a pointer it never saw go Down. This is
+  in `CupriDocument`, so every host gets it.
 
 ## v0.22.0
 

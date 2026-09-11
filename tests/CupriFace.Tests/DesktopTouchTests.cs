@@ -159,6 +159,39 @@ public class DesktopTouchTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>
+    /// The Steam Deck, build 3: no menu item could be tapped, and a drag zoomed. Both from one
+    /// cause — the very first finger was already a pinch, so its Down returned true and the click
+    /// never ran.
+    ///
+    /// <para>For that, the page-finger set had to hold an entry before any finger arrived, and it
+    /// did: a mouse that merely HOVERS. Routing every phase through DispatchPointer (the fix for the
+    /// previous zoom bug) meant a bare Move registered pointer 0 as a finger on the page, and a
+    /// hover has no Up to ever remove it. The Deck's trackpad cursor, or SDL's window-enter motion,
+    /// is enough. A pointer that never went down is not a finger, and must not count as one.</para>
+    /// </summary>
+    [Fact]
+    public void A_hovering_mouse_is_not_a_finger_on_the_page()
+    {
+        using var doc = CupriDocument.Load(Html, Css);
+        doc.Refresh();
+        using (doc.RenderToImage(400, 200)) { }
+
+        // The cursor drifts across the window. No button, no Up will ever follow.
+        doc.DispatchPointer(0, PointerPhase.Move, 50, 50);
+        doc.DispatchPointer(0, PointerPhase.Move, 60, 60);
+
+        // Then one finger lands. This must be a plain tap: NOT consumed as a pinch.
+        var consumed = doc.DispatchPointer(1, PointerPhase.Down, 100, 100);
+        output.WriteLine($"first finger consumed as pinch: {consumed}, PageZoomActive={doc.PageZoomActive}");
+        Assert.False(consumed);
+        Assert.False(doc.PageZoomActive);
+
+        // …and dragging that single finger is a drag, not a zoom.
+        doc.DispatchPointer(1, PointerPhase.Move, 200, 150);
+        Assert.Equal(1f, doc.Zoom);
+    }
+
     /// <summary>Two fingers genuinely down together SHOULD zoom — the gesture is a real feature and
     /// must survive the fix above, or "no phantom pinches" would have been bought by breaking the
     /// thing phantom pinches were imitating.</summary>
