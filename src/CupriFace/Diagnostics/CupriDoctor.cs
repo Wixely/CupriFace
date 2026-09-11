@@ -296,6 +296,9 @@ public static partial class CupriDoctor
             var tag = el.LocalName;
             if (!tag.StartsWith("cupri-", StringComparison.OrdinalIgnoreCase)) continue;
             if (known.Contains(tag, StringComparer.OrdinalIgnoreCase)) continue;
+            // <cupri-option> inside <cupri-select>: the parent reads it and builds the list itself.
+            // Data for a component, not a component — rendering nothing is its whole job (#145).
+            if (InsideRegisteredComponent(el, registry)) continue;
             if (!reported.Add(tag)) continue;
 
             var near = Nearest(tag, known);
@@ -304,7 +307,7 @@ public static partial class CupriDoctor
                 near is null
                     ? "Register it with registry.Register(new YourComponent()), or check the spelling."
                     : $"Did you mean <{near}>?",
-                LineOf(lines, "<" + tag)));
+                LineOf(lines, "<" + tag, Occurrence(dom, el))));
         }
     }
 
@@ -374,6 +377,16 @@ public static partial class CupriDoctor
         }
         Walk(doc.Root);
 
+        // Elements a display:none render node covers, when the tree keeps such a node. Together
+        // with the DOM's own markers this is how "hidden on purpose" is told from "never drawn".
+        var hiddenRoots = new HashSet<IElement>();
+        void FindHidden(RenderNode n)
+        {
+            if (n.Element is { } e && n.Style.Display == DisplayType.None) hiddenRoots.Add(e);
+            foreach (var c in n.Children) FindHidden(c);
+        }
+        FindHidden(doc.Root);
+
         var reported = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var el in All(dom))
         {
@@ -382,6 +395,17 @@ public static partial class CupriDoctor
             // A component's own tag is replaced by what it expands into, so it is legitimately
             // absent from the render tree.
             if (registry.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase)) continue;
+            // …and so is anything a component consumes or emits: its option rows, its own internals.
+            if (InsideRegisteredComponent(el, registry)) continue;
+            // Hidden on purpose is not "never drawn". With a real model most of an app is hidden
+            // pages (style="display:{{ConfigDisplay}}"), and every element inside one is absent
+            // from the render tree by design (#145: nine of sixteen findings were this).
+            if (IsHidden(el, hiddenRoots)) continue;
+            // Report the ROOT of a missing subtree only. Its descendants are missing because it is,
+            // and listing each of them buries the one line that says why.
+            if (el.ParentElement is { } parent && parent.LocalName != "body" && !rendered.Contains(parent)
+                && !registry.Tags.Contains(parent.LocalName, StringComparer.OrdinalIgnoreCase)
+                && !Replacements.ContainsKey(parent.LocalName)) continue;
 
             // The browser-habit elements are named outright, because the render-tree test below
             // does NOT catch them: the engine happily builds a box for an <img>, lays it out, and
@@ -392,7 +416,7 @@ public static partial class CupriDoctor
                 if (!reported.Add(tag)) continue;
                 findings.Add(new Finding(Severity.Error, "CF0030",
                     $"<{tag}> is not something the engine draws — it lays out, and then stays empty.",
-                    better, LineOf(lines, "<" + tag)));
+                    better, LineOf(lines, "<" + tag, Occurrence(dom, el))));
                 continue;
             }
 
@@ -402,8 +426,48 @@ public static partial class CupriDoctor
             findings.Add(new Finding(Severity.Warning, "CF0031",
                 $"<{tag}> produced no render output, so none of it will appear.",
                 "If it is meant to be visible, use a div (or a cupri-* component) instead.",
-                LineOf(lines, "<" + tag)));
+                LineOf(lines, "<" + tag, Occurrence(dom, el))));
         }
+    }
+
+    /// <summary>Is this element inside a registered component's subtree — i.e. either consumed by
+    /// it (a select's options) or emitted by it (its internals)? Neither has a render node of its
+    /// own, and neither is a fault.</summary>
+    private static bool InsideRegisteredComponent(IElement el, ComponentRegistry registry)
+    {
+        for (var a = el.ParentElement; a is not null; a = a.ParentElement)
+            if (registry.Tags.Contains(a.LocalName, StringComparer.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
+    /// <summary>Hidden on purpose, by itself or by an ancestor: a display:none render node, an
+    /// inline <c>display:none</c> (which is what a bound <c>style="display:{{X}}"</c> becomes), the
+    /// <c>hidden</c> attribute, or <c>aria-hidden="true"</c>.</summary>
+    private static bool IsHidden(IElement el, HashSet<IElement> hiddenRoots)
+    {
+        for (var a = el; a is not null; a = a.ParentElement)
+        {
+            if (hiddenRoots.Contains(a) || a.HasAttribute("hidden")) return true;
+            if (a.GetAttribute("aria-hidden") == "true") return true;
+            if (a.GetAttribute("style") is { } style
+                && Regex.IsMatch(style, @"display\s*:\s*none", RegexOptions.IgnoreCase)) return true;
+        }
+        return false;
+    }
+
+    /// <summary>Which same-named element this is, in document order — zero-based, and paired with
+    /// <see cref="LineOf(string[], string, int)"/> so a finding names the element it is about
+    /// rather than the first one sharing its tag. That is how a hidden page's paragraph came to be
+    /// reported as the visible subtitle on line 6 (#145).</summary>
+    private static int Occurrence(IDocument? dom, IElement el)
+    {
+        var n = 0;
+        foreach (var e in All(dom))
+        {
+            if (ReferenceEquals(e, el)) return n;
+            if (e.LocalName == el.LocalName) n++;
+        }
+        return 0;
     }
 
     /// <summary>Elements that legitimately draw nothing — structure, metadata, and the ones the
@@ -714,6 +778,32 @@ public static partial class CupriDoctor
         for (var i = 0; i < lines.Length; i++)
             if (lines[i].Contains(needle, StringComparison.OrdinalIgnoreCase)) return i + 1;
         return 0;
+    }
+
+    /// <summary>The line of the Nth occurrence of <paramref name="needle"/> (zero-based), counting
+    /// several on one line. A tag needle must be followed by a non-name character, so
+    /// <c>&lt;p</c> does not count <c>&lt;path</c> or <c>&lt;progress</c>.</summary>
+    private static int LineOf(string[] lines, string needle, int occurrence)
+    {
+        var seen = 0;
+        var isTag = needle.StartsWith('<');
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var at = 0;
+            while ((at = lines[i].IndexOf(needle, at, StringComparison.OrdinalIgnoreCase)) >= 0)
+            {
+                var end = at + needle.Length;
+                var wholeTag = !isTag || end >= lines[i].Length
+                               || !(char.IsLetterOrDigit(lines[i][end]) || lines[i][end] == '-');
+                if (wholeTag)
+                {
+                    if (seen == occurrence) return i + 1;
+                    seen++;
+                }
+                at = end;
+            }
+        }
+        return LineOf(lines, needle);   // fewer occurrences than expected: the first is still a hint
     }
 
     /// <summary>The closest known tag within a small edit distance, for "did you mean" — or null when

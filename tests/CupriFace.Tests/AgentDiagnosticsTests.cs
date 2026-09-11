@@ -114,6 +114,40 @@ public class AgentDiagnosticsTests(ITestOutputHelper output)
         Assert.DoesNotContain(report.Findings, f => f.Code == "CF0070");
     }
 
+    /// <summary>
+    /// #145: every <c>cupri-button</c> reported as overflowing. A label centred in a fixed-height
+    /// button sits partly in the padding and paints correctly inside the border — CSS overflow
+    /// clips at the PADDING edge, and content may occupy padding. The rule measured against the
+    /// content box, so a 13px label in a 30px button (10px padding) read as 10px of overflow.
+    /// </summary>
+    [Fact]
+    public void Content_that_sits_in_the_padding_is_not_overflow()
+    {
+        // 30px border-box, 10px padding top and bottom: a 10px content box. The 20px child ends
+        // exactly at the padding edge — inside the border, where a centred label lands. Border-box
+        // because that is what the reporter's stylesheet uses, and because with the content-box
+        // default this would be a 50px box and the case would pass for the wrong reason.
+        var report = CupriDoctor.Check(
+            "<body><div class='box'><div class='label'>x</div></div></body>",
+            ".box { box-sizing:border-box; height:30px; padding:10px; } .label { height:20px; }");
+
+        Assert.DoesNotContain(report.Findings, f => f.Code == "CF0070");
+    }
+
+    /// <summary>…but past the padding edge it is overflow, and by the right amount: the child now
+    /// extends 8px beyond the border.</summary>
+    [Fact]
+    public void Content_that_escapes_the_padding_box_is_overflow_by_the_escaped_amount()
+    {
+        var report = CupriDoctor.Check(
+            "<body><div class='box'><div class='label'>x</div></div></body>",
+            ".box { box-sizing:border-box; height:30px; padding:10px; } .label { height:28px; }");
+
+        var f = Assert.Single(report.Findings, x => x.Code == "CF0070");
+        output.WriteLine(f.ToString());
+        Assert.Contains("overflow it by 8px", f.Message);
+    }
+
     // ---- CF0071: boxes with no area ------------------------------------------------------------
 
     [Fact]
@@ -136,6 +170,116 @@ public class AgentDiagnosticsTests(ITestOutputHelper output)
             "<body><div style='height:0px'><div></div></div><p>a <span>b</span> c</p></body>", Css);
 
         Assert.DoesNotContain(report.Findings, f => f.Code == "CF0071");
+    }
+
+    // ---- #145: the rules that accused working markup --------------------------------------------
+
+    /// <summary>A select reads its options and builds the list itself: an option is DATA for its
+    /// parent, and rendering nothing is its whole job. It was the strongest thing the checker says,
+    /// an error, on the one element that is supposed to render nothing.</summary>
+    [Fact]
+    public void An_option_inside_a_select_is_neither_unknown_nor_unrendered()
+    {
+        var report = CupriDoctor.Check(
+            "<body><cupri-select value='b'><cupri-option value='a'>A</cupri-option><cupri-option value='b'>B</cupri-option></cupri-select></body>",
+            Css, model: new Model());
+
+        output.WriteLine(report.ToString());
+        Assert.DoesNotContain(report.Findings, f => f.Code is "CF0020" or "CF0031");
+    }
+
+    /// <summary>With a real model most of an app is hidden pages, and every element inside one is
+    /// absent from the render tree by design. Nine of the reporter's sixteen findings were this.
+    /// Every way of being hidden must be understood: the inline style a bound
+    /// <c>display:{{X}}</c> becomes, a stylesheet class, and the two attributes.</summary>
+    [Theory]
+    [InlineData("<section style='display:none'><p>hidden page</p><span>x</span></section>", "")]
+    [InlineData("<section class='page'><p>hidden page</p><span>x</span></section>", ".page { display:none; }")]
+    [InlineData("<section hidden><p>hidden page</p></section>", "")]
+    [InlineData("<section aria-hidden='true'><p>hidden page</p></section>", "")]
+    public void Elements_inside_a_hidden_subtree_are_not_unrendered(string hidden, string extraCss)
+    {
+        var report = CupriDoctor.Check("<body><h1>Visible</h1>" + hidden + "</body>", Css + extraCss);
+        output.WriteLine(report.ToString());
+        Assert.DoesNotContain(report.Findings, f => f.Code == "CF0031");
+    }
+
+    /// <summary>A finding names the element it is about. The old attribution found the FIRST
+    /// element sharing the tag, so a problem on the second image was reported at the first — and a
+    /// hidden page's paragraph was reported as the visible subtitle on line 6.</summary>
+    [Fact]
+    public void A_finding_points_at_the_offending_occurrence_not_the_first_of_its_tag()
+    {
+        // The engine's own image on line 2, a browser <img> on line 3: CF0030 must say line 3.
+        var html = "<body>" + (char)10
+                 + "<div><cupri-image src='a.png'></cupri-image></div>" + (char)10
+                 + "<div><img src='b.png'></div>" + (char)10
+                 + "</body>";
+        var report = CupriDoctor.Check(html, Css);
+        var f = Assert.Single(report.Findings, x => x.Code == "CF0030");
+        output.WriteLine(f.ToString());
+        Assert.Equal(3, f.Line);
+    }
+
+    /// <summary>Only the root of a missing subtree is reported. Its descendants are missing
+    /// because it is, and listing every one of them buries the line that says why.</summary>
+    [Fact]
+    public void Only_the_root_of_a_missing_subtree_is_reported()
+    {
+        // <svg> is named outright (CF0030); its children are missing because it is.
+        var report = CupriDoctor.Check("<body><svg><g><path d='M0 0'></path></g></svg></body>", Css);
+        output.WriteLine(report.ToString());
+        Assert.DoesNotContain(report.Findings, f => f.Code == "CF0031");
+    }
+
+    /// <summary>A zero-height host whose content is entirely out of flow is an overlay anchor, not
+    /// a collapsed box: a dialog's backdrop and panel hang off a 0px element on purpose.</summary>
+    [Fact]
+    public void A_host_whose_content_is_all_out_of_flow_is_not_an_empty_box()
+    {
+        var report = CupriDoctor.Check(
+            "<body><div class='host'><div class='panel'>overlay text</div></div></body>",
+            Css + " .host { height:0px; } .panel { position:fixed; top:10px; left:10px; }");
+        Assert.DoesNotContain(report.Findings, f => f.Code == "CF0071");
+    }
+
+    /// <summary>The dump's coordinates are the ones to hand to DispatchClick — which they were not
+    /// under a padded parent: the walk added the content inset to child positions that already
+    /// include it. Checked against HitTesting.ScreenBox, the arithmetic hit-testing itself uses.</summary>
+    [Fact]
+    public void Dumped_coordinates_match_the_hit_testing_box_under_a_padded_parent()
+    {
+        using var doc = CupriDocument.Load(
+            "<body><div class='pad'><div class='inner'>x</div></div></body>",
+            "body { margin:0; } .pad { padding:30px; border:2px solid #000; } .inner { height:20px; }");
+        doc.Refresh();
+        using (doc.RenderToImage(300, 200)) { }
+
+        var inner = FindByClass(doc.Root, "inner")!;
+        var (sx, sy, _, _) = Interaction.HitTesting.ScreenBox(inner);
+        var line = doc.DumpTree().Split((char)10).First(l => l.Contains("div.inner"));
+        output.WriteLine(line.Trim() + $"   (ScreenBox says {sx:0},{sy:0})");
+        Assert.Contains($"{sx:0},{sy:0}", line);
+    }
+
+    private static Dom.RenderNode? FindByClass(Dom.RenderNode n, string cls)
+    {
+        if (n.Element?.GetAttribute("class") == cls) return n;
+        foreach (var c in n.Children) if (FindByClass(c, cls) is { } h) return h;
+        return null;
+    }
+
+    /// <summary>The shipped Showcase must produce no CF0031 or CF0020 either: it has pages hidden
+    /// by binding, exactly the shape that produced the noise. Errors were already gated; the noisy
+    /// findings were warnings, which is why nothing caught them.</summary>
+    [Fact]
+    public void TheShippedShowcaseHasNoUnrenderedWarnings()
+    {
+        var app = new CupriFace.Demo.ShowcaseApp("controls");
+        var report = CupriDoctor.Check(app.Html, app.Css, app.Components, model: app.Model);
+        var noisy = report.Findings.Where(f => f.Code is "CF0031" or "CF0020").ToList();
+        foreach (var f in noisy) output.WriteLine(f.ToString());
+        Assert.Empty(noisy);
     }
 
     // ---- CF0080: characters no font can draw ---------------------------------------------------

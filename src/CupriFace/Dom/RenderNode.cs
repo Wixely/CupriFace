@@ -17,7 +17,10 @@ public sealed class RenderNode
     public RenderNode? Parent;
     public readonly List<RenderNode> Children = new();
 
-    // ---- Layout results (border-box, in parent content coordinates) ----
+    // ---- Layout results: the border box, positioned relative to the PARENT'S BORDER-BOX ORIGIN ----
+    // (the parent's padding and border are already included in X/Y — HitTesting.AbsoluteBox sums
+    // these with no inset, and that is the convention every consumer must follow; a comment here
+    // once said "content coordinates", and two diagnostics were written to it and were wrong)
     public float X, Y, Width, Height;
 
     // Resolved box metrics (px)
