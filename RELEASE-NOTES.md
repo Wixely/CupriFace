@@ -32,11 +32,12 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   event's own (stale) coordinates back as a size, because `UpdateLayeredWindow` sizes the window
   itself and the settled outer rect is read from the window instead.
 
-- **Transparent windows report `modal frames`, not `resize frames`.** The old counter could not move
-  on the window type it was built for: a transparent layered window is frameless by definition, so
-  it has no OS resize border, `SizeChanged` never fires, and the number read 0 however healthy the
-  path was. `ModalFrames` counts every frame rendered from inside the event watch — moves included —
-  which is the thing that was actually broken.
+- **Transparent windows report `modal frames` alongside `resize frames`.** `ResizeFrames` cannot move
+  on the window type it was built for: a transparent layered window is frameless by definition, so it
+  has no OS resize border and `SizeChanged` never fires. `ModalFrames` counts every frame rendered
+  from inside the event watch, moves included. Both read 0 during an ordinary `data-window-drag`, and
+  that is correct — see the scope note above. They are diagnostics for OS-initiated geometry changes,
+  not for user drags.
 
 ### Changed
 

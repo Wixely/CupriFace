@@ -541,12 +541,20 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     /// <summary>SDL delivers size events to an event watch synchronously, from INSIDE the OS's modal
     /// resize loop — which is the whole reason this exists, because <see cref="Run"/>'s loop gets no
     /// turn until the mouse is released.</summary>
-    /// <summary>Frames rendered from INSIDE an OS modal loop — a drag or a resize — as opposed to
-    /// from the frame tick, which gets no turn until the mouse is released. This is the number that
-    /// answers "is the window still painting while the user drags it", and it is separate from
-    /// <see cref="ResizeFrames"/> because a frameless window cannot be resized at all: on one of
-    /// those, ResizeFrames is 0 no matter how healthy the path is, which made it useless as the
-    /// instrument for exactly the window type that needs it.</summary>
+    /// <summary>
+    /// Frames rendered from inside the event watch rather than from the frame tick.
+    ///
+    /// <para><b>Read the zero carefully.</b> This counts events the watch actually receives, and SDL
+    /// does not deliver a MOVED event for a move SDL ITSELF initiated — measured, not assumed: 60
+    /// <see cref="MoveBy"/> calls produce 0 of these, while 60 moves driven from another process
+    /// produce 60. So a <c>data-window-drag</c>, which is the host calling MoveBy on the tick,
+    /// legitimately leaves this at 0, and so does any frameless window's (nonexistent) resize
+    /// border. A zero here means "the watch saw nothing", which is the normal state; it is only
+    /// evidence of a fault when something OUTSIDE the app moved or resized the window.</para>
+    ///
+    /// <para>Kept because that outside case is real — an OS-driven move, a display reconfiguration,
+    /// a monitor change — and it is the case the layered early return used to swallow entirely.</para>
+    /// </summary>
     public int ModalFrames { get; private set; }
 
     private int ResizeWatch(void* userData, Event* e)
