@@ -552,8 +552,12 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     /// border. A zero here means "the watch saw nothing", which is the normal state; it is only
     /// evidence of a fault when something OUTSIDE the app moved or resized the window.</para>
     ///
-    /// <para>Kept because that outside case is real — an OS-driven move, a display reconfiguration,
-    /// a monitor change — and it is the case the layered early return used to swallow entirely.</para>
+    /// <para>Kept because that outside case is real, and confirmed on a mixed-DPI machine: dragging
+    /// a transparent window across a scale boundary gave <c>resize 1</c> at 340x224 and then
+    /// <c>resize 2</c> at 510x336 as the surface followed the new scale. Windows resizes the window
+    /// itself on a DPI change, so <c>SizeChanged</c> DOES reach a frameless window — just never from
+    /// a user dragging an edge it does not have. That is the case the layered early return swallowed
+    /// entirely, and the original #137 symptom of a window that only resized once you let go.</para>
     /// </summary>
     public int ModalFrames { get; private set; }
 

@@ -32,12 +32,12 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   event's own (stale) coordinates back as a size, because `UpdateLayeredWindow` sizes the window
   itself and the settled outer rect is read from the window instead.
 
-- **Transparent windows report `modal frames` alongside `resize frames`.** `ResizeFrames` cannot move
-  on the window type it was built for: a transparent layered window is frameless by definition, so it
-  has no OS resize border and `SizeChanged` never fires. `ModalFrames` counts every frame rendered
-  from inside the event watch, moves included. Both read 0 during an ordinary `data-window-drag`, and
-  that is correct — see the scope note above. They are diagnostics for OS-initiated geometry changes,
-  not for user drags.
+- **Transparent windows report `modal frames` alongside `resize frames`.** Both count work done from
+  inside the SDL event watch — `ModalFrames` every frame, `ResizeFrames` the subset driven by a size
+  change. Read a zero carefully: a frameless window has no OS resize border and SDL raises no MOVED
+  event for a move it initiated itself, so an ordinary `data-window-drag` on a single monitor leaves
+  both at 0 no matter how healthy the path is. They climb for geometry changes the OS initiates —
+  which is what a cross-monitor DPI change is, and the case the early return used to swallow.
 
 ### Changed
 

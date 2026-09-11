@@ -115,11 +115,11 @@ public class LayeredAlphaTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Blocker 2. The resize watch is the ONLY thing that runs while a window is being dragged or
-    /// resized — the OS modal loop starves the frame tick until the mouse comes up. Returning early
-    /// from it for layered windows meant no frames at all during a drag, <c>ResizeFrames</c> stuck at
-    /// 0 (the repo's own instrument for "is this streaming?"), and <c>PollDeviceScale</c> — the whole
-    /// mechanism that makes a #137 DPI change land mid-drag — never running.
+    /// Blocker 2. The event watch is the only thing that runs when the OS changes a window's geometry
+    /// from under the app and holds the frame tick in a modal loop while it does. Returning early from
+    /// it for layered windows meant none of that work happened: no repaint at the new geometry, and no
+    /// <c>PollDeviceScale</c> — the mechanism that makes a #137 DPI change land while the window is
+    /// still moving rather than on release.
     /// </summary>
     [Fact]
     public void The_resize_watch_still_runs_for_a_layered_window()
@@ -130,11 +130,14 @@ public class LayeredAlphaTests(ITestOutputHelper output)
         Assert.Contains("RenderFrame", body, StringComparison.Ordinal);
         Assert.Contains("ResizeFrames++", body, StringComparison.Ordinal);
 
-        // Both branches must count, because the one that matters here is MOVE, not resize. A
-        // transparent layered window is frameless by definition — no OS title bar, no OS resize
-        // border — so SizeChanged never fires on it and ResizeFrames reads 0 however healthy the
-        // path is. That is not hypothetical: it is why the first instrument for this fix measured
-        // nothing on the very window type it was built for.
+        // Both branches must count. Which one fires depends on what moved the window, and neither
+        // fires for the gesture people reach for first: a frameless window has no OS resize border,
+        // and SDL raises no MOVED event for a move it initiated itself, so a data-window-drag on one
+        // monitor leaves both counters at 0 however healthy the path is. The case that does reach
+        // here is a geometry change the OS initiates — a cross-monitor DPI change resizes the window
+        // from under the app, and that was measured on a mixed-DPI machine: resize 1 at 340x224,
+        // then 2 at 510x336 as the surface followed the scale. That is the path the early return
+        // swallowed, and the original #137 symptom ("it doesn't resize until I let go").
         Assert.Equal(2, Regex.Matches(body, @"ModalFrames\+\+").Count);
 
         // What it MAY skip is feeding the event's own coordinates back as a size: UpdateLayeredWindow
