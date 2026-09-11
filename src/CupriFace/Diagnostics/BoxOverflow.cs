@@ -43,8 +43,20 @@ public static class BoxOverflow
         // small — which is exactly the case being looked for.
         if (!n.Style.Height.IsDefinite && !n.Style.MaxHeight.IsDefinite) return null;
 
-        var content = n.Height - n.VerticalInsets;
-        if (content <= 0) return null;
+        // Two facts, both measured rather than read off a comment (#145):
+        //
+        //   1. A child's X/Y are relative to the parent's BORDER-BOX origin — padding and border
+        //      already included. A 20px child in a box with border 2 and padding 10 sits at Y=12,
+        //      and HitTesting.AbsoluteBox sums X/Y with no inset for exactly that reason. (The old
+        //      RenderNode comment said "content coordinates"; it was wrong, and this rule believed it.)
+        //   2. The limit is the PADDING box, not the content box. CSS overflow clips at the padding
+        //      edge, and content may sit in the padding — a label centred in a fixed-height button
+        //      routinely does, and paints correctly inside the border.
+        //
+        // Getting either wrong reports every fixed-height button as overflowing by its padding —
+        // "a 13px label in a 30px button, overflowing by 10", the report this was fixed from.
+        var limit = n.Height - n.BorderBottomW;   // padding-box bottom, in the children's coordinates
+        if (limit <= 0) return null;
 
         var extent = 0f;
         foreach (var c in n.Children)
@@ -53,7 +65,7 @@ public static class BoxOverflow
             extent = Math.Max(extent, c.Y + c.Height + c.MarginBottom);
         }
 
-        var over = extent - content;
+        var over = extent - limit;
         return over > Tolerance ? over : null;
     }
 
@@ -79,9 +91,14 @@ public static class BoxOverflow
         && (n.Width <= 0.5f || n.Height <= 0.5f)
         && HasVisibleContent(n);
 
-    /// <summary>Is there anything in this subtree that would have painted, given room?</summary>
+    /// <summary>Is there anything IN-FLOW in this subtree that would have painted, given room?
+    /// Out-of-flow children do not count: a zero-height host whose content is entirely
+    /// position:fixed or absolute is the normal shape of an overlay anchor — a dialog's backdrop
+    /// and panel hang off a 0px element on purpose. Hidden subtrees do not count either.</summary>
     private static bool HasVisibleContent(RenderNode n)
     {
+        if (n.Style.Display == DisplayType.None) return false;
+        if (n.Style.Position is PositionType.Absolute or PositionType.Fixed) return false;
         if (n.IsText) return !string.IsNullOrWhiteSpace(n.Text);
         if (n.ImageSrc is { Length: > 0 } || n.IconPath is { Length: > 0 }
             || n.SurfaceKey is { Length: > 0 }) return true;

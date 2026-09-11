@@ -55,6 +55,34 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   arrived as the second of a pair, its Down was consumed as a pinch, and no tap reached a click
   while every drag zoomed. The engine now ignores a Move for a pointer it never saw go Down. This is
   in `CupriDocument`, so every host gets it.
+- **`CupriDoctor` no longer accuses working markup (#145).** Reproduced against the reporter's real
+  app and model — 19 findings, of which 13 were false — and now 6, all real. Four faults, each with
+  a test that fails without the fix:
+  - **`CF0031` on elements inside hidden pages.** With a real model most of an app is
+    `style="display:{{PageDisplay}}"`, and everything inside a hidden section is absent from the
+    render tree by design. That was read as "never drawn". Hidden — by inline style, stylesheet
+    class, `hidden`, or `aria-hidden="true"` — is now exempt, and only the root of a genuinely
+    missing subtree is reported, not every descendant.
+  - **The line number pointed at the wrong element.** Findings were attributed to the *first*
+    element sharing the tag, so a hidden page's paragraph was reported as the visible subtitle on
+    line 6. Findings now name the actual occurrence.
+  - **`CF0020`/`CF0031` on `<cupri-option>`.** An option is data its parent select consumes;
+    rendering nothing is its job. Anything inside a registered component's subtree is exempt.
+  - **`CF0070` on every fixed-height button.** The rule measured a border-relative extent against
+    the content box — two mistakes at once. Children are positioned relative to the parent's
+    border box (padding included), and CSS overflow clips at the *padding* edge, so a centred
+    label sitting in the padding is not overflow. Measured against the padding box in the right
+    coordinates, the reporter's buttons stop firing and the genuine overflows still do.
+- **`DumpTree` coordinates were too far in by the parent's padding.** The walk added the content
+  inset to child positions that already include it, so the coordinates it offered for
+  `DispatchClick` were wrong exactly where a small target made it matter. Now they match
+  `HitTesting.AbsoluteBox`, with a test that compares the two under a padded parent.
+- **`CF0071` on overlay hosts.** A zero-height element whose content is entirely `position:fixed`
+  or `absolute` is a dialog anchor, not a collapsed box. Out-of-flow and hidden content no longer
+  count as "visible content that has nowhere to go".
+- The `RenderNode` comment that said child coordinates are "in parent content coordinates" was
+  wrong, and two diagnostics were written to it. It now states the border-box convention that
+  `HitTesting.AbsoluteBox` has always used.
 
 ## v0.22.0
 

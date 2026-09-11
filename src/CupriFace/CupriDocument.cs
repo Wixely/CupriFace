@@ -5109,8 +5109,13 @@ public sealed partial class CupriDocument : IDisposable
                 sb.Append('\n');
             }
             if (maxDepth > 0 && depth >= maxDepth) return;
+            // No inset added on the way down: a child's X/Y already include the parent's padding
+            // and border (they are border-box-relative — see HitTesting.AbsoluteBox, which sums
+            // them the same way). The first version added the content inset as well and printed
+            // every child under a padded parent too far in by that inset, so the coordinates it
+            // offered for DispatchClick were wrong exactly where a small target made it matter.
             foreach (var c in n.Children)
-                Walk(c, depth + 1, x + n.ContentLeftInset, y + n.ContentTopInset);
+                Walk(c, depth + 1, x, y);
         }
 
         static string Describe(RenderNode n)
