@@ -46,6 +46,17 @@ if (!report.IsClean) Console.WriteLine(report);
 | `CF0031` | Anything else in your markup that produced no render output |
 | `CF0040` / `CF0041` | `<script>` and `onclick=` — there is no JavaScript engine |
 | `CF0050` / `CF0051` | A CSS property, or a function like `repeating-linear-gradient()`, that is silently ignored |
+| `CF0060` | A `{{path}}` that names nothing on the model — it renders as empty text, which is indistinguishable from data you have not loaded yet |
+| `CF0070` | Contents that do not fit a fixed-height box. They do not clip (`overflow: visible` is the CSS default) — they paint over whatever follows, which reads as a z-order bug rather than a height that is too small |
+| `CF0071` | A box that laid out with no area at all while holding visible content |
+| `CF0080` | Characters no installed font can draw, which paint as empty `.notdef` boxes. A property of the machine, not the document — hence a warning |
+
+**Pass the model if the document has one.** `CF0060` and the box checks need it and are skipped
+without it, and those catch the quietest failures of the lot:
+
+```csharp
+var report = CupriDoctor.Check(app.Html, app.Css, model: app.Model);
+```
 
 `report.IsClean` and `report.HasErrors` are the one-line answers, so this drops into a unit test:
 
@@ -133,6 +144,7 @@ doc.OnClick(".save", _ => Console.WriteLine($"Saved {model.Name}, vol={model.Vol
 | `.Render(canvas, w, h)` | Paint into an `SKCanvas` (a full, stateless repaint). |
 | `.RenderIncremental(canvas, w, h, bg)` | Damage‑tracked repaint for a host whose canvas **retains** its pixels between frames: diffs against the last presented frame, repaints only the changed rectangle, and returns it — or `null` when the frame is identical (skip presenting entirely). First call / size change = full. The desktop software window and the WASM host use this; pair it with the `Dispatch*` return values for render‑on‑demand. |
 | `.RenderToImage(w, h, clear?)` | Convenience CPU raster to an `SKImage` (headless/tests). |
+| `.DumpTree(maxDepth?, includeText?)` | The laid‑out tree as indented text — tag, class, **absolute** position and size, with overflowing and zero‑area boxes flagged inline. What an image cannot tell you: a blank rectangle has many causes, `312x0` has one. Greppable, diffable, assertable; the coordinates are the ones to pass to `DispatchClick`. Call it after a render. |
 | `.RenderToPixels(w, h, clear?, straightAlpha?)` | CPU raster to an RGBA8888 `byte[]` — the canonical "embed me in another surface" call (HTML canvas, a game texture). `clear` defaults to **transparent**; set `straightAlpha` for consumers wanting non‑premultiplied alpha (HTML `ImageData`, Unity `RGBA32`). |
 | `.DispatchClick/DispatchPointerMove/DispatchPointerUp/DispatchWheel/DispatchKey(...)` | Feed input. Each returns whether anything changed (drives render‑on‑demand). |
 | `.DispatchContextMenu(x, y)` | Right‑click: opens a Cut/Copy/Paste/Select‑all menu if `(x,y)` is over a text field. Items raise `ContextRequested`; the host performs the clipboard op. Wired for you by `DesktopHost` and the WASM host. |

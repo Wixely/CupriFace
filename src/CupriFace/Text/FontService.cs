@@ -295,8 +295,20 @@ public sealed class FontService : IDisposable
             catch { /* no font manager match → tofu in the primary */ }
         }
         _fallbackByCodepoint[cp] = fb;
+        // Nothing on this machine can draw this character, so it will paint as a .notdef box. That
+        // is the right thing to DO — a missing glyph must not take the app down — but it is the
+        // wrong thing to do silently, because tofu in a screenshot is easily read as a font-size or
+        // encoding problem. Announced on the same pattern as StyleResolver.UnsupportedProperty, and
+        // only once per codepoint: the cache above means this line is reached once and then never
+        // again for that character.
+        if (fb is null) GlyphMissing?.Invoke(cp);
         return fb ?? primary;
     }
+
+    /// <summary>Development-time hook: a codepoint no available face could draw. Set by
+    /// <c>CupriDoctor</c> around a trial render; null the rest of the time, so this costs a null
+    /// check on a path that already only runs once per unseen character.</summary>
+    internal static Action<int>? GlyphMissing;
 
     private bool HasGlyph(SKTypeface tf, int cp)
     {

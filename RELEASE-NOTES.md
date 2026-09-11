@@ -13,7 +13,38 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
-## v0.21.0
+## Unreleased
+
+### Added
+
+- **Four new `CupriDoctor` checks, for the failures that leave no trace.** Pass `model:` to unlock
+  them — without it the two most valuable are skipped rather than guessed.
+
+  - `CF0060` — a `{{path}}` that names nothing on the model. An unknown property resolves to null,
+    null formats as the empty string, and the element renders perfectly with nothing in it, so on
+    screen it is indistinguishable from data that has not loaded. Comes with "did you mean", and
+    understands `data-repeat` scopes so list templates are not accused.
+  - `CF0070` — contents that do not fit a fixed-height box. They do not clip (`overflow: visible` is
+    the CSS default): they paint over whatever follows, because the next sibling is positioned using
+    the declared height. **The screenshot misleads here** — the symptom is two unrelated elements
+    drawn on top of each other, which reads as a z-order bug rather than a height that is too small.
+  - `CF0071` — a box that laid out with no area while holding visible content.
+  - `CF0080` — characters no installed font can draw, which paint as empty `.notdef` boxes. A
+    warning, not an error: it is a property of the machine, not the document.
+
+- **`CupriDocument.DumpTree()`** — the laid-out tree as indented text, with absolute positions and
+  sizes and the two problem shapes flagged inline. An image shows you *that* something is wrong;
+  this shows you *what*. Greppable, diffable between runs, assertable in a test, and the coordinates
+  are the ones to hand to `DispatchClick`.
+
+- **`ImageDiff.Compare` / `ImageDiff.Visualise`** — how much changed between two renders, where, and
+  a picture with the changed pixels in magenta. Turns "did my change touch anything it should not
+  have" into a number. Tolerance defaults to 8 so antialiasing is not reported as change.
+
+- **`CLAUDE.md` and `AGENTS.md`** — the repo had neither, so nothing told an agent starting work that
+  any of the above existed. The headless check-render-look loop is now the first thing in both.
+
+
 
 ### Fixed
 
