@@ -62,6 +62,20 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
   pixels and paints at `monitor scale × your PresentInfo.Scale`, so text and vectors are rasterised
   crisply rather than bitmap-stretched, and a window keeps its logical size when dragged between
   monitors of different DPI. `samples/DpiProbe` shows the live numbers.
+- **Touch on the desktop** — the SDL window delivers real multi-touch (verified on a Steam Deck),
+  and with `CUPRIFACE_SDL_GL=1` it owns its own GL context, so a touchscreen machine gets GPU
+  rendering *and* touch in one window. Fingers are forgiven: a tap that lands beside a control
+  presses it (`DispatchTap`, within `TouchAdjustRadius`, fingers only — a mouse means what it
+  points at). The GLFW window has no touch API, and Wayland — unlike X11 — never emulates a
+  pointer from touch, which is why a touchscreen app can look fine in one session and be inert in
+  another; `samples/TouchProbe` prints exactly what a machine delivers.
+- **Development-time checks** — `CupriDoctor.Check(html, css, model: m)` names what will not work
+  before you look for it (unclosed tags, `<img>`, unknown `cupri-*`, bindings that resolve to
+  nothing, fixed-height boxes whose contents overflow, ignored CSS); `doc.DumpTree()` prints the
+  laid-out tree with clickable coordinates; `ImageDiff` says what changed between two renders. All
+  headless. The engine is forgiving at run time by design, so these are how a mistake stops looking
+  like an unfinished layout. [CLAUDE.md](CLAUDE.md) is the short version for anyone — or any agent
+  — starting work here.
 - **Screen readers** — those semantics reach assistive tech on **four platforms**: UIA
   (Windows), AT-SPI (Linux), NSAccessibility (macOS) and TalkBack (Android), each proven
   in CI by a real assistive-technology client, plus a real-DOM ARIA mirror on the web host.
@@ -90,7 +104,7 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 | Project | Role |
 |---|---|
 | `src/CupriFace` | The engine (DOM, CSS, layout, text, paint, binding, components) |
-| `src/CupriFace.Shell` | Silk.NET window + OpenGL + Skia surface + profiler HUD |
+| `src/CupriFace.Shell` | Desktop windows: GL (GLFW) by default, or SDL — software present, or its own GL context with `CUPRIFACE_SDL_GL=1` — with multi-touch, per-monitor DPI, layered alpha on Windows, and the profiler HUD |
 | `src/CupriFace.Android` | Android host: `CupriActivity` + GL surface + touch/IME + TalkBack bridge (needs `dotnet workload install android`) |
 | `src/CupriFace.Web.Mono` | Browser host on the Mono wasm runtime: `WebHost.Run` + canvas blit + touch/IME + ARIA mirror + browser-decoded video (no Blazor) |
 | `src/CupriFace.Web.NativeAot` | Browser host compiled AOT (NativeAOT-LLVM): same `WebHost.Run`, faster, experimental toolchain |
@@ -119,6 +133,8 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 | `samples/WebLlvm` | The Showcase in the browser compiled AOT (NativeAOT-LLVM) — same app, faster, experimental toolchain |
 | `samples/Scaling` | The four `PresentInfo` strategies side by side (headless PNGs) |
 | `samples/DpiProbe` | Live display-scaling readout: monitor scale, app scale, effective scale, and the callbacks behind them |
+| `samples/TouchProbe` | Raw SDL touch instrument: which touch devices exist, every finger and mouse event with raw and converted coordinates, and whether a tap reached an element — how #143 was diagnosed |
+| `samples/TransparentHud` | A frameless, transparent, always-on-top overlay; also the test bed for Windows per-pixel alpha (`--layered-gpu`) |
 
 ## Download
 
@@ -237,6 +253,14 @@ doc.Navigated += e => { if (!e.External) GoTo(e.Href); };   // in-app routing; h
 ```
 
 In-page `#fragments` never reach it — the engine scrolls those into view itself.
+
+Touch needs nothing extra from an app: every host turns a tap into `DispatchTap`, which behaves as a
+click plus touch adjustment — a finger landing within `doc.TouchAdjustRadius` (12 logical px) of a
+control presses it, snapped to the nearest point inside its box, never away from something already
+under the finger and never through an overlay. Set the radius to `0` for an app that draws its own
+precise targets. Two uncaptured fingers zoom the page (`PageZoomEnabled`), and elements carrying a
+`data-*` attribute registered with `d.OnPointer` receive raw multi-pointer events for their own
+gestures.
 
 **Wire all of it inside `Configure`**, including the `+=` events (`Navigated`, `FormSubmitted`,
 `ContextRequested`, `WindowCommandRequested`). `Configure` runs once per document, from
