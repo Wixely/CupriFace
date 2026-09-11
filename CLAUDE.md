@@ -47,7 +47,7 @@ error   CF0030 (line 6): <img> is not something the engine draws — it lays out
 | **`CF0060`** | **A `{{path}}` that names nothing on the model** — renders as empty text, looks like missing data |
 | **`CF0070`** | **Contents that do not fit a fixed-height box** — they overflow and paint over the next element |
 | **`CF0071`** | **A box that laid out with no area** but has visible content inside it |
-| **`CF0080`** | **Characters no installed font can draw** — they paint as empty .notdef boxes |
+| **`CF0080`** | **Characters no installed font can draw** — they paint as empty .notdef boxes. Under-reports on macOS (its LastResort face matches everything): trust a finding, not its absence |
 
 **Pass `model:` whenever the document has one.** `CF0060` and the box checks are skipped without
 it, and those are the two that catch the quietest bugs. A binding typo is invisible in every other

@@ -517,6 +517,12 @@ public static partial class CupriDoctor
     /// <para>Reported as a warning, not an error, and deliberately so: it is a property of the
     /// MACHINE, not the document. The same markup is fine on a box with the right fonts installed,
     /// which is itself the thing worth knowing before shipping a screenshot or a build.</para>
+    ///
+    /// <para><b>It under-reports on some platforms, and a clean result is not proof of no tofu.</b>
+    /// This fires only when the system font manager returns NOTHING for a character. macOS ships a
+    /// LastResort face that matches every codepoint and draws a placeholder box for it, so the user
+    /// sees tofu while <c>MatchCharacter</c> reports success and nothing is raised. Trust a CF0080
+    /// finding; do not trust its absence as coverage. Look at the render.</para>
     /// </summary>
     private static void MissingGlyphs(SortedSet<int> codepoints, List<Finding> findings)
     {

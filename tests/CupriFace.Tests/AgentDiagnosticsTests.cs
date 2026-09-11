@@ -140,17 +140,39 @@ public class AgentDiagnosticsTests(ITestOutputHelper output)
 
     // ---- CF0080: characters no font can draw ---------------------------------------------------
 
-    /// <summary>Private Use plane 15: no standard face covers it anywhere, so this is stable across
-    /// whatever fonts the machine running the tests happens to have.</summary>
+    /// <summary>
+    /// Private Use plane 15 — a codepoint no designed font covers.
+    ///
+    /// <para><b>The check cannot see this on every platform, and that is the point of the test.</b>
+    /// CF0080 fires when the system font manager returns NOTHING for a character. Some platforms
+    /// always return something: macOS ships a LastResort face that matches every codepoint and draws
+    /// a placeholder box for it, so the user still sees tofu while <c>MatchCharacter</c> reports
+    /// success and the check stays silent. That is a false negative worth knowing about rather than
+    /// papering over, so the test asserts the real behaviour on each platform and prints what the
+    /// font manager actually answered.</para>
+    /// </summary>
     [Fact]
-    public void A_character_no_font_covers_is_reported()
+    public void A_character_no_font_covers_is_reported_where_the_platform_admits_it()
     {
-        var html = "<body><div>" + char.ConvertFromUtf32(0xF0000) + "</div></body>";
-        var report = CupriDoctor.Check(html, Css);
+        const int cp = 0xF0000;
+        var matched = SKFontManager.Default.MatchCharacter("sans-serif", cp);
+        output.WriteLine($"U+{cp:X} matched by: {matched?.FamilyName ?? "(nothing)"}");
 
-        var f = Assert.Single(report.Findings, x => x.Code == "CF0080");
-        output.WriteLine(f.ToString());
-        Assert.Contains("U+F0000", f.Message);
+        var html = "<body><div>" + char.ConvertFromUtf32(cp) + "</div></body>";
+        var report = CupriDoctor.Check(html, Css);
+        var found = report.Findings.Where(x => x.Code == "CF0080").ToList();
+
+        if (matched is null)
+        {
+            var f = Assert.Single(found);
+            output.WriteLine(f.ToString());
+            Assert.Contains("U+F0000", f.Message);
+        }
+        else
+        {
+            // The platform claims a face for it. The check has nothing to report, by construction.
+            Assert.Empty(found);
+        }
     }
 
     [Fact]

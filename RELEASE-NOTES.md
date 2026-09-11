@@ -30,7 +30,8 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
     drawn on top of each other, which reads as a z-order bug rather than a height that is too small.
   - `CF0071` — a box that laid out with no area while holding visible content.
   - `CF0080` — characters no installed font can draw, which paint as empty `.notdef` boxes. A
-    warning, not an error: it is a property of the machine, not the document.
+    warning, not an error: it is a property of the machine, not the document. It under-reports on
+    macOS, whose LastResort face matches every codepoint — trust a finding, never its absence.
 
 - **`CupriDocument.DumpTree()`** — the laid-out tree as indented text, with absolute positions and
   sizes and the two problem shapes flagged inline. An image shows you *that* something is wrong;
