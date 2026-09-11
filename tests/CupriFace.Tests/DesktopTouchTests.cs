@@ -110,6 +110,79 @@ public class DesktopTouchTests(ITestOutputHelper output)
         Assert.False(doc.IsPointerCaptured(1));
     }
 
+    /// <summary>
+    /// Taps must not accumulate phantom fingers. This is the Steam Deck report — "any kind of drag,
+    /// even accidental, massively zooms in" — and it is a host-wiring bug, not a gesture bug.
+    ///
+    /// <para>An uncaptured pointer is the one the engine's page-zoom tracker follows, and the only
+    /// thing that retires a finger from that set is seeing its Up. Send an uncaptured lift to the
+    /// single-pointer path instead and the finger stays on the books for ever: two taps look like
+    /// two fingers, the next press opens a "pinch" against a baseline that means nothing, and the
+    /// page runs away. Reproduced at 1.04x with two synthetic taps; on a device, where the stale
+    /// positions are far apart, the span swings hard enough to look like a zoom to maximum.</para>
+    /// </summary>
+    [Fact]
+    public void Taps_that_nothing_captures_do_not_leave_a_phantom_finger_behind()
+    {
+        using var doc = CupriDocument.Load(Html, Css);
+        doc.Refresh();                       // no OnPointer handler: nothing captures anything
+        using (doc.RenderToImage(400, 200)) { }
+
+        Tap(1, 100, 100);
+        Tap(2, 300, 100);
+
+        Assert.False(doc.PageZoomActive);    // two SEQUENTIAL taps are not a pinch
+        Assert.Equal(1f, doc.Zoom);
+
+        // …and a drag afterwards is a drag, not a zoom.
+        Dispatch(3, PointerPhase.Down, 120, 120);
+        Dispatch(3, PointerPhase.Move, 260, 160);
+        output.WriteLine($"zoom after two taps and a drag: {doc.Zoom}");
+        Assert.Equal(1f, doc.Zoom);
+
+        // The mouse shares the path, and shared the bug: a click left pointer 0 on the books, so a
+        // single later finger was enough to make a phantom pair.
+        void Tap(int id, float x, float y)
+        {
+            Dispatch(id, PointerPhase.Down, x, y);
+            Dispatch(id, PointerPhase.Up, x, y);
+        }
+        void Dispatch(int id, PointerPhase phase, float x, float y)
+        {
+            if (doc.DispatchPointer(id, phase, x, y)) return;
+            _ = phase switch
+            {
+                PointerPhase.Down => doc.DispatchClick(x, y),
+                PointerPhase.Move => doc.DispatchPointerMove(x, y),
+                _ => doc.DispatchPointerUp(x, y),
+            };
+        }
+    }
+
+    /// <summary>Two fingers genuinely down together SHOULD zoom — the gesture is a real feature and
+    /// must survive the fix above, or "no phantom pinches" would have been bought by breaking the
+    /// thing phantom pinches were imitating.</summary>
+    [Fact]
+    public void Two_fingers_held_together_still_zoom_the_page()
+    {
+        using var doc = CupriDocument.Load(Html, Css);
+        doc.Refresh();
+        using (doc.RenderToImage(400, 200)) { }
+
+        doc.DispatchPointer(1, PointerPhase.Down, 150, 100);
+        doc.DispatchPointer(2, PointerPhase.Down, 250, 100);
+        Assert.True(doc.PageZoomActive);
+
+        doc.DispatchPointer(1, PointerPhase.Move, 50, 100);   // spread them apart
+        doc.DispatchPointer(2, PointerPhase.Move, 350, 100);
+        output.WriteLine($"zoom after a real pinch: {doc.Zoom}");
+        Assert.True(doc.Zoom > 1f);
+
+        doc.DispatchPointer(1, PointerPhase.Up, 50, 100);
+        doc.DispatchPointer(2, PointerPhase.Up, 350, 100);
+        Assert.False(doc.PageZoomActive);
+    }
+
     // ---- the host half, against the source -----------------------------------------------------
 
     /// <summary>
@@ -190,8 +263,18 @@ public class DesktopTouchTests(ITestOutputHelper output)
         Assert.DoesNotContain("TouchPointer", Shell("SkiaWindow.cs"));
 
         // …and the shared helpers must carry the id rather than the old hardcoded 0, or two fingers
-        // become one pointer and capture is handed back and forth between them.
-        Assert.Contains("doc.IsPointerCaptured(pointerId)", host, StringComparison.Ordinal);
-        Assert.DoesNotContain("doc.IsPointerCaptured(0)", host);
+        // become one pointer and capture is handed back and forth between them. Every phase is
+        // dispatched with that id — the capture check that used to gate Move and Up is gone, and
+        // deliberately: it was what skipped the engine's page-finger bookkeeping and produced the
+        // runaway zoom.
+        foreach (var phase in new[] { "Down", "Move", "Up" })
+            Assert.Contains($"doc.DispatchPointer(pointerId, PointerPhase.{phase}, x, y)", host,
+                StringComparison.Ordinal);
+
+        // The capture check must be GONE, not merely parameterised. Gating Move and Up on it is
+        // precisely what skipped the engine's page-finger bookkeeping and produced the runaway zoom
+        // on the Deck, and a version that still consults it passes every other assertion here —
+        // which it did, when this test was first written, while the bug was reinstated underneath.
+        Assert.DoesNotContain("IsPointerCaptured", host);
     }
 }

@@ -513,18 +513,26 @@ public static class DesktopHost
     // not the mouse and several can be down at once (#143). The mouse keeps 0 for ever; fingers get
     // 1 upwards from the window. Passing 0 for a finger would make two fingers one pointer, and
     // capture would then be handed back and forth between them.
+    // EVERY phase goes through DispatchPointer first — including a pointer nothing owns, and
+    // including the lift. That is not tidiness: an uncaptured pointer is exactly what the engine's
+    // page-zoom tracker follows, and the ONLY thing that retires a finger from that set is seeing
+    // its Up. Routing an uncaptured lift straight to the single-pointer path (which is what the
+    // capture check used to do) leaves the finger on the page's books for ever. Two taps then look
+    // like two fingers, the next press starts a "pinch" against a meaningless baseline, and the
+    // page zooms away under the user — measured on a Steam Deck as "any kind of drag, even
+    // accidental, massively zooms in". It bit the mouse too: a click left pointer 0 on the books,
+    // so one later finger was enough to make a phantom pair.
+    //
+    // When the engine declines, the ordinary click/hover/drag path still runs, so nothing that
+    // worked before changes.
     private static bool DesktopPointerDown(CupriDocument doc, float x, float y, int clickCount, int pointerId = 0) =>
         doc.DispatchPointer(pointerId, PointerPhase.Down, x, y) || doc.DispatchClick(x, y, clickCount);
 
     private static bool DesktopPointerMove(CupriDocument doc, float x, float y, int pointerId = 0) =>
-        doc.IsPointerCaptured(pointerId)
-            ? doc.DispatchPointer(pointerId, PointerPhase.Move, x, y)
-            : doc.DispatchPointerMove(x, y);
+        doc.DispatchPointer(pointerId, PointerPhase.Move, x, y) || doc.DispatchPointerMove(x, y);
 
     private static bool DesktopPointerUp(CupriDocument doc, float x, float y, int pointerId = 0) =>
-        doc.IsPointerCaptured(pointerId)
-            ? doc.DispatchPointer(pointerId, PointerPhase.Up, x, y)
-            : doc.DispatchPointerUp(x, y);
+        doc.DispatchPointer(pointerId, PointerPhase.Up, x, y) || doc.DispatchPointerUp(x, y);
 
     /// <summary>
     /// One finger from the SDL window (#143).
