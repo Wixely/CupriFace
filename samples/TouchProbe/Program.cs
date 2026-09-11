@@ -51,6 +51,30 @@ unsafe
     int w, h;
     sdl.GetWindowSize(window, &w, &h);
 
+    // Window size and RENDERER OUTPUT size are different questions, and assuming they agree is how
+    // a UI silently doubles. RenderCopy stretches the texture to the output size, so if the output
+    // is 2x the window — a scaled display, a compositor zoom, a HiDPI drawable — a texture built at
+    // window size is blown up to fill it and every pixel of the document arrives twice as large.
+    // The first version of this probe asked only for the window size and asserted in a comment that
+    // the two were "the same space". A pinch on a Steam Deck falsified that, which is the entire
+    // reason this pair is now printed and watched.
+    int ow, oh;
+    sdl.GetRendererOutputSize(renderer, &ow, &oh);
+    void ReportGeometry(string when)
+    {
+        int cw, ch, co, cob;
+        sdl.GetWindowSize(window, &cw, &ch);
+        sdl.GetRendererOutputSize(renderer, &co, &cob);
+        float ddpi = 0, hdpi = 0, vdpi = 0;
+        var dpiOk = sdl.GetDisplayDPI(sdl.GetWindowDisplayIndex(window), &ddpi, &hdpi, &vdpi) == 0;
+        var mismatch = cw != co || ch != cob;
+        Console.WriteLine($"[geom ] {when}: window {cw}x{ch}, renderer output {co}x{cob}"
+            + (dpiOk ? $", display dpi {ddpi:F0}" : "")
+            + (mismatch
+                ? $"   <<< MISMATCH x{(cw == 0 ? 0 : (float)co / cw):F2} — the document is being STRETCHED"
+                : "   (1:1)"));
+    }
+
     // THE FIRST ANSWER, before a finger is laid on the screen. SDL enumerates touch devices at init;
     // zero here means SDL cannot see the touchscreen at all, and no amount of event handling in
     // SdlSoftwareWindow would have helped. That alone decides between options 1 and 2 in the issue.
@@ -60,7 +84,7 @@ unsafe
         + (devices == 0 ? "   <<< SDL SEES NO TOUCHSCREEN — read the note at the end" : ""));
     for (var i = 0; i < devices; i++)
         Console.WriteLine($"[probe]   device {i}: id={sdl.GetTouchDevice(i)}");
-    Console.WriteLine($"[probe] window           : {w}x{h}");
+    ReportGeometry("at start");
     Console.WriteLine($"[probe] touch->mouse hint: {(mouseHint ? "requested ON" : "platform default")}");
     Console.WriteLine($"[probe] finger routing   : {(routeFingers ? "on" : "off (--raw)")}");
     Console.WriteLine("[probe] Tap the coloured boxes. Ctrl+C to finish.");
@@ -70,7 +94,7 @@ unsafe
     doc.Refresh();
 
     var texture = sdl.CreateTexture(renderer, Sdl.PixelformatAbgr8888,
-        (int)TextureAccess.Streaming, w, h);
+        (int)TextureAccess.Streaming, Math.Max(1, ow), Math.Max(1, oh));
 
     var running = true;
     var fingerEvents = 0;
@@ -96,10 +120,13 @@ unsafe
 
                 case EventType.Windowevent when (WindowEventID)e.Window.Event == WindowEventID.SizeChanged:
                     sdl.GetWindowSize(window, &w, &h);
+                    sdl.GetRendererOutputSize(renderer, &ow, &oh);
                     sdl.DestroyTexture(texture);
+                    // Built at the OUTPUT size, so the document is rasterised at the pixels it will
+                    // actually occupy rather than drawn small and stretched.
                     texture = sdl.CreateTexture(renderer, Sdl.PixelformatAbgr8888,
-                        (int)TextureAccess.Streaming, w, h);
-                    Console.WriteLine($"[size ] {w}x{h}");
+                        (int)TextureAccess.Streaming, Math.Max(1, ow), Math.Max(1, oh));
+                    ReportGeometry("after resize");
                     break;
 
                 case EventType.Fingerdown:
@@ -108,11 +135,13 @@ unsafe
                 {
                     fingerEvents++;
                     var t = e.Tfinger;
-                    // SDL finger coordinates are NORMALISED 0..1, not pixels — one of the two easy
-                    // ways to get this wrong. (The other is the device scale, which this probe does
-                    // not apply because it asks SDL for the window size in the same space.)
-                    var px = t.X * w;
-                    var py = t.Y * h;
+                    // SDL finger coordinates are NORMALISED 0..1, not pixels — the first easy way to
+                    // get this wrong. The second is which size to multiply BY: the document is
+                    // rasterised at the renderer's OUTPUT size, so that is the space a tap has to
+                    // land in. Using the window size instead is invisible until the two differ, and
+                    // then every tap lands short by exactly the scale factor.
+                    var px = t.X * ow;
+                    var py = t.Y * oh;
                     var phase = (EventType)e.Type switch
                     {
                         EventType.Fingerdown => PointerPhase.Down,
@@ -153,7 +182,9 @@ unsafe
                     if (synthetic) syntheticMouse++;
                     if ((EventType)e.Type != EventType.Mousemotion)
                     {
-                        var mx = e.Button.X; var my = e.Button.Y;
+                        var sx = w == 0 ? 1f : (float)ow / w;
+                        var sy = h == 0 ? 1f : (float)oh / h;
+                        var mx = e.Button.X * sx; var my = e.Button.Y * sy;
                         Console.WriteLine($"[mouse] {(EventType)e.Type} at ({mx},{my}) which={which}"
                             + (synthetic ? "  <<< SYNTHESISED FROM TOUCH" : "  (real pointing device)"));
                         // Routed as well as reported. If this machine delivers taps ONLY as
@@ -178,11 +209,11 @@ unsafe
             }
         }
 
-        var pixels = doc.RenderToPixels(w, h, new SkiaSharp.SKColor(0x10, 0x14, 0x18));
+        var pixels = doc.RenderToPixels(ow, oh, new SkiaSharp.SKColor(0x10, 0x14, 0x18));
         // A marker where the last press landed: the cheapest way to see a coordinate-space mistake,
         // which would otherwise look exactly like "the tap missed".
-        if (lastMark.X >= 0) Mark(pixels, w, h, (int)lastMark.X, (int)lastMark.Y);
-        fixed (byte* p = pixels) sdl.UpdateTexture(texture, null, p, w * 4);
+        if (lastMark.X >= 0) Mark(pixels, ow, oh, (int)lastMark.X, (int)lastMark.Y);
+        fixed (byte* p = pixels) sdl.UpdateTexture(texture, null, p, ow * 4);
         sdl.RenderClear(renderer);
         sdl.RenderCopy(renderer, texture, null, null);
         sdl.RenderPresent(renderer);

@@ -51,6 +51,25 @@ The summary at exit is the part to paste back:
 [probe] finger events 42, mouse events 8 (of which 8 synthesised from touch), element hits 6
 ```
 
+## If the UI suddenly doubles in size
+
+Nothing in CupriFace implements pinch-to-zoom, so the engine cannot have done it to itself. The
+probe now prints the two sizes that decide this, at start and after every resize:
+
+```
+[geom ] at start: window 1280x800, renderer output 1280x800, display dpi 96   (1:1)
+[geom ] after resize: window 1280x800, renderer output 2560x1600   <<< MISMATCH x2.00 — STRETCHED
+```
+
+- **A `MISMATCH` line** means the renderer's output grew while the window did not, so the document
+  is being blown up to fill it. That is a real scaling bug and the numbers name the factor.
+- **No `[geom ]` line at all** when the UI doubled means neither the window nor the output changed,
+  and the zoom came from the compositor — KDE's desktop zoom effect responds to pinch gestures on a
+  touchscreen, and gamescope has its own scaling. In that case the whole desktop zoomed, not our
+  window, and there is nothing here to fix.
+
+Worth knowing either way, because the two look identical on screen and only one is ours.
+
 ## What this is not
 
 It is not a fix, and it deliberately does **not** use `DesktopHost` — a probe routed through the

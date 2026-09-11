@@ -72,6 +72,20 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     public event Action<float, float>? PointerMove;
     public event Action<float, float>? PointerUp;
     public event Action<float, float, float, KeyMods>? PointerWheel; // x, y, deltaY (notches), mods — Ctrl+wheel is zoom
+
+    /// <summary>
+    /// A finger, in logical client units: pointer id, phase, x, y (#143).
+    ///
+    /// <para>Separate from <see cref="PointerDown"/> and friends because a finger is not a mouse:
+    /// there can be several at once, each needs its own pointer id, and an id must never collide
+    /// with the mouse's — which is fixed at 0. Ids here start at 1.</para>
+    ///
+    /// <para>Coordinates are NOT clamped to the window. A finger that leaves the window reports
+    /// normalised values outside 0..1 (measured on a Steam Deck during a pinch: <c>-0.098</c>), and
+    /// that is information, not corruption: a captured drag must keep tracking past the edge, the
+    /// same as a mouse dragged out of the window. Hit testing simply finds nothing out there.</para>
+    /// </summary>
+    public event Action<int, PointerPhase, float, float>? TouchPointer;
     public event Action<string>? TextEntered;               // printable text (IME-aware)
     public event Action<EditKey, KeyMods>? EditKeyPressed;  // key + Shift/Ctrl modifiers
     public event Action<char, KeyMods>? Shortcut;           // Ctrl/Cmd + letter (a/c/x/v …) or =/-/0 (zoom)
@@ -297,6 +311,53 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         return Win32Hwnd is { } hwnd ? HostScale.Sanitize(WindowsDpi.GetScaleForWindow(hwnd)) : _deviceScale;
     }
 
+    /// <summary>
+    /// <c>SDL_TOUCH_MOUSEID</c> — the <c>which</c> SDL puts on a mouse event it manufactured from a
+    /// touch. Spelled out here because it is a bare <c>#define</c> in SDL's headers and Silk.NET
+    /// binds no constant for it; the value was confirmed against a Steam Deck, which reports it as
+    /// 4294967295 on every synthesised event.
+    /// </summary>
+    private const uint TouchMouseId = 0xFFFFFFFFu;
+
+    /// <summary>SDL finger id → the pointer id the engine sees. Allocated on the way down and
+    /// released on the way up, so a long session does not climb for ever.</summary>
+    private readonly Dictionary<long, int> _fingerPointers = new();
+    private int _nextFingerPointer = 1;   // 0 belongs to the mouse, permanently
+
+    /// <summary>
+    /// One finger, converted into the same space the mouse arrives in and given a pointer id of
+    /// its own.
+    ///
+    /// <para>SDL reports fingers NORMALISED to 0..1 rather than in pixels, so they are multiplied
+    /// by the window size before <see cref="ToLogicalClient"/> divides out the device scale — the
+    /// same two-step the mouse path does implicitly, and the step whose omission puts every tap in
+    /// the wrong place on a scaled display.</para>
+    ///
+    /// <para>A finger id is a <c>long</c> and, on the Steam Deck, climbs for the life of the
+    /// session (354, 355, 356 …). It is mapped rather than cast: the engine's pointer ids are small
+    /// integers, and pointer 0 is the mouse's for ever.</para>
+    /// </summary>
+    private void DispatchFinger(EventType type, TouchFingerEvent f)
+    {
+        var phase = type switch
+        {
+            EventType.Fingerdown => PointerPhase.Down,
+            EventType.Fingerup => PointerPhase.Up,
+            _ => PointerPhase.Move,
+        };
+
+        if (phase == PointerPhase.Down && !_fingerPointers.ContainsKey(f.FingerId))
+            _fingerPointers[f.FingerId] = _nextFingerPointer++;
+        // A move or an up for a finger whose down was never seen (the window gained focus mid-touch)
+        // has no id to use, and inventing one would open a pointer nothing will ever close.
+        if (!_fingerPointers.TryGetValue(f.FingerId, out var pointerId)) return;
+
+        var (x, y) = ToLogicalClient(f.X * _width, f.Y * _height);
+        TouchPointer?.Invoke(pointerId, phase, x, y);
+
+        if (phase is PointerPhase.Up) _fingerPointers.Remove(f.FingerId);
+    }
+
     /// <summary>SDL's pointer coordinates → logical client units. SDL reports the cursor in window
     /// coordinates, and this window's surface is exactly its window size, so the ratio is simply
     /// 1/D — the conversion done once, here, for the same reason the GL window does it.</summary>
@@ -424,6 +485,16 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                         break;
                     // Each of these normalises to logical client units first, so the host downstream
                     // only ever divides out the application's own present scale (#137).
+                    // A tap arrives TWICE: SDL manufactures a mouse event from it as well as the
+                    // finger events below, and both were measured on a Steam Deck (131 of 166 mouse
+                    // events in one session were synthetic). Handling fingers without dropping these
+                    // would deliver every tap as two presses — two clicks, two drags fighting each
+                    // other. Dropped here rather than by setting SDL_TOUCH_MOUSE_EVENTS=0, because
+                    // filtering works whatever a platform's default for that hint happens to be.
+                    case EventType.Mousebuttondown when e.Button.Which == TouchMouseId:
+                    case EventType.Mousebuttonup when e.Button.Which == TouchMouseId:
+                    case EventType.Mousemotion when e.Motion.Which == TouchMouseId:
+                        break;
                     case EventType.Mousebuttondown:
                     {
                         var (x, y) = ToLogicalClient(e.Button.X, e.Button.Y);
@@ -435,6 +506,13 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                     {
                         var (x, y) = ToLogicalClient(e.Button.X, e.Button.Y);
                         PointerUp?.Invoke(x, y);
+                        break;
+                    }
+                    case EventType.Fingerdown:
+                    case EventType.Fingermotion:
+                    case EventType.Fingerup:
+                    {
+                        DispatchFinger((EventType)e.Type, e.Tfinger);
                         break;
                     }
                     case EventType.Mousemotion:

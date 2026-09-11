@@ -444,6 +444,12 @@ public static class DesktopHost
                 window.SetCursor(doc.CursorAt(logicalX, logicalY));
             };
             window.RightPointerDown += (x, y) => Mark(doc.DispatchContextMenu(x / scale, y / scale));
+            // Touch (#143). Only the SDL window can carry this: GLFW exposes no touch API at
+            // all, which is why a tap reaches nothing on a Wayland desktop today — X11 emulates a
+            // core pointer from touch and Wayland does not, so one build looks fine in a desktop
+            // session and is inert in Game Mode.
+            window.TouchPointer += (pointerId, phase, x, y) =>
+                Mark(DesktopFinger(doc, pointerId, phase, x / scale, y / scale));
             window.PointerMove += (x, y) =>
             {
                 var logicalX = x / scale;
@@ -502,18 +508,40 @@ public static class DesktopHost
 
     // Raw-pointer elements get first refusal so a desktop mouse can drive the same captured hold /
     // drag interactions as touch. Everything else keeps the ordinary click/hover/drag path.
-    private static bool DesktopPointerDown(CupriDocument doc, float x, float y, int clickCount) =>
-        doc.DispatchPointer(0, PointerPhase.Down, x, y) || doc.DispatchClick(x, y, clickCount);
+    //
+    // The pointer id is a PARAMETER rather than the constant 0 it used to be, because a finger is
+    // not the mouse and several can be down at once (#143). The mouse keeps 0 for ever; fingers get
+    // 1 upwards from the window. Passing 0 for a finger would make two fingers one pointer, and
+    // capture would then be handed back and forth between them.
+    private static bool DesktopPointerDown(CupriDocument doc, float x, float y, int clickCount, int pointerId = 0) =>
+        doc.DispatchPointer(pointerId, PointerPhase.Down, x, y) || doc.DispatchClick(x, y, clickCount);
 
-    private static bool DesktopPointerMove(CupriDocument doc, float x, float y) =>
-        doc.IsPointerCaptured(0)
-            ? doc.DispatchPointer(0, PointerPhase.Move, x, y)
+    private static bool DesktopPointerMove(CupriDocument doc, float x, float y, int pointerId = 0) =>
+        doc.IsPointerCaptured(pointerId)
+            ? doc.DispatchPointer(pointerId, PointerPhase.Move, x, y)
             : doc.DispatchPointerMove(x, y);
 
-    private static bool DesktopPointerUp(CupriDocument doc, float x, float y) =>
-        doc.IsPointerCaptured(0)
-            ? doc.DispatchPointer(0, PointerPhase.Up, x, y)
+    private static bool DesktopPointerUp(CupriDocument doc, float x, float y, int pointerId = 0) =>
+        doc.IsPointerCaptured(pointerId)
+            ? doc.DispatchPointer(pointerId, PointerPhase.Up, x, y)
             : doc.DispatchPointerUp(x, y);
+
+    /// <summary>
+    /// One finger from the SDL window (#143).
+    ///
+    /// <para>A tap goes through the same door a click does — raw pointer first, then the ordinary
+    /// click path — so a control that works with a mouse works with a finger and nothing needs a
+    /// touch-specific branch. What differs is the id, and that only the FIRST finger drives hover
+    /// and the cursor: a second finger is part of a gesture, not a second mouse, and moving the
+    /// cursor to it would fight the first.</para>
+    /// </summary>
+    private static bool DesktopFinger(CupriDocument doc, int pointerId, PointerPhase phase, float x, float y) =>
+        phase switch
+        {
+            PointerPhase.Down => DesktopPointerDown(doc, x, y, 1, pointerId),
+            PointerPhase.Move => DesktopPointerMove(doc, x, y, pointerId),
+            _ => DesktopPointerUp(doc, x, y, pointerId),
+        };
 
     // Launch ourselves with --cupriface-gl-probe and read the verdict off the exit code: 0 means the
     // child brought GL up end to end; anything else — a managed throw, a native SIGSEGV, a hang —
