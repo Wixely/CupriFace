@@ -44,7 +44,8 @@ sealed class HudApp(bool topMost) : CupriApp
               <div class="row"><span class="k">FPS</span><span class="v">60</span></div>
               <div class="row"><span class="k">Frame</span><span class="v">4.2 ms</span></div>
               <div class="row"><span class="k">Draws</span><span class="v">128</span></div>
-              <div class="hint">drag the bar · frameless · top-most</div>
+              <div class="row"><span class="k">Live</span><span class="pulse"></span></div>
+              <div class="hint">drag the bar — the dot must keep sweeping</div>
             </div>
           </div>
         </body>
@@ -66,5 +67,15 @@ sealed class HudApp(bool topMost) : CupriApp
         .k { color:#8b93a7; font-size:13px; }
         .v { color:#f5b301; font-size:13px; font-weight:bold; }
         .hint { color:#48505c; font-size:11px; margin-top:10px; }
+        /* The staleness tell. It is advanced by the render, not by a timer, so it freezes exactly
+           when the window stops producing frames — which is the one thing a HUD of fixed numbers
+           cannot show you. Watch it while dragging the bar. */
+        .pulse { width:52px; height:8px; border-radius:4px; background:#f5b30133;
+                 animation: sweep 1.1s linear infinite; }
+        @keyframes sweep {
+          0%   { background:#f5b30122; transform:translateX(0px); }
+          50%  { background:#f5b301ff; transform:translateX(16px); }
+          100% { background:#f5b30122; transform:translateX(0px); }
+        }
         """;
 }

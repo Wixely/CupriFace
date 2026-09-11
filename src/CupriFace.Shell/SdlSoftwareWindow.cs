@@ -541,6 +541,14 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     /// <summary>SDL delivers size events to an event watch synchronously, from INSIDE the OS's modal
     /// resize loop — which is the whole reason this exists, because <see cref="Run"/>'s loop gets no
     /// turn until the mouse is released.</summary>
+    /// <summary>Frames rendered from INSIDE an OS modal loop — a drag or a resize — as opposed to
+    /// from the frame tick, which gets no turn until the mouse is released. This is the number that
+    /// answers "is the window still painting while the user drags it", and it is separate from
+    /// <see cref="ResizeFrames"/> because a frameless window cannot be resized at all: on one of
+    /// those, ResizeFrames is 0 no matter how healthy the path is, which made it useless as the
+    /// instrument for exactly the window type that needs it.</summary>
+    public int ModalFrames { get; private set; }
+
     private int ResizeWatch(void* userData, Event* e)
     {
         // A monitor change is a MOVE before it is a resize, and this watch is the only thing that
@@ -550,6 +558,7 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         {
             PollDeviceScale();
             RenderFrame();
+            ModalFrames++;
         }
         if ((EventType)e->Type == EventType.Windowevent && (WindowEventID)e->Window.Event == WindowEventID.SizeChanged)
         {
@@ -563,6 +572,7 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
             if (_alphaPresenter is null) EnsureSurface(e->Window.Data1, e->Window.Data2);
             RenderFrame();
             ResizeFrames++;
+            ModalFrames++;
             if (SkiaWindow.ResizeDebug)
                 Console.Error.WriteLine($"[resize] frame {ResizeFrames} at {e->Window.Data1}x{e->Window.Data2}"
                     + (_alphaPresenter is not null ? $" (layered; presented {_width}x{_height})" : ""));
@@ -622,7 +632,8 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
             ? $", readback {g.AverageReadbackMs:0.00} ms x{g.Readbacks} at {_width}x{_height}"
             : "";
         Console.WriteLine($"[CupriFace] alpha after {_clock.Elapsed.TotalSeconds:0}s: "
-            + $"dropped {_alphaPresenter.DroppedFrames}, resize frames {ResizeFrames}{gpu}");
+            + $"dropped {_alphaPresenter.DroppedFrames}, modal frames {ModalFrames} "
+            + $"(resize {ResizeFrames}){gpu}");
     }
 
     private int _alphaReports;

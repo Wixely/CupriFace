@@ -32,6 +32,12 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   event's own (stale) coordinates back as a size, because `UpdateLayeredWindow` sizes the window
   itself and the settled outer rect is read from the window instead.
 
+- **Transparent windows report `modal frames`, not `resize frames`.** The old counter could not move
+  on the window type it was built for: a transparent layered window is frameless by definition, so
+  it has no OS resize border, `SizeChanged` never fires, and the number read 0 however healthy the
+  path was. `ModalFrames` counts every frame rendered from inside the event watch — moves included —
+  which is the thing that was actually broken.
+
 ### Changed
 
 - **`ThreadedRender` under layered GPU presentation now says it is ignored.** The two cannot both own
@@ -40,7 +46,14 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 - **The layered GPU readback is measured, not described.** Transparent windows print their dropped
   frames, resize-frame count and average readback cost a few seconds in, so the price this mode pays
-  for working alpha is a number rather than a caveat.
+  for working alpha is a number rather than a caveat. Measured at **0.3–0.5 ms** per frame at
+  510x336 (RTX 5090 and GTX 1060), i.e. well inside a 60 fps budget.
+
+- **The transparent HUD sample shows a live pulse instead of fixed numbers.** Its readout was
+  hardcoded strings, so a frozen window looked exactly like a working one — the animation is driven
+  by the render, so it stops dead when frames stop. `TransparentHud.csproj` also gained the
+  `IncludeAllContentForSelfExtract` that single-file publishing needs, which `DpiProbe.csproj`
+  already documented.
 
 ## v0.21.0
 

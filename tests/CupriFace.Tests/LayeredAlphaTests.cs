@@ -130,6 +130,13 @@ public class LayeredAlphaTests(ITestOutputHelper output)
         Assert.Contains("RenderFrame", body, StringComparison.Ordinal);
         Assert.Contains("ResizeFrames++", body, StringComparison.Ordinal);
 
+        // Both branches must count, because the one that matters here is MOVE, not resize. A
+        // transparent layered window is frameless by definition — no OS title bar, no OS resize
+        // border — so SizeChanged never fires on it and ResizeFrames reads 0 however healthy the
+        // path is. That is not hypothetical: it is why the first instrument for this fix measured
+        // nothing on the very window type it was built for.
+        Assert.Equal(2, Regex.Matches(body, @"ModalFrames\+\+").Count);
+
         // What it MAY skip is feeding the event's own coordinates back as a size: UpdateLayeredWindow
         // sizes the HWND itself, so those numbers are the stale ones. RenderFrame asks the presenter
         // for the settled outer rect instead. Skipping the surface call is fine; skipping the frame
