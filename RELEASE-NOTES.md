@@ -17,6 +17,310 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **A screen reader gets the web host's accessibility tree without anyone clicking first.** The ARIA
+  mirror was published only on a settled frame, and the frame after the last animated one was never
+  painted — so on a page that animates from load the mirror stayed empty until the first input.
+  Measured: zero nodes 20 s after boot, 45 nodes 109 ms after a click. It now publishes on the
+  settled frame and once a second while animating.
+
+- **The mirror carries what the tree carries.** Scrolled-away content is `aria-hidden` (the desktop
+  bridge already reported `IsOffscreen`), a field's text content is its value rather than its name,
+  and `data-automation-id` is emitted. The `tabindex` attributes are gone: the engine owns Tab and
+  stops the browser's default, so a tab stop in the mirror was unreachable — measured — and said
+  otherwise. **It is still read-only**: an AT can read a control but not operate it, and it has no
+  geometry. That is the next piece of work: #133.
+
+- **An empty field no longer reports its placeholder as its value — on every bridge.** The tree took
+  a field's value from its rendered text, and an empty field renders its placeholder in the same box;
+  UIA's `IValueProvider.Value` was wrong in the same way, so this was found on the web and fixed for
+  all five. The mirror-image fault is fixed too: a field's **name** was its typed text (a picker's,
+  the date it held), which told a screen reader nothing about what the control was for. A field is
+  now named by `aria-label`, else its placeholder, else nothing — **so label your fields**: a
+  `cupri-number` or a picker with neither is nameless, and the gates say so.
+
+- **The pagination arrows have names** ("Previous page", "Next page"), from the component. Two
+  nameless buttons on every page that used it, on every bridge.
+
+### Gates
+- **The web host has an accessibility gate** (`tests/WebTouchGate/A11yTests.cs`), the first of the
+  five bridges' gates to be missing. It asserts through Chromium's own accessibility tree — the tree a
+  screen reader reads — with no prior input: the mirror is populated on arrival, controls resolve by
+  role and name, every interactive node has a name, fields read values not placeholders, offscreen
+  content is hidden, and Tab stays with the engine.
+
+## v0.23.0
+
+### Added
+
+- **The SDL window can own a real GL context: `CUPRIFACE_SDL_GL=1`.** GPU rendering and touch in one
+  window, which neither existing path could offer — the GLFW window has the GPU but no touch API,
+  the SDL window had touch but rasterised on the CPU. This draws straight into the window's
+  framebuffer and swaps: no readback, no hidden window, no new dependency. GPU surface producers run
+  on it unchanged (the Showcase 3D page brought its shared-GPU lane up on the SDL context). Opt-in
+  for now; `CUPRIFACE_SOFTWARE=1` still wins a tie. Choosing it automatically on touchscreen machines
+  is a policy decision not yet made. Known gap: on a scaled Wayland desktop the drawable is larger
+  than the window and that ratio is not yet folded into D — the startup line says so when it happens.
+
+- **Touch adjustment: a finger that lands beside a control presses it.** `DispatchTap` is a click
+  from a finger; within `TouchAdjustRadius` (12 logical px by default, 0 to disable) it moves the
+  tap onto the nearest interactive element — to the nearest point inside its box, so a slider edge
+  stays an edge. A tap already on a control is never moved, a disabled control never attracts one,
+  and the snap is verified by a real hit test so nothing under an overlay can be reached through
+  it. Fingers only: the mouse keeps `DispatchClick` and means what it points at. Wired on the
+  desktop, Android and web hosts. Reported from a Steam Deck as touch being "a bit too accurate",
+  which is what a 1 px pointer feels like under a 9 mm fingertip.
+
+### Fixed
+
+- **Desktop builds deliver touch (#143).** The SDL window handles `SDL_FINGER*`: each finger gets a
+  pointer id of its own from 1 (the mouse keeps 0), coordinates are scaled from SDL's normalised
+  0..1 into the same space the mouse arrives in, and mouse events SDL manufactures from touch are
+  dropped — every tap arrived twice before. Measured on a Steam Deck. The GLFW window is untouched
+  because GLFW has no touch API; X11 emulates a mouse from touch and Wayland does not, which is why
+  the same build looked fine in a desktop session and was inert in Game Mode. Reaching the SDL
+  window on a machine with working GL needs `CUPRIFACE_SOFTWARE=1` or `CUPRIFACE_SDL_GL=1`.
+- **Taps no longer accumulate phantom fingers.** An uncaptured lift was routed past the engine, and
+  the page-zoom tracker only forgets a finger when it sees its Up — so two taps looked like two
+  fingers and the next drag became a pinch against a meaningless baseline ("any kind of drag
+  massively zooms in"). Every pointer phase now goes through `DispatchPointer`. It was never
+  touch-only: a mouse click left pointer 0 on the books the same way.
+- **A hovering mouse is not a finger.** The fix above exposed its mirror image on the Steam Deck:
+  routing every mouse Move through the pointer path registered the trackpad cursor — which never
+  lifts, because a hover has no Up — as a permanent finger on the page. The first real finger then
+  arrived as the second of a pair, its Down was consumed as a pinch, and no tap reached a click
+  while every drag zoomed. The engine now ignores a Move for a pointer it never saw go Down. This is
+  in `CupriDocument`, so every host gets it.
+- **`CupriDoctor` no longer accuses working markup (#145).** Reproduced against the reporter's real
+  app and model — 19 findings, of which 13 were false — and now 6, all real. Four faults, each with
+  a test that fails without the fix:
+  - **`CF0031` on elements inside hidden pages.** With a real model most of an app is
+    `style="display:{{PageDisplay}}"`, and everything inside a hidden section is absent from the
+    render tree by design. That was read as "never drawn". Hidden — by inline style, stylesheet
+    class, `hidden`, or `aria-hidden="true"` — is now exempt, and only the root of a genuinely
+    missing subtree is reported, not every descendant.
+  - **The line number pointed at the wrong element.** Findings were attributed to the *first*
+    element sharing the tag, so a hidden page's paragraph was reported as the visible subtitle on
+    line 6. Findings now name the actual occurrence.
+  - **`CF0020`/`CF0031` on `<cupri-option>`.** An option is data its parent select consumes;
+    rendering nothing is its job. Anything inside a registered component's subtree is exempt.
+  - **`CF0070` on every fixed-height button.** The rule measured a border-relative extent against
+    the content box — two mistakes at once. Children are positioned relative to the parent's
+    border box (padding included), and CSS overflow clips at the *padding* edge, so a centred
+    label sitting in the padding is not overflow. Measured against the padding box in the right
+    coordinates, the reporter's buttons stop firing and the genuine overflows still do.
+- **`DumpTree` coordinates were too far in by the parent's padding.** The walk added the content
+  inset to child positions that already include it, so the coordinates it offered for
+  `DispatchClick` were wrong exactly where a small target made it matter. Now they match
+  `HitTesting.AbsoluteBox`, with a test that compares the two under a padded parent.
+- **`CF0071` on overlay hosts.** A zero-height element whose content is entirely `position:fixed`
+  or `absolute` is a dialog anchor, not a collapsed box. Out-of-flow and hidden content no longer
+  count as "visible content that has nowhere to go".
+- The `RenderNode` comment that said child coordinates are "in parent content coordinates" was
+  wrong, and two diagnostics were written to it. It now states the border-box convention that
+  `HitTesting.AbsoluteBox` has always used.
+
+## v0.22.0
+
+### Added
+
+- **Four new `CupriDoctor` checks, for the failures that leave no trace.** Pass `model:` to unlock
+  them — without it the two most valuable are skipped rather than guessed.
+
+  - `CF0060` — a `{{path}}` that names nothing on the model. An unknown property resolves to null,
+    null formats as the empty string, and the element renders perfectly with nothing in it, so on
+    screen it is indistinguishable from data that has not loaded. Comes with "did you mean", and
+    understands `data-repeat` scopes so list templates are not accused.
+  - `CF0070` — contents that do not fit a fixed-height box. They do not clip (`overflow: visible` is
+    the CSS default): they paint over whatever follows, because the next sibling is positioned using
+    the declared height. **The screenshot misleads here** — the symptom is two unrelated elements
+    drawn on top of each other, which reads as a z-order bug rather than a height that is too small.
+  - `CF0071` — a box that laid out with no area while holding visible content.
+  - `CF0080` — characters no installed font can draw, which paint as empty `.notdef` boxes. A
+    warning, not an error: it is a property of the machine, not the document. It under-reports on
+    macOS, whose LastResort face matches every codepoint — trust a finding, never its absence.
+
+- **`CupriDocument.DumpTree()`** — the laid-out tree as indented text, with absolute positions and
+  sizes and the two problem shapes flagged inline. An image shows you *that* something is wrong;
+  this shows you *what*. Greppable, diffable between runs, assertable in a test, and the coordinates
+  are the ones to hand to `DispatchClick`.
+
+- **`ImageDiff.Compare` / `ImageDiff.Visualise`** — how much changed between two renders, where, and
+  a picture with the changed pixels in magenta. Turns "did my change touch anything it should not
+  have" into a number. Tolerance defaults to 8 so antialiasing is not reported as change.
+
+- **`CLAUDE.md` and `AGENTS.md`** — the repo had neither, so nothing told an agent starting work that
+  any of the above existed. The headless check-render-look loop is now the first thing in both.
+
+### Fixed
+
+- **A refused frame no longer kills a transparent Windows app.** `UpdateLayeredWindow` and
+  `GetWindowRect` fail transiently during ordinary desktop upheaval — a session lock, an RDP
+  transition, a monitor change — and per-pixel alpha presentation runs them on every frame, so an
+  exception there turned a compositor hiccup into a dead process. A refused frame is now dropped and
+  counted, the window keeps what it last showed, and the next frame retries. Construction still
+  throws: failing to make a window layered at startup is permanent, and the caller must not show a
+  window it cannot present to.
+
+- **Transparent windows repaint while you drag them.** The resize watch is the only thing that runs
+  during an OS modal drag loop — the frame tick is starved until the mouse comes up — and layered
+  windows were returning from it immediately. That meant no frames at all during a drag, and the
+  #137 DPI poll never ran mid-drag. It now streams frames again; what it skips is feeding the SDL
+  event's own (stale) coordinates back as a size, because `UpdateLayeredWindow` sizes the window
+  itself and the settled outer rect is read from the window instead.
+
+- **Transparent windows report `modal frames` alongside `resize frames`.** Both count work done from
+  inside the SDL event watch — `ModalFrames` every frame, `ResizeFrames` the subset driven by a size
+  change. Read a zero carefully: a frameless window has no OS resize border and SDL raises no MOVED
+  event for a move it initiated itself, so an ordinary `data-window-drag` on a single monitor leaves
+  both at 0 no matter how healthy the path is. They climb for geometry changes the OS initiates —
+  which is what a cross-monitor DPI change is, and the case the early return used to swallow.
+
+### Changed
+
+- **`ThreadedRender` under layered GPU presentation now says it is ignored.** The two cannot both own
+  the frame — one rasterises on a background thread into the CPU bitmap, the other draws on the GL
+  context and reads back on the UI thread. It was already ignored; now it is ignored out loud.
+
+- **The layered GPU readback is measured, not described.** Transparent windows print their dropped
+  frames, resize-frame count and average readback cost a few seconds in, so the price this mode pays
+  for working alpha is a number rather than a caveat. Measured at **0.3–0.5 ms** per frame at
+  510x336 (RTX 5090 and GTX 1060), i.e. well inside a 60 fps budget.
+
+- **The transparent HUD sample shows a live pulse instead of fixed numbers.** Its readout was
+  hardcoded strings, so a frozen window looked exactly like a working one — the animation is driven
+  by the render, so it stops dead when frames stop. `TransparentHud.csproj` also gained the
+  `IncludeAllContentForSelfExtract` that single-file publishing needs, which `DpiProbe.csproj`
+  already documented.
+
+## v0.21.0
+
+### Fixed
+
+- **The caret moves when you type a space at the end of a field.** It was measured against the
+  PAINTED text row, and line layout drops trailing whitespace (correct for prose — a line should not
+  end in a visible gap), so the caret stopped at the last non-space glyph and typing more spaces
+  moved nothing. It is now measured against the logical value. Affected `cupri-textfield`,
+  `cupri-textarea` and `cupri-search`.
+
+  **No text was ever lost**: the model held every space throughout. But text you cannot see plus a
+  caret that does not move is indistinguishable from text that was discarded, which is how it was
+  reported. Every text control now has tests for both halves — the value keeps the whitespace, and
+  the caret advances over it.
+- **The Showcase's Keyboard-page dropdown can be opened.** It was written
+  `<cupri-select value="{{Plan}}">` with no `open="{{Flag}}"`, and a control that opens a panel keeps
+  its open state in the MODEL — so it expanded, laid out, drew its trigger and was dead.
+
+  **Worth knowing if you use `<cupri-select>`, `<cupri-popover>`, `<cupri-drawer>` or the pickers:**
+  without an `open` binding they can never open, and the click is reported as HANDLED either way, so
+  nothing at any layer tells you. `CupriDoctor` now reports this as `CF0021`.
+- **`<cupri-markdown>` no longer hangs on an h4.** Any line starting with `#` that was not `# `,
+  `## ` or `### ` — an h4/h5/h6 heading, or a bare `#hashtag` — matched no heading branch, fell
+  through to the paragraph branch, and was rejected by that branch's own `!StartsWith("#")` guard.
+  Nothing was consumed, the index never advanced, and the renderer spun forever on one line. Markdown
+  is routinely text somebody else wrote, so that was a denial of service rather than a cosmetic
+  fault. The paragraph branch now always consumes the line that reached it, so forward progress is a
+  property of the branch rather than of a guard a future block type could contradict.
+- **An image renders as an image.** `![alt](src)` used to emit a literal `!` followed by a link,
+  because the link rule matched from index 1. Images are matched first, the link rule refuses a
+  leading `!`, and the result is a `<cupri-image>` — not a raw `<img>`, which the engine has no
+  primitive for and which therefore rendered as an empty box.
+
+### Added
+
+- **`<cupri-markdown>` covers more of the syntax**: headings to `######`, ordered lists (`1.` / `1)`),
+  blockquotes (`> `), thematic breaks (`---` / `***` / `___`) and `~~strikethrough~~`. Still a
+  subset, still no dependency, and still escaped before any inline rule runs — so raw HTML in the
+  source stays text and can never become markup.
+- **A Markdown page in the Showcase** (`samples/DemoApp`) with a live editor beside the rendered
+  output, plus panels for each shape that used to break.
+- **A copy button on `<cupri-markdown>` code blocks**, top right. It hands over the RAW source, not
+  the rendered block — the `<pre>` is a stack of divs with non-breaking spaces standing in for
+  indentation, so reading its text back would lose the line breaks and mangle the indentation.
+- **`CupriDocument.ClipboardWriteRequested`** — the document asking its host to put a given string on
+  the clipboard, raised by any control carrying `data-cupri-copy`. Separate from `ContextRequested`,
+  which copies the *selection*; this supplies text the user never selected. Wired in all three hosts
+  (desktop, browser, Android). **If you maintain a host, subscribe to it** alongside
+  `ContextCommand.Copy`, or copy buttons will silently do nothing.
+- **`CupriDoctor.Check(html, css)`** — a development-time check that names what will not work before
+  you go looking for it on screen: unbalanced tags (reported at the line they *opened* on), `<img>`
+  and other browser habits pointed at their `cupri-*` equivalents, unregistered `cupri-` tags with a
+  "did you mean", `<script>` and `onclick=`, and CSS properties or functions the engine silently
+  ignores. `report.IsClean` / `report.HasErrors` drop straight into a unit test. The checks read
+  from the engine — the render tree, the component registry, the style resolver — rather than from a
+  list that would drift, so adding a feature to the engine stops the checker complaining about it.
+
+## v0.20.0
+
+### Added
+
+- **Installable fonts.** A document can carry its own faces instead of depending on what the machine
+  has:
+  - `@font-face { font-family: X; src: url(…) format(…); font-weight: 300 700; font-style: italic }`
+    in any stylesheet (app CSS, component CSS, `<style>`). Sources are tried in order; a `url()` takes
+    the same forms an image `src` does (embedded resource, file path, `file:`/`https:` URL, `data:`
+    URI); `local()` is skipped. The declared family, weight (or range) and style are what the cascade
+    matches, overriding the file's own names.
+  - `doc.LoadFont(CupriSource)`, `doc.LoadFont(string src)`, `doc.LoadFonts(directory)` (`.ttf`
+    `.otf` `.ttc` `.woff`), and on an app `override IEnumerable<CupriSource> Fonts` — registered on
+    every document the app creates, before the model binds.
+  - **WOFF 1** is unwrapped in the engine. **WOFF 2** is recognised and refused by name (it needs a
+    Brotli + glyf-transform decoder the engine does not carry yet): convert to TTF/OTF/WOFF 1.
+  - Registered faces are keyed by **weight bucket** (100–900), so Light/Regular/Medium/Bold all
+    register and CSS's nearest-weight rule picks between them; an italic request with no italic face
+    takes the upright one rather than the platform's.
+- **`FontPolicy.RegisteredOnly`** (`doc.FontPolicy`, `CupriApp.FontPolicy`) — for output that must
+  not depend on the machine. A family with no registered face throws `FontNotRegisteredException`
+  naming it, an `@font-face` that cannot load is an error at first layout, and glyph fallback for
+  characters a face lacks searches the registered faces only, never the platform's. `doc.FontReport`
+  lists what every family resolved to (`Registered` / `Platform` / `Default`) and what failed to load;
+  `FontReport.IsDeterministic` is the one-line answer. What that buys, measured on CI: the same
+  text **lays out identically** on Windows, Linux and macOS (a layout hash is compared across the
+  three), and renders to identical pixels on every machine of one platform — but not across
+  platforms, because Skia's glyph rasteriser is a different one on each (FreeType, DirectWrite,
+  CoreText). A frame renderer gets the same picture wherever it runs on one OS; a pixel test
+  belongs to one OS.
+- **`doc.PendingLoads` / `doc.IsLoaded`** — remote image loads still in flight, so a headless
+  renderer can wait for a complete frame instead of one with placeholders in it.
+- **`animation-delay`, `animation-iteration-count`, `animation-fill-mode`**, and the `animation`
+  shorthand reads them (`animation: fade 1s ease 0.5s 2 both`). Timing is a pure function of the
+  document clock — `Animate(t)` at any t, in any order, gives that t's frame — and a finished
+  animation leaves `HasActiveAnimations`, so a host goes idle with it.
+
+### Changed
+
+- **Desktop windows are DPI-aware by default (#137).** On Windows the host now asks for
+  Per-Monitor-V2 before creating a window, and both desktop windows (GL and SDL) lay the document out
+  in LOGICAL pixels while painting at `monitor scale × your PresentInfo.Scale`. Above 100% display
+  scaling this replaces Windows' bitmap stretching with real rasterisation — text and vectors are
+  crisp, the window keeps its logical size when dragged between monitors of different DPI, and UIA
+  bounding rectangles land on the right physical pixels.
+
+  **What a caller must do:** normally nothing. Two cases need attention:
+  - **You assumed `app.Width`/`Height` were physical pixels.** They are logical now, so a window
+    opens *larger* in pixels on a scaled monitor (1024 logical = 1536 pixels at 150%) and the same
+    physical size as before on the desk.
+  - **Your app already declares DPI awareness** in its manifest or by calling
+    `SetProcessDpiAwarenessContext` itself. Yours wins — CupriFace's request is refused by Windows
+    and nothing changes. This is deliberate.
+
+  To opt out: `override bool DpiAware => false` on your `CupriApp`, or set `CUPRIFACE_DPI=0` in the
+  environment to disable it for a run without a rebuild. `override bool TrackMonitorDpi => false`
+  keeps awareness but stops the per-frame check that follows the window between monitors.
+- **`ThreadedRender` now honours `Present` and the device scale.** It never called `app.Present` at
+  all, so it silently ignored `PresentInfo.Hybrid`/`Zoom` as well as DPI, and published accessibility
+  geometry at a hard-coded scale of 1. It now computes exactly what the inline paths do.
+  `ThreadedPresenter.Submit` and `ThreadedRenderer.Commit` take an optional trailing `scale`
+  (default `1`, so existing calls compile and behave unchanged).
+- **`animation-iteration-count` defaults to `1`, as in CSS.** An animation without `infinite` looped
+  forever before; it now runs once and reverts (or holds its last frame with `forwards`). Add
+  `infinite` to a spinner that relied on the old behaviour — every shipped sample already has it.
+- `tools/Screenshots` registers the web hosts' Noto faces before capture, so `docs/screenshots`
+  shows the document's text rather than the generating machine's sans. The images are regenerated.
+
+## v0.19.1
+
+### Fixed
+
 - **A NativeAOT publish keeps its accessibility bridge and its GPU** (#126). The Windows UIA bridge
   went through the runtime's built-in COM interop, which the SDK switches off for trimmed apps and
   NativeAOT does not have at all — so an AOT build opened a window, drew a correct frame, and served
@@ -35,6 +339,32 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   message, not just its type. A bare type name was misread twice — once as a driverless machine when
   a test harness was forcing the software path, once as a session limit when the trimmer had removed
   Silk.NET's backends. That line is the only witness a silent fallback leaves.
+
+### Fixed in the dev loop (nothing shipped changes)
+
+- **The `Web (NativeAOT-LLVM)` launch configurations start a browser again.** They had gone back to
+  the Edge debug adapter, which fails here with "Unable to attach to browser" — and attaching buys
+  nothing on a host that is NativeAOT-compiled to wasm with a minified loader. They run the server
+  directly and let `serverReadyAction` open the system browser, as they did before the JavaScript
+  serve script was removed. The Lottie entry got the same treatment.
+
+- **A leftover server no longer fails the next launch.** `tools/Serve` announced itself BEFORE
+  binding, so a server that then died of `AddressInUseException` had already told the VS Code task
+  it was ready — and the task exited non-zero, so nothing launched. It now binds first, and an
+  occupied port is only fatal when the incumbent is serving a DIFFERENT directory (it says which).
+  A background task outliving its debug session is normal, so this was most launches.
+
+### Gates
+
+- **Trimming can no longer remove hardware GL unnoticed** (#125). Silk.NET's window backends are
+  found by reflection, so the trimmer drops them unless rooted, and the app then falls back to the
+  software window silently. CI now asserts the three GLFW backends survive into the trimmed assembly
+  set — no GPU needed, and it fails if the roots ever go.
+
+- **The Android soft-keyboard assertion retries delivery** (#127). It was one tap, a fixed sleep and
+  one read: the only assertion in that job with no tolerance for a dropped tap, and it cost v0.19.0's
+  tag build a run. It now retries the tap and polls for the IME, and waits for the view to finish
+  resizing after the keyboard hides before the next tap. The assertions themselves are unchanged.
 
 ## v0.19.0
 

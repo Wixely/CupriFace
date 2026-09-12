@@ -55,6 +55,27 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 - **Component model** — custom elements expand into themed, accessible primitives;
   ships `<cupri-slider>`, `<cupri-switch>`, `<cupri-progress>`, `<cupri-button>`,
   `<cupri-badge>` with `role`/`aria-*` baked in.
+- **Installable fonts** — `@font-face` with `url()` sources (embedded resource, file, `https:`,
+  `data:`), `doc.LoadFont`/`LoadFonts`, or `override Fonts` on the app. `FontPolicy.RegisteredOnly`
+  makes output that cannot depend on what the machine happens to have installed.
+- **Display scaling** — desktop windows are Per-Monitor-V2 aware: the document lays out in logical
+  pixels and paints at `monitor scale × your PresentInfo.Scale`, so text and vectors are rasterised
+  crisply rather than bitmap-stretched, and a window keeps its logical size when dragged between
+  monitors of different DPI. `samples/DpiProbe` shows the live numbers.
+- **Touch on the desktop** — the SDL window delivers real multi-touch (verified on a Steam Deck),
+  and with `CUPRIFACE_SDL_GL=1` it owns its own GL context, so a touchscreen machine gets GPU
+  rendering *and* touch in one window. Fingers are forgiven: a tap that lands beside a control
+  presses it (`DispatchTap`, within `TouchAdjustRadius`, fingers only — a mouse means what it
+  points at). The GLFW window has no touch API, and Wayland — unlike X11 — never emulates a
+  pointer from touch, which is why a touchscreen app can look fine in one session and be inert in
+  another; `samples/TouchProbe` prints exactly what a machine delivers.
+- **Development-time checks** — `CupriDoctor.Check(html, css, model: m)` names what will not work
+  before you look for it (unclosed tags, `<img>`, unknown `cupri-*`, bindings that resolve to
+  nothing, fixed-height boxes whose contents overflow, ignored CSS); `doc.DumpTree()` prints the
+  laid-out tree with clickable coordinates; `ImageDiff` says what changed between two renders. All
+  headless. The engine is forgiving at run time by design, so these are how a mistake stops looking
+  like an unfinished layout. [CLAUDE.md](CLAUDE.md) is the short version for anyone — or any agent
+  — starting work here.
 - **Screen readers** — those semantics reach assistive tech on **four platforms**: UIA
   (Windows), AT-SPI (Linux), NSAccessibility (macOS) and TalkBack (Android), each proven
   in CI by a real assistive-technology client, plus a real-DOM ARIA mirror on the web host.
@@ -83,12 +104,15 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 | Project | Role |
 |---|---|
 | `src/CupriFace` | The engine (DOM, CSS, layout, text, paint, binding, components) |
-| `src/CupriFace.Shell` | Silk.NET window + OpenGL + Skia surface + profiler HUD |
+| `src/CupriFace.Shell` | Desktop windows: GL (GLFW) by default, or SDL — software present, or its own GL context with `CUPRIFACE_SDL_GL=1` — with multi-touch, per-monitor DPI, layered alpha on Windows, and the profiler HUD |
 | `src/CupriFace.Android` | Android host: `CupriActivity` + GL surface + touch/IME + TalkBack bridge (needs `dotnet workload install android`) |
 | `src/CupriFace.Web.Mono` | Browser host on the Mono wasm runtime: `WebHost.Run` + canvas blit + touch/IME + ARIA mirror + browser-decoded video (no Blazor) |
 | `src/CupriFace.Web.NativeAot` | Browser host compiled AOT (NativeAOT-LLVM): same `WebHost.Run`, faster, experimental toolchain |
 | `src/CupriFace.Media` | Optional: WebM (VP9 + Opus) video for `<cupri-video>` on desktop |
+| `src/CupriFace.Gl` | Optional: an OpenGL viewport bound to an element — the `IGpuSurfaceSource` seam packaged, on all three hosts |
+| `src/CupriFace.Lottie` | Optional: Lottie (After Effects JSON) playback via `<cupri-lottie>`, through Skia's own Skottie — managed only |
 | `src/CupriFace.Binding.Gen` | Roslyn source generator for AOT-clean binding accessors |
+| `src/CupriFace.Resources.Gen` | Roslyn source generator turning `Assets/*.html\|.css` into typed members |
 | `samples/HelloBox` | M0 shell smoke (window / CPU-raster) |
 | `samples/HtmlView` | A real HTML/CSS document (flex, text, i18n) |
 | `samples/GridDemo` · `GridAdvanced` | CSS Grid: tracks/spans; `minmax()` + row spans |
@@ -106,6 +130,11 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 | `samples/WebWasm` | The Showcase in the browser: three lines of app over `CupriFace.Web.Mono` |
 | `samples/Web` | Web host (alt): a **minimal** Blazor `<SKCanvasView>` embedding example — clicks only, see below |
 | `samples/Demo3d` | The Showcase's **3D** page: a small glTF/PBR renderer behind `ISurfaceSource`, composited two different ways depending on the host |
+| `samples/WebLlvm` | The Showcase in the browser compiled AOT (NativeAOT-LLVM) — same app, faster, experimental toolchain |
+| `samples/Scaling` | The four `PresentInfo` strategies side by side (headless PNGs) |
+| `samples/DpiProbe` | Live display-scaling readout: monitor scale, app scale, effective scale, and the callbacks behind them |
+| `samples/TouchProbe` | Raw SDL touch instrument: which touch devices exist, every finger and mouse event with raw and converted coordinates, and whether a tap reached an element — how #143 was diagnosed |
+| `samples/TransparentHud` | A frameless, transparent, always-on-top overlay; also the test bed for Windows per-pixel alpha (`--layered-gpu`) |
 
 ## Download
 
@@ -132,7 +161,7 @@ The first launch unpacks the bundle and takes a few seconds; later launches are 
 
 On Linux without a GPU the app renders through Mesa's software rasteriser automatically. If you
 ever want to skip the OpenGL path entirely (or are on a build from before 2026-08, which crashed
-in that configuration), `CUPRIFACE_SOFTWARE=1 ./Viewer` forces the SDL software window.
+in that configuration), `CUPRIFACE_SOFTWARE=1 ./Viewer` forces the SDL software window. `CUPRIFACE_SDL_GL=1 ./Viewer` takes the SDL window with a real GL context instead — GPU rendering and touch in one window, for touchscreen Linux machines such as the Steam Deck, where the GLFW window has no touch API. `CUPRIFACE_SOFTWARE=1` wins if both are set.
 
 To **build against** CupriFace rather than just run the demo, the same release carries NuGet
 packages (`.nupkg` + `.snupkg` symbols): `CupriFace` is the engine, `CupriFace.Shell` the desktop
@@ -225,6 +254,14 @@ doc.Navigated += e => { if (!e.External) GoTo(e.Href); };   // in-app routing; h
 
 In-page `#fragments` never reach it — the engine scrolls those into view itself.
 
+Touch needs nothing extra from an app: every host turns a tap into `DispatchTap`, which behaves as a
+click plus touch adjustment — a finger landing within `doc.TouchAdjustRadius` (12 logical px) of a
+control presses it, snapped to the nearest point inside its box, never away from something already
+under the finger and never through an overlay. Set the radius to `0` for an app that draws its own
+precise targets. Two uncaptured fingers zoom the page (`PageZoomEnabled`), and elements carrying a
+`data-*` attribute registered with `d.OnPointer` receive raw multi-pointer events for their own
+gestures.
+
 **Wire all of it inside `Configure`**, including the `+=` events (`Navigated`, `FormSubmitted`,
 `ContextRequested`, `WindowCommandRequested`). `Configure` runs once per document, from
 `CreateDocument`. Handlers survive a rebuild, so a long-lived document keeps them — but an app that
@@ -237,7 +274,7 @@ the feature working and then quietly stopping, which is the hardest kind to trac
 | | Where the engine runs | Download | Needs a WASM build? |
 |---|---|---|---|
 | `samples/WebWasm` | In the browser (.NET WASM → `<canvas>`), Mono-interpreted | the whole engine | yes |
-| `samples/WebLlvm` | In the browser, NativeAOT-LLVM — same engine, ~7x faster than interpreted | 14.2 MB (5.5 MB gzipped) | yes |
+| `samples/WebLlvm` | In the browser, NativeAOT-LLVM — same engine, ~7x faster than interpreted | 16.9 MB (6.9 MB gzipped, measured 2026-09) | yes |
 
 Both compile the *same* `ShowcaseApp`; only the compiler differs. `WebLlvm` is where this is
 heading — it removes the interpreter tax (a hover restyle measured at 2.1 ms against 16.2 ms) — and
@@ -246,5 +283,5 @@ heading — it removes the interpreter tax (a hover restyle measured at 2.1 ms a
 ## License note
 
 All third-party dependencies are permissive (MIT / Apache-2.0): SkiaSharp,
-HarfBuzzSharp, Silk.NET, AngleSharp. The flexbox engine is our own managed code (no
+HarfBuzzSharp, Silk.NET, AngleSharp, Tmds.DBus.Protocol (the Linux AT-SPI bridge). The flexbox engine is our own managed code (no
 native Yoga), keeping the stack fully managed and AOT-friendly.

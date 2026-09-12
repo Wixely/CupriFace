@@ -387,6 +387,9 @@ public sealed class StyleResolver
                 case "animation": ParseAnimation(s, v); break;
                 case "animation-name": s.AnimationName = v; break;
                 case "animation-duration": s.AnimationDuration = ParseSeconds(v); break;
+                case "animation-delay": s.AnimationDelay = ParseSeconds(v); break;
+                case "animation-iteration-count": s.AnimationIterations = ParseIterations(v); break;
+                case "animation-fill-mode": ParseFillMode(s, v); break;
                 case "transition": ParseTransition(s, v); break;
                 case "filter": ParseFilter(s, v); break;
                 case "backdrop-filter" or "-webkit-backdrop-filter": s.BackdropFilter = ParseFilterOps(v); break;
@@ -423,6 +426,13 @@ public sealed class StyleResolver
                 // Shorthand and longhand both land here: we only support the *line* part, so any
                 // colour/style words in the shorthand are ignored rather than mis-parsed.
                 case "text-decoration" or "text-decoration-line": s.Decorations = ParseDecorations(v); break;
+                // Everything else is silently ignored, which is the right runtime behaviour — a
+                // stylesheet written for a browser must not throw here. But "silently" is exactly
+                // what makes a typo'd or unsupported property hard to find, so when a checker is
+                // listening it hears about each one. Reporting from the REAL switch is the point: a
+                // list of supported properties kept anywhere else would drift from this one and
+                // start accusing working CSS of being broken.
+                default: UnsupportedProperty?.Invoke(prop, v); break;
             }
         }
         return sawViewportUnit;
@@ -521,6 +531,17 @@ public sealed class StyleResolver
     /// turns it into <c>auto</c> — never a definite zero. That mattered: <c>height:100vh</c> was
     /// parsed as a definite <c>0px</c>, which under <c>overflow:hidden</c> clipped an entire
     /// populated subtree away and rendered a black screen (#71).</summary>
+    /// <summary>
+    /// Diagnostics hook: raised for every declaration this resolver does not understand, with the
+    /// property name and its value. Null in normal operation, so it costs one null check per unknown
+    /// declaration and nothing at all for supported ones.
+    ///
+    /// <para>Set by <c>CupriDoctor</c> while it checks a document, and cleared afterwards. Not
+    /// thread-safe and not meant to be — it exists for a development-time check, not a running
+    /// app.</para>
+    /// </summary>
+    internal static Action<string, string>? UnsupportedProperty;
+
     private static string SubstituteViewportUnits(string value, float vw, float vh, out bool used)
     {
         used = false;
@@ -768,19 +789,50 @@ public sealed class StyleResolver
 
     private static void ParseAnimation(ComputedStyle s, string v)
     {
-        // animation: <name> <duration> [timing] [delay] [iteration] ...
+        // animation: <name> <duration> [timing] [delay] [iteration-count] [direction] [fill-mode].
+        // A shorthand resets every longhand (CSS semantics). The first time token is the duration
+        // and the second the delay; a bare number is the iteration count; the name is whatever
+        // token is none of those and not a keyword.
+        s.AnimationName = null; s.AnimationDuration = 0f; s.AnimationDelay = 0f; s.AnimationIterations = 1f;
+        s.AnimationFillForwards = s.AnimationFillBackwards = false;
+        var times = 0;
         foreach (var tok in v.Split(' ', StringSplitOptions.RemoveEmptyEntries))
         {
-            if (tok.EndsWith("s", StringComparison.OrdinalIgnoreCase) && char.IsDigit(tok[0]))
+            var low = tok.ToLowerInvariant();
+            if (char.IsDigit(low[0]) || (low.Length > 1 && low[0] is '-' or '.' or '+' && (char.IsDigit(low[1]) || low[1] == '.')))
             {
-                if (s.AnimationDuration == 0) s.AnimationDuration = ParseSeconds(tok);
+                if (low.EndsWith('s')) { if (times++ == 0) s.AnimationDuration = ParseSeconds(low); else s.AnimationDelay = ParseSeconds(low); }
+                else if (CssNumber.TryParse(low, out var n)) s.AnimationIterations = Math.Max(0f, n);
+                continue;
             }
-            else if (s.AnimationName is null && tok is not ("linear" or "ease" or "ease-in" or "ease-out"
-                     or "ease-in-out" or "infinite" or "alternate" or "normal" or "both" or "forwards"))
+            switch (low)
             {
-                s.AnimationName = tok;
+                case "infinite": s.AnimationIterations = float.PositiveInfinity; break;
+                case "forwards": s.AnimationFillForwards = true; break;
+                case "backwards": s.AnimationFillBackwards = true; break;
+                case "both": s.AnimationFillForwards = s.AnimationFillBackwards = true; break;
+                case "none" or "linear" or "ease" or "ease-in" or "ease-out" or "ease-in-out" or "step-start" or "step-end"
+                     or "normal" or "reverse" or "alternate" or "alternate-reverse" or "running" or "paused": break;
+                default:
+                    if (low.StartsWith("cubic-bezier") || low.StartsWith("steps")) break;
+                    s.AnimationName ??= tok;
+                    break;
             }
         }
+    }
+
+    private static float ParseIterations(string v)
+    {
+        v = v.Trim().ToLowerInvariant();
+        if (v == "infinite") return float.PositiveInfinity;
+        return CssNumber.TryParse(v, out var n) ? Math.Max(0f, n) : 1f;
+    }
+
+    private static void ParseFillMode(ComputedStyle s, string v)
+    {
+        v = v.Trim().ToLowerInvariant();
+        s.AnimationFillForwards = v is "forwards" or "both";
+        s.AnimationFillBackwards = v is "backwards" or "both";
     }
 
     private static float ParseSeconds(string v)

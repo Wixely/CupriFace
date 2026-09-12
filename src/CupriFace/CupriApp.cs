@@ -1,5 +1,6 @@
 using CupriFace.Components;
 using CupriFace.Resources;
+using CupriFace.Text;
 using SkiaSharp;
 
 namespace CupriFace;
@@ -180,6 +181,39 @@ public abstract class CupriApp
     /// Wired for the CPU/SDL software path; the GL path renders inline. Default off.</summary>
     public virtual bool ThreadedRender => false;
 
+    /// <summary>
+    /// Run the desktop window DPI-aware, so the OS reports the monitor's scale instead of
+    /// bitmap-stretching the process. <b>Default on</b> (#137).
+    ///
+    /// <para>On Windows this asks for Per-Monitor-V2 before the window is created. It is a REQUEST:
+    /// an executable whose manifest already declares an awareness keeps that choice, and so does an
+    /// app that set one itself before calling <c>DesktopHost.Run</c> — a library must not overrule
+    /// an application that has decided this for itself.</para>
+    ///
+    /// <para>Turning it off restores the pre-#137 behaviour: the document is laid out in physical
+    /// pixels and Windows scales the result, which is softer above 100% but is what apps written
+    /// against the old host assumed. The <c>CUPRIFACE_DPI=0</c> environment variable does the same
+    /// thing without a rebuild.</para>
+    ///
+    /// <para>Other hosts ignore this: the browser and Android are told their scale by the platform
+    /// and have no awareness mode to declare.</para>
+    /// </summary>
+    public virtual bool DpiAware => true;
+
+    /// <summary>
+    /// Keep following the monitor's scale after startup, so dragging the window between displays of
+    /// different DPI re-lays-out at the new one. <b>Default on</b>, checked once per frame tick.
+    ///
+    /// <para>Only meaningful when <see cref="DpiAware"/> is on — with awareness off the scale is
+    /// pinned at 1 and there is nothing to follow. Leaving awareness ON and this OFF is the one
+    /// combination worth avoiding: the framebuffer would resize on a monitor change while the scale
+    /// used to lay out stayed stale, so the UI would be wrong until the next resize.</para>
+    ///
+    /// <para>Off is for an app that is content to be correct for the monitor it started on and would
+    /// rather not pay a per-frame DPI query — a single-monitor kiosk, say.</para>
+    /// </summary>
+    public virtual bool TrackMonitorDpi => true;
+
     /// <summary>Component library available to the markup (defaults to the built-ins).</summary>
     public virtual ComponentRegistry Components => ComponentRegistry.Default();
 
@@ -219,10 +253,22 @@ public abstract class CupriApp
     /// <summary>Dev aid: outline every element box in the window (see <see cref="CupriDocument.DebugOverlay"/>).</summary>
     public virtual bool DebugOverlay => false;
 
+    /// <summary>Fonts registered on every document this app creates, before the model binds —
+    /// embedded resources, files or URLs, each read once. The files' own family/weight/style are
+    /// used; for declared metadata use an <c>@font-face</c> rule in <see cref="Css"/> instead.</summary>
+    public virtual IEnumerable<CupriSource> Fonts => [];
+
+    /// <summary>See <see cref="Text.FontPolicy"/>. <see cref="Text.FontPolicy.RegisteredOnly"/> makes
+    /// a family with no registered face an error and keeps platform fonts out of glyph fallback —
+    /// the setting for output that must not depend on the machine.</summary>
+    public virtual FontPolicy FontPolicy => FontPolicy.Platform;
+
     /// <summary>Build a ready-to-render document — identical on every host.</summary>
     public CupriDocument CreateDocument()
     {
         var doc = CupriDocument.Load(Html, Css).UseComponents(Components).UseImages(GetType().Assembly);
+        doc.FontPolicy = FontPolicy;
+        foreach (var font in Fonts) doc.LoadFont(font);
         if (Model is { } model) doc.Bind(model);
         doc.DebugOverlay = DebugOverlay;
         Configure(doc);

@@ -34,7 +34,7 @@ mobile-first version of this argument, see [maui.md](maui.md).*
 | Embedding | Core capability: `RenderToPixels` / `Render(canvas)` into any RGBA surface — game texture, HTML canvas, server-side PNG | Possible but not the primary shape; the framework expects to own the window |
 | Control set | 74 `<cupri-*>` elements (inputs, pickers, tables, charts, overlays, kanban, command palette, …) with `role`/`aria-*` baked in | Deep, mature control library + third-party vendors (DataGrid, virtualization for huge lists, docking, …) |
 | Tooling | Files are plain HTML/CSS — any editor; no designer | IDE previewer, XAML hot reload, commercial dev tools |
-| Accessibility | Roles/ARIA in every component; **four bridges — UIA, AT-SPI, NSAccessibility, TalkBack** — each gated in CI by a real AT client; real DOM tree on web. *(a NativeAOT build lost this bridge until it moved to source-generated COM — see [mewui.md](mewui.md#the-aot-caveat-found-while-measuring))* | OS bridges on all three desktops; UIA and NSAccessibility are long-proven, **Linux AT-SPI2 arrived in 12.0**, so on Linux the two projects are closer in age than the rest of this row suggests; mobile a11y inherited from native controls |
+| Accessibility | Roles/ARIA in every component; **four bridges — UIA, AT-SPI, NSAccessibility, TalkBack** — each gated in CI by a real AT client; a read-only ARIA mirror on web, gated by role queries. *(a NativeAOT build lost this bridge until it moved to source-generated COM — see [mewui.md](mewui.md#the-aot-caveat-found-while-measuring))* | OS bridges on all three desktops; UIA and NSAccessibility are long-proven, **Linux AT-SPI2 arrived in 12.0**, so on Linux the two projects are closer in age than the rest of this row suggests; mobile a11y inherited from native controls |
 | Testing | **Headless-first**: the engine renders and takes input with no window; the repo's **818 tests** click, type, fling and pixel-assert real documents | Headless test platform exists; most testing is app-level/UI automation |
 | Dependencies | SkiaSharp, HarfBuzzSharp, Silk.NET, AngleSharp — all MIT, checked as a hard project rule | MIT framework; larger dependency and binary surface |
 | Maturity | Young, moving fast; a documented CSS *subset* | Years of production use, commercial backing (incl. paid WPF-compat line) |
@@ -148,9 +148,11 @@ An honest list, because it's a long one and it decides real projects:
   the platform-integration surface a real app needs. CupriFace's Android host
   is weeks old, renders the UI and handles touch/IME/TalkBack — and offers no
   platform APIs at all (no sensors, permissions, pickers or notifications).
-- **Desktop-OS integration.** Multi-window, native menus, tray icons, system
-  dialogs, drag-and-drop with the OS, per-monitor DPI — Avalonia has the
-  mature story. CupriFace today is one window per app with a young shell.
+- **Desktop-OS integration.** Multi-window, native menus, system dialogs and
+  drag-and-drop with the OS — Avalonia has the mature story. CupriFace today is
+  one window per app with a young shell; it does now have a tray icon and
+  Per-Monitor-V2 DPI with monitor-transition handling on both its windows, but
+  that is a young implementation against Avalonia's soaked one.
 - **Accessibility maturity.** Both now cover the three desktops; CupriFace adds
   TalkBack on Android, and each of its four bridges is gated in CI by a real AT
   client (FlaUI, pyatspi, pyobjc, uiautomator). Avalonia's have years of soak

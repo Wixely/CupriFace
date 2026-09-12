@@ -19,6 +19,10 @@ public sealed class ImageStore : IDisposable
     private readonly object _lock = new();
     private readonly Dictionary<string, SKImage?> _cache = new(StringComparer.Ordinal);
     private readonly HashSet<string> _pending = new(StringComparer.Ordinal); // remote loads in flight
+
+    /// <summary>Remote loads still in flight. A frame rendered while this is non-zero is a frame
+    /// with a placeholder in it — a renderer producing output rather than a UI waits for zero.</summary>
+    public int PendingCount { get { lock (_lock) return _pending.Count; } }
     private Assembly? _assembly;
     private volatile bool _arrived;
     private bool _disposed;

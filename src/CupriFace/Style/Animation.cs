@@ -5,6 +5,13 @@ namespace CupriFace.Style;
 
 public sealed record Keyframe(float Offset, Dictionary<string, string> Declarations);
 
+/// <summary>The animatable values of a style before any keyframe touched them. An animation that is
+/// not applying a frame — waiting out its delay without a backwards fill, or finished without a
+/// forwards fill — puts these back, so seeking to any time gives that time's frame and never the
+/// previous call's.</summary>
+internal sealed record AnimationBase(float Opacity, bool HasTransform, float TranslateX, float TranslateY,
+    float RotateDeg, float ScaleX, float ScaleY, Length Width, Length Height);
+
 /// <summary>
 /// Parses <c>@keyframes</c> blocks and applies time-sampled animation overrides to the
 /// render tree. Animatable properties: transform + opacity (paint-only), and width +
@@ -59,26 +66,60 @@ public static partial class Animation
         return null;
     }
 
-    /// <summary>Apply animation overrides to the tree for the given elapsed time.</summary>
-    public static void Apply(RenderNode root, Dictionary<string, List<Keyframe>> keyframes, double timeSeconds)
+    /// <summary>Apply animation overrides to the tree for the given elapsed time. Returns true while
+    /// any animation is still RUNNING — a later frame would differ: waiting out its delay, or inside
+    /// its iterations. A finished animation (its count of iterations elapsed) holds its last frame if
+    /// it fills forwards, otherwise reverts, and either way contributes nothing to the return.</summary>
+    public static bool Apply(RenderNode root, Dictionary<string, List<Keyframe>> keyframes, double timeSeconds)
     {
-        if (keyframes.Count == 0) return;
-        Walk(root, keyframes, timeSeconds);
+        if (keyframes.Count == 0) return false;
+        return Walk(root, keyframes, timeSeconds);
     }
 
-    private static void Walk(RenderNode node, Dictionary<string, List<Keyframe>> keyframes, double t)
+    private static bool Walk(RenderNode node, Dictionary<string, List<Keyframe>> keyframes, double t)
     {
+        var running = false;
         var s = node.Style;
         if (s.AnimationName is { } name && s.AnimationDuration > 0 && keyframes.TryGetValue(name, out var frames))
         {
-            var progress = (float)((t / s.AnimationDuration) % 1.0);
-            ApplyFrame(s, frames, progress);
+            // The clock is ABSOLUTE document time, not time since the element appeared: the same t
+            // gives the same frame whichever order frames are asked for (CupriCut renders out of
+            // order; a UI never notices).
+            var local = t - s.AnimationDelay;
+            if (local < 0)
+            {
+                if (s.AnimationFillBackwards) ApplyFrame(s, frames, 0f); else Restore(s);
+                running = true;
+            }
+            else
+            {
+                var cycles = local / s.AnimationDuration;
+                if (cycles >= s.AnimationIterations)
+                {
+                    if (s.AnimationFillForwards) ApplyFrame(s, frames, 1f); else Restore(s);
+                }
+                else
+                {
+                    ApplyFrame(s, frames, (float)(cycles % 1.0));
+                    running = true;
+                }
+            }
         }
-        foreach (var c in node.Children) Walk(c, keyframes, t);
+        foreach (var c in node.Children) if (Walk(c, keyframes, t)) running = true;
+        return running;
+    }
+
+    private static void Restore(ComputedStyle s)
+    {
+        if (s.AnimBase is not { } b) return;
+        s.Opacity = b.Opacity; s.HasTransform = b.HasTransform;
+        s.TranslateX = b.TranslateX; s.TranslateY = b.TranslateY; s.RotateDeg = b.RotateDeg;
+        s.ScaleX = b.ScaleX; s.ScaleY = b.ScaleY; s.Width = b.Width; s.Height = b.Height;
     }
 
     private static void ApplyFrame(ComputedStyle s, List<Keyframe> frames, float progress)
     {
+        s.AnimBase ??= new AnimationBase(s.Opacity, s.HasTransform, s.TranslateX, s.TranslateY, s.RotateDeg, s.ScaleX, s.ScaleY, s.Width, s.Height);
         // Find bracketing keyframes.
         Keyframe a = frames[0], b = frames[^1];
         for (var i = 0; i < frames.Count - 1; i++)

@@ -588,8 +588,10 @@ headless environment can't run — see caveats).
 - **Accessibility (M7)** — platform-neutral **semantics tree** (verified dump) + Windows
   **UIA bridge** scaffold (role→pattern mapping).
 - **AOT (M8)** — ILC compiles the whole engine **trim-clean (0 warnings)**.
-- **Shells** — GPU **GL** window, **Win32 GDI** software window, **SDL** cross-platform
-  software window; the Viewer auto-selects GL → software.
+- **Shells** — GPU **GL** window (GLFW), and the **SDL** cross-platform window in two modes:
+  software (CPU raster, no GPU needed) or, with `CUPRIFACE_SDL_GL=1`, a real GL context of its
+  own — GPU rendering **and** touch in one window, which GLFW cannot offer because it has no touch
+  API. The Viewer auto-selects GL → SDL software; the SDL GL mode is opt-in.
 - **Web (M9)** — Blazor **WASM** host renders the engine to `<canvas>` via
   `SKCanvasView`; canvas clicks route through the same hit-test/dispatch.
 
@@ -599,9 +601,12 @@ The stack is layered so OS-specific code is isolated and opt-in:
   calls. Native Skia/HarfBuzz are referenced for **win + linux + osx** via
   `src/SkiaNativeAssets.props` (publish deploys only the target RID); WASM natives come
   from `SkiaSharp.Views.Blazor`.
-- **Windowing (`CupriFace.Shell`)** — two cross-platform backends: **GL** (Silk.NET) and
-  **SDL software** (no-GPU present). Both reach native code through *managed* Silk.NET
-  bindings, so windowing ships **no hand-written P/Invoke**. The engine has **no** windowing
+- **Windowing (`CupriFace.Shell`)** — two cross-platform backends: **GL** (Silk.NET/GLFW) and
+  **SDL** (software present, or its own GL context). Both reach native code through *managed*
+  Silk.NET bindings. The Windows-only helpers beside them — per-monitor DPI, layered alpha
+  presentation, the UIA bridge, the tray icon — are `LibraryImport` declarations, and the
+  macOS accessibility bridge binds AppKit the same way; measured, the shell assembly carries a
+  few dozen such imports, all platform-gated, none in the engine. The engine has **no** windowing
   dependency at all. (An earlier Win32 GDI backend was removed in favour of SDL to keep our
   code fully managed.)
 - **Accessibility** — the semantics tree is portable; the bridges are not, and they are the
@@ -675,6 +680,30 @@ All four are named constructors on `PresentInfo` rather than prose an app re-der
 a sample until v0.18.0, which meant the strategies were discoverable only by reading one — and an
 app author (or an agent) looking at the engine saw a record of three floats and no clue what to do
 with them.
+
+#### Device scale is the host's, not the app's
+`PresentInfo.Scale` is the **application's** factor and never the monitor's. The host owns a second
+one and multiplies:
+
+```
+D = OS device scale (1.5 at 144 DPI, 2 on Retina)   — the host reads it
+P = PresentInfo.Scale                                — the app chooses it
+T = D * P                                            — canvas, surfaces, damage, a11y geometry
+    app.Present(framebuffer / D)                     — the app is asked in LOGICAL units
+```
+
+The model is `HostScale` in `src/CupriFace.Hosting`, shared into hosts **as source** (like
+`WebCore.props`) so it stays out of the engine — which has no host concepts and no P/Invoke — and out
+of the browser hosts' ILC input. Two rules matter more than the arithmetic:
+
+- **Each backend normalises its own pointer coordinates to logical client units once.** GLFW reports
+  pixels on Windows and points on macOS; the host must not learn the difference, and must not divide
+  by D a second time.
+- **T is applied exactly once.** Every consumer reads one field, so there is nowhere for a second
+  multiply to hide.
+
+Android has done this since its first host (`density * scale`); the desktop host caught up in #137.
+The web host still presents at CSS pixels and has not yet plumbed `devicePixelRatio` (§9.1).
 
 The root (body) fills the viewport (initial containing block), so `height:100%` fills the
 window and "None vs Responsive" is just "fixed vs window" logical size. *(Live-resize

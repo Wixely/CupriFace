@@ -1,91 +1,345 @@
-using System;
-using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using CupriFace.Components;
 using CupriFace.Dom;
 using Xunit;
 
 namespace CupriFace.Tests;
 
-/// <summary><c>&lt;cupri-markdown&gt;</c> parses a Markdown subset into the toolkit's own elements —
-/// headings, bold, italic (upright, but the markers are consumed), inline + fenced code, bullet lists,
-/// and links — which then lay out and paint like any other markup.</summary>
+/// <summary>
+/// <c>&lt;cupri-markdown&gt;</c> — the subset it renders, and the shapes that used to break it.
+///
+/// <para><b>The hang is the reason this file exists.</b> Any line starting with <c>#</c> that was not
+/// <c>#&#160;</c>, <c>##&#160;</c> or <c>###&#160;</c> — an h4, or a bare <c>#hashtag</c> — matched no
+/// heading branch, fell through to the paragraph branch, and was then rejected by that branch's own
+/// <c>!StartsWith("#")</c> guard. Nothing was consumed, the index never advanced, and the renderer
+/// spun forever on one line. Markdown is frequently text somebody else wrote, so that is a denial of
+/// service and not a cosmetic bug.</para>
+///
+/// <para>The hang tests are <c>async</c> deliberately: xunit only honours <c>Timeout</c> on async
+/// tests, and without it a regression hangs the whole suite instead of failing one case.</para>
+/// </summary>
 public class MarkdownTests
 {
-    private static List<RenderNode> ByTag(TestDoc t, string tag)
+    private static TestDoc Md(string markdown) =>
+        new($"<body><cupri-markdown>{markdown}</cupri-markdown></body>", "", components: true);
+
+    /// <summary>Every element in the rendered tree, by tag name — enough to assert structure without
+    /// pinning the exact markup the component happens to emit.</summary>
+    private static string[] Tags(TestDoc t)
     {
-        var outp = new List<RenderNode>();
-        void W(RenderNode n)
+        var tags = new List<string>();
+        void Walk(RenderNode n)
         {
-            if (string.Equals(n.Element?.LocalName, tag, StringComparison.OrdinalIgnoreCase)) outp.Add(n);
-            foreach (var c in n.Children) W(c);
+            if (n.Element?.LocalName is { } l) tags.Add(l);
+            foreach (var c in n.Children) Walk(c);
         }
-        W(t.Root);
-        return outp;
+        Walk(t.Doc.Root);
+        return [.. tags];
     }
 
-    private static TestDoc Md(string markdown) => new TestDoc(
-        $"<body><cupri-markdown text=\"{markdown.Replace("\"", "&quot;")}\"></cupri-markdown></body>",
-        "", components: true, width: 480, height: 360);
+    private static string Text(TestDoc t)
+    {
+        var sb = new System.Text.StringBuilder();
+        void Walk(RenderNode n)
+        {
+            if (!string.IsNullOrWhiteSpace(n.Text)) sb.Append(n.Text.Trim()).Append(' ');
+            foreach (var c in n.Children) Walk(c);
+        }
+        Walk(t.Doc.Root);
+        return sb.ToString().Trim();
+    }
+
+    // ---- the hang -------------------------------------------------------------------------------
+
+    /// <summary>The regression fence. Each of these used to spin forever.</summary>
+    [Theory(Timeout = 5000)]
+    [InlineData("#### four")]
+    [InlineData("##### five")]
+    [InlineData("###### six")]
+    [InlineData("####### seven (too deep to be a heading)")]
+    [InlineData("#hashtag")]
+    [InlineData("#")]
+    [InlineData("##")]
+    [InlineData("#no space\nand a second line")]
+    [InlineData("a paragraph\n#### then a heading")]
+    public async Task NeverHangs(string markdown)
+    {
+        await Task.Yield();
+        using var t = Md(markdown);
+        Assert.NotEmpty(Tags(t));
+    }
+
+    /// <summary>Forward progress is a property of the paragraph branch, not of its guard: whatever
+    /// the line is, it is consumed. This is the invariant that stops a future block type from
+    /// reintroducing the hang, so it is asserted on input designed to match no branch at all.</summary>
+    [Fact(Timeout = 5000)]
+    public async Task ConsumesLinesThatMatchNoBlock()
+    {
+        await Task.Yield();
+        using var t = Md("#not a heading\n>not a quote\n1.not a list\n```\nunclosed fence");
+        Assert.NotEmpty(Tags(t));
+    }
+
+    // ---- headings -------------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("# one", "h1")]
+    [InlineData("## two", "h2")]
+    [InlineData("### three", "h3")]
+    [InlineData("#### four", "h4")]
+    [InlineData("##### five", "h5")]
+    [InlineData("###### six", "h6")]
+    public void HeadingLevels(string markdown, string tag)
+    {
+        using var t = Md(markdown);
+        Assert.Contains(tag, Tags(t));
+    }
+
+    /// <summary>CommonMark requires the space, so a hashtag is prose. It must render as a paragraph
+    /// with its text intact — not be silently eaten, and not become a heading.</summary>
+    [Fact]
+    public void HashWithoutASpaceIsProseNotAHeading()
+    {
+        using var t = Md("#hashtag stays text");
+
+        Assert.Contains("p", Tags(t));
+        Assert.DoesNotContain("h1", Tags(t));
+        Assert.Contains("#hashtag stays text", Text(t));
+    }
+
+    /// <summary>Seven hashes is past h6, so it is a paragraph — and, critically, still terminates.</summary>
+    [Fact]
+    public void SevenHashesIsAParagraph()
+    {
+        using var t = Md("####### too deep");
+
+        Assert.Contains("p", Tags(t));
+        Assert.DoesNotContain("h6", Tags(t));
+    }
+
+    // ---- images ---------------------------------------------------------------------------------
+
+    /// <summary>An image used to render as a literal "!" followed by a link, because the link rule
+    /// matched from index 1 of <c>![alt](src)</c>. Images are now matched first and the link rule
+    /// refuses a leading bang.</summary>
+    [Fact]
+    public void ImageIsAnImageNotABangAndALink()
+    {
+        using var t = Md("![a picture](http://example.com/x.png)");
+
+        Assert.Contains("cupri-image", Tags(t));
+        Assert.DoesNotContain("a", Tags(t));
+        Assert.DoesNotContain("!", Text(t));
+    }
+
+    /// <summary>An ordinary link keeps working beside the new image rule.</summary>
+    [Fact]
+    public void LinkStillWorks()
+    {
+        using var t = Md("[a link](http://example.com)");
+
+        Assert.Contains("a", Tags(t));
+        Assert.DoesNotContain("cupri-image", Tags(t));
+    }
+
+    /// <summary>The two side by side, which is where an over-eager rule shows itself.</summary>
+    [Fact]
+    public void ImageAndLinkOnOneLine()
+    {
+        using var t = Md("see ![pic](http://x/p.png) and [docs](http://x/d) too");
+
+        Assert.Contains("cupri-image", Tags(t));
+        Assert.Contains("a", Tags(t));
+    }
+
+    // ---- lists, quotes, rules -------------------------------------------------------------------
 
     [Fact]
-    public void Headings_bold_code_and_links_become_real_elements()
+    public void OrderedListRenders()
     {
-        using var t = Md("# Title\n\nSome **bold** and `code` and [a link](https://ex.com) here.");
+        using var t = Md("1. first\n2. second\n3. third");
+        var tags = Tags(t);
 
-        var h1 = ByTag(t, "h1");
-        Assert.Single(h1);
-        Assert.Equal("Title", h1[0].Element!.TextContent.Trim());
-
-        Assert.Contains(ByTag(t, "strong"), n => n.Element!.TextContent.Trim() == "bold");
-        Assert.Contains(ByTag(t, "code"), n => n.Element!.TextContent.Trim() == "code");
-
-        var a = ByTag(t, "a");
-        Assert.Single(a);
-        Assert.Equal("https://ex.com", a[0].Element!.GetAttribute("href"));
-        Assert.Equal("a link", a[0].Element!.TextContent.Trim());
+        Assert.Contains("ol", tags);
+        Assert.Equal(3, tags.Count(x => x == "li"));
     }
 
     [Fact]
-    public void Bullet_lines_become_list_items()
+    public void BulletListStillRenders()
     {
-        using var t = Md("Shopping:\n\n- apples\n- pears\n* oranges");
-        var li = ByTag(t, "li");
-        Assert.Equal(3, li.Count);
-        Assert.Contains("apples", li[0].Element!.TextContent);
-        Assert.Contains("oranges", li[2].Element!.TextContent);
+        using var t = Md("- one\n- two");
+        var tags = Tags(t);
+
+        Assert.Contains("ul", tags);
+        Assert.Equal(2, tags.Count(x => x == "li"));
     }
 
     [Fact]
-    public void Italic_markers_are_consumed_even_though_the_font_is_upright()
+    public void BlockquoteRenders()
     {
-        using var t = Md("An *emphatic* and _underscored_ word.");
-        var em = ByTag(t, "em");
-        Assert.Equal(2, em.Count);                         // both * and _ forms parsed
-        Assert.Equal("emphatic", em[0].Element!.TextContent);
-        Assert.Equal("underscored", em[1].Element!.TextContent);
-        // no raw markers leak into the rendered text
-        Assert.DoesNotContain('*', t.FindClass("cupri-md").Element!.TextContent);
-        Assert.DoesNotContain('_', t.FindClass("cupri-md").Element!.TextContent);
+        using var t = Md("> quoted words");
+
+        Assert.Contains("blockquote", Tags(t));
+        Assert.Contains("quoted words", Text(t));
     }
 
     [Fact]
-    public void Fenced_code_block_keeps_each_line_as_its_own_block()
+    public void ThematicBreakRenders()
     {
-        using var t = Md("Run:\n\n```\nline one\nline two\n```");
-        Assert.Single(ByTag(t, "pre"));
-        var codeLines = ByTag(t, "div").FindAll(n => n.Element!.ClassList.Contains("cupri-md-cl"));
-        Assert.Equal(2, codeLines.Count);                  // two separate lines, not one flattened run
-        Assert.Contains("line one", codeLines[0].Element!.TextContent);
-        Assert.Contains("line two", codeLines[1].Element!.TextContent);
+        using var t = Md("above\n\n---\n\nbelow");
+
+        Assert.Contains("hr", Tags(t));
+    }
+
+    /// <summary>A bullet list must not be read as a thematic break, and vice versa — both start
+    /// with <c>-</c>, and the rule only applies when the line is nothing else.</summary>
+    [Fact]
+    public void DashRulesAndDashBulletsDoNotCollide()
+    {
+        using var rule = Md("---");
+        using var bullet = Md("- an item");
+
+        Assert.Contains("hr", Tags(rule));
+        Assert.DoesNotContain("ul", Tags(rule));
+        Assert.Contains("ul", Tags(bullet));
+        Assert.DoesNotContain("hr", Tags(bullet));
+    }
+
+    // ---- inline ---------------------------------------------------------------------------------
+
+    [Fact]
+    public void InlineEmphasisAndCode()
+    {
+        using var t = Md("**bold** and *italic* and `code` and ~~struck~~");
+        var tags = Tags(t);
+
+        Assert.Contains("strong", tags);
+        Assert.Contains("em", tags);
+        Assert.Contains("code", tags);
+        Assert.Contains("s", tags);
     }
 
     [Fact]
-    public void Falls_back_to_the_element_body_when_no_text_attribute()
+    public void FencedCodeBlockRenders()
     {
+        using var t = Md("```\nvar x = 1;\n```");
+
+        Assert.Contains("pre", Tags(t));
+        Assert.Contains("var x = 1;", Text(t));
+    }
+
+    // ---- the copy button --------------------------------------------------------------------------
+
+    private static RenderNode? CopyButton(TestDoc t)
+    {
+        RenderNode? found = null;
+        void Walk(RenderNode n)
+        {
+            if (n.Element?.ClassList.Contains("cupri-md-copy") == true) found ??= n;
+            foreach (var c in n.Children) Walk(c);
+        }
+        Walk(t.Doc.Root);
+        return found;
+    }
+
+    private static string? ClickCopy(TestDoc t)
+    {
+        string? asked = null;
+        t.Doc.ClipboardWriteRequested += v => asked = v;
+        var b = CopyButton(t);
+        Assert.NotNull(b);
+        t.Doc.DispatchClick(b!.X + b.Width / 2, b.Y + b.Height / 2);
+        return asked;
+    }
+
+    /// <summary>
+    /// A fenced block gets a copy button, and clicking it asks the HOST for the clipboard — the
+    /// engine has none of its own.
+    ///
+    /// <para>What it hands over is the RAW source, not the rendered block. The <c>&lt;pre&gt;</c> is a
+    /// stack of divs with non-breaking spaces standing in for indentation, so reading its text back
+    /// would return one run with the indentation mangled and the line breaks gone. The button carries
+    /// what the author actually wrote.</para>
+    /// </summary>
+    [Fact]
+    public void CopyButtonHandsTheHostTheRawCode()
+    {
+        var code = "var x = 1;\n    if (x) return;";
+        using var t = Md("```\n" + code + "\n```");
+
+        Assert.Equal(code, ClickCopy(t));      // exact: the indentation and the line break intact
+    }
+
+    /// <summary>Quotes, ampersands and angle brackets have to survive the attribute the button
+    /// carries them in. The careless version hands back the escaped form, or breaks out of the
+    /// attribute altogether.</summary>
+    [Fact]
+    public void CopiedCodeSurvivesQuotesAmpersandsAndAngleBrackets()
+    {
+        var code = "var s = \"a & b\"; if (a < b && c > d) { }";
+        using var t = Md("```\n" + code + "\n```");
+
+        Assert.Equal(code, ClickCopy(t));
+    }
+
+    /// <summary>Only fenced blocks get one. Inline <c>`code`</c> is a word inside a sentence, and a
+    /// button floating over it would be absurd.</summary>
+    [Fact]
+    public void InlineCodeHasNoCopyButton()
+    {
+        using var t = Md("a line with `inline code` in it");
+
+        Assert.Null(CopyButton(t));
+    }
+
+    /// <summary>The button is a control, so it takes hover and reaches assistive technology like any
+    /// other — it carries a role and a label rather than being a bare div that happens to react.</summary>
+    [Fact]
+    public void CopyButtonIsAControlNotJustAClickableBox()
+    {
+        using var t = Md("```\ncode\n```");
+
+        var b = CopyButton(t);
+        Assert.NotNull(b);
+        Assert.Equal("button", b!.Element!.GetAttribute("role"));
+        Assert.False(string.IsNullOrWhiteSpace(b.Element.GetAttribute("aria-label")));
+    }
+
+    // ---- the security property ------------------------------------------------------------------
+
+    /// <summary>
+    /// The component's most valuable property: markdown is escaped BEFORE any inline rule runs, so
+    /// raw HTML in the source can never become live markup. Worth a test of its own, because the
+    /// obvious "improvement" — handing the job to a Markdown library that emits HTML — would quietly
+    /// remove it.
+    /// </summary>
+    [Fact]
+    public void RawHtmlInMarkdownIsTextNotMarkup()
+    {
+        // Fed through the `text` ATTRIBUTE, which is how untrusted markdown actually arrives — bound
+        // from a model. Putting it in the element's body instead would let AngleSharp parse it while
+        // loading the page, before the component ever saw it, and the test would pass without
+        // proving anything about the component.
         using var t = new TestDoc(
-            "<body><cupri-markdown>## Inline\n\nbody **words**.</cupri-markdown></body>",
-            "", components: true, width: 480, height: 300);
-        Assert.Single(ByTag(t, "h2"));
-        Assert.Equal("Inline", ByTag(t, "h2")[0].Element!.TextContent.Trim());
-        Assert.Contains(ByTag(t, "strong"), n => n.Element!.TextContent.Trim() == "words");
+            "<body><cupri-markdown text=\"a <script>alert(1)</script> and <b>bold?</b>\"></cupri-markdown></body>",
+            "", components: true);
+        var tags = Tags(t);
+
+        Assert.DoesNotContain("script", tags);
+        Assert.DoesNotContain("b", tags);
+        Assert.Contains("<script>", Text(t));
+        Assert.Contains("<b>", Text(t));
+    }
+
+    /// <summary>An image's src comes from the document, so it goes in as an attribute value; a quote
+    /// in it must not break out of the attribute.</summary>
+    [Fact(Timeout = 5000)]
+    public async Task QuotesInAUrlDoNotEscapeTheAttribute()
+    {
+        await Task.Yield();
+        using var t = Md("![x](http://e/\"onerror=\"alert(1))");
+
+        Assert.DoesNotContain("onerror", Tags(t));
     }
 }

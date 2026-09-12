@@ -1,0 +1,52 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>CupriFace.Samples.DpiProbe</RootNamespace>
+
+    <!-- Deliberately NO app.manifest. This probe exists to observe what CupriFace does ON ITS OWN,
+         and a manifest would pre-empt the runtime request: the panel would read "already set by the
+         app's manifest", which is correct behaviour but not the thing under test. A consumer app
+         that ships a manifest is the OTHER case, and the panel names it when it happens. -->
+
+    <!-- Trimmed + compressed single-file publish, opt-in with -p:Trim=true. Same shape as the
+         Viewer, and copied deliberately rather than by habit: without the roots below, trimming
+         removes Silk.NET's window backends, bring-up throws, DesktopHost catches it and drops to
+         the SDL SOFTWARE window — and the app still opens and draws, so nothing looks wrong.
+         For a DIAGNOSTIC binary that would be worse than a crash: the tester would be measuring the
+         software path while believing they were on GL. The panel's "window" row reports which one
+         it got, and the published binary was checked against it. -->
+    <PublishTrimmed Condition="'$(Trim)' == 'true'">true</PublishTrimmed>
+
+    <!-- REQUIRED with PublishSingleFile. Silk.NET finds SDL2/GLFW through DependencyContext and
+         Assembly.Location, and both are dead inside a single-file bundle, so the exe builds and
+         then dies at startup the moment it opens a window. -->
+    <IncludeAllContentForSelfExtract Condition="'$(PublishSingleFile)' == 'true'">true</IncludeAllContentForSelfExtract>
+  </PropertyGroup>
+
+  <!-- Silk.NET 2.x discovers its window/input backends by scanning for IWindowPlatform
+       implementations, which the trimmer cannot see (IL2104). Rooting them costs ~0.13 MB. -->
+  <ItemGroup Condition="'$(Trim)' == 'true'">
+    <TrimmerRootAssembly Include="Silk.NET.Windowing.Glfw" />
+    <TrimmerRootAssembly Include="Silk.NET.Input.Glfw" />
+    <TrimmerRootAssembly Include="Silk.NET.GLFW" />
+    <TrimmerRootAssembly Include="Silk.NET.Windowing.Common" />
+    <TrimmerRootAssembly Include="Silk.NET.Input.Common" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CupriFace.Shell\CupriFace.Shell.csproj" />
+    <!-- The binding source generator. Analyzers do NOT flow across a ProjectReference, so a project
+         building from source has to name it — a consumer installing the CupriFace NUPKG gets it
+         automatically (it ships under analyzers/dotnet/cs). Without this the [CupriBindable] on
+         ProbeModel compiles and does nothing, the engine falls back to reflection, and the trimmed
+         publish dies on its first bind. That is exactly how this was found. -->
+    <ProjectReference Include="..\..\src\CupriFace.Binding.Gen\CupriFace.Binding.Gen.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>

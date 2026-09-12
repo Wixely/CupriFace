@@ -290,3 +290,15 @@ body.dark .pill { color:#8fb8e0; border-color:#345069; }
    prettily it is drawn. */
 .mrow { color:var(--cupri-text); font-size:13px; padding:6px 10px; border-radius:7px;
         font-family:monospace; }
+
+/* ---- Markdown page ---------------------------------------------------------------------------
+   Two columns: the source you type on the left, what the component makes of it on the right. The
+   panes are plain boxes so nothing here styles the markdown itself — what you see is the
+   component's own DefaultCss, which is the point of looking at it. */
+.md-split { display: flex; gap: 16px; margin-bottom: 18px; }
+.md-pane { flex: 1 1 0; min-width: 0; }
+.md-out { background: var(--cupri-surface, #fff); border: 1px solid var(--cupri-border, #e6e9f0);
+          border-radius: 8px; padding: 14px 16px; margin-bottom: 14px; }
+/* Keep the demo image a sensible size for the panel; <cupri-image> fits inside the box it is given
+   rather than sizing itself to the picture. */
+.md-out cupri-image { height: 150px; }

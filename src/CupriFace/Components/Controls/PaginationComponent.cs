@@ -85,7 +85,10 @@ public sealed class PaginationComponent : ComponentBase
 
     private static void Nav(StringBuilder sb, string icon, bool enabled, string path, int target)
     {
-        sb.Append($"<div class='cupri-page-nav{(enabled ? "" : " disabled")}' role='button'")
+        // Named here, not by the app: an icon-only arrow has no text to fall back on, and a
+        // nameless button is what every screen reader met on every page that used this control.
+        var name = icon == "chevron-left" ? "Previous page" : "Next page";
+        sb.Append($"<div class='cupri-page-nav{(enabled ? "" : " disabled")}' role='button' aria-label='{name}'")
           .Append(enabled && path.Length > 0 ? $" data-set-path='{path}' data-set-value='{target}'" : "")
           .Append($">{IconMarkup(icon, 16)}</div>");
     }

@@ -221,6 +221,49 @@ public sealed partial class ShowcaseModel
     public string SecLayout => Section == "layout" ? "block" : "none";
     public string SecMotion => Section == "motion" ? "block" : "none";
     public string SecStyling => Section == "styling" ? "block" : "none";
+    /// <summary>The live editor's text on the Markdown page. Two-way: the textarea writes here and
+    /// the renderer beside it reads the same property, so the page IS the test — anything that
+    /// crashes or hangs the component can be typed straight into it.</summary>
+    public string MarkdownSource { get; set; } = """
+        # Markdown
+
+        A **subset**, rendered into the toolkit's own elements — *never* raw HTML.
+
+        ## Blocks
+
+        ### Headings go to six
+        #### Four
+        ##### Five
+        ###### Six
+
+        Paragraphs join consecutive lines
+        into one block, like this.
+
+        - a bullet
+        - another, with `inline code`
+
+        1. an ordered item
+        2. and a second
+
+        > A blockquote, for something worth
+        > setting apart.
+
+        ---
+
+        ## Inline
+
+        **Bold**, *italic*, _also italic_, `code`, ~~struck through~~,
+        and a [link](https://github.com/Wixely/CupriFace).
+
+        ```
+        // a fenced code block
+        var doc = CupriDocument.Load(html, css);
+        ```
+
+        #notaheading needs a space after the hashes, so this stays prose.
+        """;
+
+    public string SecMarkdown => Section == "markdown" ? "block" : "none";
     public string SecKeyboard => Section == "keyboard" ? "block" : "none";
     public string SecSettings => Section == "settings" ? "block" : "none";
     public string SecDiag => Section == "diag" ? "block" : "none";
@@ -233,6 +276,7 @@ public sealed partial class ShowcaseModel
     public string NavLayout => Section == "layout" ? "active" : "";
     public string NavMotion => Section == "motion" ? "active" : "";
     public string NavStyling => Section == "styling" ? "active" : "";
+    public string NavMarkdown => Section == "markdown" ? "active" : "";
     public string NavKeyboard => Section == "keyboard" ? "active" : "";
     public string NavSettings => Section == "settings" ? "active" : "";
     public string NavDiag => Section == "diag" ? "active" : "";
@@ -314,6 +358,10 @@ public sealed partial class ShowcaseModel
     public string SentLabel => SentCount == 1 ? "1 message sent" : $"{SentCount} messages sent";
     public bool KbNotify { get; set; }
     public string KbPlan { get; set; } = "monthly";
+
+    // A <cupri-select> keeps its open state in the MODEL, so without this the trigger has nothing to
+    // toggle and the dropdown cannot open at all — which is what it did here until it was reported.
+    public bool KbPlanOpen { get; set; }
 
     // 1:1 by default — the window's own pixels, reflowing as it resizes. "hybrid" used to be the
     // default, which scales the whole UI up on a large monitor; that is a demo of the scaling modes,
