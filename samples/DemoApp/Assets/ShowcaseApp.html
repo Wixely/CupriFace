@@ -17,6 +17,7 @@
       <div class="nav {{NavLayout}}" data-section="layout"><cupri-icon name="dashboard" size="20"></cupri-icon><span class="nav-label">Layout</span></div>
       <div class="nav {{NavMotion}}" data-section="motion"><cupri-icon name="autorenew" size="20"></cupri-icon><span class="nav-label">Motion</span></div>
       <div class="nav {{NavStyling}}" data-section="styling"><cupri-icon name="palette" size="20"></cupri-icon><span class="nav-label">Styling</span></div>
+      <div class="nav {{NavMarkdown}}" data-section="markdown"><cupri-icon name="edit" size="20"></cupri-icon><span class="nav-label">Markdown</span></div>
       <div class="nav {{NavKeyboard}}" data-section="keyboard"><cupri-icon name="arrow-right" size="20"></cupri-icon><span class="nav-label">Keyboard</span></div>
       <div class="nav {{NavSettings}}" data-section="settings"><cupri-icon name="settings" size="20"></cupri-icon><span class="nav-label">Settings</span></div>
       <div class="nav {{NavDiag}}" data-section="diag"><cupri-icon name="memory" size="20"></cupri-icon><span class="nav-label">Diagnostics</span></div>
@@ -550,7 +551,7 @@ doc.RenderToImage(800, 600);
           <cupri-textfield value="{{Name}}" placeholder="…then here" style="min-width:0; width:180px"></cupri-textfield>
           <cupri-checkbox checked="{{KbNotify}}"></cupri-checkbox>
           <span class="lbl">Notify</span>
-          <cupri-select value="{{KbPlan}}">
+          <cupri-select value="{{KbPlan}}" open="{{KbPlanOpen}}">
             <cupri-option value="monthly">Monthly</cupri-option>
             <cupri-option value="yearly">Yearly</cupri-option>
           </cupri-select>
@@ -649,6 +650,46 @@ doc.RenderToImage(800, 600);
       </div>
 
       <!-- STYLING -->
+      <div class="section" style="display:{{SecMarkdown}}">
+        <div class="title">Markdown</div>
+        <p class="sub"><code>&lt;cupri-markdown&gt;</code> renders a Markdown subset into the toolkit's own
+          elements — never raw HTML, so text from somewhere else cannot become markup. Type on the left,
+          watch the right.</p>
+
+        <div class="md-split">
+          <div class="md-pane">
+            <div class="mlabel">Source — edit me</div>
+            <cupri-textarea rows="22" value="{{MarkdownSource}}" aria-label="Markdown source"></cupri-textarea>
+          </div>
+          <div class="md-pane">
+            <div class="mlabel">Rendered</div>
+            <div class="md-out"><cupri-markdown text="{{MarkdownSource}}"></cupri-markdown></div>
+          </div>
+        </div>
+
+        <div class="mlabel">The shapes that used to break it</div>
+        <p class="sub">Each of these was a bug. The first two hung the renderer outright — any
+          <code>#</code>-led line that was not h1-h3 spun forever, which for text somebody else wrote is
+          a denial of service rather than a cosmetic fault.</p>
+        <div class="md-split">
+          <div class="md-pane">
+            <div class="mlabel">h4-h6 (hung before)</div>
+            <div class="md-out"><cupri-markdown>#### Heading four
+##### Heading five
+###### Heading six</cupri-markdown></div>
+            <div class="mlabel">A bare hashtag (hung before)</div>
+            <div class="md-out"><cupri-markdown>#notaheading is ordinary prose, because CommonMark
+wants a space after the hashes.</cupri-markdown></div>
+          </div>
+          <div class="md-pane">
+            <div class="mlabel">An image (was a stray "!" plus a link)</div>
+            <div class="md-out"><cupri-markdown>![A torus colony, Don Davis](Assets/torus-colony.jpg)</cupri-markdown></div>
+            <div class="mlabel">Raw HTML stays text</div>
+            <div class="md-out"><cupri-markdown text="&lt;b&gt;not bold&lt;/b&gt; and &lt;script&gt;alert(1)&lt;/script&gt;"></cupri-markdown></div>
+          </div>
+        </div>
+      </div>
+
       <div class="section" style="display:{{SecStyling}}">
         <div class="title">Styling</div>
         <p class="sub">Paint-level CSS — <code>filter()</code>, gradients, <code>box-shadow</code> and

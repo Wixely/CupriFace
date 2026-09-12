@@ -11,6 +11,68 @@ app up, how binding/interaction/styling work, and gives a reference entry for ev
 
 ---
 
+
+## Checking a document while you build it
+
+The engine is forgiving at run time on purpose — an unsupported CSS property is ignored, an element
+it has no primitive for lays out and then stays empty — so a stylesheet written for a browser cannot
+crash your app. The cost is that a mistake looks exactly like a layout you have not finished:
+nothing throws, nothing logs, the box is just blank.
+
+`CupriDoctor` turns that silence into a list:
+
+```csharp
+using CupriFace.Diagnostics;
+
+var report = CupriDoctor.Check(app.Html, app.Css, app.Components);
+if (!report.IsClean) Console.WriteLine(report);
+```
+
+```
+7 findings (4 error, 3 warning, 0 info)
+  error CF0010 (line 2): <div> is never closed — the </body> on line 11 closes its parent first.  -> Add </div> before that.
+  error CF0030 (line 4): <img> is not something the engine draws — it lays out, and then stays empty.  -> Use <cupri-image src="..."> — the engine has no raw <img> primitive.
+  error CF0020 (line 5): <cupri-slidr> is not a registered component, so it renders nothing.  -> Did you mean <cupri-slider>?
+  warning CF0050 (line 1): CSS property 'float' is not supported and was ignored.  -> Use flexbox (display:flex) — there is no float layout.
+```
+
+| Code | Finds |
+|---|---|
+| `CF0001` | The document could not be built at all |
+| `CF0010` / `CF0011` | A tag never closed, or a close that matches nothing — reported at the line it *opened* on |
+| `CF0020` | A `cupri-*` tag nothing registered, with a "did you mean" for near misses |
+| `CF0021` | A control that can never open — `<cupri-select>` and friends keep open state in the model, and without an `open` binding the trigger is inert while still reporting the click as handled |
+| `CF0030` | `<img>`, `<video>`, `<svg>`, `<canvas>`, `<iframe>` and friends, each pointed at what to use here |
+| `CF0031` | Anything else in your markup that produced no render output |
+| `CF0040` / `CF0041` | `<script>` and `onclick=` — there is no JavaScript engine |
+| `CF0050` / `CF0051` | A CSS property, or a function like `repeating-linear-gradient()`, that is silently ignored |
+| `CF0060` | A `{{path}}` that names nothing on the model — it renders as empty text, which is indistinguishable from data you have not loaded yet |
+| `CF0070` | Contents that do not fit a fixed-height box. They do not clip (`overflow: visible` is the CSS default) — they paint over whatever follows, which reads as a z-order bug rather than a height that is too small |
+| `CF0071` | A box that laid out with no area at all while holding visible content |
+| `CF0080` | Characters no installed font can draw, which paint as empty `.notdef` boxes. A property of the machine, not the document — hence a warning. **Under-reports on macOS**, whose LastResort face matches every codepoint: trust a finding, never its absence |
+
+**Pass the model if the document has one.** `CF0060` and the box checks need it and are skipped
+without it, and those catch the quietest failures of the lot:
+
+```csharp
+var report = CupriDoctor.Check(app.Html, app.Css, model: app.Model);
+```
+
+`report.IsClean` and `report.HasErrors` are the one-line answers, so this drops into a unit test:
+
+```csharp
+[Fact] public void MarkupIsSound() =>
+    Assert.False(CupriDoctor.Check(new MyApp().Html, new MyApp().Css).HasErrors);
+```
+
+**It reads the engine rather than describing it.** Unrendered elements come from diffing the real
+render tree, unknown components from the real `ComponentRegistry`, and unsupported CSS from the real
+`StyleResolver` reporting what it threw away — so adding an element or a property to the engine stops
+the checker complaining about it, with no list to update. A checker with false positives gets turned
+off, and a turned-off checker finds nothing.
+
+---
+
 ## 1. Mental model
 
 Three inputs, one output:
@@ -82,8 +144,10 @@ doc.OnClick(".save", _ => Console.WriteLine($"Saved {model.Name}, vol={model.Vol
 | `.Render(canvas, w, h)` | Paint into an `SKCanvas` (a full, stateless repaint). |
 | `.RenderIncremental(canvas, w, h, bg)` | Damage‑tracked repaint for a host whose canvas **retains** its pixels between frames: diffs against the last presented frame, repaints only the changed rectangle, and returns it — or `null` when the frame is identical (skip presenting entirely). First call / size change = full. The desktop software window and the WASM host use this; pair it with the `Dispatch*` return values for render‑on‑demand. |
 | `.RenderToImage(w, h, clear?)` | Convenience CPU raster to an `SKImage` (headless/tests). |
+| `.DumpTree(maxDepth?, includeText?)` | The laid‑out tree as indented text — tag, class, **absolute** position and size, with overflowing and zero‑area boxes flagged inline. What an image cannot tell you: a blank rectangle has many causes, `312x0` has one. Greppable, diffable, assertable; the coordinates are the ones to pass to `DispatchClick`. Call it after a render. |
 | `.RenderToPixels(w, h, clear?, straightAlpha?)` | CPU raster to an RGBA8888 `byte[]` — the canonical "embed me in another surface" call (HTML canvas, a game texture). `clear` defaults to **transparent**; set `straightAlpha` for consumers wanting non‑premultiplied alpha (HTML `ImageData`, Unity `RGBA32`). |
 | `.DispatchClick/DispatchPointerMove/DispatchPointerUp/DispatchWheel/DispatchKey(...)` | Feed input. Each returns whether anything changed (drives render‑on‑demand). |
+| `.DispatchTap(x, y, clicks?)` | A click **from a finger**: `DispatchClick` with touch adjustment — a tap that lands near, but not on, an interactive element within `.TouchAdjustRadius` (default 12 logical px, 0 disables) is moved onto it, to the nearest point inside its box. Never away from something already under the finger, never onto a disabled control, never through an overlay covering the target. Hosts call this for taps and `DispatchClick` for mouse buttons; the engine cannot tell them apart from coordinates and must not guess. |
 | `.DispatchContextMenu(x, y)` | Right‑click: opens a Cut/Copy/Paste/Select‑all menu if `(x,y)` is over a text field. Items raise `ContextRequested`; the host performs the clipboard op. Wired for you by `DesktopHost` and the WASM host. |
 | `.Root` | The root `RenderNode` (layout boxes via `HitTesting.AbsoluteBox`). |
 
@@ -220,7 +284,7 @@ public sealed class MyApp : CupriApp
 
 `CupriApp.Html`/`Css` default to reading these sources (override either the sources or the strings).
 For a one‑off you can skip the generator with the `EmbeddedAsset("Assets/MyApp.html")` helper. This
-same `CupriSource` (via `ReadBytes()`) is how images/fonts/media will load — see
+same `CupriSource` (via `ReadBytes()`) is how images, fonts and media load — see
 [ROADMAP.md](ROADMAP.md). `samples/DemoApp` is the worked example.
 
 ---
@@ -415,6 +479,35 @@ controls handle their own state.
   .price-was { text-decoration: line-through; }
   blockquote { font-style: italic; }
   ```
+- **Fonts: `@font-face`, `LoadFont`, `LoadFonts`, `CupriApp.Fonts`.** By default a family resolves
+  to whatever the platform has for it — right for an app on a desktop, and the reason the same page
+  looks slightly different on two machines. A document can carry its own faces instead:
+  ```css
+  @font-face { font-family: "Brand"; src: url(Assets/Brand-Regular.woff) format("woff"); }
+  @font-face { font-family: "Brand"; src: url(Assets/Brand-Bold.ttf); font-weight: 700; }
+  @font-face { font-family: "Brand"; src: url(Assets/Brand-Italic.ttf); font-style: italic; }
+  body { font-family: "Brand", sans-serif; }
+  ```
+  A `url()` takes the same forms an image `src` does — an embedded resource (resolved against the app
+  assembly), a file path, a `file:`/`https:` URL, a `data:` URI — and sources are tried in order;
+  `local()` is skipped, being exactly the platform dependency this removes. The declared
+  `font-weight` (a value or a range, `300 700`) and `font-style` are what the cascade matches, so
+  they override the file's own names. TTF, OTF, TTC and **WOFF 1** load; **WOFF 2** is refused by
+  name (convert it). From code: `doc.LoadFont(CupriSource.Embedded(asm, "fonts.Brand.ttf"))`,
+  `doc.LoadFont("Assets/Brand.ttf")`, `doc.LoadFonts(dir)` for a folder, or on an app
+  `public override IEnumerable<CupriSource> Fonts => [...]`, which every document the app creates
+  gets before its model binds. The first registered family becomes the target of
+  `sans-serif`/`system-ui`; `monospace` stays with the platform.
+
+  **`FontPolicy.RegisteredOnly`** (`doc.FontPolicy` / `CupriApp.FontPolicy`) is for output that must
+  not depend on the machine — a test image, a rendered frame. A family with no registered face throws
+  `FontNotRegisteredException` naming it, an `@font-face` that fails to load is an error at first
+  layout, and glyph fallback for characters a face lacks searches the registered faces only, never
+  the platform's emoji font. `doc.FontReport` lists what every family resolved to and what failed;
+  `FontReport.IsDeterministic` is the one-line answer. What it guarantees: the same layout on every
+  platform, and the same pixels on every machine of one platform. Pixels differ *between* Windows,
+  Linux and macOS — Skia's glyph rasteriser is a different one on each — so a pixel comparison
+  belongs to one OS.
 - **`cursor`.** Sets the pointer shape and **inherits** like normal CSS. Supported keywords: `default`,
   `pointer`, `text`, `wait`, `progress`, `help`, `crosshair`, `move`, `not-allowed`, `grab`, `grabbing`,
   `col-resize`/`ew-resize`, `row-resize`/`ns-resize`, `nwse-resize`, `nesw-resize`, `none` (and `auto` =
@@ -575,7 +668,7 @@ to the bottom as new lines arrive (logging), *unless* the user has scrolled up:
 | `<cupri-card>` | Padded rounded surface | — | arbitrary | — |
 | `<cupri-divider>` | Horizontal rule | — | — | `separator` |
 | `<cupri-stat>` | Metric value + caption | `value`, `label` | — | — |
-| `<cupri-markdown>` | Renders a Markdown subset — `#`/`##`/`###` headings, `**bold**`, `*italic*`/`_italic_`, inline `` `code` `` + fenced ```` ``` ```` blocks, `-`/`*` bullet lists, `[text](url)` links, blank‑line paragraphs — into the toolkit's own elements (never raw HTML) | `text` (bindable; falls back to the element's own text) | Markdown text (when no `text` attr) | — |
+| `<cupri-markdown>` | Renders a Markdown subset — `#`…`######` headings, `**bold**`, `*italic*`/`_italic_`, `~~strike~~`, inline `` `code` `` + fenced ```` ``` ```` blocks, `-`/`*` bullet lists, `1.`/`1)` ordered lists, `> ` blockquotes, `---` rules, `[text](url)` links, `![alt](src)` images, blank‑line paragraphs — into the toolkit's own elements (never raw HTML) | `text` (bindable; falls back to the element's own text) | Markdown text (when no `text` attr) | — |
 
 ### Navigation & disclosure
 
@@ -782,6 +875,31 @@ public override PresentInfo Present(float w, float h) => PresentInfo.Hybrid(w, h
 
 The host repaints on demand — after input, on the `RefreshIntervalSeconds` cadence, or while
 something animates — so an idle page costs ~nothing.
+
+### Display scaling is not your `Present` scale
+
+The window sizes you receive are **logical**, already divided by the monitor's scale. Your `Present`
+factor multiplies with the monitor's rather than replacing it:
+
+| symbol | what it is | who chooses it |
+|---|---|---|
+| **D** | monitor scale — 1.5 at 144 DPI, 2 on Retina | the OS |
+| **P** | `PresentInfo.Scale` | your app |
+| **T** | `D × P` — what actually reaches the canvas, surfaces, damage and screen readers | neither, it is the product |
+
+So a `Hybrid` app on a 150% monitor is asked to present into a 1280×720 logical window (not the
+1920×1080 framebuffer), and paints at `1.5 × P`. Nothing in your app needs to know D — pointer
+coordinates and layout are already in logical units by the time you see them.
+
+Desktop windows are DPI-aware by default. Two knobs turn it down:
+
+```csharp
+public override bool DpiAware        => false;  // pre-#137 behaviour: physical pixels, OS stretches
+public override bool TrackMonitorDpi => false;  // aware, but stop following the window between monitors
+```
+
+`CUPRIFACE_DPI=0` in the environment does the same as `DpiAware => false` without a rebuild. If your
+executable's manifest already declares an awareness, that wins — CupriFace does not override it.
 
 ---
 

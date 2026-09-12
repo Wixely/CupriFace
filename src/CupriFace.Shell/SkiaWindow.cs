@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using CupriFace.Hosting;
 using CupriFace.Interaction;
 using Silk.NET.Input;
 using Silk.NET.Maths;
@@ -93,6 +94,124 @@ public sealed class SkiaWindow : IDisposable
         }
     }
 
+    // ---- device scale (#137) -------------------------------------------------------------------
+
+    private readonly bool _dpiAware;
+    private readonly bool _trackMonitorDpi;
+    private float _deviceScale = 1f;
+    private Vector2D<int> _logicalSize;                 // seeds the tracker once the window exists
+    private WindowScaleTracker? _scale;                 // owns the logical size after that
+    private bool _resizingForDpi;                       // re-entrancy: our own resize is not a user's
+
+    /// <summary>Whether the DPI feature is switched on at all — the process-wide kill switch, read
+    /// once here so the non-Windows paths do not have to know about the Windows helper.</summary>
+    private static bool WindowsDpiEnabled => !OperatingSystem.IsWindows() || WindowsDpi.Enabled;
+
+    /// <summary>
+    /// D: what the OS says a logical pixel is worth on the monitor this window is on. 1 until the
+    /// window exists, and 1 for the whole life of a window created with <c>dpiAware: false</c>.
+    /// </summary>
+    public float DeviceScale => _deviceScale;
+
+    /// <summary>Raised when the window lands on a monitor with a different scale, with the new D.
+    /// The host rebuilds anything sized in device pixels and forces a clean frame — a raster surface
+    /// allocated for the old scale is the wrong number of pixels for the new one.</summary>
+    public event Action<float>? DeviceScaleChanged;
+
+    /// <summary>
+    /// Read D from whichever source this platform actually has.
+    ///
+    /// <para>Windows needs asking directly: GLFW sizes its windows in physical pixels there, so the
+    /// framebuffer-to-window ratio every other platform reports its scaling through is a constant 1
+    /// no matter what the monitor is set to. Everywhere else that ratio IS the scale — 2 on a Retina
+    /// panel, 1 on X11 — and costs no P/Invoke to read.</para>
+    /// </summary>
+    private float ReadDeviceScale()
+    {
+        if (!_dpiAware) return 1f;
+        if (OperatingSystem.IsWindows())
+            return Win32Hwnd is { } hwnd ? HostScale.Sanitize(WindowsDpi.GetScaleForWindow(hwnd)) : _deviceScale;
+        if (_window is { } w && w.Size.X > 0 && _fbSize.X > 0)
+            return HostScale.Sanitize((float)_fbSize.X / w.Size.X);
+        return 1f;
+    }
+
+    /// <summary>
+    /// GLFW's pointer coordinates → logical client units, done ONCE, here, because the conversion is
+    /// a property of the backend rather than of the app.
+    ///
+    /// <para>GLFW reports the cursor in window units, which are physical pixels on Windows and
+    /// points on macOS. The ratio that normalises both is the logical client size over the window
+    /// size: on Windows that is 1/D (the host must divide), on Retina it is exactly 1 (the host must
+    /// NOT — dividing by D again is the double-divide that puts a click two-thirds of the way to
+    /// where the user aimed).</para>
+    /// </summary>
+    private (float X, float Y) ToLogicalClient(float x, float y)
+    {
+        if (_window is not { } w || w.Size.X <= 0 || w.Size.Y <= 0 || _fbSize.X <= 0) return (x, y);
+        return (x * (_fbSize.X / _deviceScale) / w.Size.X,
+                y * (_fbSize.Y / _deviceScale) / w.Size.Y);
+    }
+
+    /// <summary>
+    /// Follow the window onto another monitor: re-read D and, when it moved, resize the window so it
+    /// keeps the same LOGICAL size — which is what Per-Monitor-V2 is for. The window stays the same
+    /// physical size on the desk and simply gains or loses pixels; without this it would keep its
+    /// pixel count and visibly shrink on the sharper screen.
+    /// </summary>
+    private void PollDeviceScale()
+    {
+        if (!_dpiAware || !_trackMonitorDpi || _window is null || _scale is null || _resizingForDpi) return;
+        ApplyDpiResize(_scale.ObserveScale(ReadDeviceScale()));
+    }
+
+    /// <summary>
+    /// Act on a transition the tracker reported: resize to keep the logical size, drop the surfaces
+    /// and tell the host.
+    ///
+    /// <para>Guarded against re-entering itself, because setting <c>Size</c> delivers the framebuffer
+    /// callback SYNCHRONOUSLY — and that callback is one of the places this is called from.</para>
+    /// </summary>
+    private void ApplyDpiResize((int Width, int Height)? wanted)
+    {
+        if (_scale is null) return;
+        _deviceScale = _scale.DeviceScale;
+        if (wanted is not { } size || _window is null) return;
+
+        DpiTrace.Significant(
+            $"GL scale -> {_deviceScale:0.###}, resize to {size.Width}x{size.Height} " +
+            $"(logical {_scale.LogicalWidth}x{_scale.LogicalHeight})");
+        _resizingForDpi = true;
+        try
+        {
+            var v = new Vector2D<int>(size.Width, size.Height);
+            if (_window.Size != v) _window.Size = v;
+            _fbSize = _window.FramebufferSize;
+        }
+        catch (Exception ex)
+        {
+            // Resizing from inside a resize callback is refused on some platforms. Survivable — the
+            // window is merely the wrong size until the next event — but never silent.
+            if (!_dpiResizeFailureReported)
+            {
+                _dpiResizeFailureReported = true;
+                Console.Error.WriteLine(
+                    $"[CupriFace] DPI resize refused ({ex.GetType().Name}: {ex.Message}); " +
+                    "the window keeps its pixel size across this monitor change.");
+            }
+        }
+        finally { _resizingForDpi = false; }
+
+        // The surface is sized in device pixels, so it is now the wrong shape whether or not the
+        // framebuffer callback fired; drop it and force a repaint rather than trusting the resize.
+        _surface?.Dispose(); _surface = null;
+        _renderTarget?.Dispose(); _renderTarget = null;
+        _forceRender = true;
+        DeviceScaleChanged?.Invoke(_deviceScale);
+    }
+
+    private bool _dpiResizeFailureReported;
+
     /// <summary>Raised on left-button press with client-area coordinates and the click count
     /// (1/2/3 = single/double/triple — for word/line text selection).</summary>
     public event Action<float, float, int>? PointerDown;
@@ -139,10 +258,14 @@ public sealed class SkiaWindow : IDisposable
 
     public SkiaWindow(string title = "CupriFace", int width = 1024, int height = 768,
         bool transparent = false, bool frameless = false, bool topMost = false,
-        bool darkWindowChrome = false, SKColor? windowChromeColor = null)
+        bool darkWindowChrome = false, SKColor? windowChromeColor = null,
+        bool dpiAware = true, bool trackMonitorDpi = true)
     {
         _darkWindowChrome = darkWindowChrome;
         _windowChromeColor = windowChromeColor ?? new SKColor(0x20, 0x20, 0x20);
+        _dpiAware = dpiAware && WindowsDpiEnabled;
+        _trackMonitorDpi = trackMonitorDpi;
+        _logicalSize = new Vector2D<int>(width, height);
         _options = WindowOptions.Default with
         {
             Title = title,
@@ -314,15 +437,31 @@ public sealed class SkiaWindow : IDisposable
         _input = _window.CreateInput();
         foreach (var mouse in _input.Mice)
         {
+            // Every one of these normalises to logical client units FIRST (see ToLogicalClient):
+            // the host downstream only ever divides out the application's own present scale, and
+            // never learns which backend it is talking to.
             mouse.MouseDown += (m, btn) =>
             {
-                if (btn == MouseButton.Left) PointerDown?.Invoke(m.Position.X, m.Position.Y, NextClickCount(m.Position.X, m.Position.Y));
-                else if (btn == MouseButton.Right) RightPointerDown?.Invoke(m.Position.X, m.Position.Y);
+                var (x, y) = ToLogicalClient(m.Position.X, m.Position.Y);
+                if (btn == MouseButton.Left) PointerDown?.Invoke(x, y, NextClickCount(x, y));
+                else if (btn == MouseButton.Right) RightPointerDown?.Invoke(x, y);
             };
-            mouse.MouseUp += (m, btn) => { if (btn == MouseButton.Left) PointerUp?.Invoke(m.Position.X, m.Position.Y); };
-            mouse.MouseMove += (m, pos) => PointerMove?.Invoke(pos.X, pos.Y);
-            mouse.Scroll += (m, wheel) => PointerWheel?.Invoke(m.Position.X, m.Position.Y, wheel.Y,
-                _input.Keyboards.Any(Ctrl) ? KeyMods.Ctrl : KeyMods.None);
+            mouse.MouseUp += (m, btn) =>
+            {
+                if (btn != MouseButton.Left) return;
+                var (x, y) = ToLogicalClient(m.Position.X, m.Position.Y);
+                PointerUp?.Invoke(x, y);
+            };
+            mouse.MouseMove += (m, pos) =>
+            {
+                var (x, y) = ToLogicalClient(pos.X, pos.Y);
+                PointerMove?.Invoke(x, y);
+            };
+            mouse.Scroll += (m, wheel) =>
+            {
+                var (x, y) = ToLogicalClient(m.Position.X, m.Position.Y);
+                PointerWheel?.Invoke(x, y, wheel.Y, _input.Keyboards.Any(Ctrl) ? KeyMods.Ctrl : KeyMods.None);
+            };
         }
         foreach (var kb in _input.Keyboards)
         {
@@ -370,6 +509,39 @@ public sealed class SkiaWindow : IDisposable
                 if (ek != EditKey.None) EditKeyPressed?.Invoke(ek, mods);
             };
         }
+
+        // D, and the window's real size — LAST in OnLoad on purpose. The window was created at the
+        // app's size in LOGICAL units, which GLFW took as pixels, so on a scaled monitor it is
+        // currently too small; correcting it here makes it the physical size that logical size
+        // deserves. Setting Size fires the framebuffer-resize callback, which repaints synchronously
+        // (see OnFramebufferResize) — so this must come after everything a frame might touch is
+        // built, which is why it is not up beside the first FramebufferSize read.
+        _deviceScale = ReadDeviceScale();
+        _scale = new WindowScaleTracker(_logicalSize.X, _logicalSize.Y, _deviceScale);
+        if (_deviceScale != 1f)
+        {
+            _resizingForDpi = true;
+            try
+            {
+                var wanted = _scale.WantedPhysical;
+                _window.Size = new Vector2D<int>(wanted.Width, wanted.Height);
+                _fbSize = _window.FramebufferSize;
+            }
+            finally { _resizingForDpi = false; }
+            // Re-read: on macOS the ratio that produces D only settles once the window has its real
+            // size, and on Windows growing the window can cross a monitor boundary.
+            ApplyDpiResize(_scale.ObserveScale(ReadDeviceScale()));
+        }
+
+        // A monitor change is a MOVE before it is anything else, and GLFW delivers this throughout
+        // the drag — including from inside the modal loop that starves the render tick. Without it
+        // the window only caught up on mouse-release, which is the "it resizes when I let go"
+        // half of the report.
+        _window.Move += pos =>
+        {
+            DpiTrace.Callback("move", $"pos={pos.X},{pos.Y} read={ReadDeviceScale():0.###} cached={_deviceScale:0.###}");
+            PollDeviceScale();
+        };
     }
 
     private CupriFace.Style.CursorType _lastCursor = (CupriFace.Style.CursorType)(-1);
@@ -434,6 +606,20 @@ public sealed class SkiaWindow : IDisposable
     private void OnFramebufferResize(Vector2D<int> size)
     {
         _fbSize = size;
+
+        // Hand the resize to the tracker WITH a freshly-read scale. This callback is delivered from
+        // inside the OS modal loop — the same reason the repaint below exists — so it is often the
+        // first thing to witness a monitor change, arriving long before the frame tick gets a turn.
+        // Reading the scale here rather than trusting the cached one is what tells a user resize
+        // apart from a DPI transition; the previous version divided by the cached value and
+        // corrupted the logical size, intermittently, depending on which event won the race.
+        if (_scale is not null && !_resizingForDpi && _trackMonitorDpi)
+        {
+            var read = ReadDeviceScale();
+            DpiTrace.Callback("resize", $"fb={size.X}x{size.Y} read={read:0.###} cached={_deviceScale:0.###}");
+            ApplyDpiResize(_scale.ObserveFramebuffer(size.X, size.Y, read));
+        }
+        else DpiTrace.Callback("resize", $"fb={size.X}x{size.Y} (ours={_resizingForDpi})");
         // Surface is recreated lazily on the next frame at the new size.
         _surface?.Dispose(); _surface = null;
         _renderTarget?.Dispose(); _renderTarget = null;
@@ -486,6 +672,10 @@ public sealed class SkiaWindow : IDisposable
 
     private void OnRender(double deltaSeconds)
     {
+        // Before Tick, so anything the host does on the tick already sees the new scale. Polling
+        // rather than hooking WM_DPICHANGED: GLFW owns this window's procedure, and subclassing it
+        // to intercept one message is a far larger liability than one cheap query per frame.
+        PollDeviceScale();
         Tick?.Invoke();
 
         EnsureSurface();

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using CupriFace;
+using CupriFace.Hosting;
 using CupriFace.Interaction;
 
 namespace CupriFace.Shell;
@@ -12,13 +13,66 @@ namespace CupriFace.Shell;
 /// </summary>
 public static class DesktopHost
 {
+    /// <summary>
+    /// DIAGNOSTICS ONLY: the scale state the last drawn frame used — D, the framebuffer, the logical
+    /// client size and T. Exposed so a probe app can display what the host actually computed rather
+    /// than re-deriving it and agreeing with itself. Not a supported API for app logic: an app is
+    /// told its size through <see cref="CupriApp.Present"/>, in logical units, on purpose.
+    /// </summary>
+    public static HostScale FrameScale { get; private set; }
+
+    /// <summary>DIAGNOSTICS ONLY: what became of the Per-Monitor-V2 request at startup. "granted"
+    /// means this process established it; "already set" means a manifest or the app got there first
+    /// and won, which is correct behaviour rather than a failure.</summary>
+    public static string DpiAwareness { get; private set; } = "not requested (non-Windows)";
+
     /// <param name="app">The portable application definition.</param>
     /// <param name="configure">Host-composition hook, run once after the document is built —
     /// where desktop-only capabilities attach (e.g. <c>d =&gt; d.UseVideo(new WebmVideoBackend())</c>
     /// from the optional CupriFace.Media package). Kept OUT of <see cref="CupriApp.Configure"/> on
     /// purpose: the app class is shared with hosts that must not reference desktop codecs.</param>
     public static void Run(CupriApp app, Action<CupriDocument>? configure = null)
+        => Run(app, preferSoftware: false, configure: configure);
+
+    /// <summary>Run with an explicit software-rendering preference. On Windows, frameless
+    /// transparent apps use per-pixel layered presentation, bypassing WGL/DWM alpha issues.
+    /// GPU-only surface producers must provide their software fallback for this mode.</summary>
+    public static void Run(CupriApp app, bool preferSoftware, Action<CupriDocument>? configure = null)
+        => RunCore(app, preferSoftware, layeredGpu: false, configure: configure);
+
+    /// <summary>Windows-only GPU rendering with per-pixel alpha presentation. Draws on an
+    /// off-screen Skia GPU surface and reads changed frames back for UpdateLayeredWindow.
+    /// This is not zero-copy composition. Uses normal desktop rendering on other platforms
+    /// or for apps that are not transparent and frameless. The Windows layered path needs working GL.
+    /// CUPRIFACE_SOFTWARE=1 explicitly disables GPU rendering for troubleshooting.</summary>
+    public static void RunWithLayeredGpu(CupriApp app, Action<CupriDocument>? configure = null)
     {
+        if (!OperatingSystem.IsWindows() || !app.Transparent || !app.Frameless)
+        {
+            Console.WriteLine("[CupriFace] Layered GPU presentation requires Windows and a transparent, frameless app; using normal desktop rendering.");
+            Run(app, configure);
+            return;
+        }
+        RunCore(app, preferSoftware: false, layeredGpu: true, configure: configure);
+    }
+
+    private static void RunCore(CupriApp app, bool preferSoftware, bool layeredGpu, Action<CupriDocument>? configure)
+    {
+        // Per-Monitor-V2, before ANY window can exist — awareness is a process property that windows
+        // inherit at creation, so this is the only moment it can be declared. Ahead of the GL probe
+        // on purpose: the probe is a second process running this same line, and a probe window with
+        // different awareness to the real one is not the thing being probed.
+        //
+        // A REQUEST, not a demand: if the executable's manifest already declares an awareness, or
+        // the app set one before calling here, Windows refuses and that choice stands (#137).
+        if (OperatingSystem.IsWindows())
+        {
+            DpiAwareness = !app.DpiAware ? "off (CupriApp.DpiAware = false)"
+                : !WindowsDpi.Enabled ? "off (CUPRIFACE_DPI=0)"
+                : WindowsDpi.TryDeclarePerMonitorV2() ? "Per-Monitor-V2 (granted)"
+                : "already set by the app's manifest or the app itself — that choice wins";
+        }
+
         // The GL-probe child (see GlProbeSurvives): attempt GL bring-up, report via exit code,
         // never open the real window. Checked before anything else so the probe stays invisible.
         if (Environment.GetCommandLineArgs().Contains("--cupriface-gl-probe"))
@@ -45,7 +99,13 @@ public static class DesktopHost
         }
 
         var clock = Stopwatch.StartNew();
-        var scale = 1f; // current present scale, for transforming pointer coordinates
+        // The three scales, kept apart (#137). `scale` is P — the APPLICATION's factor, and the only
+        // one pointer coordinates need, because both windows now hand this host logical client units
+        // already. `effective` is T = D*P — the one the canvas, the surfaces, the damage rectangle
+        // and the accessibility geometry all use. `deviceScale` reads D off whichever window opened.
+        var scale = 1f;
+        var effective = 1f;
+        Func<float> deviceScale = () => 1f;
         var logicalW = 0f; var logicalH = 0f; // last presented logical size, for the a11y snapshot
         var lastRefresh = 0.0;
 
@@ -73,13 +133,22 @@ public static class DesktopHost
 
         void Draw(RenderContext ctx)
         {
-            var p = app.Present(ctx.Width, ctx.Height);
+            // The framebuffer is PHYSICAL pixels; the application is asked about the LOGICAL window
+            // it occupies. Handing an app framebuffer pixels was the bug: on a 150% monitor it laid
+            // out as though it had half again as much room, so everything came out physically small
+            // and did not keep its size when the window moved to another display (#137).
+            var host = HostScale.ForFramebuffer(ctx.Width, ctx.Height, deviceScale());
+            var p = app.Present(host.LogicalClientWidth, host.LogicalClientHeight);
             scale = p.Scale <= 0 ? 1f : p.Scale;
+            var resolved = host.WithPresentScale(scale);
+            effective = resolved.EffectiveScale;
+            FrameScale = resolved;                      // diagnostics; see the property
             logicalW = p.LogicalWidth; logicalH = p.LogicalHeight;
             // Tell surfaces what a logical pixel is worth before asking any of them to draw. A
             // producer that rasterises to order — a GL viewport — sizes its buffer from this, and
-            // without it renders at logical resolution and is upscaled into its box.
-            doc.Surfaces.DeviceScale = scale;
+            // without it renders at logical resolution and is upscaled into its box. It is T rather
+            // than P: the monitor's contribution is exactly as real as the application's.
+            doc.Surfaces.DeviceScale = effective;
 
             // GPU surface producers go FIRST, before a single command is recorded for this frame.
             // They issue raw GL on the same context Skia is about to use, so doing it mid-recording
@@ -96,7 +165,7 @@ public static class DesktopHost
                 doc.Animate(clock.Elapsed.TotalSeconds); // drive @keyframes (spinner) + CSS transitions
 
             ctx.Canvas.Save();
-            if (scale != 1f) ctx.Canvas.Scale(scale);
+            if (effective != 1f) ctx.Canvas.Scale(effective);
             doc.Render(ctx.Canvas, p.LogicalWidth, p.LogicalHeight);
             ctx.Canvas.Restore();
         }
@@ -105,7 +174,11 @@ public static class DesktopHost
         // the SDL software window, which renders the same pixels a little slower. The GL path's
         // known failure modes are handled these days (a broken GL stack raises an ordinary
         // exception and falls through to SDL below) — but an explicit override beats debugging.
-        var forceSoftware = Environment.GetEnvironmentVariable("CUPRIFACE_SOFTWARE") is "1" or "true" or "TRUE";
+        var forceSoftware = preferSoftware || Environment.GetEnvironmentVariable("CUPRIFACE_SOFTWARE") is "1" or "true" or "TRUE";
+        // The SDL window with a real GL context (#143): touch and GPU rendering together. Opt-in
+        // for now — making touchscreen machines pick it automatically is a policy decision, and
+        // CUPRIFACE_SOFTWARE stays the kill switch above it, so software always wins a tie.
+        var sdlGl = !forceSoftware && Environment.GetEnvironmentVariable("CUPRIFACE_SDL_GL") is "1" or "true" or "TRUE";
 
         // macOS with no OpenGL at all (the paravirtual GPU of virtualised Macs — CI runners, UTM
         // guests) kills the process NATIVELY inside GLFW before any managed guard can run: window
@@ -122,8 +195,8 @@ public static class DesktopHost
 
         try
         {
-            if (forceSoftware)
-                throw new InvalidOperationException("CUPRIFACE_SOFTWARE is set; skipping the GL window.");
+            if (forceSoftware || layeredGpu || sdlGl)
+                throw new InvalidOperationException("Software rendering requested; skipping the GL window.");
 
             var window = new SkiaWindow(
                 app.Title,
@@ -133,8 +206,15 @@ public static class DesktopHost
                 app.Frameless,
                 app.TopMost,
                 app.DarkWindowChrome,
-                app.Background);
+                app.Background,
+                app.DpiAware,
+                app.TrackMonitorDpi);
             if (icon is { } ic) window.SetIcon(ic.Rgba, ic.W, ic.H);
+            deviceScale = () => window.DeviceScale;
+            // A monitor change resizes every raster-backed surface and invalidates the retained
+            // frame: what was cached was rasterised for the old scale and is the wrong pixel count
+            // for the new one.
+            window.DeviceScaleChanged += _ => { doc.InvalidateRetainedFrame(); dirty = true; };
             window.ShouldRender = NeedsRender; // GL: skip draw + swap entirely on clean frames
             window.Render += Draw;
 
@@ -145,7 +225,10 @@ public static class DesktopHost
             // platform without a bridge, under its kill switch, or if attaching failed.
             using var a11y = new Accessibility.PlatformAccessibility(doc, () => dirty = true, app.Title);
             window.Tick += () => { if (a11y.Tick(() => OperatingSystem.IsMacOS() ? window.CocoaWindow : window.Win32Hwnd)) dirty = true; };
-            window.Render += _ => a11y.Publish(logicalW, logicalH, scale, window.ScreenPosition);
+            // T, not P: an AT is told where things are in PHYSICAL screen pixels, so the monitor's
+            // scale belongs in the same multiply the canvas used. Publishing P alone put every
+            // bounding rectangle at two-thirds size on a 150% display.
+            window.Render += _ => a11y.Publish(logicalW, logicalH, effective, window.ScreenPosition);
             using var tray = new WindowsTrayIcon(app.CloseToTray, app.Title, app.TrayCloseLabel);
             var topMost = app.TopMost;
             window.Tick += () =>
@@ -205,6 +288,8 @@ public static class DesktopHost
             };
             window.Shortcut += (ch, mods) => { Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             doc.ContextRequested += cmd => { ContextAction(doc, cmd, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
+            // A copy button (data-cupri-copy) supplies its own text rather than copying a selection.
+            doc.ClipboardWriteRequested += v => window.ClipboardText = v;
             doc.WindowCommandRequested += cmd => window.SetFullscreen(cmd switch
             {
                 WindowCommand.EnterFullscreen => true,
@@ -226,7 +311,13 @@ public static class DesktopHost
             // driverless machine when it was a harness forcing the software path, and a bare
             // "PlatformNotSupportedException" as a session limit when it was the trimmer removing
             // Silk.NET's backends (#125, #126). The line is the only witness a fallback leaves.
-            Console.WriteLine($"[CupriFace] GPU unavailable ({ex.GetType().Name}: {ex.Message}); using the SDL software window.");
+            Console.WriteLine(sdlGl
+                ? "[CupriFace] SDL window with a GL context requested (CUPRIFACE_SDL_GL=1): GPU rendering with touch."
+                : layeredGpu && !forceSoftware
+                ? "[CupriFace] Off-screen GPU rendering requested; using Windows layered presentation."
+                : forceSoftware
+                ? "[CupriFace] Software rendering requested; using the SDL software window."
+                : $"[CupriFace] GPU unavailable ({ex.GetType().Name}: {ex.Message}); using the SDL software window.");
             using var window = new SdlSoftwareWindow(
                 app.Title,
                 app.Width,
@@ -235,11 +326,18 @@ public static class DesktopHost
                 app.Frameless,
                 app.TopMost,
                 app.DarkWindowChrome,
-                app.Background);
+                app.Background,
+                app.DpiAware,
+                app.TrackMonitorDpi);
+            window.UseLayeredGpu = layeredGpu && !forceSoftware;
+            window.UseGl = sdlGl;
             if (icon is { } ic) window.SetIcon(ic.Rgba, ic.W, ic.H);
+            deviceScale = () => window.DeviceScale;
 
             // The retained surface was recreated (blank): the doc's damage diff must restart from
             // a full repaint, and the frame must actually render even if nothing else is dirty.
+            // A monitor change goes through here too — PollDeviceScale recreates the surface at the
+            // new pixel size, so the same invalidation covers both.
             window.SurfaceRecreated += () => { doc.InvalidateRetainedFrame(); dirty = true; };
 
             // The same bridge on the software window — this is the path GL-less machines (RDP,
@@ -262,19 +360,53 @@ public static class DesktopHost
             // Commit-snapshot render thread (opt-in): build the display list on this UI thread and let
             // a background thread rasterise it; present the latest completed frame each vsync. Targets
             // the physical surface (scale 1), so it composes with the responsive present.
-            using var presenter = app.ThreadedRender ? new CupriFace.Threading.ThreadedPresenter() : null;
+            // ThreadedRender rasterises on a background thread into the CPU bitmap; the layered GPU
+            // path draws on the GL context and reads back on this thread, so the two cannot both own
+            // the frame. Saying so beats dropping an opt-in silently — an ignored setting is
+            // indistinguishable from a broken one, which is how #137's ThreadedRender bug survived.
+            if (app.ThreadedRender && (window.UseLayeredGpu || window.UseGl))
+                Console.WriteLine("[CupriFace] ThreadedRender is ignored under layered GPU presentation; "
+                    + "drawing stays on the UI thread.");
+            using var presenter = app.ThreadedRender && !window.UseLayeredGpu && !window.UseGl ? new CupriFace.Threading.ThreadedPresenter() : null;
             void DrawThreaded(RenderContext ctx)
             {
                 presenter!.Present(ctx.Canvas); // draw the previous frame the render thread finished
                 if (app.RefreshIntervalSeconds > 0 && clock.Elapsed.TotalSeconds - lastRefresh >= app.RefreshIntervalSeconds)
                 { lastRefresh = clock.Elapsed.TotalSeconds; doc.Refresh(); }
                 if (doc.HasAnimations || doc.HasActiveTransitions) doc.Animate(clock.Elapsed.TotalSeconds);
-                var list = doc.BuildFrame(ctx.Width, ctx.Height);
-                presenter.Submit(list, ctx.Width, ctx.Height, app.Transparent ? SkiaSharp.SKColors.Transparent : app.Background);
-                a11y.Publish(ctx.Width, ctx.Height, 1f, window.ScreenPosition);  // threaded path presents at scale 1
+
+                // This path used never to call app.Present at all — so it ignored Hybrid and Zoom as
+                // well as DPI, and published accessibility geometry at a hard-coded scale 1. It now
+                // computes exactly what the inline paths do; only the rasterisation is elsewhere.
+                var host = HostScale.ForFramebuffer(ctx.Width, ctx.Height, deviceScale());
+                var p = app.Present(host.LogicalClientWidth, host.LogicalClientHeight);
+                scale = p.Scale <= 0 ? 1f : p.Scale;
+                var resolved = host.WithPresentScale(scale);
+                effective = resolved.EffectiveScale;
+                FrameScale = resolved;
+                doc.Surfaces.DeviceScale = effective;
+
+                // The list is built in LOGICAL units and the render thread scales it into the device
+                // surface, so the glyphs are rasterised at the size they are shown at.
+                var list = doc.BuildFrame(p.LogicalWidth, p.LogicalHeight);
+                presenter.Submit(list, ctx.Width, ctx.Height,
+                                 app.Transparent ? SkiaSharp.SKColors.Transparent : app.Background, effective);
+                a11y.Publish(p.LogicalWidth, p.LogicalHeight, effective, window.ScreenPosition);
             }
 
-            if (presenter is not null)
+            if (window.UseLayeredGpu || window.UseGl)
+            {
+                // Reuse the GL host's draw contract, including same-context GPU surface producers.
+                // The retained GPU surface and bitmap make expose-only frames free of readback.
+                window.RenderIncrementalFrame = ctx =>
+                {
+                    if (!NeedsRender()) return null;
+                    Draw(ctx);
+                    a11y.Publish(logicalW, logicalH, effective, window.ScreenPosition);
+                    return new SkiaSharp.SKRectI(0, 0, ctx.Width, ctx.Height);
+                };
+            }
+            else if (presenter is not null)
                 window.Render += DrawThreaded; // threaded path keeps its own pipeline (no damage/skip)
             else
             {
@@ -283,8 +415,15 @@ public static class DesktopHost
                 window.RenderIncrementalFrame = ctx =>
                 {
                     if (!NeedsRender()) return null;
-                    var p = app.Present(ctx.Width, ctx.Height);
+                    // Same split as the GL path: the app is asked about its LOGICAL window, and the
+                    // canvas, the damage rect and the a11y geometry all use T = D*P (#137).
+                    var host = HostScale.ForFramebuffer(ctx.Width, ctx.Height, deviceScale());
+                    var p = app.Present(host.LogicalClientWidth, host.LogicalClientHeight);
                     scale = p.Scale <= 0 ? 1f : p.Scale;
+                    var resolved = host.WithPresentScale(scale);
+                    effective = resolved.EffectiveScale;
+                    FrameScale = resolved;
+                    doc.Surfaces.DeviceScale = effective;
                     if (doc.HasAnimations || doc.HasActiveTransitions) doc.Animate(clock.Elapsed.TotalSeconds);
                     var bg = app.Transparent ? SkiaSharp.SKColors.Transparent : app.Background;
 
@@ -293,14 +432,14 @@ public static class DesktopHost
                     // converting to device pixels. Previously any scale but 1 repainted in full,
                     // which on a HiDPI or fractionally-scaled display is every frame (#99).
                     ctx.Canvas.Save();
-                    if (scale != 1f) ctx.Canvas.Scale(scale);
+                    if (effective != 1f) ctx.Canvas.Scale(effective);
                     var logical = doc.RenderIncremental(ctx.Canvas, p.LogicalWidth, p.LogicalHeight, bg);
                     ctx.Canvas.Restore();
                     SkiaSharp.SKRectI? damage = logical is { } lg
-                        ? CupriDocument.ScaleDamageToDevice(lg, scale, ctx.Width, ctx.Height)
+                        ? CupriDocument.ScaleDamageToDevice(lg, effective, ctx.Width, ctx.Height)
                         : null;
                     // A drawn frame is the moment the tree is laid out and current — publish then.
-                    if (damage is not null) a11y.Publish(p.LogicalWidth, p.LogicalHeight, scale, window.ScreenPosition);
+                    if (damage is not null) a11y.Publish(p.LogicalWidth, p.LogicalHeight, effective, window.ScreenPosition);
                     return damage;
                 };
             }
@@ -312,6 +451,12 @@ public static class DesktopHost
                 window.SetCursor(doc.CursorAt(logicalX, logicalY));
             };
             window.RightPointerDown += (x, y) => Mark(doc.DispatchContextMenu(x / scale, y / scale));
+            // Touch (#143). Only the SDL window can carry this: GLFW exposes no touch API at
+            // all, which is why a tap reaches nothing on a Wayland desktop today — X11 emulates a
+            // core pointer from touch and Wayland does not, so one build looks fine in a desktop
+            // session and is inert in Game Mode.
+            window.TouchPointer += (pointerId, phase, x, y) =>
+                Mark(DesktopFinger(doc, pointerId, phase, x / scale, y / scale));
             window.PointerMove += (x, y) =>
             {
                 var logicalX = x / scale;
@@ -349,6 +494,8 @@ public static class DesktopHost
             };
             window.Shortcut += (ch, mods) => { Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             doc.ContextRequested += cmd => { ContextAction(doc, cmd, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
+            // A copy button (data-cupri-copy) supplies its own text rather than copying a selection.
+            doc.ClipboardWriteRequested += v => window.ClipboardText = v;
             doc.WindowCommandRequested += cmd => window.SetFullscreen(cmd switch
             {
                 WindowCommand.EnterFullscreen => true,
@@ -368,18 +515,49 @@ public static class DesktopHost
 
     // Raw-pointer elements get first refusal so a desktop mouse can drive the same captured hold /
     // drag interactions as touch. Everything else keeps the ordinary click/hover/drag path.
-    private static bool DesktopPointerDown(CupriDocument doc, float x, float y, int clickCount) =>
-        doc.DispatchPointer(0, PointerPhase.Down, x, y) || doc.DispatchClick(x, y, clickCount);
+    //
+    // The pointer id is a PARAMETER rather than the constant 0 it used to be, because a finger is
+    // not the mouse and several can be down at once (#143). The mouse keeps 0 for ever; fingers get
+    // 1 upwards from the window. Passing 0 for a finger would make two fingers one pointer, and
+    // capture would then be handed back and forth between them.
+    // EVERY phase goes through DispatchPointer first — including a pointer nothing owns, and
+    // including the lift. That is not tidiness: an uncaptured pointer is exactly what the engine's
+    // page-zoom tracker follows, and the ONLY thing that retires a finger from that set is seeing
+    // its Up. Routing an uncaptured lift straight to the single-pointer path (which is what the
+    // capture check used to do) leaves the finger on the page's books for ever. Two taps then look
+    // like two fingers, the next press starts a "pinch" against a meaningless baseline, and the
+    // page zooms away under the user — measured on a Steam Deck as "any kind of drag, even
+    // accidental, massively zooms in". It bit the mouse too: a click left pointer 0 on the books,
+    // so one later finger was enough to make a phantom pair.
+    //
+    // When the engine declines, the ordinary click/hover/drag path still runs, so nothing that
+    // worked before changes.
+    private static bool DesktopPointerDown(CupriDocument doc, float x, float y, int clickCount, int pointerId = 0) =>
+        doc.DispatchPointer(pointerId, PointerPhase.Down, x, y) || doc.DispatchClick(x, y, clickCount);
 
-    private static bool DesktopPointerMove(CupriDocument doc, float x, float y) =>
-        doc.IsPointerCaptured(0)
-            ? doc.DispatchPointer(0, PointerPhase.Move, x, y)
-            : doc.DispatchPointerMove(x, y);
+    private static bool DesktopPointerMove(CupriDocument doc, float x, float y, int pointerId = 0) =>
+        doc.DispatchPointer(pointerId, PointerPhase.Move, x, y) || doc.DispatchPointerMove(x, y);
 
-    private static bool DesktopPointerUp(CupriDocument doc, float x, float y) =>
-        doc.IsPointerCaptured(0)
-            ? doc.DispatchPointer(0, PointerPhase.Up, x, y)
-            : doc.DispatchPointerUp(x, y);
+    private static bool DesktopPointerUp(CupriDocument doc, float x, float y, int pointerId = 0) =>
+        doc.DispatchPointer(pointerId, PointerPhase.Up, x, y) || doc.DispatchPointerUp(x, y);
+
+    /// <summary>
+    /// One finger from the SDL window (#143).
+    ///
+    /// <para>A tap goes through the same door a click does — raw pointer first, then the ordinary
+    /// click path — so a control that works with a mouse works with a finger and nothing needs a
+    /// touch-specific branch. What differs is the id, and that only the FIRST finger drives hover
+    /// and the cursor: a second finger is part of a gesture, not a second mouse, and moving the
+    /// cursor to it would fight the first.</para>
+    /// </summary>
+    private static bool DesktopFinger(CupriDocument doc, int pointerId, PointerPhase phase, float x, float y) =>
+        phase switch
+        {
+            // A finger taps (touch-adjusted); only the mouse clicks exactly where it points.
+            PointerPhase.Down => doc.DispatchPointer(pointerId, PointerPhase.Down, x, y) || doc.DispatchTap(x, y),
+            PointerPhase.Move => DesktopPointerMove(doc, x, y, pointerId),
+            _ => DesktopPointerUp(doc, x, y, pointerId),
+        };
 
     // Launch ourselves with --cupriface-gl-probe and read the verdict off the exit code: 0 means the
     // child brought GL up end to end; anything else — a managed throw, a native SIGSEGV, a hang —

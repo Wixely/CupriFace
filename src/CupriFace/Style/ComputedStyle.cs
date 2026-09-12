@@ -105,6 +105,11 @@ public sealed class ComputedStyle
     // Animation
     public string? AnimationName;
     public float AnimationDuration; // seconds
+    public float AnimationDelay;    // seconds; negative starts part-way through, as in CSS
+    public float AnimationIterations = 1f; // CSS default: once; `infinite` is +∞
+    public bool AnimationFillForwards;  // hold the last frame after the run
+    public bool AnimationFillBackwards; // show the first frame during the delay
+    internal AnimationBase? AnimBase;    // the values a keyframe overrides, captured before its first frame
 
     // Transitions (NOT inherited — deliberately absent from InheritFrom). Null unless the element
     // declares `transition`. Each entry animates one paint property when its target value changes.

@@ -148,9 +148,11 @@ An honest list, because it's a long one and it decides real projects:
   the platform-integration surface a real app needs. CupriFace's Android host
   is weeks old, renders the UI and handles touch/IME/TalkBack — and offers no
   platform APIs at all (no sensors, permissions, pickers or notifications).
-- **Desktop-OS integration.** Multi-window, native menus, tray icons, system
-  dialogs, drag-and-drop with the OS, per-monitor DPI — Avalonia has the
-  mature story. CupriFace today is one window per app with a young shell.
+- **Desktop-OS integration.** Multi-window, native menus, system dialogs and
+  drag-and-drop with the OS — Avalonia has the mature story. CupriFace today is
+  one window per app with a young shell; it does now have a tray icon and
+  Per-Monitor-V2 DPI with monitor-transition handling on both its windows, but
+  that is a young implementation against Avalonia's soaked one.
 - **Accessibility maturity.** Both now cover the three desktops; CupriFace adds
   TalkBack on Android, and each of its four bridges is gated in CI by a real AT
   client (FlaUI, pyatspi, pyobjc, uiautomator). Avalonia's have years of soak

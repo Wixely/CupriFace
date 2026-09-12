@@ -8,6 +8,7 @@ using CupriFace.Dom;
 using CupriFace.Interaction;
 using CupriFace.Layout;
 using CupriFace.Paint;
+using CupriFace.Resources;
 using CupriFace.Style;
 using CupriFace.Text;
 using SkiaSharp;
@@ -176,6 +177,18 @@ public sealed partial class CupriDocument : IDisposable
     /// (via <see cref="CopySelection"/>/<see cref="CutSelection"/>/<see cref="DispatchKey"/> +
     /// its own clipboard), keeping platform clipboard code out of the engine.</summary>
     public event Action<Interaction.ContextCommand>? ContextRequested;
+
+    /// <summary>
+    /// The document asks its host to put text on the clipboard — raised by a control carrying
+    /// <c>data-cupri-copy</c>, such as the copy button on a <c>&lt;cupri-markdown&gt;</c> code block.
+    ///
+    /// <para>Separate from <see cref="ContextRequested"/> because that copies the SELECTION, and a
+    /// copy button copies a specific string the user never selected. Every host already has a
+    /// clipboard-write path for the context menu; this is the same path reached with text supplied
+    /// rather than derived. A host that does not subscribe simply does not copy — so if you are
+    /// writing a host, wire this alongside <c>ContextCommand.Copy</c>.</para>
+    /// </summary>
+    public event Action<string>? ClipboardWriteRequested;
 
     /// <summary>Raised when a link (<c>&lt;a href&gt;</c>) is activated with a non-anchor href (see
     /// <see cref="Interaction.NavigateEvent"/>). In-page <c>#anchor</c> links are scrolled into view by the
@@ -517,14 +530,121 @@ public sealed partial class CupriDocument : IDisposable
         return this;
     }
 
-    /// <summary>Register a font from raw TTF/OTF bytes (e.g. an embedded resource). Registered faces
-    /// are consulted before platform fonts, and the first registered family becomes the target of the
-    /// generic families (<c>sans-serif</c> etc.) — essential in the browser, where the wasm Skia build
-    /// embeds only a monospace face. Register each style you use (Regular, Bold, …) before rendering.</summary>
+    /// <summary>Register a font from raw TTF/OTF/TTC or WOFF 1 bytes (e.g. an embedded resource).
+    /// Registered faces are consulted before platform fonts, and the first registered family becomes
+    /// the target of the generic families (<c>sans-serif</c> etc.) — essential in the browser, where
+    /// the wasm Skia build embeds only a monospace face. Register each style you use (Regular, Bold, …)
+    /// before rendering. A stylesheet's <c>@font-face</c> rules do the same thing declaratively.</summary>
     public CupriDocument LoadFont(byte[] fontData)
     {
         _fonts.RegisterFont(fontData);
         return this;
+    }
+
+    /// <summary>Register a font from a <see cref="CupriSource"/> — embedded resource, file, or URL.</summary>
+    public CupriDocument LoadFont(CupriSource source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        _fonts.RegisterFont(source.ReadBytes());
+        return this;
+    }
+
+    /// <summary>Register a font by the same kind of <c>src</c> an image takes: a bare embedded-resource
+    /// path (resolved against the <see cref="UseImages"/> assembly), a file path or <c>file:</c> URL, a
+    /// <c>data:</c> URI, or an <c>https:</c> URL under the image URL policy.</summary>
+    public CupriDocument LoadFont(string src)
+    {
+        var bytes = Resources.SourceResolver.Load(src, _sourceAssembly, _images.UrlOptions)
+                    ?? throw new Resources.CupriResourceException($"Font source '{src}' could not be loaded.");
+        _fonts.RegisterFont(bytes);
+        return this;
+    }
+
+    /// <summary>Register every font file in a directory (<c>.ttf</c>, <c>.otf</c>, <c>.ttc</c>,
+    /// <c>.woff</c>; a <c>.woff2</c> is noted in <see cref="FontReport"/> rather than loaded). The
+    /// files' own family/weight/style names are used — the way an OS installs a fonts folder.</summary>
+    public CupriDocument LoadFonts(string directory, bool recursive = false)
+    {
+        var opt = recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+        var files = Directory.EnumerateFiles(directory, "*.*", opt)
+            .Where(f => Path.GetExtension(f).ToLowerInvariant() is ".ttf" or ".otf" or ".ttc" or ".woff" or ".woff2")
+            .OrderBy(f => f, StringComparer.Ordinal); // a stable order: the first family registered becomes the sans default
+        foreach (var file in files)
+        {
+            try { _fonts.RegisterFont(File.ReadAllBytes(file)); }
+            catch (Exception ex) when (ex is NotSupportedException or ArgumentException)
+            {
+                _fontProblems.Add(new FontFaceProblem(Path.GetFileName(file), [file], ex.Message));
+            }
+        }
+        return this;
+    }
+
+    /// <summary>See <see cref="Text.FontPolicy"/>. Set <see cref="Text.FontPolicy.RegisteredOnly"/> for
+    /// output that must not depend on the machine (the same layout on every platform; the same
+    /// pixels within one).</summary>
+    public FontPolicy FontPolicy
+    {
+        get => _fonts.Policy;
+        set => _fonts.Policy = value;
+    }
+
+    /// <summary>What the document's text resolved to, and any <c>@font-face</c> or font file that
+    /// could not be loaded. Under <see cref="Text.FontPolicy.Platform"/> the resolutions marked
+    /// <see cref="FontSource.Platform"/> or <see cref="FontSource.Default"/> are the machine-dependent ones.</summary>
+    public FontReport FontReport
+    {
+        get { EnsureFontFaces(); return new(_fonts.Resolutions, _fonts.RegisteredFamilies, _fontProblems.ToList()); }
+    }
+
+    /// <summary>Remote image loads still in flight. Zero means every frame from now on is complete.</summary>
+    public int PendingLoads => _images.PendingCount;
+
+    /// <summary>True when no resource load is pending — the frame a render would produce now has
+    /// nothing missing from it.</summary>
+    public bool IsLoaded => _images.PendingCount == 0;
+
+    private readonly List<FontFaceProblem> _fontProblems = new();
+    private List<FontFaceRule>? _fontFaceRules;   // parsed with the cached rules
+    private bool _fontFacesLoaded = true;         // false while parsed rules await the first layout
+    private readonly HashSet<string> _loadedFaces = new(StringComparer.Ordinal); // family+url, so a rule re-cache does not re-register
+
+    // Text is measured in layout, so this is the last moment a face can arrive; every layout entry
+    // point calls it. A no-op after the first time (and always, for a document with no @font-face).
+    private void EnsureFontFaces()
+    {
+        if (_fontFacesLoaded) return;
+        _fontFacesLoaded = true;
+        LoadFontFaces();
+    }
+
+    private void LoadFontFaces()
+    {
+        foreach (var rule in _fontFaceRules ?? [])
+        {
+            if (!_loadedFaces.Add(rule.Family + "\n" + string.Join("\n", rule.Sources.Select(x => x.Url)))) continue;
+            Exception? last = null;
+            var loaded = false;
+            foreach (var src in rule.Sources)
+            {
+                try
+                {
+                    var bytes = Resources.SourceResolver.Load(src.Url, _sourceAssembly, _images.UrlOptions);
+                    if (bytes is null) { last = new Resources.CupriResourceException($"'{src.Url}' could not be loaded."); continue; }
+                    _fonts.RegisterFont(bytes, rule.Family, rule.WeightMin, rule.WeightMax, rule.Slant);
+                    loaded = true;
+                    break;
+                }
+                catch (Exception ex) { last = ex; }
+            }
+            if (loaded) continue;
+            var problem = new FontFaceProblem(rule.Family, rule.Sources.Select(x => x.Url).ToList(), last?.Message ?? "no url() source");
+            _fontProblems.Add(problem);
+            // Under Platform the family falls to the machine, as it would in a browser; under
+            // RegisteredOnly there is nothing to fall to, so say so now rather than at first paint.
+            if (_fonts.Policy == FontPolicy.RegisteredOnly)
+                throw new Resources.CupriResourceException($"@font-face \"{rule.Family}\" could not be loaded ({problem.Reason}), and the font policy is RegisteredOnly.", last);
+        }
     }
 
     /// <summary>Re-apply bindings with the current model (call after model changes).</summary>
@@ -644,6 +764,15 @@ public sealed partial class CupriDocument : IDisposable
             foreach (var styleEl in dom.QuerySelectorAll("style"))
                 foreach (var (k, frames) in Animation.Parse(styleEl.TextContent)) kf[k] = frames;
 
+            // @font-face rules: same immutable sources, same one-time parse. They are LOADED at the
+            // first layout rather than here: Load() rebuilds before UseImages has named the assembly
+            // an embedded font resolves against, and before the app has chosen a font policy.
+            var faceCss = new List<string?> { _css };
+            if (_components is not null) faceCss.Add(_components.AggregatedCss);
+            foreach (var styleEl in dom.QuerySelectorAll("style")) faceCss.Add(styleEl.TextContent);
+            _fontFaceRules = faceCss.SelectMany(FontFace.Parse).ToList();
+            _fontFacesLoaded = _fontFaceRules.Count == 0;
+
             _cachedRules = rules;
             _cachedKeyframes = kf;
             _hasMedia = rules.Exists(r => r.Media is not null);
@@ -690,6 +819,7 @@ public sealed partial class CupriDocument : IDisposable
         }
         Mark("style+tree");
         _hasActiveAnim = _keyframes.Count > 0 && AnyAnimated(_root);
+        _animRunning = true; // until Animate says the last finite animation has ended
     }
 
     // Per-node interaction state preserved across a rebuild, keyed by structural path (child-index
@@ -814,7 +944,13 @@ public sealed partial class CupriDocument : IDisposable
         if (_toasts.Count > 0 && StepToasts(timeSeconds)) any = true;
         // @keyframes RULES existing is not animation HAPPENING: hosts call Animate whenever rules
         // exist (HasAnimations), but only a visibly animated node makes this frame's output differ.
-        if (_keyframes.Count > 0) { Animation.Apply(_root, _keyframes, timeSeconds); if (_hasActiveAnim) any = true; }
+        if (_keyframes.Count > 0)
+        {
+            // A finite animation that has run its iterations stops driving frames (a `forwards`
+            // fill holds its last frame); a host polling HasActiveAnimations goes idle with it.
+            _animRunning = Animation.Apply(_root, _keyframes, timeSeconds);
+            if (_hasActiveAnim && _animRunning) any = true;
+        }
         if (_transitions.Apply(_root, timeSeconds)) any = true; // interpolate transitions over @keyframes
         if (_maskRevealPos >= 0) // a masked field is peeking its last-typed char — time it out
         {
@@ -853,8 +989,9 @@ public sealed partial class CupriDocument : IDisposable
     /// set only changes when the tree does), so a host may poll it every frame for free. Also true
     /// while a masked field peeks its last-typed char (see <see cref="HasActiveTransitions"/>),
     /// and while any live surface (a playing video) is producing frames.</summary>
-    public bool HasActiveAnimations => _hasActiveAnim || _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || Surfaces.AnyTicking || FlingActive || OverscrollActive;
+    public bool HasActiveAnimations => (_hasActiveAnim && _animRunning) || _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || Surfaces.AnyTicking || FlingActive || OverscrollActive;
     private bool _hasActiveAnim;
+    private bool _animRunning = true;
 
     private static bool AnyAnimated(RenderNode n)
     {
@@ -1273,6 +1410,7 @@ public sealed partial class CupriDocument : IDisposable
             _viewportHeight = height;
             Rebuild();
         }
+        EnsureFontFaces();
         _layout.Layout(_root, width, height);
         CaptureVirtualHeights(_root); // measured pitches + scroll anchoring, before anything reads offsets
         _laidOutWidth = width; _laidOutHeight = height; _layoutDirty = false;
@@ -1438,8 +1576,14 @@ public sealed partial class CupriDocument : IDisposable
         // textarea AND for a single-line field whose long value has soft-wrapped to several rows.
         var rows = BuildTextRows(anchor, value);
         var target = RowForCaret(rows, caret);
-        var col = Math.Clamp(caret - target.Start, 0, target.Text.Length);
-        var cx = target.X + _fonts.MeasureText(anchor.Style, target.Text[..col]);
+        // Measure the LOGICAL text from the row's start to the caret — not the laid-out row's text.
+        // Line layout drops trailing whitespace (correct for prose: a line does not end in a visible
+        // gap), so a caret after "abc  " measured against the painted row measures "abc" and never
+        // leaves the last non-space glyph. The value keeps its spaces; only the painted line does
+        // not, and typing a space at the end of a field must still move the caret.
+        var from = Math.Clamp(target.Start, 0, value.Length);
+        var to = Math.Clamp(caret, from, value.Length);
+        var cx = target.X + _fonts.MeasureText(anchor.Style, value[from..to]);
         var cy = target.Y + (target.Height - ch) / 2f;
         return (cx, cy, 2f, ch);
     }
@@ -1704,6 +1848,7 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>Build the committed display-list snapshot without rasterising (the seam).</summary>
     public DisplayList BuildDisplayList(float width, float height)
     {
+        EnsureFontFaces();
         _layout.Layout(_root, width, height);
         return _painter.Build(_root);
     }
@@ -2028,6 +2173,7 @@ public sealed partial class CupriDocument : IDisposable
     private void EnsureLaidOut()
     {
         if (!_layoutDirty || _laidOutWidth <= 0 || _laidOutHeight <= 0) return;
+        EnsureFontFaces();
         _layout.Layout(_root, _laidOutWidth, _laidOutHeight);
         _layoutDirty = false;
     }
@@ -2112,6 +2258,7 @@ public sealed partial class CupriDocument : IDisposable
         || el.LocalName is "a" or "button"
         || el.HasAttribute("data-set-path") || el.HasAttribute("data-set-toggle")
         || el.HasAttribute("data-cupri-toggle") || el.HasAttribute("data-cupri-dismiss")
+        || el.HasAttribute("data-cupri-copy")
         || el.HasAttribute("data-cupri-step")
         || _actionHandlers.Exists(h => el.HasAttribute(h.Attr))
         || _clickHandlers.Exists(h => Matches(el, h.Compiled));
@@ -2156,6 +2303,7 @@ public sealed partial class CupriDocument : IDisposable
         float w = width / _zoom, h = height / _zoom;   // same division BuildFrame performs
         if (_layoutDirty || _laidOutWidth != w || _laidOutHeight != h)
         {
+            EnsureFontFaces();
             _layout.Layout(_root, w, h);
             _laidOutWidth = w;
             _laidOutHeight = h;
@@ -2278,7 +2426,7 @@ public sealed partial class CupriDocument : IDisposable
     /// bound model, and refresh. Returns true if anything handled it (→ needs repaint).
     /// </summary>
     public bool DispatchClick(float x, float y, int clickCount = 1) => Bump(DispatchClickCore(Zc(x), Zc(y), clickCount));
-    private bool DispatchClickCore(float x, float y, int clickCount)
+    private bool DispatchClickCore(float x, float y, int clickCount, float adjustRadius = 0f)
     {
         EnsureLaidOut();
         _textDrag = false;
@@ -2308,6 +2456,9 @@ public sealed partial class CupriDocument : IDisposable
         }
 
         var hit = HitTesting.HitTest(_root, x, y);
+        // A finger that missed by a little is moved onto what it meant (CupriDocument.Touch.cs).
+        // Zero for a mouse, which means what it points at.
+        if (adjustRadius > 0) (hit, x, y) = AdjustForTouch(hit, x, y, adjustRadius);
 
         // Click-away: close any open bound-flag popup (picker/select/popover) the click landed outside.
         // Doesn't consume the click, so it still does its normal thing; the refresh below applies it.
@@ -2712,6 +2863,14 @@ public sealed partial class CupriDocument : IDisposable
                 return BindingEngine.TrySet(_model, togPath, string.Join(",", set));
             }
 
+            // Put this element's text on the host clipboard. The engine has no clipboard of its
+            // own — every host has a different one — so it asks, through the event below.
+            if (el.GetAttribute("data-cupri-copy") is { Length: > 0 } copy)
+            {
+                ClipboardWriteRequested?.Invoke(copy);
+                return true;
+            }
+
             // Overlay open/close: dismiss (backdrop/outside) and trigger toggle.
             if (el.HasAttribute("data-cupri-dismiss")) return SetNearestOpen(node, false);
             if (el.HasAttribute("data-cupri-toggle")) return ToggleNearestOpen(node);
@@ -2765,6 +2924,7 @@ public sealed partial class CupriDocument : IDisposable
                                 or "textbox" or "spinbutton" or "button"
         || (el.LocalName == "a" && el.HasAttribute("href"))
         || el.HasAttribute("data-cupri-toggle")
+        || el.HasAttribute("data-cupri-copy")
         || el.HasAttribute("data-set-path")
         || el.HasAttribute("data-set-toggle")
         || el.HasAttribute("data-cupri-step");
@@ -4891,6 +5051,88 @@ public sealed partial class CupriDocument : IDisposable
 
     private static bool Matches(IElement el, AngleSharp.Css.Dom.ISelector? compiled) =>
         compiled is not null && compiled.Match(el, null);
+
+    /// <summary>
+    /// The laid-out render tree as indented text: what each node IS, and where it ended up.
+    ///
+    /// <code>
+    /// body                    0,0    320x190
+    ///   div.panel             14,14  292x44
+    ///     div.row             20,20  280x26   "Alpha"
+    /// </code>
+    ///
+    /// <para><b>Why text as well as a picture.</b> A screenshot shows you THAT something is wrong;
+    /// this shows you WHAT. A card that renders as nothing is a blank rectangle in an image and a
+    /// <c>292x0</c> in one line here — and a blank rectangle has many possible causes while a zero
+    /// height has one. It is also greppable, diffable between two runs, and cheap to assert on in a
+    /// unit test, none of which an image is.</para>
+    ///
+    /// <para>Coordinates are ABSOLUTE, so the numbers are the ones to hand to
+    /// <see cref="DispatchClick"/> — the dump tells you where to click as well as what is there.
+    /// Call it after <see cref="Refresh"/> and at least one render, or every box reads 0x0 because
+    /// nothing has been laid out yet.</para>
+    /// </summary>
+    /// <param name="maxDepth">Stop descending past this depth (0 = no limit). A deep component
+    /// expands into a lot of primitives; 3 or 4 is usually the level a person is thinking at.</param>
+    /// <param name="includeText">Include text nodes. Off gives you the box structure alone.</param>
+    public string DumpTree(int maxDepth = 0, bool includeText = true)
+    {
+        var sb = new System.Text.StringBuilder();
+        Walk(_root, 0, 0, 0);
+        return sb.ToString().TrimEnd();
+
+        void Walk(RenderNode n, int depth, float ox, float oy)
+        {
+            var x = ox + n.X;
+            var y = oy + n.Y;
+            if (n.IsText && !includeText) return;
+            if (maxDepth <= 0 || depth <= maxDepth)
+            {
+                var label = new string(' ', depth * 2) + Describe(n);
+                sb.Append(label.PadRight(Math.Max(34, label.Length + 1)))
+                  .Append($"{x:0},{y:0}".PadRight(12))
+                  .Append($"{n.Width:0}x{n.Height:0}");
+                // The two shapes that explain most "why is nothing there": a box with no height, and
+                // content that does not fit the box it was given. Flagged inline because the whole
+                // point of the dump is to answer that question without a second tool.
+                // The SAME predicate the doctor uses (BoxOverflow), not a private restatement of it:
+                // the first version of this line was a restatement, lacked the inline exclusion,
+                // and flagged every link in every paragraph as an empty box.
+                if (Diagnostics.BoxOverflow.IsEmptyBoxWithContent(n))
+                    sb.Append("   << EMPTY BOX, has visible content");
+                else if (Diagnostics.BoxOverflow.Overshoot(n) is { } over)
+                    sb.Append($"   << CONTENT OVERFLOWS by {over:0}px");
+                // '\n', not AppendLine: this output exists to be diffed between runs and parsed by
+                // whatever is reading it, and Environment.NewLine would make the same tree differ
+                // between Windows and Linux by line endings alone — and leave a trailing '\r' on
+                // every token for anyone splitting on '\n', which is what a reader naturally does.
+                sb.Append('\n');
+            }
+            if (maxDepth > 0 && depth >= maxDepth) return;
+            // No inset added on the way down: a child's X/Y already include the parent's padding
+            // and border (they are border-box-relative — see HitTesting.AbsoluteBox, which sums
+            // them the same way). The first version added the content inset as well and printed
+            // every child under a padded parent too far in by that inset, so the coordinates it
+            // offered for DispatchClick were wrong exactly where a small target made it matter.
+            foreach (var c in n.Children)
+                Walk(c, depth + 1, x, y);
+        }
+
+        static string Describe(RenderNode n)
+        {
+            if (n.IsText)
+            {
+                var t = n.Text!.Replace("\n", " ").Trim();
+                if (t.Length > 30) t = t[..29] + "…";
+                return $"\"{t}\"";
+            }
+            var name = n.Tag.Length > 0 ? n.Tag : "?";
+            if (n.Element?.Id is { Length: > 0 } id) name += "#" + id;
+            if (n.Element?.GetAttribute("class") is { Length: > 0 } cls)
+                name += "." + cls.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0];
+            return name;
+        }
+    }
 
     /// <summary>Convenience CPU-raster render to an image (headless/tests).</summary>
     public SKImage RenderToImage(int width, int height, SKColor? clear = null)

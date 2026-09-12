@@ -106,6 +106,11 @@ public static class WebHostCore
 
         // Right-click menu → clipboard. The engine raises the chosen command; the browser owns the
         // clipboard (asynchronously), so Copy/Cut/Paste route through the page.
+        // A copy button (data-cupri-copy) supplies its own text rather than copying a selection, so
+        // it needs the same clipboard path the context menu uses. One line, but it is compiled into
+        // both browser hosts and rooted, so it is a deliberate wasm cost rather than an oversight.
+        _doc.ClipboardWriteRequested += _js.ClipboardWrite;
+
         _doc.ContextRequested += cmd =>
         {
             switch (cmd)
