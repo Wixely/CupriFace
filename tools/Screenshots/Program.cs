@@ -42,6 +42,7 @@ Directory.CreateDirectory(outDir);
     ("diag",       "diagnostics.png",  false, 600),
 ];
 
+var failed = 0;
 foreach (var (section, file, dark, waitMs) in shots)
 {
     var app = new ShowcaseApp(section);
@@ -74,7 +75,20 @@ foreach (var (section, file, dark, waitMs) in shots)
     }
 
     doc.Refresh();
-    using (doc.RenderToImage(W, H)) { }          // first frame: lays out and warms images
+    // Lay out, start every remote fetch, and wait for them — rather than rendering once and
+    // hoping, which is what this line used to be. An image only begins loading when a layout asks
+    // for it, so "has everything arrived" cannot be answered before something renders.
+    if (!doc.Settle(W, H, TimeSpan.FromSeconds(15)))
+    {
+        // These images are committed and published in the README, so a capture with holes in it is
+        // worse than no capture: the old file is at least correct. Skip, say why, and let the
+        // exit code carry it — a silent bad screenshot is the failure this tool can least afford.
+        Console.Error.WriteLine($"[screenshots] {file}: {doc.PendingLoads} image(s) never arrived; "
+                                + "skipping rather than overwriting a good file with an incomplete one.");
+        failed++;
+        surface?.Dispose();
+        continue;
+    }
 
     if (waitMs > 0)
     {
@@ -103,7 +117,14 @@ foreach (var (section, file, dark, waitMs) in shots)
     Console.WriteLine($"{file,-20} {new FileInfo(path).Length / 1024,5} KB");
 }
 
-Console.WriteLine($"\nwrote {shots.Length} images to {outDir}");
+Console.WriteLine($"\nwrote {shots.Length - failed} of {shots.Length} images to {outDir}");
+if (failed > 0)
+{
+    // Non-zero, so a CI regeneration cannot quietly publish a set with holes in it.
+    Console.Error.WriteLine($"[screenshots] {failed} capture(s) skipped because content never arrived.");
+    return 1;
+}
+return 0;
 
 // Render at 2x: lay out at the logical size and paint into a surface of twice the pixels, with the
 // canvas scaled — which is what a host does on a HiDPI display. RenderToImage(w*2, h*2) would lay

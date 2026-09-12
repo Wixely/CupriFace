@@ -597,12 +597,60 @@ public sealed partial class CupriDocument : IDisposable
         get { EnsureFontFaces(); return new(_fonts.Resolutions, _fonts.RegisteredFamilies, _fontProblems.ToList()); }
     }
 
-    /// <summary>Remote image loads still in flight. Zero means every frame from now on is complete.</summary>
+    /// <summary>Remote image loads still in flight.</summary>
     public int PendingLoads => _images.PendingCount;
 
-    /// <summary>True when no resource load is pending — the frame a render would produce now has
-    /// nothing missing from it.</summary>
+    /// <summary>
+    /// True when no resource load is in flight.
+    ///
+    /// <para><b>Only meaningful AFTER a render.</b> A remote image is not fetched until a layout or
+    /// paint asks for it, so on a document that has never been drawn this is true because nothing
+    /// has STARTED — not because everything has arrived. Measured: a document with one remote image
+    /// reports <c>IsLoaded = true, PendingLoads = 0</c> before its first render, then
+    /// <c>false / 1</c> immediately after it. A caller that polls this to decide the first frame is
+    /// ready captures the frame without the image. Use <see cref="Settle"/>, which renders first.</para>
+    /// </summary>
     public bool IsLoaded => _images.PendingCount == 0;
+
+    /// <summary>
+    /// Render until the next frame is complete: every remote image fetched and painted, every
+    /// <c>@font-face</c> registered. Returns false if <paramref name="timeout"/> passed first —
+    /// a caller that ignores that is shipping a frame with holes in it.
+    ///
+    /// <para><b>Why this is a loop and not a flag.</b> A remote fetch only starts when a layout asks
+    /// for the image, so something has to render before there is anything to wait for. And an image
+    /// that arrives can change the layout — its intrinsic size is what it was laid out without —
+    /// which can bring a further image into view and start a fetch of its own. So the condition is
+    /// not "nothing pending" but "a whole render left nothing pending", and reaching it can take
+    /// several passes. <c>tools/Screenshots</c> approximated this with one throwaway render and a
+    /// hope; this is the same idea done properly.</para>
+    ///
+    /// <para>Fonts need no waiting: <c>@font-face</c> sources resolve synchronously inside layout,
+    /// so the first render either registers them or throws. They are named here because "has
+    /// everything arrived" is the question this answers, and a caller should not have to know which
+    /// half of it was already true.</para>
+    ///
+    /// <para>Blocking and synchronous, like the rest of the engine. Intended for headless callers —
+    /// a screenshot tool, a frame renderer, a test. A windowed host does not need it: it renders
+    /// continuously and repaints when <see cref="ConsumeImageArrived"/> reports an arrival.</para>
+    /// </summary>
+    /// <param name="width">Viewport to lay out at — the same size the real frame will use, because
+    /// which images a layout asks for can depend on it.</param>
+    /// <param name="height">Viewport height.</param>
+    /// <param name="timeout">Give up after this long. Default 10 seconds.</param>
+    /// <returns>True when a full render left nothing outstanding; false on timeout.</returns>
+    public bool Settle(int width, int height, TimeSpan? timeout = null)
+    {
+        var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(10));
+        while (true)
+        {
+            // A real render, because layout is what requests an image and paint is what needs it.
+            using (RenderToImage(width, height)) { }
+            if (_images.PendingCount == 0) return true;
+            if (DateTime.UtcNow >= deadline) return false;
+            Thread.Sleep(10);
+        }
+    }
 
     private readonly List<FontFaceProblem> _fontProblems = new();
     private List<FontFaceRule>? _fontFaceRules;   // parsed with the cached rules
