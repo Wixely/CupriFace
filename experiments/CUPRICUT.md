@@ -87,7 +87,7 @@ product needs:
 | ~~**Installable fonts**~~ — `@font-face`, files and directories, TTF/OTF/WOFF, weight buckets, a strict "registered faces only" policy | **CupriFace — SHIPPED in v0.21.0** | Every host needs fonts an app ships. Done: `@font-face` with `url()` through the same `SourceResolver` images use, `LoadFont`/`LoadFonts`, `CupriApp.Fonts`, weight buckets 100–900, `FontPolicy.RegisteredOnly`, and a font report. **WOFF 2 is the only piece outstanding** — recognised and refused by name, as planned |
 | Explicit time — `Animate(t)`, transitions, keyframes | CupriFace (exists) | Unchanged; the thing that makes any of this possible |
 | Frame capture — `RenderToPixels`, `Render(canvas)` at scale | CupriFace (exists) | `tools/Screenshots` already renders at 2× this way |
-| "Everything is loaded" — a settle signal before the first frame | CupriFace (small addition) | The Screenshots tool warms with a throwaway render and *hopes*; a renderer needs to know images and fonts have arrived. Hosts want it too |
+| ~~"Everything is loaded" — a settle signal before the first frame~~ | **CupriFace — done** | `doc.Settle(w, h, timeout)` renders until nothing is outstanding and returns false rather than hand back a frame with holes. `tools/Screenshots` uses it and now skips a capture that did not settle |
 | Video seek-to-time | CupriFace, **phase 2** | The seek slider exists, so the player seeks; a renderer needs the *frame at t* rather than playback. Deferred on purpose |
 | **Composition timeline** — `data-start` / `data-duration` / tracks, what is on stage at `t` | **CupriCut** | Time as a *product* is a renderer's concern; a desktop window has no scene clock. App-level, over the engine's model/binding — no engine change |
 | **Scripted interaction** — click at 1.2 s, type at 2.0 s | CupriCut | Rides `DispatchClick` and the typing APIs; the engine already takes input without a window. Something a Chrome pipeline cannot do |
@@ -252,11 +252,12 @@ steps are a second track: `data-cut-click="1.2"`, or a JSON sidecar of `(t, acti
    included. WOFF 2 is the remainder and is not a blocker for Cut.
 2. ~~**The keyframe-clock experiment**~~ — **done, 2026-09-12.** Absolute clock, no creation stamp,
    and `animation-delay` gives a late element its own zero exactly. The timeline layer owns it.
-3. **The settle signal** is now the one open engine question, and it moved up the list because the
-   two above closed. The parts exist — `HasActiveAnimations`, `ConsumeImageArrived()`,
-   `Surfaces.AnyTicking` — but there is no single "everything the first frame needs has arrived".
-   `tools/Screenshots` still warms with a throwaway render and hopes, which is the same gap. Half a
-   day, and hosts want it too.
+3. ~~**The settle signal**~~ — **done, 2026-09-12** (`doc.Settle(w, h, timeout)`). It had to be a
+   loop rather than a flag: a remote image is not fetched until a layout asks for it, so the
+   pre-existing `IsLoaded` reads true before the first render because nothing has *started*
+   (measured), and an arrival can change layout enough to pull in a further image. `tools/Screenshots`
+   uses it and skips a capture that did not settle. **Every engine prerequisite in this document is
+   now closed**; what remains is Cut's own repository.
 4. **CupriCut, the repository**, house-style skeleton plus the frame tools and the video pipe —
    the proof of concept with a server around it. `render_frame` and `contact_sheet` first, because
    they are what an agent uses to iterate, **both sweeping from 0** so a preview matches the video.
