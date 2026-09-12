@@ -33,6 +33,49 @@ and it is true today with no engine change.
 
 ---
 
+## Re-measured on the engine as it stands (2026-09-12, after v0.23.0)
+
+Four releases have landed since the table above. **The pitch survives, but one row of it does not,
+and the correction changes the tool design rather than the case for building this.**
+
+| claim | now |
+|---|---|
+| render only, sweeping one document | **179 fps** — 5.6 ms/frame, faster than the original measurement |
+| the same `t` from a **separate document instance** | **byte-identical** — unchanged |
+| the same sweep run twice | **byte-identical** — unchanged |
+| a frame at `t` re-rendered **after seeking away** | **DIFFERS** on the Motion page (a pure-`@keyframes` document is fine) |
+| a forward sweep vs a fresh document at each `t` | **1 of 45 frames match** |
+| a fresh document per frame | 87 ms/frame — **15.7× the cost** of sweeping |
+
+### What that means, precisely
+
+**The engine is reproducible, but a frame is not a pure function of `t`.** It is a function of `t`
+*and the frames rendered before it*. Both strategies are perfectly repeatable — sweep the same
+composition twice and every frame is byte-identical — they simply do not agree with each other,
+because transitions, toasts, reorder easing and overscroll interpolate from what the previous frame
+held. `Animate(t)` drives them, but they carry state between calls.
+
+Determinism — the thing a renderer actually needs — is intact. What is not true is the assumption
+hiding in the tool table below: that `render_frame(composition, t)` can render frame 45 on its own
+and get the frame the video will contain. It will not, unless the composition is pure in `t`.
+
+**So the strategy has to be one decision, applied everywhere:**
+
+- **`render_frame(t)` sweeps from 0 to `t`** and returns the last frame. At 5.6 ms that is 0.5 s for
+  `t = 3 s` at 30 fps — acceptable for a preview loop, and *correct*: the agent sees exactly the
+  frame the video will contain. Anything cheaper is a preview that lies.
+- **`contact_sheet` and `render_frames` sweep once** and keep the frames they were asked for, which
+  is what they would do anyway.
+- **`lint` reports whether a composition is pure in `t`** — no transitions, no toasts, no
+  scroll-driven easing. A pure composition can be rendered at any single `t` in 5.6 ms with no
+  sweep, and that is worth telling an author.
+
+A fresh document per frame is the other consistent choice, and it is the wrong one: 15.7× the cost
+for frames that are *less* like what a viewer of the finished video sees, because every transition
+restarts at every frame.
+
+---
+
 ## The split, and why it decides everything
 
 The rule is the one `PACKAGING-GL.md` settled on for the 3D: **if a host would want it, it is the
@@ -41,7 +84,7 @@ product needs:
 
 | element | home | why |
 |---|---|---|
-| **Installable fonts** — `@font-face`, files and directories, TTF/OTF/WOFF/WOFF2, weight axes, a strict "registered faces only" policy | **CupriFace** | Every host needs fonts an app ships; the web hosts already embed two. Cross-machine determinism *requires* the strict policy, and a renderer cannot bolt it on from outside |
+| ~~**Installable fonts**~~ — `@font-face`, files and directories, TTF/OTF/WOFF, weight buckets, a strict "registered faces only" policy | **CupriFace — SHIPPED in v0.21.0** | Every host needs fonts an app ships. Done: `@font-face` with `url()` through the same `SourceResolver` images use, `LoadFont`/`LoadFonts`, `CupriApp.Fonts`, weight buckets 100–900, `FontPolicy.RegisteredOnly`, and a font report. **WOFF 2 is the only piece outstanding** — recognised and refused by name, as planned |
 | Explicit time — `Animate(t)`, transitions, keyframes | CupriFace (exists) | Unchanged; the thing that makes any of this possible |
 | Frame capture — `RenderToPixels`, `Render(canvas)` at scale | CupriFace (exists) | `tools/Screenshots` already renders at 2× this way |
 | "Everything is loaded" — a settle signal before the first frame | CupriFace (small addition) | The Screenshots tool warms with a throwaway render and *hopes*; a renderer needs to know images and fonts have arrived. Hosts want it too |
@@ -51,21 +94,27 @@ product needs:
 | The frame loop, PNG sequences, the ffmpeg pipe, alpha output | CupriCut | ffmpeg never enters the engine |
 | MCP server, config, tools, packaging, Docker, the agent skill | CupriCut | House style, below |
 
-Two things fall out of the table. Fonts are the one piece of *engine* work, and they are worth doing
-first because every host benefits whether or not Cut ever ships. And nothing Cut needs is a
-`CupriDocument` internal: it consumes the `CupriFace` package exactly as Khalkos3D does, so the
-engine stays free of timelines and encoders.
+Two things fell out of the table. Fonts were the one piece of *engine* work, and they were worth
+doing first because every host benefits whether or not Cut ever ships — **that stage is done**
+(v0.21.0), which is the single biggest change to this document since it was written. And nothing Cut
+needs is a `CupriDocument` internal: it consumes the `CupriFace` package exactly as Khalkos3D does,
+so the engine stays free of timelines and encoders.
 
 ---
 
-## The engine work: fonts
+## The engine work: fonts — delivered in v0.21.0
 
-What exists: `FontService.RegisterFont(byte[])` and `CupriDocument.LoadFont(byte[])`. Registered
-faces win over platform lookup, the first registered family becomes the generic-sans target, and
-`WebFonts.props` embeds Noto Sans for the two web hosts. Faces are keyed by
-(family, bold ≥ 600, italic) — four styles per family, nearest-style fallback.
+**This section is kept as the record of what was planned, and all of it shipped except item 3's
+WOFF 2.** Items 1, 2, 4, 5 and 6 are in the engine today; the cross-platform gate at the end of the
+section was built too, and corrected the claim it was written to prove (see Risks). What follows is
+the original plan, unedited apart from this note.
 
-What is missing, in the order it should land:
+What existed when this was written: `FontService.RegisterFont(byte[])` and
+`CupriDocument.LoadFont(byte[])`. Registered faces win over platform lookup, the first registered
+family becomes the generic-sans target, and `WebFonts.props` embeds Noto Sans for the two web hosts.
+Faces were keyed by (family, bold ≥ 600, italic) — four styles per family, nearest-style fallback.
+
+What was missing, in the order it should land:
 
 1. **`@font-face`.** The CSS-native way in, and the one an agent writing HTML expects:
    `font-family`, `src: url(…) format(…)` (multiple sources, first readable wins), `font-weight`
@@ -122,7 +171,7 @@ picture:
 
 | tool | does |
 |---|---|
-| `render_frame(composition, t, width, height, scale)` | one PNG at `t` — ~7 ms; the preview loop |
+| `render_frame(composition, t, width, height, scale)` | one PNG at `t`, swept from 0 so it matches the video — 5.6 ms per frame of sweep (0.5 s at `t = 3 s`, 30 fps), or one 5.6 ms frame if `lint` says the composition is pure in `t` |
 | `contact_sheet(composition, times[] \| every, columns)` | N frames tiled into one PNG, timestamped. An agent reads one image and sees a whole motion |
 | `render_frames(…, fps, from, to)` | the image list |
 | `render_video(…, fps, from, to, codec, alpha)` | raw RGBA into ffmpeg; `alpha` selects a transparent clear + an alpha-capable codec |
@@ -144,11 +193,17 @@ steps are a second track: `data-cut-click="1.2"`, or a JSON sidecar of `(t, acti
 
 ## Risks worth naming before starting
 
-- **The keyframe clock reference.** `Animate(t)` is absolute time. An element that appears at
-  `t = 2` must run its animation from its *own* zero, not the composition's. The timeline layer can
-  own that by creating the element at its start and offsetting — or the engine may already stamp
-  creation time. *Verify first*: it is the one place the "determinism for free" claim could need an
-  engine change, and it is a one-hour experiment.
+- ~~**The keyframe clock reference.**~~ **Answered, 2026-09-12 — no engine change needed.** The
+  clock is absolute and the engine does *not* stamp creation time: an element bound into the
+  document at `t = 2` with a 4 s animation arrives already half-finished (measured: width 200 of
+  400) and wraps at `t = 4`. But `animation-delay` is supported and is measured against the same
+  absolute clock, so a timeline layer that emits `animation-delay: {start}s` alongside each
+  element's window gets its own zero **exactly** — verified at four sample times. Cut owns this;
+  the engine does not change.
+- **A frame is not a pure function of `t`.** See the re-measurement above: transitions and the other
+  stateful drivers carry state between `Animate` calls, so sweeping and single-frame rendering
+  disagree. Pick one strategy for every tool — the recommendation is "sweep from 0" — and have
+  `lint` say whether a composition is pure in `t` and therefore cheap to sample.
 - **First-frame readiness.** Frame 0 rendered before an image or font arrives is wrong and
   deterministic, which is worse than wrong and flaky. The settle signal is a prerequisite, not a
   refinement.
@@ -156,9 +211,18 @@ steps are a second track: `data-cut-click="1.2"`, or a JSON sidecar of `(t, acti
   contact sheet, ten seconds for a 3-second sequence. Encode on a thread pool; the video path never
   pays it.
 - **WOFF 2** is a decoder, not a decompression call. Ship TTF/OTF/WOFF 1 first and say so.
-- **Cross-machine text.** HarfBuzz and Skia are pinned by the engine, so shaping and rasterising
-  match across OSes once fonts do — but *that is a claim until the gate exists*. Build the gate in
-  the fonts phase, before Cut promises anything.
+- **Cross-machine text — the claim was wrong, and the gate is what found it.** The gate was built in
+  the fonts phase as this said it should be, and its first run returned **three distinct pixel
+  hashes**: Skia's glyph rasteriser is FreeType on Linux, DirectWrite on Windows and CoreText on
+  macOS, so the same face draws different pixels per OS. What HarfBuzz guarantees is the same
+  *advances* from the same bytes anywhere. So the gate compares a **layout** hash across the three
+  OSes and reports the pixel hashes without comparing them (`tests/CupriFace.Tests/TextDeterminismTests.cs`).
+
+  **Cut must promise the narrower thing: identical pixels on any machine of one OS, identical layout
+  everywhere.** For a renderer that is still the useful guarantee — a CI runner and a developer
+  laptop of the same OS agree byte for byte — but "render this on Linux, reproduce it on a Mac" is
+  not available and must not be advertised. This is exactly why the doc said to build the gate
+  before promising anything.
 - **Interaction timelines and layout.** A click at `t` that opens a dialog changes every later frame;
   the timeline must replay from zero on every seek, or cache per `t`. Replay is correct and cheap at
   135 fps; cache is an optimisation for later.
@@ -172,9 +236,9 @@ steps are a second track: `data-cut-click="1.2"`, or a JSON sidecar of `(t, acti
 
 | piece | estimate |
 |---|---|
-| Fonts in CupriFace — `@font-face`, sources, loading API, weight matching, strict policy, report, WOFF 1, tests | 3–4 days |
-| the cross-platform text gate | half a day, once the strict policy exists |
-| WOFF 2 | 1–2 days, separately |
+| ~~Fonts in CupriFace~~ — `@font-face`, sources, loading API, weight matching, strict policy, report, WOFF 1, tests | **done, v0.21.0** |
+| ~~the cross-platform text gate~~ | **done** — and it corrected the claim it was built to prove |
+| WOFF 2 | 1–2 days, separately — still outstanding |
 | CupriCut v1 — skeleton in house style, `render_frame`, `contact_sheet`, `render_frames`, `render_video`, `probe`, CLI, Docker with ffmpeg | 4–5 days (the render loop is the proof of concept) |
 | timeline layer + `inspect` + `lint` | 3–4 days, after the keyframe-clock experiment |
 | interaction track | 2 days |
@@ -184,14 +248,18 @@ steps are a second track: `data-cut-click="1.2"`, or a JSON sidecar of `(t, acti
 
 ## Suggested staging
 
-1. **Fonts, in this repository**, released as a CupriFace version — every host gains it whether or
-   not the rest follows. The strict policy and the cross-platform gate are part of this stage, not
-   the next.
-2. **The keyframe-clock experiment**, one hour, before the repository exists: does an element
-   created at `t = 2` animate from zero? The answer shapes the timeline layer.
-3. **CupriCut, the repository**, house-style skeleton plus the frame tools and the video pipe —
+1. ~~**Fonts, in this repository**~~ — **done in v0.21.0**, strict policy and cross-platform gate
+   included. WOFF 2 is the remainder and is not a blocker for Cut.
+2. ~~**The keyframe-clock experiment**~~ — **done, 2026-09-12.** Absolute clock, no creation stamp,
+   and `animation-delay` gives a late element its own zero exactly. The timeline layer owns it.
+3. **The settle signal** is now the one open engine question, and it moved up the list because the
+   two above closed. The parts exist — `HasActiveAnimations`, `ConsumeImageArrived()`,
+   `Surfaces.AnyTicking` — but there is no single "everything the first frame needs has arrived".
+   `tools/Screenshots` still warms with a throwaway render and hopes, which is the same gap. Half a
+   day, and hosts want it too.
+4. **CupriCut, the repository**, house-style skeleton plus the frame tools and the video pipe —
    the proof of concept with a server around it. `render_frame` and `contact_sheet` first, because
-   they are what an agent uses to iterate.
+   they are what an agent uses to iterate, **both sweeping from 0** so a preview matches the video.
 4. **The timeline and interaction tracks**, `inspect`, `lint`, the agent skill.
 5. **Phase 2**: video seek, WOFF 2, audio.
 
@@ -207,5 +275,13 @@ steps are a second track: `data-cut-click="1.2"`, or a JSON sidecar of `(t, acti
   step. This document assumes both over one set of services.
 - **Composition attribute names.** hyperframes' `data-start` / `data-duration` for agent
   familiarity, or the engine's own. This document recommends theirs.
-- **Whether fonts wait for the rest.** They should not: they are the engine's to do and the only
-  stage with no open question.
+- ~~**Whether fonts wait for the rest.**~~ **Moot: fonts shipped in v0.21.0**, ahead of everything
+  else, exactly as this recommended.
+- **What `render_frame(t)` means** — the decision the re-measurement forces. A frame is a function of
+  `t` *and* the frames before it, so "the frame at `t`" is ambiguous until Cut picks one reading.
+  This document recommends **sweep from 0**: correct by construction, 5.6 ms per swept frame, and it
+  makes the preview loop show the agent what the video will contain. The alternative — define
+  compositions to be pure in `t` and sample directly — is faster and narrower, and `lint` should
+  report which kind a composition is either way.
+- **What determinism Cut advertises.** The gate says: identical pixels on any machine of one OS,
+  identical layout on all three. Not "render anywhere, reproduce anywhere".
