@@ -109,6 +109,18 @@ public class WebHostCoreTests(ITestOutputHelper output)
         public override string Css => "body{margin:0;background:#fff}";
     }
 
+    private sealed class ToggleModel { public bool Dark { get; set; } }
+
+    /// <summary>A switch whose knob slides — the transition is the point: a toggle animates, and the
+    /// settled frame after it is pixel-identical to the last animated one.</summary>
+    private sealed class ToggleApp : CupriApp
+    {
+        public readonly ToggleModel M = new();
+        public override object Model => M;
+        public override string Html => "<body><cupri-switch checked=\"{{Dark}}\">Dark mode</cupri-switch></body>";
+        public override string Css => "body{margin:0;background:#fff}";
+    }
+
     /// <summary>Fits an authored design to whatever canvas it gets, which is what puts a real app on
     /// a fractional scale — and what #99 measured. Scale is settable per instance so one test can
     /// walk the reporter's table.</summary>
@@ -147,6 +159,47 @@ public class WebHostCoreTests(ITestOutputHelper output)
         // Render-on-demand: an unchanged frame paints nothing at all.
         Assert.False(WebHostCore.Tick(300, 200, 32), "an idle tick must not paint");
         Assert.Equal(1, js.Presents);
+    }
+
+    /// <summary>A frame marked dirty that turns out pixel-identical presents nothing — and must still
+    /// publish the mirror. The frame after an animation ends is usually identical to the last
+    /// animated one (the transition already painted its end state), and that settled frame is the
+    /// one the mirror is published on; returning early on "identical" skipped it. Measured in the
+    /// browser gate: a dark-mode toggle from a screen reader flipped the model, animated the theme,
+    /// and the mirror never said so.</summary>
+    [Fact]
+    public void An_identical_frame_still_republishes_the_mirror()
+    {
+        var js = Boot(new PlainApp());
+        Assert.True(WebHostCore.Tick(300, 200, 16));
+        var arias = js.Calls.Count(c => c == "aria");
+
+        WebHostCore.MarkDirty();
+        Assert.False(WebHostCore.Tick(300, 200, 32), "nothing changed, so nothing should be presented");
+        Assert.Equal(1, js.Presents);
+        Assert.Equal(arias + 1, js.Calls.Count(c => c == "aria"));
+    }
+
+    /// <summary>The overlay's way back in (#133): an activation by path — what the page sends when a
+    /// screen reader clicks a mirror node — operates the control, and the mirror published after
+    /// the toggle's animation has settled shows the new state.</summary>
+    [Fact]
+    public void Activating_a_node_by_path_operates_it_and_the_settled_mirror_shows_it()
+    {
+        var app = new ToggleApp();
+        var js = Boot(app);
+        WebHostCore.Tick(300, 200, 16);
+        var path = System.Text.RegularExpressions.Regex.Match(js.Aria!, "role=\"switch\"[^>]*data-path=\"([^\"]+)\"").Groups[1].Value;
+        Assert.NotEmpty(path);
+        Assert.Contains("aria-checked=\"false\"", js.Aria);
+
+        WebHostCore.AccessibilityActivate(path);
+        Assert.True(app.M.Dark, "the switch should have toggled through the model");
+        // Run the frame loop through the knob's transition and past it, on the host's own clock.
+        for (var t = 32; t < 3000; t += 16) WebHostCore.Tick(300, 200, t);
+        output.WriteLine(js.Aria);
+        Assert.Contains("aria-checked=\"true\"", js.Aria);
+        Assert.Contains("data-focused=\"true\"", js.Aria);   // and focus followed the activation
     }
 
     /// <summary>The path the touch gate never reaches: a &lt;cupri-video&gt; must reach the page as

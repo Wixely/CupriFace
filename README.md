@@ -78,7 +78,8 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
   — starting work here.
 - **Screen readers** — those semantics reach assistive tech on **four platforms**: UIA
   (Windows), AT-SPI (Linux), NSAccessibility (macOS) and TalkBack (Android), each proven
-  in CI by a real assistive-technology client, plus a real-DOM ARIA mirror on the web host.
+  in CI by a real assistive-technology client, plus a real-DOM ARIA overlay on the web host that
+  a screen reader can operate, not only read.
 - **Android** — the same `CupriApp` on a phone: `CupriFace.Android` brings a GL surface,
   touch gestures (tap-on-release, momentum fling, long-press), the soft keyboard with real
   IME composition, and TalkBack. CoreCLR runtime, ~20 MB APK, driven end-to-end on an

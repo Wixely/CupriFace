@@ -17,6 +17,41 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **The web host's accessibility mirror is now a bridge (#133).** A screen reader could read the
+  canvas and not use it: activating the mirror's "Dark mode" switch left the model unchanged, the
+  mirror had no geometry (a 1×1 clipped div), and focus was never announced. The mirror is now a
+  transparent overlay positioned over the canvas — every node at its control's bounds, carrying
+  `data-path` and `tabindex="-1"` — so an AT gets hit-testing, a focus ring and touch exploration,
+  a `click` dispatched to a node runs `AccessibilityActivate(path)` (the same entry point the four
+  native bridges use), focus arriving on a node runs `AccessibilityFocus(path)`, and DOM focus
+  follows the engine's so a focus change is announced the way UIA's focus-changed event is. Both
+  web hosts: three new exports each (`A11yActivate` / `A11yFocus` / `A11ySetValue`), published for
+  automation as `__cupri.a11yAct`. The overlay is `pointer-events:none`, so a real pointer still
+  reaches the canvas, and republishes patch the live DOM keyed by `data-path` rather than replacing
+  `innerHTML`, which would tear focus off the node holding it on every settled frame. Nothing to do
+  in an app. `BuildAriaHtml` takes an optional `presentScale` so the overlay scales with the
+  canvas; `AriaHtml.Serialize` takes the same. Text fields keep DOM focus on the hidden keyboard
+  textarea (IME and clipboard live there); a real `<input>` per field is the next step, separately.
+  Gated in `tests/WebTouchGate/A11yTests.cs` against Chromium's accessibility tree.
+
+  Three engine fixes the gate forced, each of them measured rather than reasoned:
+  - **The web host published the mirror only on frames whose pixels changed.** The frame after an
+    animation ends is usually identical to the last animated one, because the transition already
+    painted its end state — and that settled frame is the one the mirror is published on. A
+    dark-mode toggle animated its theme change, the publish was throttled through the animation,
+    and the settled frame returned on "identical" before reaching it: the switch flipped, the
+    mirror never said so. Only the blit is gated on damage now; the mirror, IME placement and
+    underlay sync are not.
+  - **Focus on a roleless clickable row is announced on the control inside it.** A row with a click
+    handler wrapping the switch it toggles (the Showcase's "Dark mode" row) is the Tab stop, and
+    it has no role, so no bridge — web or native — had anything to announce when Tab landed there.
+    The tree now reports focus on the first control inside such a row.
+  - **A control that is not itself a Tab stop can still be focused by path**, and a click on it
+    continues the Tab order from the stop that owns it. `AccessibilityFocus` on the switch above
+    was refused, because the switch sits inside the row and `Focusables` counts a control once, at
+    the outermost; the lookup now climbs to that stop. The same lookup runs after a mouse click,
+    which used to reset the Tab order to the top of the document after clicking a nested control.
+
 - **`doc.Settle(width, height, timeout?)` — render until the next frame is complete.** Returns false
   on timeout rather than handing back a frame with holes in it. It is a loop, not a flag, for two
   measured reasons: a remote image is not fetched until a layout asks for it, so **`IsLoaded` is

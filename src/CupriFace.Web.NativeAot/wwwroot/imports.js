@@ -28,11 +28,8 @@ mergeInto(LibraryManager.library, {
             .then(t => { if (t) globalThis.__cupri.sendText(t, "PasteText"); })
             .catch(() => {});
     },
-    js_a11y: (p, len) => {
-        const html = UTF16ToString(p);
-        const el = globalThis.__cupri.a11y;
-        if (el.innerHTML !== html) el.innerHTML = html;
-    },
+    // The ARIA overlay: patched into the live DOM by main.js (syncA11y), keyed by data-path.
+    js_a11y: (p, len) => { globalThis.__cupri.syncA11y(UTF16ToString(p)); },
     // Put the hidden textarea where the caret is, so an IME's candidate window opens AT the field
     // instead of at the page's top-left, and tell a touch keyboard which layout to offer. The
     // coordinates arrive in canvas pixels; the textarea is positioned in the page, so the canvas's

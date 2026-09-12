@@ -217,43 +217,52 @@ public static class WebHostCore
                 damage = CupriDocument.ScaleDamageToDevice(logical, _scale, width, height);
             canvas.Flush();
         }
-        if (damage is not { } d) return false;   // identical frame
-
-        // What the page receives. Opaque apps present the premultiplied render directly; transparent
-        // ones must present STRAIGHT alpha, which is what putImageData expects, so they convert into
-        // a staging buffer (Skia unpremultiplies for us). Video holes need the same: their alpha-0
-        // pixels only reach the page through the straight-alpha path.
-        var present = _bitmap;
-        if (_transparent || (_video?.AnyReady ?? false) || (_underlays?.Any ?? false))
+        // An identical frame presents nothing. It is not "nothing happened": the frame after an
+        // animation ends is usually identical to the last animated one, because the transition
+        // already painted its end state — and that settled frame is the one the ARIA mirror is
+        // published on. A dark-mode toggle from a screen reader animated its theme change, the
+        // publish was throttled through the animation, and the settled frame returned here before
+        // reaching it (measured: the switch flipped, the mirror never said so). So only the blit is
+        // gated on damage; the mirror, the IME placement and the underlays below are not.
+        if (damage is { } d)
         {
-            var fresh = _straight is null || _straight.Width != width || _straight.Height != height;
-            if (fresh)
+            // What the page receives. Opaque apps present the premultiplied render directly;
+            // transparent ones must present STRAIGHT alpha, which is what putImageData expects, so
+            // they convert into a staging buffer (Skia unpremultiplies for us). Video holes need the
+            // same: their alpha-0 pixels only reach the page through the straight-alpha path.
+            var present = _bitmap;
+            if (_transparent || (_video?.AnyReady ?? false) || (_underlays?.Any ?? false))
             {
-                _straight?.Dispose();
-                _straight = new SKBitmap(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Unpremul));
+                var fresh = _straight is null || _straight.Width != width || _straight.Height != height;
+                if (fresh)
+                {
+                    _straight?.Dispose();
+                    _straight = new SKBitmap(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Unpremul));
+                }
+                using var src = _bitmap.PeekPixels();
+                using var dst = _straight!.PeekPixels();
+                if (fresh)
+                {
+                    src.ReadPixels(dst);            // new staging buffer: everything converts once
+                }
+                else
+                {
+                    // Only the damage rect changed. Converting the WHOLE bitmap per present cost a
+                    // full-frame pass for a 10 px repaint whenever any video was open; the rest of
+                    // the staging buffer already holds this frame's pixels from earlier presents.
+                    var rectInfo = new SKImageInfo(d.Width, d.Height, SKColorType.Rgba8888, SKAlphaType.Unpremul);
+                    src.ReadPixels(rectInfo,
+                        (nint)((byte*)dst.GetPixels() + d.Top * dst.RowBytes + d.Left * 4),
+                        dst.RowBytes, d.Left, d.Top);
+                }
+                present = _straight;
             }
-            using var src = _bitmap.PeekPixels();
-            using var dst = _straight!.PeekPixels();
-            if (fresh)
-            {
-                src.ReadPixels(dst);            // new staging buffer: everything converts once
-            }
-            else
-            {
-                // Only the damage rect changed. Converting the WHOLE bitmap per present cost a
-                // full-frame pass for a 10 px repaint whenever any video was open; the rest of the
-                // staging buffer already holds this frame's pixels from earlier presents.
-                var rectInfo = new SKImageInfo(d.Width, d.Height, SKColorType.Rgba8888, SKAlphaType.Unpremul);
-                src.ReadPixels(rectInfo,
-                    (nint)((byte*)dst.GetPixels() + d.Top * dst.RowBytes + d.Left * 4),
-                    dst.RowBytes, d.Left, d.Top);
-            }
-            present = _straight;
-        }
 
-        // Zero-copy on both hosts: an address into wasm memory, never a managed copy. `.Bytes` would
-        // allocate and copy ~2.7 MB every frame. The damage rect narrows the blit to what changed.
-        _js.Present(present.GetPixels(), present.ByteCount, width, height, d.Left, d.Top, d.Width, d.Height);
+            // Zero-copy on both hosts: an address into wasm memory, never a managed copy. `.Bytes`
+            // would allocate and copy ~2.7 MB every frame. The damage rect narrows the blit to what
+            // changed.
+            _js.Present(present.GetPixels(), present.ByteCount, width, height, d.Left, d.Top, d.Width, d.Height);
+        }
 
         // Mirror the semantics tree so screen readers can read a canvas. Every settled frame, and
         // once a second while animating: the tree changes on interaction, so re-parsing HTML 30x/s
@@ -263,7 +272,7 @@ public static class WebHostCore
         if (!animating || nowMs - _lastAriaMs >= 1000)
         {
             _lastAriaMs = nowMs;
-            _js.PublishAria(_doc.BuildAriaHtml(p.LogicalWidth, p.LogicalHeight));
+            _js.PublishAria(_doc.BuildAriaHtml(p.LogicalWidth, p.LogicalHeight, _scale));
         }
 
         // IME placement, on the same cadence and only when it moved. The caret's BOTTOM is where a
@@ -286,7 +295,7 @@ public static class WebHostCore
         // owns; a surface asking for a canvas gets one created here. Both then move identically
         // through the clip and transform chains.
         _underlays?.Sync(_doc, _scale, key => _video?.IdForSurface(key));
-        return true;
+        return damage is not null;
     }
 
     // ---- pointer -------------------------------------------------------------------------------
@@ -298,6 +307,21 @@ public static class WebHostCore
 
     public static void PointerDown(double x, double y, int clicks)
     { if (_doc?.DispatchClick(L(x), L(y), clicks) == true) _dirty = true; UpdateCursor(x, y); }
+
+    // ---- accessibility actions ------------------------------------------------------------------
+    // What the ARIA overlay posts back: the page forwards a click on, or a focus arriving at, a
+    // mirror node by its data-path. The same three entry points every native bridge uses, so an
+    // activation from a screen reader runs the same code as a real click — and marks a repaint the
+    // same way, or the mirror would show the change a frame late.
+
+    public static void AccessibilityActivate(string path)
+    { if (_doc?.AccessibilityActivate(path) == true) _dirty = true; }
+
+    public static void AccessibilityFocus(string path)
+    { if (_doc?.AccessibilityFocus(path) == true) _dirty = true; }
+
+    public static void AccessibilitySetValue(string path, double value)
+    { if (_doc?.AccessibilitySetValue(path, value) == true) _dirty = true; }
 
     public static void PointerMove(double x, double y)
     { if (_doc?.DispatchPointerMove(L(x), L(y)) == true) _dirty = true; UpdateCursor(x, y); }

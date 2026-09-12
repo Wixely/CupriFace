@@ -65,6 +65,14 @@ public static class AccessibilityTree
     /// </summary>
     public static AccessibilityNode Build(RenderNode root, Func<IElement, bool>? isFocusable, RenderNode? focused)
     {
+        // Keyboard focus can sit on an element with no role: a clickable row — focusable because
+        // it has a click handler — wrapping the control it exists to operate (the Showcase's
+        // "Dark mode" row around its switch). Tab stops on the row and skips the switch, which is
+        // right for the keyboard and invisible to an AT: no role, no node, so nothing is announced
+        // as focused. The focus an AT hears belongs to the first control inside the row.
+        if (focused is not null && RoleOf(focused) is null)
+            focused = FirstControlWithin(focused, isFocusable) ?? focused;
+
         var node = new AccessibilityNode { Role = "document", Bounds = (root.X, root.Y, root.Width, root.Height) };
         // The viewport is the outermost clip: anything landing outside it is off screen by
         // definition, and everything inside narrows from here.
@@ -110,9 +118,7 @@ public static class AccessibilityTree
                 Path = path,
                 Parent = parent,
                 Bounds = bounds,
-                Focusable = isFocusable?.Invoke(el)
-                            ?? role is "slider" or "button" or "switch" or "checkbox" or "radio"
-                                    or "link" or "textbox" or "spinbutton",
+                Focusable = IsFocusableControl(el, role, isFocusable),
                 Focused = focused is not null && ReferenceEquals(render, focused),
                 Disabled = IsDisabled(el),
                 AutomationId = FirstAttr(el, "id", "data-bind-value", "data-bind-checked"),
@@ -208,6 +214,24 @@ public static class AccessibilityTree
     {
         foreach (var name in names)
             if (el.GetAttribute(name) is { Length: > 0 } v) return v;
+        return null;
+    }
+
+    private static bool IsFocusableControl(IElement el, string role, Func<IElement, bool>? isFocusable) =>
+        isFocusable?.Invoke(el)
+        ?? role is "slider" or "button" or "switch" or "checkbox" or "radio" or "link" or "textbox" or "spinbutton";
+
+    /// <summary>The first descendant that is a focusable control with a role — what an AT can
+    /// announce when focus is on a roleless wrapper. Pre-order, so it is the first thing a
+    /// reader would meet inside the row.</summary>
+    private static RenderNode? FirstControlWithin(RenderNode n, Func<IElement, bool>? isFocusable)
+    {
+        foreach (var c in n.Children)
+        {
+            if (c.Style.Display == DisplayType.None) continue;
+            if (c.Element is { } el && RoleOf(c) is { } role && IsFocusableControl(el, role, isFocusable)) return c;
+            if (FirstControlWithin(c, isFocusable) is { } deeper) return deeper;
+        }
         return null;
     }
 
