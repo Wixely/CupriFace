@@ -33,6 +33,8 @@ public static class WebHostCore
     private static SKColor _bg;
     private static bool _transparent;            // overlay mode: transparent clear + straight-alpha present
     private static float _scale = 1f;            // Present scale, for un-scaling pointer coords
+    private static bool _wasAnimating;           // last tick's answer, so the settled frame gets painted
+    private static double _lastAriaMs = -1e9;    // the ARIA mirror's own cadence while animating
     private static SKBitmap? _bitmap;
     private static SKBitmap? _straight;          // staging buffer for the premul→straight conversion
     private static readonly Stopwatch _clock = Stopwatch.StartNew();
@@ -162,6 +164,13 @@ public static class WebHostCore
         // Continuous repaint only while something is actually animating, capped at ~30 fps.
         var animating = _doc.HasActiveAnimations;
         if (animating && nowMs - _lastAnimMs >= 33) { _lastAnimMs = nowMs; _dirty = true; }
+        // The frame AFTER the last animated one. Nothing else marks it dirty, so the settled state
+        // was never painted with animating == false - and the ARIA mirror, published only then,
+        // kept whatever it held before the animation began. On a page that animates from load that
+        // was nothing at all: measured empty 20 s after boot, populated 109 ms after the first
+        // click. A screen-reader user does not click first.
+        if (_wasAnimating && !animating) _dirty = true;
+        _wasAnimating = animating;
 
         if (!_dirty) return false;
         _dirty = false;
@@ -246,9 +255,16 @@ public static class WebHostCore
         // allocate and copy ~2.7 MB every frame. The damage rect narrows the blit to what changed.
         _js.Present(present.GetPixels(), present.ByteCount, width, height, d.Left, d.Top, d.Width, d.Height);
 
-        // Mirror the semantics tree so screen readers can read a canvas. Input-driven repaints only:
-        // the tree changes on interaction, and re-parsing HTML 30x/s under a spinner is waste.
-        if (!animating) _js.PublishAria(_doc.BuildAriaHtml(p.LogicalWidth, p.LogicalHeight));
+        // Mirror the semantics tree so screen readers can read a canvas. Every settled frame, and
+        // once a second while animating: the tree changes on interaction, so re-parsing HTML 30x/s
+        // under a spinner is waste - but a page with a permanent spinner still has controls on it,
+        // and "never while animating" left that page with no accessibility tree at all.
+        var nowMs = _clock.Elapsed.TotalMilliseconds;
+        if (!animating || nowMs - _lastAriaMs >= 1000)
+        {
+            _lastAriaMs = nowMs;
+            _js.PublishAria(_doc.BuildAriaHtml(p.LogicalWidth, p.LogicalHeight));
+        }
 
         // IME placement, on the same cadence and only when it moved. The caret's BOTTOM is where a
         // candidate window belongs.

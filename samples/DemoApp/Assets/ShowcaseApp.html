@@ -35,7 +35,7 @@
         <div class="row">
           <cupri-button>Primary</cupri-button>
           <cupri-button variant="ghost">Ghost</cupri-button>
-          <cupri-icon-button icon="settings"></cupri-icon-button>
+          <cupri-icon-button icon="settings" aria-label="Settings"></cupri-icon-button>
           <cupri-checkbox checked="{{Notifications}}"></cupri-checkbox>
           <span class="lbl">Notifications</span>
         </div>
@@ -47,7 +47,7 @@
         </div>
         <div class="row">
           <span class="lbl">Volume</span>
-          <cupri-slider min="0" max="100" value="{{Volume}}" style="width:220px"></cupri-slider>
+          <cupri-slider min="0" max="100" value="{{Volume}}" aria-label="Volume" style="width:220px"></cupri-slider>
           <span class="val">{{Volume}}</span>
         </div>
         <div class="row">
@@ -67,16 +67,16 @@
         </div>
         <div class="row">
           <span class="lbl">Quantity</span>
-          <cupri-number value="{{Quantity}}" min="0" max="20" step="1"></cupri-number>
+          <cupri-number value="{{Quantity}}" min="0" max="20" step="1" aria-label="Quantity"></cupri-number>
         </div>
         <!-- Each label stays glued to its control. Four loose flex items wrap wherever they run
              out of room, which on a phone put "Time" at the end of one line and its picker on the
              next — reported as the Time field being off the screen. -->
         <div class="row">
           <span class="field"><span class="lbl">Date</span>
-            <cupri-datepicker value="{{Date}}" open="{{DateOpen}}"></cupri-datepicker></span>
+            <cupri-datepicker value="{{Date}}" open="{{DateOpen}}" aria-label="Date"></cupri-datepicker></span>
           <span class="field"><span class="lbl">Time</span>
-            <cupri-timepicker value="{{Time}}" open="{{TimeOpen}}"></cupri-timepicker></span>
+            <cupri-timepicker value="{{Time}}" open="{{TimeOpen}}" aria-label="Time"></cupri-timepicker></span>
         </div>
         <div class="row">
           <span class="lbl">Search</span>
@@ -84,14 +84,14 @@
         </div>
         <div class="row">
           <span class="lbl">Colour</span>
-          <cupri-color value="{{BrandColor}}" open="{{BrandOpen}}"></cupri-color>
+          <cupri-color value="{{BrandColor}}" open="{{BrandOpen}}" aria-label="Brand colour"></cupri-color>
           <span style="display:inline-flex; align-items:center; gap:8px; color:var(--cupri-text); font-weight:bold; font-size:14px">
             <span style="display:inline-block; width:18px; height:18px; border-radius:5px; border:1px solid #00000022; background:{{BrandColor}}"></span>{{BrandColor}}
           </span>
         </div>
         <div class="row">
           <span class="lbl">Password</span>
-          <cupri-password value="{{Password}}" reveal="{{ShowPassword}}"></cupri-password>
+          <cupri-password value="{{Password}}" reveal="{{ShowPassword}}" aria-label="Password"></cupri-password>
         </div>
         <div class="row">
           <span class="lbl">View</span>
@@ -268,8 +268,8 @@ doc.RenderToImage(800, 600);
           </cupri-toolbar-group>
           <cupri-toolbar-sep></cupri-toolbar-sep>
           <cupri-toolbar-group>
-            <cupri-icon-button icon="copy"></cupri-icon-button>
-            <cupri-icon-button icon="trash"></cupri-icon-button>
+            <cupri-icon-button icon="copy" aria-label="Copy"></cupri-icon-button>
+            <cupri-icon-button icon="trash" aria-label="Delete"></cupri-icon-button>
           </cupri-toolbar-group>
           <cupri-toolbar-group push>
             <cupri-button>Publish</cupri-button>
@@ -468,7 +468,7 @@ doc.RenderToImage(800, 600);
           </cupri-menu>
           <cupri-popover label="Popover" open="{{PopOpen}}">A popover panel with rich content, anchored to its trigger.</cupri-popover>
           <cupri-tooltip text="Always shown (open)" open="true">
-            <cupri-icon-button icon="info"></cupri-icon-button>
+            <cupri-icon-button icon="info" aria-label="Info"></cupri-icon-button>
           </cupri-tooltip>
         </div>
         <!-- On its own row well below the pinned tooltip, so the hover bubble doesn't collide with it. -->
@@ -606,9 +606,9 @@ doc.RenderToImage(800, 600);
         </div>
         <div class="setrow indent">
           <span class="lbl">Zoom</span>
-          <cupri-icon-button icon="minus" class="zoom-dec"></cupri-icon-button>
+          <cupri-icon-button icon="minus" class="zoom-dec" aria-label="Zoom out"></cupri-icon-button>
           <span class="zoomval">{{ZoomPct}}%</span>
-          <cupri-icon-button icon="plus" class="zoom-inc"></cupri-icon-button>
+          <cupri-icon-button icon="plus" class="zoom-inc" aria-label="Zoom in"></cupri-icon-button>
         </div>
         <div class="setrow">
           <cupri-radio group="{{Scaling}}" value="hybrid"></cupri-radio>

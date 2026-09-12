@@ -73,7 +73,7 @@ about the single biggest difference between the two projects:
 | Layout | CSS box model: managed flexbox, grid (`minmax()`, spans), block flow | WPF-style **measure/arrange** with panels (`Grid`, `StackPanel`, `DockPanel`, `UniformGrid`, `WrapPanel`, `Canvas`, `SplitPanel`) |
 | Rendering | SkiaSharp only, one path everywhere | **Pluggable**: Direct2D, GDI (Windows), MewVG (managed NanoVG port — GL on Win/Linux, Metal on macOS, WebGL in the browser); SkiaSharp as an *extension* |
 | Desktop | Windows / macOS / Linux via Silk.NET | Windows 10+ / Linux X11 / macOS 12+, per-backend hosts |
-| Browser / WASM | **Shipped and documented**: same app class → `<canvas>`; two hosts (Mono-interpreted, NativeAOT-LLVM); 14.2 MB / 5.5 MB gzipped; **real DOM ARIA mirror** | **Real, live, but unannounced**: browser platform + WebGL backend in `src/`, Gallery deployed to a live site; 17.08 MB / 5.37 MB gzipped. Not on NuGet, not in the README, not on the roadmap; canvas only, no a11y mirror |
+| Browser / WASM | **Shipped and documented**: same app class → `<canvas>`; two hosts (Mono-interpreted, NativeAOT-LLVM); 14.2 MB / 5.5 MB gzipped; a **read-only ARIA mirror** screen readers can read (not yet operate), CI-gated by role queries | **Real, live, but unannounced**: browser platform + WebGL backend in `src/`, Gallery deployed to a live site; 17.08 MB / 5.37 MB gzipped. Not on NuGet, not in the README, not on the roadmap; canvas only, no a11y mirror |
 | Mobile | **Android** — own host package, engine-level touch/fling/IME, TalkBack bridge, emulator-gated in CI | **None** — desktop and browser only |
 | Touch | Two-axis scrolling with momentum and rubber band; multi-touch capture seam | Desktop input (mouse, keyboard); the browser host handles touch and IME on the canvas |
 | Deployment | **20.8 MB** single self-contained file (trimmed + compressed, measured, no runtime install; 95.4 MB untrimmed, which is what releases ship today). NativeAOT is 25.05 MB in 5 files | **The whole point**: single self-contained exe, Hello World **3.17–4.52 MB**, Gallery **7.35–9.24 MB** |
@@ -81,7 +81,7 @@ about the single biggest difference between the two projects:
 | AOT posture | Design goal, verified by hand — **opt-in and explicitly not run in CI**. Both the UIA bridge and hardware GL silently degraded under it until the bridge moved to source-generated COM | **Non-negotiable design constraint**, validated continuously; `LibraryImport` P/Invoke; DevTools deliberately refuse to ship in a trimmed/AOT build rather than lie |
 | Embedding | Core capability: `RenderToPixels` into any RGBA buffer (game texture, canvas, server); `IGpuSurfaceSource` for zero-copy GPU handover | Not a stated goal — the framework hosts the window. (Its `WriteableBitmap` and `WinFormsHost` samples point *inward*: drawing into a MewUI control, hosting WinForms inside MewUI) |
 | Testing | **Headless-first**: engine needs no window; **818 tests** click/type/fling/pixel-assert | Broad and conventional — unit, generator, analyzer, SVG, graphics-backend and benchmark suites, plus a real-window automation suite (`MewUI.WindowAutomationTest`) covering DPI crossing, multi-monitor popups and drag |
-| Accessibility | `role`/`aria-*` in every component; **four bridges — UIA, AT-SPI, NSAccessibility, TalkBack — each CI-gated by a real AT client**; real DOM a11y tree on the web host. *(UIA did not initialise under NativeAOT until the bridge moved to source-generated COM — see below)* | Focus and tab navigation documented; **no OS accessibility bridge** (no UIA, AT-SPI or NSAccessibility anywhere in the tree) |
+| Accessibility | `role`/`aria-*` in every component; **four bridges — UIA, AT-SPI, NSAccessibility, TalkBack — each CI-gated by a real AT client**; a read-only ARIA mirror on the web host, gated by role queries. *(UIA did not initialise under NativeAOT until the bridge moved to source-generated COM — see below)* | Focus and tab navigation documented; **no OS accessibility bridge** (no UIA, AT-SPI or NSAccessibility anywhere in the tree) |
 | Extras | Charts, kanban, command palette, pickers, Markdown, video, Lottie built in (74 elements) | Thin core + **optional packages**: MewDock (VS-style docking), SVG, Skia, MewCharts, MewvalonEdit (code editor), WebView2 |
 | Dev tooling | Plain text files, any editor; a live diagnostics HUD; no designer, no inspector | **Hot Reload** (no setup), **DevTools** (inspector, visual tree, perf monitor, profiler), **editor preview** as a VS Code extension, plus VS and Rider integrations — a decisive advantage |
 | Getting started | `dotnet run --project samples/Viewer` | Also **one command, no project**: `curl … fba_gallery.cs \| dotnet run -` (file-based app, .NET 10) |
@@ -174,11 +174,14 @@ What CupriFace still has here, stated no wider than it deserves:
   is in `src/` and clearly works, but it is **not published to NuGet**, not
   mentioned in the README, and not on the roadmap — so today you would be
   building it from source and tracking a target its own project has not announced.
-- **Accessibility on the web.** CupriFace mirrors its semantics tree into a real
-  DOM ARIA tree beside the canvas, so a screen reader gets something. MewUI's
-  browser host draws to a canvas and exposes a hidden text input for IME; there
-  is no a11y mirror. A canvas with no accessible tree is opaque to assistive
-  technology.
+- **Accessibility on the web.** CupriFace mirrors its semantics tree into an
+  ARIA DOM tree beside the canvas, so a screen reader can read the UI — roles,
+  names, states, values, with scrolled-away content marked hidden, and gated in
+  CI by role queries against the browser's own accessibility tree. It is
+  read-only: an AT can read a control but not yet operate it, and it has no
+  geometry. MewUI's browser host draws to a canvas and exposes a hidden text
+  input for IME; there is no mirror at all. A canvas with no accessible tree is
+  opaque to assistive technology.
 
 If either of those matters, the gap is real. If neither does, this row is now a
 tie, and the honest summary is that MewUI got to the browser faster than this

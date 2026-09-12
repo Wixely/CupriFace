@@ -29,7 +29,8 @@ public class UnderlayTests(WebHostFixture host, ITestOutputHelper output)
     ///
     /// <para>Clicking a coordinate is not the first choice, it is the only one. The engine paints to
     /// a canvas, so there is no element for Playwright to click; the ARIA mirror (<c>#cupri-a11y</c>)
-    /// stays empty until a screen reader asks for it; and the command palette cannot be reached
+    /// is read-only, so a click on it reaches nothing (it used to be EMPTY until the first input,
+    /// too - see A11yTests for what it now guarantees); and the command palette cannot be reached
     /// either, because Chromium keeps Ctrl+K for itself and the app never sees the key. So: a fixed
     /// viewport, measured rows, and every caller asserts on what actually opened — a nav that moves
     /// fails the wait with a named selector rather than quietly testing the wrong page.</para>
