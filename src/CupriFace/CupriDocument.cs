@@ -2463,10 +2463,12 @@ public sealed partial class CupriDocument : IDisposable
         return ok;
     }
 
-    /// <summary>Serialise the semantics tree to an ARIA HTML fragment for the web host's off-screen
-    /// screen-reader mirror (the canvas is opaque to assistive tech). See <see cref="Accessibility.AriaHtml"/>.</summary>
-    public string BuildAriaHtml(float width, float height) =>
-        Accessibility.AriaHtml.Serialize(BuildAccessibilityTree(width, height));
+    /// <summary>Serialise the semantics tree to an ARIA HTML fragment for the web host's overlay
+    /// (the canvas is opaque to assistive tech). See <see cref="Accessibility.AriaHtml"/>.
+    /// <paramref name="presentScale"/> is the host's canvas scale, so the overlay's boxes land on
+    /// the painted controls in the page's own pixels; the document's zoom is applied here.</summary>
+    public string BuildAriaHtml(float width, float height, float presentScale = 1f) =>
+        Accessibility.AriaHtml.Serialize(BuildAccessibilityTree(width, height), _zoom * presentScale);
 
     /// <summary>
     /// Dispatch a click at (x,y): hit-test, run built-in control behaviour (switch
@@ -3028,12 +3030,17 @@ public sealed partial class CupriDocument : IDisposable
     private int IndexOfFocusable(RenderNode hit)
     {
         // The focusable ancestor of the hit node (or itself), matched against the current list.
+        List<RenderNode>? f = null;
         for (var n = hit; n is not null; n = n.Parent)
             if (n.Element is { } el && IsFocusable(el))
             {
-                var f = Focusables();
+                f ??= Focusables();
                 for (var i = 0; i < f.Count; i++) if (ReferenceEquals(f[i], n)) return i;
-                return -1;
+                // Focusable, but not a Tab stop: it sits inside another focusable (a switch in a
+                // clickable row) and Focusables counts a control once, at the outermost. Keep
+                // climbing to the one Tab actually stops on — so a click on the switch, or an AT
+                // focusing it by path, continues the Tab order from its row rather than from the
+                // top of the document.
             }
         return -1;
     }

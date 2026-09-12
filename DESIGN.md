@@ -167,8 +167,13 @@ milestone 1.
   - **macOS** → NSAccessibility.
 - Keyboard focus, tab order, and hit-testing are driven from the same tree so
   screen-reader focus and visual focus never diverge.
-- **Web (step 2)** → inject a hidden, positioned DOM overlay mirroring semantics
-  (the Flutter-web model), since canvas is opaque to the browser a11y tree.
+- **Web** → a transparent, positioned DOM overlay mirroring semantics (the Flutter-web
+  model), since canvas is opaque to the browser a11y tree. Each node sits at its
+  control's bounds with the engine's path on it; a `click` an AT dispatches to a node,
+  and focus arriving on one, post back through the same `AccessibilityActivate` /
+  `AccessibilityFocus` / `AccessibilitySetValue` entry points the native bridges use,
+  and DOM focus follows the engine's. `pointer-events:none`, so a real pointer still
+  reaches the canvas.
 
 Design rule: **any element that conveys meaning must produce a semantics node.**
 Decorative nodes are explicitly marked `role=presentation`.

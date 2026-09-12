@@ -13,15 +13,101 @@ import { dotnet } from '../../_framework/dotnet.js'
 const canvas = document.getElementById('cupri');
 const ctx = canvas.getContext('2d');
 
-// The canvas is opaque to assistive tech; mirror the engine's semantics tree into an off-screen but
-// screen-reader-visible element next to it. (Visually hidden via the clip pattern — NOT display:none
-// or aria-hidden, which would hide it from screen readers too.)
+// The canvas is opaque to assistive tech. Over it sits a transparent DOM tree mirroring the
+// engine's semantics tree — the Flutter-web "semantics overlay" model. Each node is placed at its
+// control's bounds (which is what gives a screen reader hit-testing, a focus ring in the right
+// place and touch exploration on a phone), carries the engine's data-path (so a `click` on it —
+// how a screen reader activates a control — reaches AccessibilityActivate) and tabindex="-1" (so
+// DOM focus can follow the engine's and be announced, the way UIA's focus-changed event is).
+// pointer-events:none keeps the browser's own hit-testing off it: a real pointer always reaches the
+// canvas, while an AT's activation dispatches `click` straight to the node, which still fires.
 canvas.setAttribute('aria-hidden', 'true');
 const a11y = document.createElement('div');
 a11y.id = 'cupri-a11y';
 a11y.setAttribute('aria-live', 'polite');
-a11y.style.cssText = 'position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;';
+a11y.style.cssText = 'position:absolute;left:0;top:0;width:0;height:0;overflow:hidden;pointer-events:none;';
 document.body.appendChild(a11y);
+const a11yCss = document.createElement('style');
+// Transparent text rather than opacity:0 or font-size:0, which some ATs treat as hidden. No
+// outline: the engine paints the focus ring itself, at the same box. Only the container clips —
+// a node that clipped its children would report a popup positioned outside its parent as
+// off screen, and some ATs skip those.
+a11yCss.textContent = '#cupri-a11y div{position:absolute;margin:0;padding:0;white-space:nowrap;color:transparent;outline:none;}'
+                    + '#cupri-a11y>div{left:0;top:0;width:100%;height:100%;}';
+document.head.appendChild(a11yCss);
+const placeA11y = () => {
+    const r = canvas.getBoundingClientRect();
+    a11y.style.left = Math.round(r.left + window.scrollX) + 'px';
+    a11y.style.top = Math.round(r.top + window.scrollY) + 'px';
+    a11y.style.width = Math.round(r.width) + 'px';
+    a11y.style.height = Math.round(r.height) + 'px';
+};
+
+// Republish by PATCHING the live tree against the new fragment, keyed by data-path, rather than
+// replacing innerHTML: a replace tears DOM focus off the node holding it on every settled frame,
+// and a screen reader announces the same control again each time. (The NativeAOT host's main.js
+// carries the same code; the two are twins and change together.)
+let a11yHtml = '';
+const sameNode = (o, n) => o.nodeType === n.nodeType &&
+    (o.nodeType !== 1 || (o.getAttribute('data-path') === n.getAttribute('data-path') && o.getAttribute('role') === n.getAttribute('role')));
+function patchA11y(live, next, isRoot) {
+    if (!isRoot) {
+        for (const a of [...live.attributes]) if (!next.hasAttribute(a.name)) live.removeAttribute(a.name);
+        for (const a of next.attributes) if (live.getAttribute(a.name) !== a.value) live.setAttribute(a.name, a.value);
+    }
+    const olds = [...live.childNodes], news = [...next.childNodes];
+    let i = 0;
+    for (; i < news.length; i++) {
+        const n = news[i], o = olds[i];
+        if (o && sameNode(o, n)) { if (n.nodeType === 3) { if (o.data !== n.data) o.data = n.data; } else patchA11y(o, n, false); }
+        else if (o) live.replaceChild(n, o);
+        else live.appendChild(n);
+    }
+    for (let j = olds.length - 1; j >= i; j--) live.removeChild(olds[j]);
+}
+// DOM focus follows the engine's. A text field is the exception: it keeps DOM focus on the hidden
+// textarea, because that is what receives IME composition and the native clipboard events.
+const textRole = r => r === 'textbox' || r === 'searchbox' || r === 'combobox' || r === 'spinbutton';
+let a11yFocusPath = null;   // what the engine last said holds focus — never re-announced
+function syncA11yFocus() {
+    const f = a11y.querySelector('[data-focused]');
+    const path = f ? f.getAttribute('data-path') : null;
+    if (path === a11yFocusPath) return;
+    a11yFocusPath = path;
+    if (!f || textRole(f.getAttribute('role'))) { focusKbd(); return; }
+    f.focus({ preventScroll: true });
+}
+function syncA11y(html) {
+    if (html === a11yHtml) return;
+    a11yHtml = html;
+    const t = document.createElement('template');
+    t.innerHTML = html;
+    patchA11y(a11y, t.content, true);
+    syncA11yFocus();
+}
+// Actions back to the engine, by data-path — bound once the runtime is live (below).
+let a11yAct = null;
+const a11yPathOf = e => { const p = e.target && e.target.closest && e.target.closest('[data-path]'); return p ? p.getAttribute('data-path') : null; };
+a11y.addEventListener('click', e => {
+    const path = a11yPathOf(e);
+    if (path && a11yAct) { e.preventDefault(); a11yAct.activate(path); }
+});
+a11y.addEventListener('focusin', e => {
+    // Focus arriving FROM the AT (its virtual cursor, or a user tabbing in focus mode) — as
+    // opposed to the one syncA11yFocus just placed, which the engine already knows about.
+    const path = a11yPathOf(e);
+    if (path && a11yAct && path !== a11yFocusPath) { a11yFocusPath = path; a11yAct.focus(path); }
+});
+a11y.addEventListener('keydown', e => {
+    // Enter/Space on a node holding DOM focus activates THAT node, and stops the window handler
+    // below from also sending Enter to the engine — focus is synced, so that is the same control,
+    // and the press would land twice.
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const path = a11yPathOf(e);
+    if (!path || !a11yAct) return;
+    e.preventDefault(); e.stopPropagation();
+    a11yAct.activate(path);
+});
 
 // Hidden focused textarea that owns keyboard focus and receives NATIVE copy/cut/paste events — so
 // clipboard works with no permission prompt and without navigator.clipboard.readText (which prompts
@@ -116,8 +202,8 @@ try {
         // Context-menu clipboard (async browser clipboard). Paste reads then feeds the engine.
         clipboardWrite: text => navigator.clipboard.writeText(text).catch(() => {}),
         clipboardPaste: () => navigator.clipboard.readText().then(t => { if (t) I.KeyChar(t); }).catch(() => {}),
-        // Off-screen ARIA mirror of the semantics tree (screen-reader accessibility).
-        a11y: html => { if (a11y.innerHTML !== html) a11y.innerHTML = html; },
+        // The ARIA overlay: the semantics tree, patched into the live DOM (see syncA11y above).
+        a11y: syncA11y,
         // Move the hidden textarea to the caret so the IME's candidate window appears AT the
         // field; inputmode picks the right virtual keyboard on touch browsers.
         textInput: (focused, numeric, multiline, x, y) => {
@@ -218,9 +304,17 @@ try {
     // page does, rather than a parallel path that could pass while the real one is broken.
     // `isCoarse` is the UNIFORM contract both web hosts publish, so one gate can drive either
     // without knowing whether it is talking to JSExports or to Emscripten's module.
+    // The overlay's way back into the engine — the same three entry points every native bridge
+    // posts through. Published for automation too, so a browser test can drive them directly.
+    a11yAct = {
+        activate: path => I.A11yActivate(path),
+        focus: path => I.A11yFocus(path),
+        setValue: (path, value) => I.A11ySetValue(path, value),
+    };
     globalThis.__cupri = Object.assign(globalThis.__cupri || {}, {
         I,
         isCoarse: () => I.IsCoarsePointer(),
+        a11yAct,
     });
     logBoot('exports ok');
 
@@ -231,7 +325,7 @@ try {
     // Size the canvas backing store to its CSS box (the full window), and keep it in sync on
     // resize so Hybrid-Zoom scaling reflows to the viewport. Tick notices the size change and
     // repaints (render-on-demand).
-    const sizeCanvas = () => { canvas.width = canvas.clientWidth || 940; canvas.height = canvas.clientHeight || 720; };
+    const sizeCanvas = () => { canvas.width = canvas.clientWidth || 940; canvas.height = canvas.clientHeight || 720; placeA11y(); };
     sizeCanvas();
     window.addEventListener('resize', sizeCanvas);
     const at = e => { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
@@ -320,7 +414,9 @@ try {
         const mods = (e.shiftKey ? 1 : 0) | (ctrl ? 2 : 0);
         if (ctrl) {
             const k = e.key.toLowerCase();
-            if (k === 'c' || k === 'x' || k === 'v') return; // let the native copy/cut/paste event fire
+            // Let the native copy/cut/paste event fire — on the textarea, which is where the
+            // listeners are: DOM focus may be sitting on an overlay node the engine focused.
+            if (k === 'c' || k === 'x' || k === 'v') { focusKbd(); return; }
             if (k === 'a') { I.EditKeyPress(EK.SelectAll, 0); e.preventDefault(); return; }         // select all
             if (k === 'z') { if (e.shiftKey) I.Redo(); else I.Undo(); e.preventDefault(); return; }   // Ctrl+Shift+Z = redo
             if (k === 'y') { I.Redo(); e.preventDefault(); return; }

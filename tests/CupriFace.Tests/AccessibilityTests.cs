@@ -46,10 +46,129 @@ public class AccessibilityTests
         Assert.Contains("aria-valuenow=\"60\"", aria);          // slider value/range
         Assert.Contains("aria-valuemin=\"0\"", aria);
         Assert.Contains("aria-valuemax=\"100\"", aria);
-        // No tab stops, on purpose: the web host owns Tab and stops the browser's default, so a
-        // tabindex in the mirror was a claim about reachability that was never true (measured:
-        // focus never left the keyboard textarea). Screen readers walk the mirror by role.
-        Assert.DoesNotContain("tabindex", aria);
+        // No TAB STOPS, on purpose: the web host owns Tab and stops the browser's default, so a
+        // tabindex="0" in the overlay would be a claim about reachability that is never true
+        // (measured: focus never left the keyboard textarea). tabindex="-1" is the opposite claim —
+        // focusable by script, so the page can put DOM focus where the engine's is.
+        Assert.DoesNotContain("tabindex=\"0\"", aria);
+        Assert.Contains("role=\"button\" aria-label=\"Save\" data-path=\"", aria);
+        Assert.Contains("tabindex=\"-1\"", aria);
+    }
+
+    // ---- What makes the web overlay a bridge rather than a mirror (#133): every node placed at ----
+    // ---- its bounds, addressable by path, and the focused one marked so DOM focus can follow. ----
+
+    [Fact]
+    public void Aria_html_places_every_node_at_its_bounds_relative_to_its_parent()
+    {
+        const string html = """
+            <body>
+              <div class="panel" role="group" aria-label="Panel">
+                <cupri-button>Save</cupri-button>
+              </div>
+            </body>
+            """;
+        const string css = "body { margin:0 } .panel { position:absolute; left:40px; top:30px; width:200px; height:100px; } cupri-button { position:absolute; left:10px; top:20px; width:80px; height:24px; }";
+        using var t = new TestDoc(html, css, new Model(), components: true, width: 400, height: 300);
+        var tree = t.Doc.BuildAccessibilityTree(400, 300);
+        var group = FindRole(tree, "group")!;
+        var button = FindRole(tree, "button")!;
+        Assert.Equal((40f, 30f), (group.Bounds.X, group.Bounds.Y));
+        Assert.Equal((50f, 50f), (button.Bounds.X, button.Bounds.Y));    // absolute in the tree…
+
+        var aria = t.Doc.BuildAriaHtml(400, 300);
+        Assert.Contains("aria-label=\"Panel\" data-path=\"" + group.Path + "\" style=\"left:40px;top:30px;width:200px;height:100px\"", aria);
+        // …but relative to the node it sits in on the page, because the overlay keeps the tree's
+        // nesting (a group contains its button) and a nested absolute box is offset by its parent.
+        // (The button's own size is whatever its padding makes it — the tree's word, not the CSS's.)
+        Assert.Contains("data-path=\"" + button.Path + "\" tabindex=\"-1\" style=\"left:10px;top:20px;"
+                        + $"width:{button.Bounds.W:0.##}px;height:{button.Bounds.H:0.##}px\"", aria);
+    }
+
+    [Fact]
+    public void Aria_html_scales_geometry_to_the_page_pixels_the_host_presents_at()
+    {
+        // The web host lays out at a logical size and paints the canvas scaled (Hybrid-Zoom). The
+        // overlay lives in the page's pixels, so its boxes must scale the same way or they land
+        // beside the painted control rather than on it.
+        const string css = "body { margin:0 } cupri-button { position:absolute; left:10px; top:20px; width:80px; height:24px; }";
+        using var t = new TestDoc("<body><cupri-button>Save</cupri-button></body>", css, new Model(), components: true, width: 400, height: 300);
+        var b = FindRole(t.Doc.BuildAccessibilityTree(400, 300), "button")!.Bounds;
+        var aria = t.Doc.BuildAriaHtml(400, 300, presentScale: 1.5f);
+        Assert.Contains($"style=\"left:15px;top:30px;width:{b.W * 1.5f:0.##}px;height:{b.H * 1.5f:0.##}px\"", aria);
+    }
+
+    [Fact]
+    public void Aria_html_marks_the_focused_node_and_nothing_else()
+    {
+        var m = new Model();
+        const string html = """
+            <body>
+              <cupri-switch checked="{{On}}">A</cupri-switch>
+              <cupri-slider min="0" max="100" value="{{Volume}}"></cupri-slider>
+            </body>
+            """;
+        using var t = new TestDoc(html, "", m, components: true);
+        Assert.DoesNotContain("data-focused", t.Doc.BuildAriaHtml(400, 300));
+
+        t.Key(EditKey.Tab);
+        var aria = t.Doc.BuildAriaHtml(400, 300);
+        // One node, and it is the switch — the page puts DOM focus on that node so the screen
+        // reader announces it, which is the web's UIA focus-changed event.
+        Assert.Equal(1, aria.Split("data-focused=\"true\"").Length - 1);
+        Assert.Contains("role=\"switch\"", aria[..aria.IndexOf("data-focused", StringComparison.Ordinal)]);
+        Assert.DoesNotContain("role=\"slider\"", aria[..aria.IndexOf("data-focused", StringComparison.Ordinal)]);
+    }
+
+    [Fact]
+    public void Focus_on_a_roleless_clickable_row_is_announced_on_the_control_inside_it()
+    {
+        // The Showcase's sidebar: a row with a click handler wrapping the switch it toggles. Tab
+        // stops on the ROW (Focusables counts a control once, at the outermost), which has no role
+        // and so no node — measured on the web overlay: after Tab, no node was marked focused, and
+        // focusing the switch by its path was refused because the switch is not a Tab stop.
+        var m = new Model { On = false };
+        const string html = """
+            <body>
+              <cupri-button>First</cupri-button>
+              <div class="row"><span>Dark mode</span><cupri-switch checked="{{On}}"></cupri-switch></div>
+            </body>
+            """;
+        using var t = new TestDoc(html, "", m, components: true);
+        t.Doc.OnClick(".row", _ => { });     // what makes the row focusable
+
+        t.Key(EditKey.Tab);
+        t.Key(EditKey.Tab);                  // the row
+        var tree = t.Doc.BuildAccessibilityTree(400, 300);
+        Assert.Equal(1, CountFocused(tree));
+        Assert.True(FindRole(tree, "switch")!.Focused, "focus on the row should be announced on its switch");
+
+        // And the other direction: an AT focusing the switch lands on the Tab stop that owns it,
+        // and the next tree agrees about who has focus — so the overlay's focus is never yanked
+        // back by a publish that says nobody does.
+        t.Key(EditKey.ShiftTab);
+        Assert.False(FindRole(t.Doc.BuildAccessibilityTree(400, 300), "switch")!.Focused);
+        Assert.True(t.Doc.AccessibilityFocus(FindRole(tree, "switch")!.Path));
+        Assert.True(FindRole(t.Doc.BuildAccessibilityTree(400, 300), "switch")!.Focused);
+    }
+
+    [Fact]
+    public void Focus_by_path_is_what_the_overlay_posts_when_an_AT_moves_focus()
+    {
+        var m = new Model();
+        const string html = """
+            <body>
+              <cupri-switch checked="{{On}}">A</cupri-switch>
+              <cupri-slider min="0" max="100" value="{{Volume}}"></cupri-slider>
+            </body>
+            """;
+        using var t = new TestDoc(html, "", m, components: true);
+        var slider = FindRole(t.Doc.BuildAccessibilityTree(400, 300), "slider")!;
+
+        Assert.True(t.Doc.AccessibilityFocus(slider.Path));
+        var tree = t.Doc.BuildAccessibilityTree(400, 300);
+        Assert.Equal(1, CountFocused(tree));
+        Assert.True(FindRole(tree, "slider")!.Focused);
     }
 
     [Fact]

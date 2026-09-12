@@ -73,6 +73,12 @@ internal partial class Interop
 
     [JSExport] internal static bool IsTransparent() => WebHostCore.IsTransparent();
 
+    // ---- accessibility: what the ARIA overlay posts back (main.js forwards a click on, or focus
+    // arriving at, a mirror node by its data-path). The same entry points the native bridges use.
+    [JSExport] internal static void A11yActivate(string path) => WebHostCore.AccessibilityActivate(path);
+    [JSExport] internal static void A11yFocus(string path) => WebHostCore.AccessibilityFocus(path);
+    [JSExport] internal static void A11ySetValue(string path, double value) => WebHostCore.AccessibilitySetValue(path, value);
+
     // ---- imports (module "cupri", registered by main.js) ---------------------------------------
 
     // The pixels are copied into the 2D canvas via putImageData; the damage rect narrows the blit
