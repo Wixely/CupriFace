@@ -15,6 +15,19 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ## Unreleased
 
+### Added
+
+- **`doc.Settle(width, height, timeout?)` — render until the next frame is complete.** Returns false
+  on timeout rather than handing back a frame with holes in it. It is a loop, not a flag, for two
+  measured reasons: a remote image is not fetched until a layout asks for it, so **`IsLoaded` is
+  `true` before the first render because nothing has *started*** — a caller polling it to decide the
+  first frame is ready captures the frame without the image — and an image that arrives can change
+  the layout enough to pull a further image into view, so the condition is "a whole render left
+  nothing pending". `@font-face` needs no waiting; those sources resolve synchronously inside
+  layout. `tools/Screenshots` now uses it, and **skips a capture that did not settle** rather than
+  overwriting a committed image with an incomplete one, exiting non-zero so CI cannot publish a set
+  with holes quietly.
+
 ### Fixed
 
 - **A screen reader gets the web host's accessibility tree without anyone clicking first.** The ARIA
