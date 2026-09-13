@@ -17,6 +17,29 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **`PresentInfo.Adaptive(w, h, designW, designH)` — spends surplus, never crushes (#153).** Use it
+  instead of `Hybrid` when a layout has a DESKTOP design size and also has to meet a phone. Hybrid
+  scales down as readily as up, and the logical viewport is `window / scale`, so below the design
+  size the viewport comes out **wider** than the design: a 1280-wide design on a 412dp phone lays
+  out at 1280 logical and paints at 0.32x, which is 14px text at about 4.5dp. Worse, the layout has
+  no way to answer — `@media (max-width: …)` is evaluated against that logical width, so no
+  breakpoint below the design width can ever match, on any device. `Adaptive` is Hybrid above the
+  design size and `Responsive` below it, which hands the phone back its own width. Measured against
+  the Showcase at 393x771: under Hybrid the sidebar cannot become its icon rail; under Adaptive it
+  does. Nothing else changes, and `Hybrid`'s own behaviour is untouched — but its documentation now
+  says which way it scales, because the old wording ("on a phone that usually means fill the width,
+  scroll the length") described the opposite of what it does with a desktop design size.
+
+- **`doc.ViewportWidth` / `doc.ViewportHeight` — the size the document was laid out in (#155).**
+  Post-`Zoom`, so it is the size `@media` was evaluated against and `vw`/`vh` resolved to: an app
+  comparing the host's logical width to its own breakpoints instead disagrees with the cascade the
+  moment zoom is not 1, and the disagreement is invisible until someone zooms. Zero until the first
+  layout. What it is for: a responsive control with three states (auto, forced open, forced closed),
+  which is the minimum a collapsible sidebar needs, because a two-state flag cannot override a media
+  rule in both directions — such a toggle means "the opposite of what I can currently SEE". The
+  engine's own Showcase had been shadowing the width from `Present()` every frame to answer that,
+  and now reads it from the document (which also fixes the shadow being the pre-zoom width).
+
 - **A text field on the web is now a real `<input>`, so the browser's own editor works on it (#133).**
   The canvas had one hidden textarea following the caret: typing and IME worked, nothing else did.
   A screen reader saw a `role="textbox"` it could not edit, and a password manager saw no field at
