@@ -58,6 +58,10 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 - **Installable fonts** — `@font-face` with `url()` sources (embedded resource, file, `https:`,
   `data:`), `doc.LoadFont`/`LoadFonts`, or `override Fonts` on the app. `FontPolicy.RegisteredOnly`
   makes output that cannot depend on what the machine happens to have installed.
+- **One layout, desktop to phone** — `@media` and viewport units against the size the document was
+  actually laid out in (`doc.ViewportWidth`), and a scaling strategy per app: `PresentInfo.Adaptive`
+  spends a big monitor's surplus without ever crushing a small screen, which is what lets a
+  desktop-designed layout reflow on a phone instead of merely shrinking.
 - **Display scaling** — desktop windows are Per-Monitor-V2 aware: the document lays out in logical
   pixels and paints at `monitor scale × your PresentInfo.Scale`, so text and vectors are rasterised
   crisply rather than bitmap-stretched, and a window keeps its logical size when dragged between
@@ -71,15 +75,17 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
   another; `samples/TouchProbe` prints exactly what a machine delivers.
 - **Development-time checks** — `CupriDoctor.Check(html, css, model: m)` names what will not work
   before you look for it (unclosed tags, `<img>`, unknown `cupri-*`, bindings that resolve to
-  nothing, fixed-height boxes whose contents overflow, ignored CSS); `doc.DumpTree()` prints the
-  laid-out tree with clickable coordinates; `ImageDiff` says what changed between two renders. All
-  headless. The engine is forgiving at run time by design, so these are how a mistake stops looking
+  nothing, fixed-height boxes whose contents overflow, content that runs off the side of a phone,
+  ignored CSS); `doc.DumpTree()` prints the laid-out tree with clickable coordinates; `ImageDiff`
+  says what changed between two renders; `doc.Settle(w, h)` renders until the frame is complete
+  rather than hoping. All headless. The engine is forgiving at run time by design, so these are how a mistake stops looking
   like an unfinished layout. [CLAUDE.md](CLAUDE.md) is the short version for anyone — or any agent
   — starting work here.
 - **Screen readers** — those semantics reach assistive tech on **four platforms**: UIA
   (Windows), AT-SPI (Linux), NSAccessibility (macOS) and TalkBack (Android), each proven
   in CI by a real assistive-technology client, plus a real-DOM ARIA overlay on the web host that
-  a screen reader can operate, not only read.
+  a screen reader can operate, not only read — with a real transparent `<input>` over every text
+  field, so the browser's own editor, IME and password manager work on what the canvas paints.
 - **Android** — the same `CupriApp` on a phone: `CupriFace.Android` brings a GL surface,
   touch gestures (tap-on-release, momentum fling, long-press), the soft keyboard with real
   IME composition, and TalkBack. CoreCLR runtime, ~20 MB APK, driven end-to-end on an
