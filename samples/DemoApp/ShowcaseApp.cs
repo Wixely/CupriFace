@@ -65,11 +65,13 @@ public sealed class ShowcaseApp : CupriApp
         // dispatch fires on the innermost matching element, so a burger click can't double-toggle).
         // The toggle means "do the opposite of what I can currently SEE", which below the narrow
         // breakpoint is not the same as "the opposite of the model flag": the sidebar may be an
-        // icon rail because of the @media rule while the flag still says expanded. Present() records
-        // the logical width each frame, so the handler can tell which of the two states is on screen.
+        // icon rail because of the @media rule while the flag still says expanded. doc.ViewportWidth
+        // is the width the cascade was resolved against, so the two can't disagree — this used to
+        // be a width recorded in Present() each frame, which was the PRE-zoom one and therefore
+        // wrong at any zoom level but 1.
         doc.OnClick(".collapse-btn, .brand-label", _ =>
         {
-            var showingRail = _model.Sidebar == "collapsed" || (_model.Sidebar != "expanded" && _logicalWidth <= 760);
+            var showingRail = _model.Sidebar == "collapsed" || (_model.Sidebar != "expanded" && doc.ViewportWidth <= 760);
             _model.Sidebar = showingRail ? "expanded" : "collapsed";
         });
         // The row itself toggles dark mode, which is the ONLY way to reach it while the sidebar is
@@ -185,14 +187,7 @@ public sealed class ShowcaseApp : CupriApp
         doc.OnClick(".zoom-inc", _ => _model.ZoomPct = Math.Clamp(_model.ZoomPct + 10, 80, 200));
     }
 
-    private float _logicalWidth = 1024;   // what the sidebar toggle reads to know what's on screen
-
-    public override PresentInfo Present(float w, float h)
-    {
-        var info = PresentFor(w, h);
-        _logicalWidth = info.LogicalWidth;
-        return info;
-    }
+    public override PresentInfo Present(float w, float h) => PresentFor(w, h);
 
     // The four strategies now live on PresentInfo, in the engine, where someone overriding Present
     // can find them. This page is what the Settings section switches between — and it is also the
@@ -203,6 +198,7 @@ public sealed class ShowcaseApp : CupriApp
         "none" => PresentInfo.Fixed(Width, Height),
         "zoom" => PresentInfo.Zoom(w, h, _model.ZoomPct / 100f),
         "hybrid" => PresentInfo.Hybrid(w, h, Width, Height),
+        "adaptive" => PresentInfo.Adaptive(w, h, Width, Height),
         _ => PresentInfo.Responsive(w, h),
     };
 }
@@ -365,9 +361,13 @@ public sealed partial class ShowcaseModel
 
     // 1:1 by default — the window's own pixels, reflowing as it resizes. "hybrid" used to be the
     // default, which scales the whole UI up on a large monitor; that is a demo of the scaling modes,
-    // not a sensible starting state for the app. The Settings page still switches between all four.
+    // not a sensible starting state for the app. The Settings page still switches between all five.
     public string Scaling { get; set; } = "responsive";
     public int ZoomPct { get; set; } = 100;
+
+    /// <summary>The design size the scaling strategies are measured against, for the Settings copy —
+    /// Adaptive's behaviour changes at exactly this size, so the page says which size that is.</summary>
+    public string DesignSize => "940x720";
     public string ThemeClass => DarkMode ? "dark" : "";
 
     /// <summary>"" (auto — the @media rule decides), "collapsed" or "expanded". Three states, not
