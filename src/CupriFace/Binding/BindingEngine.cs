@@ -29,7 +29,12 @@ public static partial class BindingEngine
     /// never measured, fall back to the item-height estimate), whether the list sat pinned at its
     /// bottom, and whether the document has seen the list at all (an unknown bottom-anchored list
     /// opens AT the bottom).</summary>
-    public readonly record struct VirtualListState(double ScrollY, IReadOnlyList<float>? Heights, bool AtBottom, bool Known);
+    /// <param name="ViewportHeight">The list's MEASURED content-box height from the last layout, or
+    /// null if it has never been laid out. What <c>height="auto"</c> windows off: the attribute is
+    /// not a number then, and the box's real height is only knowable after layout — the same
+    /// bind-before-layout ordering the row pitches already solve this way.</param>
+    public readonly record struct VirtualListState(double ScrollY, IReadOnlyList<float>? Heights, bool AtBottom, bool Known,
+                                                   double? ViewportHeight = null);
 
     /// <summary>Apply model → view binding. <paramref name="scrollFor"/> (optional) returns a virtual
     /// list's current scroll offset by its <c>data-repeat</c> path, so a <c>data-repeat</c> inside a
@@ -103,8 +108,13 @@ public static partial class BindingEngine
         parent.SetAttribute("data-virtual-key", repeatPath);
 
         var est = ItemH(parent);
-        var viewH = Dbl(parent.GetAttribute("height"), 300);
         var state = stateFor?.Invoke(repeatPath) ?? new VirtualListState(0, null, false, true);
+        // height="auto" hands the box to layout, so the number to window off is the one the last
+        // layout MEASURED. Before the first layout there is nothing to measure and the default
+        // stands for one frame — the same way a never-seen row uses the item-height estimate.
+        var viewH = SizedByLayout(parent)
+            ? state.ViewportHeight is { } measured && measured > 0 ? measured : 300
+            : Dbl(parent.GetAttribute("height"), 300);
         var heights = state.Heights;
         double H(int i) => heights is not null && i < heights.Count && heights[i] > 0 ? heights[i] : est;
 
@@ -144,6 +154,12 @@ public static partial class BindingEngine
         parent.SetAttribute("data-virtual-first", first.ToString(CultureInfo.InvariantCulture));
         return (first, last, above, below);
     }
+
+    /// <summary>No height, or <c>height="auto"</c>: the box belongs to CSS, so its height is the
+    /// layout's answer rather than an attribute's. Only a NUMBER is the attribute's to give.</summary>
+    private static bool SizedByLayout(IElement virt) =>
+        virt.GetAttribute("height") is not { Length: > 0 } h
+        || h.Equals("auto", StringComparison.OrdinalIgnoreCase);
 
     private static double ItemH(IElement virt) => Dbl(virt.GetAttribute("item-height"), 40);
     private static double Dbl(string? s, double dflt) => double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var d) && d > 0 ? d : dflt;

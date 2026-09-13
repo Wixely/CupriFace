@@ -59,6 +59,36 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   visual failure before that rule, and fixing the first is what decides whether the others were ever
   real.
 
+- **`<cupri-virtual height="auto">` takes its height from layout (#152).** A virtual list could only
+  be sized by its `height` attribute, which the component wrote as an **inline** style — beating
+  every stylesheet rule, `@media` rule and flex rule there is. So a virtual list could never fill
+  the space its chrome leaves, and an app whose main surface IS the list had to compute the height
+  itself and push it through the view model on every resize, which is re-implementing layout outside
+  the engine.
+
+  The trap underneath it was worse than the limitation. The author's own `style` is appended AFTER
+  the component's, so `<cupri-virtual height="300" style="height:100%">` genuinely wins the paint —
+  but the binder windows off the ATTRIBUTE, so the list paints full height and materialises 300px of
+  rows. Measured: a list laid out at 940px with `height="300"` leaves a **340px blank strip** at the
+  bottom of the viewport once it is scrolled. It looks perfectly finished until someone scrolls it.
+
+  With `height="auto"` — **or no `height` at all, which now means the same thing** — no inline height
+  is written, so the box belongs to the cascade, and the binder windows off the height the last
+  layout measured. That is the same bind-before-layout route the measured row pitches already take,
+  capped at the document's own viewport so an unconstrained list cannot grow itself a frame at a
+  time. A NUMBER still becomes an inline height and still beats every stylesheet rule: naming one is
+  how an author says "this size, and I mean it". The Showcase's list now takes its 224px from the
+  stylesheet, rendering pixel for pixel what it did.
+
+  **Upgrading.** A list that names a numeric `height` is unaffected. A list with NO `height`
+  attribute still comes out 300px and still scrolls, because that default moved from an inline style
+  into the component's own stylesheet — so the only change is that your CSS, a `@media` rule or a
+  flex parent can now override it, where previously nothing could. If a list of yours was relying on
+  a stylesheet rule being ignored, it will now be obeyed. (The default did not become CSS `auto`:
+  that was measured and rejected, because a scroller with no constraint grows to its whole content
+  and a bare 2,000-row list came out 80,000px tall with nothing to scroll — worse than the arbitrary
+  number it replaced.)
+
 - **A text field on the web is now a real `<input>`, so the browser's own editor works on it (#133).**
   The canvas had one hidden textarea following the caret: typing and IME worked, nothing else did.
   A screen reader saw a `role="textbox"` it could not edit, and a password manager saw no field at
@@ -101,9 +131,9 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   reaches the canvas, and republishes patch the live DOM keyed by `data-path` rather than replacing
   `innerHTML`, which would tear focus off the node holding it on every settled frame. Nothing to do
   in an app. `BuildAriaHtml` takes an optional `presentScale` so the overlay scales with the
-  canvas; `AriaHtml.Serialize` takes the same. Text fields keep DOM focus on the hidden keyboard
-  textarea (IME and clipboard live there); a real `<input>` per field is the next step, separately.
-  Gated in `tests/WebTouchGate/A11yTests.cs` against Chromium's accessibility tree.
+  canvas; `AriaHtml.Serialize` takes the same. Text fields were left on the hidden keyboard textarea
+  by this change and are handled by the real-`<input>` entry above, which shipped in the same
+  release. Gated in `tests/WebTouchGate/A11yTests.cs` against Chromium's accessibility tree.
 
   Three engine fixes the gate forced, each of them measured rather than reasoned:
   - **The web host published the mirror only on frames whose pixels changed.** The frame after an

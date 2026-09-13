@@ -91,6 +91,9 @@ body.dark { --cupri-bg:#0f1420; --cupri-surface:#1b2233; --cupri-text:#e6e9f0; -
 .kb-head { font-weight:bold; color:var(--cupri-muted); font-size:13px; margin-bottom:10px; padding:0 2px; }
 .kb-col .cupri-reorder-item { background:var(--cupri-surface); box-shadow:0 1px 3px #00000014; }
 /* Rows for the virtualized list — a fixed height that matches item-height. */
+/* height="auto" hands the box to the stylesheet — which is the only way a list can be sized by
+   layout, since a numeric height is written as an INLINE style and beats every rule here. */
+.vlist { height:224px; }
 .vrow { height:40px; display:flex; align-items:center; padding:0 16px; font-size:14px;
         color:var(--cupri-text); border-bottom:1px var(--cupri-border); }
 /* Bounded to the window height (flex-stretched), so a tall section scrolls (wheel + thumb) instead

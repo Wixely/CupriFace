@@ -190,12 +190,20 @@ public sealed class BoardComponent : ComponentBase
 /// returning to the bottom re-engages it. For prepended history ("load older"), tell the engine before
 /// refreshing: <see cref="CupriDocument.VirtualListInserted"/>. The windowing happens in the binder
 /// (see BindingEngine); this just styles the scroll box.
+///
+/// <para><b><c>height="auto"</c> takes the height from LAYOUT</b> — CSS, a <c>@media</c> rule, or a
+/// flex parent — which is what a list has to do when it is the main surface of a responsive app.
+/// Any other value is written as an inline height, and an inline style beats a stylesheet, so a
+/// numeric height cannot be overridden by CSS at all. Worse, the binder windows off the same number:
+/// a list told <c>height="300"</c> and then given <c>height:100%</c> by a stylesheet paints full
+/// height and materialises 300px of rows, so it looks right until it is scrolled. With
+/// <c>auto</c> the engine measures the laid-out box and windows off that.</para>
 /// </summary>
 public sealed class VirtualListComponent : ComponentBase
 {
     public override string Tag => "cupri-virtual";
     public override string DefaultCss => """
-        .cupri-virtual { display:block; overflow:scroll; }
+        .cupri-virtual { display:block; overflow:scroll; height:300px; }
         """;
     public override void Expand(IElement el)
     {
@@ -206,7 +214,20 @@ public sealed class VirtualListComponent : ComponentBase
         // windowing half by reading the raw anchor attribute, which is why nothing is translated.
         if (Str(el, "anchor", "") == "bottom") el.SetAttribute("data-follow-tail", "");
         var extra = el.GetAttribute("style") is { Length: > 0 } s ? ";" + s : "";
-        el.SetAttribute("style", $"height:{Str(el, "height", "300")}px;overflow:scroll{extra}");
+        // No height, or height="auto": write NO inline height, so the box belongs to the cascade —
+        // the 300px above, or whatever the app's stylesheet, a @media rule or a flex parent says,
+        // all of which beat a component's own CSS. A NUMBER still becomes an inline height, which
+        // beats every rule there is: naming one is how an author says "this size, and I mean it".
+        //
+        // The 300px default moved from an inline style to that stylesheet rule rather than becoming
+        // `auto`, and the difference is the whole point. Inline, nothing could override it. As
+        // `auto` it would be no default at all: a scroller with no constraint grows to its full
+        // content, and a bare 2,000-row list measured 80,000px tall — worse than the arbitrary
+        // number it replaced. As a rule it is a default that anything can override, which is what
+        // was wanted from it.
+        var height = Str(el, "height", "auto");
+        var box = height.Equals("auto", StringComparison.OrdinalIgnoreCase) ? "" : $"height:{height}px;";
+        el.SetAttribute("style", $"{box}overflow:scroll{extra}");
     }
 }
 
