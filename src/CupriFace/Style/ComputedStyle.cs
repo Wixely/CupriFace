@@ -64,7 +64,9 @@ public sealed class ComputedStyle
     public float BorderTop, BorderRight, BorderBottom, BorderLeft;
     public SKColor BorderColor = SKColors.Black;
     public BorderLineStyle BorderStyle = BorderLineStyle.Solid;
-    public float BorderRadius;
+    /// <summary>Per corner and per axis, and unresolved: a percentage is a fraction of the BOX, so it
+    /// becomes a number only when there is a box to measure it against. <see cref="BorderRadiusSpec.Resolve"/>.</summary>
+    public BorderRadiusSpec BorderRadius;
 
     // Paint
     public SKColor Background = SKColors.Transparent;

@@ -139,21 +139,21 @@ public sealed class SkiaRasterizer
                         // Outset: the box grown by spread, offset, drawn behind the element's background.
                         var rr = new SKRect(sh.X + sh.Dx - sh.Spread, sh.Y + sh.Dy - sh.Spread,
                                             sh.X + sh.W + sh.Dx + sh.Spread, sh.Y + sh.H + sh.Dy + sh.Spread);
-                        var rad = MathF.Max(0, sh.Radius + sh.Spread);
-                        canvas.DrawRoundRect(rr, rad, rad, shPaint);
+                        DrawRect(canvas, shPaint, rr.Left, rr.Top, rr.Width, rr.Height, sh.Radius.Deflate(-sh.Spread));
                     }
                     else
                     {
                         // Inset: clip to the box, then fill (outer ∖ inner) with even-odd so the blurred
                         // inner edge falls inside the box (inner = the box offset by Dx/Dy, inset by spread).
                         canvas.Save();
-                        canvas.ClipRoundRect(new SKRoundRect(new SKRect(sh.X, sh.Y, sh.X + sh.W, sh.Y + sh.H), sh.Radius), antialias: true);
+                        ClipRounded(canvas, new SKRect(sh.X, sh.Y, sh.X + sh.W, sh.Y + sh.H), sh.Radius);
                         var pad = sh.Blur * 2f + MathF.Abs(sh.Spread) + MathF.Max(MathF.Abs(sh.Dx), MathF.Abs(sh.Dy)) + 24f;
                         using var path = new SKPath { FillType = SKPathFillType.EvenOdd };
                         path.AddRect(new SKRect(sh.X - pad, sh.Y - pad, sh.X + sh.W + pad, sh.Y + sh.H + pad));
                         var inner = new SKRect(sh.X + sh.Dx + sh.Spread, sh.Y + sh.Dy + sh.Spread,
                                               sh.X + sh.W + sh.Dx - sh.Spread, sh.Y + sh.H + sh.Dy - sh.Spread);
-                        path.AddRoundRect(new SKRoundRect(inner, MathF.Max(0, sh.Radius - sh.Spread)));
+                        using var innerRR = sh.Radius.Deflate(sh.Spread).ToRoundRect(inner);
+                        path.AddRoundRect(innerRR);
                         canvas.DrawPath(path, shPaint);
                         canvas.Restore();
                     }
@@ -171,7 +171,7 @@ public sealed class SkiaRasterizer
 
                 case PushClip c:
                     canvas.Save();
-                    canvas.ClipRoundRect(new SKRoundRect(new SKRect(c.X, c.Y, c.X + c.W, c.Y + c.H), c.Radius), antialias: true);
+                    ClipRounded(canvas, new SKRect(c.X, c.Y, c.X + c.W, c.Y + c.H), c.Radius);
                     break;
 
                 case PopClip:
@@ -264,7 +264,7 @@ public sealed class SkiaRasterizer
                 {
                     canvas.Save();
                     var box = new SKRect(di.X, di.Y, di.X + di.W, di.Y + di.H);
-                    if (di.Radius > 0) canvas.ClipRoundRect(new SKRoundRect(box, di.Radius), antialias: true);
+                    if (!di.Radius.IsZero) ClipRounded(canvas, box, di.Radius);
                     else canvas.ClipRect(box);
                     canvas.DrawImage(di.Image, FitRect(di), _imageSampling);
                     canvas.Restore();
@@ -279,7 +279,7 @@ public sealed class SkiaRasterizer
                     if (ds.Source.CurrentFrame is not { } liveFrame) break;
                     canvas.Save();
                     var sbox = new SKRect(ds.X, ds.Y, ds.X + ds.W, ds.Y + ds.H);
-                    if (ds.Radius > 0) canvas.ClipRoundRect(new SKRoundRect(sbox, ds.Radius), antialias: true);
+                    if (!ds.Radius.IsZero) ClipRounded(canvas, sbox, ds.Radius);
                     else canvas.ClipRect(sbox);
                     canvas.DrawImage(liveFrame, FitRect(new DrawImage(ds.X, ds.Y, ds.W, ds.H, liveFrame, ds.Fit, ds.Radius)), _imageSampling);
                     canvas.Restore();
@@ -292,7 +292,7 @@ public sealed class SkiaRasterizer
                     // host element (the web video) shows through; later commands paint on top.
                     using var punch = new SKPaint { Color = SKColors.Transparent, BlendMode = SKBlendMode.Src, IsAntialias = true };
                     var hole = new SKRect(ch.X, ch.Y, ch.X + ch.W, ch.Y + ch.H);
-                    if (ch.Radius > 0) canvas.DrawRoundRect(new SKRoundRect(hole, ch.Radius), punch);
+                    if (!ch.Radius.IsZero) { using var hrr = ch.Radius.ToRoundRect(hole); canvas.DrawRoundRect(hrr, punch); }
                     else canvas.DrawRect(hole, punch);
                     break;
                 }
@@ -313,11 +313,22 @@ public sealed class SkiaRasterizer
         }
     }
 
-    private static void DrawRect(SKCanvas canvas, SKPaint paint, float x, float y, float w, float h, float radius)
+    private static void DrawRect(SKCanvas canvas, SKPaint paint, float x, float y, float w, float h, CornerRadii radius)
     {
         var rect = new SKRect(x, y, x + w, y + h);
-        if (radius > 0) canvas.DrawRoundRect(rect, radius, radius, paint);
-        else canvas.DrawRect(rect, paint);
+        if (radius.IsZero) { canvas.DrawRect(rect, paint); return; }
+        // One radius for every corner is the common case and Skia has a cheaper call for it; four
+        // different ones (a card rounded only at the top, an ellipse from a percentage) need the
+        // eight-number shape, which also scales the radii down for us when they would overlap.
+        if (radius.Uniform is { } r) canvas.DrawRoundRect(rect, r, r, paint);
+        else { using var rr = radius.ToRoundRect(rect); canvas.DrawRoundRect(rr, paint); }
+    }
+
+    /// <summary>Clip to a (possibly per-corner) rounded box.</summary>
+    private static void ClipRounded(SKCanvas canvas, SKRect rect, CornerRadii radius)
+    {
+        if (radius.Uniform is { } r) canvas.ClipRoundRect(new SKRoundRect(rect, r), antialias: true);
+        else { using var rr = radius.ToRoundRect(rect); canvas.ClipRoundRect(rr, antialias: true); }
     }
 
     // Build one SKImageFilter from a CSS filter chain: colour-matrix ops (brightness…invert) fold into
@@ -421,7 +432,7 @@ public sealed class SkiaRasterizer
             paint.StrokeWidth = b.Top;
             var inset = b.Top / 2f;
             var rect = new SKRect(b.X + inset, b.Y + inset, b.X + b.W - inset, b.Y + b.H - inset);
-            var r = MathF.Max(0, b.Radius - inset);
+            var r = b.Radius.Deflate(inset);
 
             // dashed/dotted → a dash path effect on the stroke (dotted = round-capped zero-length dashes).
             SKPathEffect? dash = null;
@@ -429,8 +440,7 @@ public sealed class SkiaRasterizer
             else if (b.Style == BorderLineStyle.Dotted) { paint.StrokeCap = SKStrokeCap.Round; dash = SKPathEffect.CreateDash([0.1f, b.Top * 2f], 0f); }
             paint.PathEffect = dash;
 
-            if (r > 0) canvas.DrawRoundRect(rect, r, r, paint);
-            else canvas.DrawRect(rect, paint);
+            DrawRect(canvas, paint, rect.Left, rect.Top, rect.Width, rect.Height, r);
 
             paint.PathEffect = null; dash?.Dispose();
             paint.StrokeCap = SKStrokeCap.Butt;
