@@ -19,19 +19,19 @@ public sealed class DisplayList
 
 public abstract record PaintCommand;
 
-public sealed record FillRect(float X, float Y, float W, float H, float Radius, SKColor Color) : PaintCommand;
+public sealed record FillRect(float X, float Y, float W, float H, CornerRadii Radius, SKColor Color) : PaintCommand;
 
 /// <summary>A CSS <c>box-shadow</c> layer for the (rounded) box (X,Y,W,H,Radius): an outset drop shadow
 /// behind the box, or an <paramref name="Inset"/> inner shadow clipped inside it. Offset by (Dx,Dy),
 /// softened by <paramref name="Blur"/>, grown/shrunk by <paramref name="Spread"/>.</summary>
-public sealed record ShadowRect(float X, float Y, float W, float H, float Radius,
+public sealed record ShadowRect(float X, float Y, float W, float H, CornerRadii Radius,
     float Dx, float Dy, float Blur, float Spread, SKColor Color, bool Inset) : PaintCommand;
 
 /// <summary>Fill the (rounded) box (X,Y,W,H,Radius) with a CSS gradient (linear/radial).</summary>
-public sealed record GradientRect(float X, float Y, float W, float H, float Radius, Gradient Gradient) : PaintCommand;
+public sealed record GradientRect(float X, float Y, float W, float H, CornerRadii Radius, Gradient Gradient) : PaintCommand;
 
 public sealed record BorderRect(
-    float X, float Y, float W, float H, float Radius,
+    float X, float Y, float W, float H, CornerRadii Radius,
     float Top, float Right, float Bottom, float Left, SKColor Color,
     BorderLineStyle Style = BorderLineStyle.Solid) : PaintCommand;
 
@@ -40,7 +40,7 @@ public sealed record TextRun(
     string Text, string Family, int Weight, float Size, SKColor Color, TextAlign Align,
     FontSlant Slant = FontSlant.Normal, TextDecorations Decorations = TextDecorations.None) : PaintCommand;
 
-public sealed record PushClip(float X, float Y, float W, float H, float Radius) : PaintCommand;
+public sealed record PushClip(float X, float Y, float W, float H, CornerRadii Radius) : PaintCommand;
 
 public sealed record PopClip : PaintCommand;
 
@@ -86,13 +86,13 @@ public sealed record ResizeGrip(float X, float Y, float Size, SKColor Color) : P
 /// <summary>Draw a decoded raster image into the box, fitted per <paramref name="Fit"/>, clipped to
 /// the (optionally rounded) box.</summary>
 public sealed record DrawImage(
-    float X, float Y, float W, float H, SKImage Image, ObjectFit Fit, float Radius) : PaintCommand;
+    float X, float Y, float W, float H, SKImage Image, ObjectFit Fit, CornerRadii Radius) : PaintCommand;
 
 /// <summary>Punch a transparent hole (alpha 0, overriding everything painted below) — for a
 /// host-composited surface (the web host's underlaid <c>&lt;video&gt;</c> shows through it, while
 /// engine content painted AFTER this still composites on top). The host must present with
 /// per-pixel alpha for the hole to matter.</summary>
-public sealed record ClearHole(float X, float Y, float W, float H, float Radius) : PaintCommand;
+public sealed record ClearHole(float X, float Y, float W, float H, CornerRadii Radius) : PaintCommand;
 
 /// <summary>Draw a LIVE surface's current frame (video, future 3D viewports), resolved from the
 /// source AT RASTER TIME — not captured at build time like <see cref="DrawImage"/>. That's the
@@ -101,4 +101,4 @@ public sealed record ClearHole(float X, float Y, float W, float H, float Radius)
 /// clipped to this box instead of re-deriving the whole page. The record compares by source
 /// REFERENCE (players persist across rebuilds), keeping the damage diff exact.</summary>
 public sealed record DrawSurface(
-    float X, float Y, float W, float H, ISurfaceSource Source, ObjectFit Fit, float Radius) : PaintCommand;
+    float X, float Y, float W, float H, ISurfaceSource Source, ObjectFit Fit, CornerRadii Radius) : PaintCommand;

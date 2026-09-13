@@ -373,7 +373,11 @@ public sealed class StyleResolver
                 case "border-width": { var w = ParsePx(v); s.BorderTop = s.BorderRight = s.BorderBottom = s.BorderLeft = w; break; }
                 case "border-color": if (Colors.TryParse(v, out var bc)) s.BorderColor = bc; break;
                 case "border-style": if (ParseBorderStyle(v) is { } st) s.BorderStyle = st; break;
-                case "border-radius": s.BorderRadius = ParsePx(v); break;
+                case "border-radius": s.BorderRadius = ParseBorderRadius(v); break;
+                case "border-top-left-radius": s.BorderRadius = WithCorner(s.BorderRadius, 0, v); break;
+                case "border-top-right-radius": s.BorderRadius = WithCorner(s.BorderRadius, 1, v); break;
+                case "border-bottom-right-radius": s.BorderRadius = WithCorner(s.BorderRadius, 2, v); break;
+                case "border-bottom-left-radius": s.BorderRadius = WithCorner(s.BorderRadius, 3, v); break;
 
                 case "background":
                     if (ParseGradient(v) is { } bgGrad) { s.BackgroundGradient = bgGrad; s.Background = SKColors.Transparent; }
@@ -647,6 +651,63 @@ public sealed class StyleResolver
         if (v.EndsWith("px")) v = v[..^2];
         else if (v.EndsWith("rem") || v.EndsWith("em")) { if (CssNumber.TryParse(v.TrimEnd('r', 'e', 'm'), out var em)) { px = em * 16f; return true; } }
         return CssNumber.TryParse(v, out px);
+    }
+
+    /// <summary>
+    /// <c>border-radius</c>: one to four lengths or percentages, optionally <c>A / B</c> for separate
+    /// horizontal and vertical radii. The shorthand mirrors the way every CSS box shorthand does —
+    /// one value is every corner, two are TL/BR then TR/BL, three add BL, four are clockwise from
+    /// the top left.
+    ///
+    /// <para>It used to be one call to the px parser on the whole string, so anything but a single
+    /// length failed and fell back to zero: <c>50%</c> drew a square (#162) and <c>14px 14px 0 0</c>
+    /// drew no rounding at all (#163), which is worse than ignoring the declaration because the
+    /// author asked for SOME rounding and got NONE.</para>
+    /// </summary>
+    private static BorderRadiusSpec ParseBorderRadius(string v)
+    {
+        var axes = v.Split('/', 2);
+        var h = Corners(axes[0]);
+        var vert = axes.Length > 1 ? Corners(axes[1]) : h;     // "A / B", else the same on both axes
+        return new BorderRadiusSpec(h[0], vert[0], h[1], vert[1], h[2], vert[2], h[3], vert[3]);
+
+        static RadiusLength[] Corners(string part)
+        {
+            var parts = part.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0) return [RadiusLength.Zero, RadiusLength.Zero, RadiusLength.Zero, RadiusLength.Zero];
+            var r = new RadiusLength[4];
+            r[0] = ParseRadius(parts[0]);                                    // top-left
+            r[1] = parts.Length > 1 ? ParseRadius(parts[1]) : r[0];          // top-right
+            r[2] = parts.Length > 2 ? ParseRadius(parts[2]) : r[0];          // bottom-right
+            r[3] = parts.Length > 3 ? ParseRadius(parts[3]) : r[1];          // bottom-left
+            return r;
+        }
+    }
+
+    /// <summary>One corner of the longhands (<c>border-top-left-radius</c> and friends), which take
+    /// one or two values — the horizontal radius, then the vertical one.</summary>
+    private static BorderRadiusSpec WithCorner(BorderRadiusSpec spec, int corner, string v)
+    {
+        var parts = v.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return spec;
+        var x = ParseRadius(parts[0]);
+        var y = parts.Length > 1 ? ParseRadius(parts[1]) : x;
+        return corner switch
+        {
+            0 => spec with { TopLeftX = x, TopLeftY = y },
+            1 => spec with { TopRightX = x, TopRightY = y },
+            2 => spec with { BottomRightX = x, BottomRightY = y },
+            _ => spec with { BottomLeftX = x, BottomLeftY = y },
+        };
+    }
+
+    /// <summary>A length or a percentage. The percentage is KEPT as one: it is a fraction of the box,
+    /// which does not exist yet at style time.</summary>
+    private static RadiusLength ParseRadius(string v)
+    {
+        v = v.Trim();
+        if (v.EndsWith('%')) return CssNumber.TryParse(v[..^1], out var pct) ? new RadiusLength(pct, true) : RadiusLength.Zero;
+        return TryParsePx(v, out var px) ? new RadiusLength(px, false) : RadiusLength.Zero;
     }
 
     private static float ParseNum(string v) => CssNumber.TryParse(v.Trim(), out var n) ? n : 0f;
