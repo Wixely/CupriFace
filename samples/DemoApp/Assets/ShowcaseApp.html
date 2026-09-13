@@ -614,6 +614,10 @@ doc.RenderToImage(800, 600);
           <cupri-radio group="{{Scaling}}" value="hybrid"></cupri-radio>
           <div><div class="opt">Hybrid zoom</div><div class="optd">Zoom to the smaller axis, reflow the longer one.</div></div>
         </div>
+        <div class="setrow">
+          <cupri-radio group="{{Scaling}}" value="adaptive"></cupri-radio>
+          <div><div class="opt">Adaptive</div><div class="optd">Hybrid above the design size, responsive below it — spends surplus, never crushes. Shrink the window past {{DesignSize}} and this one reflows where Hybrid would shrink the text.</div></div>
+        </div>
       </div>
 
       <!-- MOTION -->

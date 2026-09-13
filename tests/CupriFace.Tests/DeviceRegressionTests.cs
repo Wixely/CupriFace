@@ -329,4 +329,46 @@ public class DeviceRegressionTests
         Assert.True(doc.DispatchWheel(x + w / 2, y + h / 2, 0, 100));
         Assert.True(scroller.ScrollX > 50);
     }
+
+    // ---- a DESKTOP-designed layout meeting a phone (#153, #155) --------------------------------
+
+    /// <summary>
+    /// The trap: Hybrid scales DOWN as readily as up, and the logical viewport is window/scale — so
+    /// below the design size the viewport comes out WIDER than the design and no max-width
+    /// breakpoint can ever match. The layout cannot respond at any breakpoint on any device; all
+    /// that happens is that everything shrinks. Adaptive floors the scale at 1, which hands the
+    /// phone back its own width.
+    /// </summary>
+    [Fact]
+    public void Adaptive_lets_a_desktop_design_reflow_on_a_phone_where_Hybrid_cannot()
+    {
+        var app = new ShowcaseApp();
+        using var doc = app.CreateDocument();
+        var model = (ShowcaseModel)app.Model!;
+
+        // Hybrid, at the phone's dp geometry: the sidebar cannot become a rail, because the
+        // stylesheet is never shown a narrow viewport to trigger the @media rule with.
+        model.Scaling = "hybrid";
+        var hybrid = app.Present(W, H);
+        Assert.True(hybrid.Scale < 1f, "this test needs Hybrid to be scaling down");
+        Assert.True(hybrid.LogicalWidth > 760, $"Hybrid handed the layout {hybrid.LogicalWidth:F0}px, which would reflow");
+        using (doc.RenderToImage((int)hybrid.LogicalWidth, (int)hybrid.LogicalHeight)) { }
+        var wideSidebar = Find(doc.Root, n => n.Element?.ClassList.Contains("sidebar") == true)!.Width;
+
+        // Adaptive, same device: the viewport IS the phone's width, the breakpoint fires, and the
+        // sidebar is the icon rail the layout was written to fall back to.
+        model.Scaling = "adaptive";
+        var adaptive = app.Present(W, H);
+        Assert.Equal(1f, adaptive.Scale, 3);
+        Assert.Equal(W, adaptive.LogicalWidth, 1);
+        doc.Refresh();
+        using (doc.RenderToImage((int)adaptive.LogicalWidth, (int)adaptive.LogicalHeight)) { }
+        var rail = Find(doc.Root, n => n.Element?.ClassList.Contains("sidebar") == true)!.Width;
+
+        Assert.True(rail < wideSidebar - 60,
+            $"the layout did not reflow on the phone: sidebar {wideSidebar:F0}px -> {rail:F0}px");
+        // …and the document agrees with the cascade about what it was laid out in, which is what a
+        // three-state toggle has to read to know which of its states is on screen.
+        Assert.Equal(W, doc.ViewportWidth, 1);
+    }
 }
