@@ -47,10 +47,13 @@ error   CF0030 (line 6): <img> is not something the engine draws — it lays out
 | **`CF0060`** | **A `{{path}}` that names nothing on the model** — renders as empty text, looks like missing data |
 | **`CF0070`** | **Contents that do not fit a fixed-height box** — they overflow and paint over the next element |
 | **`CF0071`** | **A box that laid out with no area** but has visible content inside it |
+| **`CF0072`** | **Contents that run off the SIDE** past the viewport (or a box that clips them) — the way a desktop layout fails on a phone. Pass `width:`/`height:` to check a device size |
 | **`CF0080`** | **Characters no installed font can draw** — they paint as empty .notdef boxes. Under-reports on macOS (its LastResort face matches everything): trust a finding, not its absence |
 
-**Pass `model:` whenever the document has one.** `CF0060` and the box checks are skipped without
-it, and those are the two that catch the quietest bugs. A binding typo is invisible in every other
+**Pass `model:` whenever the document has one**, and **pass `width:`/`height:` to check a size you
+care about** — `CupriDoctor.Check(html, css, width: 412, height: 915, model: model)` is "does this
+survive a phone" as one assertion. `CF0060` and the box checks are skipped without a model, and
+those are the two that catch the quietest bugs. A binding typo is invisible in every other
 way: unknown property → null → empty string → an element that renders perfectly with nothing in it.
 
 ### 2. `RenderToImage` — then actually look

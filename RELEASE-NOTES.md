@@ -40,6 +40,25 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   engine's own Showcase had been shadowing the width from `Present()` every frame to answer that,
   and now reads it from the document (which also fixes the shadow being the pre-zoom width).
 
+- **`CF0072` — CupriDoctor sees horizontal overflow (#154).** It was vertical only, which left the
+  exact failure mode of a desktop layout on a phone undetectable: fixed columns adding up to more
+  than the viewport simply run off the side, with nothing on screen to say the missing part exists.
+  `CupriDoctor.Check(html, css, width: 412, height: 915, model: model)` is now "does this survive a
+  phone" as a single CI assertion.
+
+  Two things make it quiet enough to leave on. It has no pinned-width requirement, because width is
+  not height — a block box's `auto` width is filled from its parent rather than grown from its
+  content, so the overflowing box is usually one that was never given a width at all, and requiring
+  a definite width would have missed every real instance. And it reports only overflow that reaches
+  an edge that LOSES content: the viewport, or an ancestor with `overflow:hidden`. An
+  `overflow:scroll` ancestor exempts everything inside it, because the content can be dragged to.
+  Measured on the Showcase: the geometric rule alone reported two harmless cases at the design size,
+  and this one reports none at either the design size or a phone's — which is now a gate. Only the
+  OUTERMOST box that runs off the edge is reported, because everything inside one is off the edge
+  too: a chrome of three fixed columns holding an over-wide card produced three findings for one
+  visual failure before that rule, and fixing the first is what decides whether the others were ever
+  real.
+
 - **A text field on the web is now a real `<input>`, so the browser's own editor works on it (#133).**
   The canvas had one hidden textarea following the caret: typing and IME worked, nothing else did.
   A screen reader saw a `role="textbox"` it could not edit, and a password manager saw no field at

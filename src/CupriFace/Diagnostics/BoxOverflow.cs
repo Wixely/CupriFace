@@ -70,6 +70,54 @@ public static class BoxOverflow
     }
 
     /// <summary>
+    /// How far the content spills past the box HORIZONTALLY, or null when it fits.
+    ///
+    /// <para><b>Why this one does not require a pinned width.</b> Its vertical twin does, because a
+    /// box with <c>height: auto</c> grows to its content and cannot overflow by definition — so only
+    /// a height the author pinned can be too small. Width does not work that way: a block box's
+    /// <c>auto</c> width is FILLED FROM THE PARENT, not grown from the content, so the ordinary case
+    /// is a box that was never given a width at all and whose children do not fit the space it
+    /// inherited. That is exactly how a desktop layout fails on a phone — three fixed columns of
+    /// 72 + 248 + 236 in a 412dp viewport — and requiring a definite width would have missed every
+    /// instance of it.</para>
+    ///
+    /// <para>The consequence differs from the vertical case too, and so does the advice. Vertical
+    /// overflow paints over the next element, which is the misleading part. Horizontal overflow
+    /// usually runs off the side of the window, where it is simply not there: a column, a button, or
+    /// the right-hand end of a row, gone, with nothing on screen to say it ever existed.</para>
+    /// </summary>
+    public static float? OvershootX(RenderNode n)
+    {
+        if (n.IsText || n.Children.Count == 0) return null;
+        if (n.Style.Overflow != OverflowMode.Visible) return null;
+        // A box that shrink-wraps its content cannot be too narrow for it — it was SIZED by it.
+        // (An inline box has no width of its own at all; its geometry lives in line fragments.)
+        if (n.Style.Display is DisplayType.Inline or DisplayType.InlineBlock) return null;
+
+        var limit = n.Width - n.BorderRightW;     // padding-box right edge, in the children's coordinates
+        if (limit <= 0) return null;
+
+        var extent = 0f;
+        foreach (var c in n.Children)
+        {
+            if (c.Style.Position is PositionType.Absolute or PositionType.Fixed) continue;
+            // Text is measured by its LINE BOXES, not by the child node's width: a text node inside a
+            // block spans the full content width whether or not the glyphs do, so trusting its box
+            // would report every paragraph whose last line ends near the edge.
+            if (c.IsText)
+            {
+                if (c.Lines is { } lines)
+                    foreach (var line in lines) extent = MathF.Max(extent, c.X + line.X + line.Width);
+                continue;
+            }
+            extent = MathF.Max(extent, c.X + c.Width + c.MarginRight);
+        }
+
+        var over = extent - limit;
+        return over > Tolerance ? over : null;
+    }
+
+    /// <summary>
     /// A box that has something to show but no area to show it in. Distinct from
     /// <see cref="Overshoot"/>: nothing spills, because there is nowhere for it to spill FROM — the
     /// usual causes are a zero-height flex item, a collapsed percentage height, or an image that
