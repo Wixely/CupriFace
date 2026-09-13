@@ -19,8 +19,19 @@ a11y.style.cssText = "position:absolute;left:0;top:0;width:0;height:0;overflow:h
 document.body.appendChild(a11y);
 const a11yCss = document.createElement("style");
 a11yCss.textContent = "#cupri-a11y div{position:absolute;margin:0;padding:0;white-space:nowrap;color:transparent;outline:none;}"
-                    + "#cupri-a11y>div{left:0;top:0;width:100%;height:100%;}";
+                    + "#cupri-a11y>div{left:0;top:0;width:100%;height:100%;}"
+    // A leaf text field is mirrored as a REAL <input>/<textarea>, completely invisible: the engine
+    // paints the text, caret and selection, and this hides the second set the browser would paint
+    // over them. Every one of these four properties is needed (measured in a browser).
+                    + "#cupri-a11y input,#cupri-a11y textarea{position:absolute;margin:0;padding:0;border:0;"
+                    + "background:transparent;color:transparent;caret-color:transparent;"
+                    + "-webkit-text-fill-color:transparent;outline:none;resize:none;overflow:hidden;"
+                    + "box-sizing:border-box;font:inherit;}"
+                    + "#cupri-a11y input::selection,#cupri-a11y textarea::selection{background:transparent;color:transparent;}";
 document.head.appendChild(a11yCss);
+
+const editable = el => !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA");
+const editingNow = () => { const a = document.activeElement; return editable(a) && a.closest("#cupri-a11y") ? a : null; };
 const placeA11y = () => {
     const r = canvas.getBoundingClientRect();
     a11y.style.left = Math.round(r.left + window.scrollX) + "px";
@@ -33,7 +44,9 @@ const placeA11y = () => {
 // would tear DOM focus off the node holding it on every settled frame.
 let a11yHtml = "";
 const sameNode = (o, n) => o.nodeType === n.nodeType &&
-    (o.nodeType !== 1 || (o.getAttribute("data-path") === n.getAttribute("data-path") && o.getAttribute("role") === n.getAttribute("role")));
+    (o.nodeType !== 1 || (o.getAttribute("data-path") === n.getAttribute("data-path")
+                          && o.getAttribute("role") === n.getAttribute("role")
+                          && o.tagName === n.tagName));
 function patchA11y(live, next, isRoot) {
     if (!isRoot) {
         for (const a of [...live.attributes]) if (!next.hasAttribute(a.name)) live.removeAttribute(a.name);
@@ -49,8 +62,28 @@ function patchA11y(live, next, isRoot) {
     }
     for (let j = olds.length - 1; j >= i; j--) live.removeChild(olds[j]);
 }
-// DOM focus follows the engine's, except into a text field, which keeps the hidden textarea
-// focused (IME composition and the native clipboard events arrive there).
+// The engine's text and the DOM's, reconciled after every patch. While a real input holds focus the
+// browser is authoritative and the two already agree; when the engine rewrites a value (a clamp, a
+// reformat, a picked suggestion) it wins, and the caret goes back where IT says it is.
+function reconcileEditors() {
+    for (const el of a11y.querySelectorAll("input,textarea")) {
+        if (el.type === "password") continue;      // never written from the engine: see AriaHtml
+        const want = el.tagName === "INPUT" ? (el.getAttribute("value") || "") : el.textContent;
+        if (el.value === want) continue;
+        const focused = document.activeElement === el;
+        el.value = want;
+        if (focused) restoreSel(el);
+    }
+}
+const restoreSel = el => {
+    const raw = (el.getAttribute("data-sel") || "").split(",");
+    const a = Number(raw[0]), b = Number(raw[1]);
+    if (Number.isFinite(a) && Number.isFinite(b)) { try { el.setSelectionRange(a, b); } catch { /* not selectable */ } }
+};
+
+// DOM focus follows the engine's. A field with a real input focuses that (it is the editing
+// surface); a described-only text field and a masked one keep the hidden textarea, which is where
+// the engine's own editing, IME and clipboard path lives.
 const textRole = r => r === "textbox" || r === "searchbox" || r === "combobox" || r === "spinbutton";
 let a11yFocusPath = null;
 function syncA11yFocus() {
@@ -58,8 +91,9 @@ function syncA11yFocus() {
     const path = f ? f.getAttribute("data-path") : null;
     if (path === a11yFocusPath) return;
     a11yFocusPath = path;
-    if (!f || textRole(f.getAttribute("role"))) { focusKbd(); return; }
+    if (!f || (textRole(f.getAttribute("role")) && !editable(f)) || f.type === "password") { focusKbd(); return; }
     f.focus({ preventScroll: true });
+    if (editable(f)) restoreSel(f);
 }
 function syncA11y(html) {
     if (html === a11yHtml) return;
@@ -67,6 +101,7 @@ function syncA11y(html) {
     const t = document.createElement("template");
     t.innerHTML = html;
     patchA11y(a11y, t.content, true);
+    reconcileEditors();
     syncA11yFocus();
 }
 let a11yAct = null;   // bound once the engine is live (below)
@@ -81,10 +116,34 @@ a11y.addEventListener("focusin", e => {
 });
 a11y.addEventListener("keydown", e => {
     if (e.key !== "Enter" && e.key !== " ") return;
+    if (editable(e.target)) return;          // in a text field both keys are typing, not activation
     const path = a11yPathOf(e);
     if (!path || !a11yAct) return;
     e.preventDefault(); e.stopPropagation();
     a11yAct.activate(path);
+});
+
+// ---- what a real editing element reports back (see the Mono host's main.js for the full account) --
+
+a11y.addEventListener("input", e => {
+    const el = e.target;
+    if (!editable(el) || !a11yAct) return;
+    if (e.isComposing) return;                    // the composition events carry it
+    if (document.activeElement === el) a11yAct.setEditText(el.value, el.selectionStart, el.selectionEnd);
+    else if (el.getAttribute("data-path")) a11yAct.setText(el.getAttribute("data-path"), el.value);
+});
+
+a11y.addEventListener("compositionstart", e => { if (editable(e.target) && a11yAct) a11yAct.composition(""); });
+a11y.addEventListener("compositionupdate", e => { if (editable(e.target) && a11yAct) a11yAct.composition(e.data || ""); });
+a11y.addEventListener("compositionend", e => {
+    if (!editable(e.target) || !a11yAct) return;
+    a11yAct.commitComposition(e.data || "");
+    a11yAct.setEditText(e.target.value, e.target.selectionStart, e.target.selectionEnd);
+});
+
+document.addEventListener("selectionchange", () => {
+    const el = editingNow();
+    if (el && a11yAct) a11yAct.setEditSelection(el.selectionStart, el.selectionEnd);
 });
 
 // Hidden focused textarea owning keyboard focus + native clipboard events (same scheme as WebWasm).
@@ -166,15 +225,22 @@ try {
     globalThis.__cupri.isCoarse = () => !!M._IsCoarsePointer();
     // The overlay's way back into the engine, and the same automation contract the Mono host
     // publishes (__cupri.a11yAct), so one browser gate drives both.
-    const withPath = (path, call) => {
-        const ptr = M._TextBuffer(path.length + 1);
-        M.stringToUTF16(path, ptr, (path.length + 1) * 2);
-        call(path.length);
+    // Strings cross the C ABI through the engine-owned buffer: write, then call with the length.
+    const withText = (s, call) => {
+        const ptr = M._TextBuffer(s.length + 1);
+        M.stringToUTF16(s, ptr, (s.length + 1) * 2);
+        call(s.length);
     };
     a11yAct = {
-        activate: path => withPath(path, len => M._A11yActivate(len)),
-        focus: path => withPath(path, len => M._A11yFocus(len)),
-        setValue: (path, value) => withPath(path, len => M._A11ySetValue(len, value)),
+        activate: path => withText(path, len => M._A11yActivate(len)),
+        focus: path => withText(path, len => M._A11yFocus(len)),
+        setValue: (path, value) => withText(path, len => M._A11ySetValue(len, value)),
+        setEditText: (text, s, e) => withText(text, len => M._SetEditText(len, s, e)),
+        setEditSelection: (s, e) => M._SetEditSelection(s, e),
+        // Two strings, one buffer: they arrive concatenated and are split by the path's length.
+        setText: (path, text) => withText(path + text, () => M._A11ySetText(path.length, path.length + text.length)),
+        composition: text => withText(text, len => M._SetComposition(len)),
+        commitComposition: text => withText(text, len => M._CommitComposition(len)),
     };
     globalThis.__cupri.a11yAct = a11yAct;
 
@@ -198,7 +264,10 @@ try {
     };
 
     canvas.addEventListener("pointerdown", e => {
-        focusKbd(); profile(touch(e));
+        // Not while a real editing element has focus — the engine decides where focus goes next,
+        // and yanking it to the hidden textarea first closes a phone's keyboard for a frame.
+        if (!editingNow()) focusKbd();
+        profile(touch(e));
         const [x, y] = at(e);
         try { canvas.setPointerCapture(e.pointerId); } catch { /* not capturable */ }
         if (touch(e)) { M._TouchDown(e.pointerId, x, y, e.timeStamp); e.preventDefault(); }
@@ -237,6 +306,25 @@ try {
         if (e.isComposing || e.keyCode === 229) return;
         const ctrl = e.ctrlKey || e.metaKey;
         const mods = (e.shiftKey ? 1 : 0) | (ctrl ? 2 : 0);
+
+        // A real editing element owns the keys that EDIT; the engine keeps the rest. Same split and
+        // same reasons as the Mono host's main.js, which carries the full account.
+        const editingEl = editingNow();
+        if (editingEl) {
+            if (e.key === "Tab") { M._EditKeyPress(e.shiftKey ? EK.ShiftTab : EK.Tab, mods); e.preventDefault(); return; }
+            if (e.key === "Escape") { M._EditKeyPress(EK.Escape, mods); e.preventDefault(); return; }
+            if (e.key === "Enter") { M._EditKeyPress(EK.Enter, mods); e.preventDefault(); return; }
+            if ((e.key === "ArrowDown" || e.key === "ArrowUp") && editingEl.parentElement?.closest("[role=\"combobox\"]"))
+            { M._EditKeyPress(EK[e.key], mods); e.preventDefault(); return; }
+            if (e.key === "Backspace" && editingEl.value === "" && !ctrl) { M._EditKeyPress(EK.Backspace, mods); return; }
+            if (ctrl) {
+                const k = e.key.toLowerCase();
+                if (k === "c" || k === "x" || k === "v" || k === "z" || k === "y" || k === "a") return;
+                if (k.length === 1 && M._KeyChord(k.charCodeAt(0), mods)) { e.preventDefault(); return; }
+            }
+            return;   // printable text, arrows, Backspace, Delete, Home/End: the browser's
+        }
+
         if (ctrl) {
             const k = e.key.toLowerCase();
             // Native clipboard events below — on the textarea, which is where the listeners are:

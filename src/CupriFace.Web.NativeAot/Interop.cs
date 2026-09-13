@@ -160,6 +160,26 @@ public static unsafe partial class Interop
     [UnmanagedCallersOnly(EntryPoint = "A11ySetValue")]
     public static void A11ySetValue(int len, double value) => Guard("A11ySetValue", () => WebHostCore.AccessibilitySetValue(In(len), value));
 
+    // ---- real editing elements ------------------------------------------------------------------
+
+    [UnmanagedCallersOnly(EntryPoint = "SetEditText")]
+    public static void SetEditText(int len, int selStart, int selEnd) =>
+        Guard("SetEditText", () => WebHostCore.SetEditText(In(len), selStart, selEnd));
+
+    [UnmanagedCallersOnly(EntryPoint = "SetEditSelection")]
+    public static void SetEditSelection(int start, int end) =>
+        Guard("SetEditSelection", () => WebHostCore.SetEditSelection(start, end));
+
+    /// <summary>A fill for a field nobody is editing. TWO strings over an ABI with one buffer, so
+    /// they arrive concatenated and are split by the first one's length — a path is digits and
+    /// slashes, so no delimiter could be both safe and free.</summary>
+    [UnmanagedCallersOnly(EntryPoint = "A11ySetText")]
+    public static void A11ySetText(int pathLen, int totalLen) => Guard("A11ySetText", () =>
+    {
+        var both = In(totalLen);
+        WebHostCore.AccessibilitySetText(both[..pathLen], both[pathLen..]);
+    });
+
     // ---- strings out: a null-terminated UTF-16 buffer the page reads with UTF16ToString --------
 
     private static char* _outBuf;

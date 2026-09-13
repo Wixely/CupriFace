@@ -33,8 +33,23 @@ const a11yCss = document.createElement('style');
 // a node that clipped its children would report a popup positioned outside its parent as
 // off screen, and some ATs skip those.
 a11yCss.textContent = '#cupri-a11y div{position:absolute;margin:0;padding:0;white-space:nowrap;color:transparent;outline:none;}'
-                    + '#cupri-a11y>div{left:0;top:0;width:100%;height:100%;}';
+                    + '#cupri-a11y>div{left:0;top:0;width:100%;height:100%;}'
+    // A leaf text field is mirrored as a REAL <input>/<textarea> over the painted field, so the
+    // browser's own editor, IME, clipboard and password manager work on the thing they were built
+    // for. It must be completely invisible: the ENGINE paints the text, the caret and the selection,
+    // and a second set painted by the browser on top of them is what this hides. (Measured in a
+    // browser: colour, caret-color, -webkit-text-fill-color and ::selection all have to be
+    // transparent — any one of them left out shows through over the canvas.)
+                    + '#cupri-a11y input,#cupri-a11y textarea{position:absolute;margin:0;padding:0;border:0;'
+                    + 'background:transparent;color:transparent;caret-color:transparent;'
+                    + '-webkit-text-fill-color:transparent;outline:none;resize:none;overflow:hidden;'
+                    + 'box-sizing:border-box;font:inherit;}'
+                    + '#cupri-a11y input::selection,#cupri-a11y textarea::selection{background:transparent;color:transparent;}';
 document.head.appendChild(a11yCss);
+
+/// A mirror node that is a real editing surface, as opposed to a described one.
+const editable = el => !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
+const editingNow = () => { const a = document.activeElement; return editable(a) && a.closest('#cupri-a11y') ? a : null; };
 const placeA11y = () => {
     const r = canvas.getBoundingClientRect();
     a11y.style.left = Math.round(r.left + window.scrollX) + 'px';
@@ -49,7 +64,9 @@ const placeA11y = () => {
 // carries the same code; the two are twins and change together.)
 let a11yHtml = '';
 const sameNode = (o, n) => o.nodeType === n.nodeType &&
-    (o.nodeType !== 1 || (o.getAttribute('data-path') === n.getAttribute('data-path') && o.getAttribute('role') === n.getAttribute('role')));
+    (o.nodeType !== 1 || (o.getAttribute('data-path') === n.getAttribute('data-path')
+                          && o.getAttribute('role') === n.getAttribute('role')
+                          && o.tagName === n.tagName));   // a field that becomes multiline changes element
 function patchA11y(live, next, isRoot) {
     if (!isRoot) {
         for (const a of [...live.attributes]) if (!next.hasAttribute(a.name)) live.removeAttribute(a.name);
@@ -65,8 +82,34 @@ function patchA11y(live, next, isRoot) {
     }
     for (let j = olds.length - 1; j >= i; j--) live.removeChild(olds[j]);
 }
-// DOM focus follows the engine's. A text field is the exception: it keeps DOM focus on the hidden
-// textarea, because that is what receives IME composition and the native clipboard events.
+// The engine's text and the DOM's, reconciled after every patch. While a real input holds focus the
+// BROWSER is authoritative and the two already agree (the engine's buffer is what the page pushed
+// into it), so nothing is written and the caret never moves. When the engine rewrites a value —
+// clamping a number, reformatting, committing a picked suggestion — they differ, the engine wins,
+// and the caret goes back to where IT says it is (data-sel) rather than jumping to the end.
+function reconcileEditors() {
+    for (const el of a11y.querySelectorAll('input,textarea')) {
+        // A password input is never written FROM the engine: the plaintext is deliberately absent
+        // from the mirror. Whatever a password manager filled stays as the manager left it.
+        if (el.type === 'password') continue;
+        const want = el.tagName === 'INPUT' ? (el.getAttribute('value') || '') : el.textContent;
+        if (el.value === want) continue;
+        const focused = document.activeElement === el;
+        el.value = want;
+        if (focused) restoreSel(el);
+    }
+}
+const restoreSel = el => {
+    const raw = (el.getAttribute('data-sel') || '').split(',');
+    const a = Number(raw[0]), b = Number(raw[1]);
+    if (Number.isFinite(a) && Number.isFinite(b)) { try { el.setSelectionRange(a, b); } catch { /* not selectable */ } }
+};
+
+// DOM focus follows the engine's. Where the field has a real input, that is what takes focus — it
+// is the editing surface, and the browser's IME, clipboard and undo all key off DOM focus. The
+// hidden textarea keeps the rest: a described-only text field (a combobox CONTAINER has no input of
+// its own) and a masked one, whose value is never published into the DOM, so there is nothing here
+// to type into and the engine goes on owning the keystrokes.
 const textRole = r => r === 'textbox' || r === 'searchbox' || r === 'combobox' || r === 'spinbutton';
 let a11yFocusPath = null;   // what the engine last said holds focus — never re-announced
 function syncA11yFocus() {
@@ -74,8 +117,9 @@ function syncA11yFocus() {
     const path = f ? f.getAttribute('data-path') : null;
     if (path === a11yFocusPath) return;
     a11yFocusPath = path;
-    if (!f || textRole(f.getAttribute('role'))) { focusKbd(); return; }
+    if (!f || (textRole(f.getAttribute('role')) && !editable(f)) || f.type === 'password') { focusKbd(); return; }
     f.focus({ preventScroll: true });
+    if (editable(f)) restoreSel(f);
 }
 function syncA11y(html) {
     if (html === a11yHtml) return;
@@ -83,6 +127,7 @@ function syncA11y(html) {
     const t = document.createElement('template');
     t.innerHTML = html;
     patchA11y(a11y, t.content, true);
+    reconcileEditors();
     syncA11yFocus();
 }
 // Actions back to the engine, by data-path — bound once the runtime is live (below).
@@ -103,10 +148,46 @@ a11y.addEventListener('keydown', e => {
     // below from also sending Enter to the engine — focus is synced, so that is the same control,
     // and the press would land twice.
     if (e.key !== 'Enter' && e.key !== ' ') return;
+    if (editable(e.target)) return;          // in a text field both keys are typing, not activation
     const path = a11yPathOf(e);
     if (!path || !a11yAct) return;
     e.preventDefault(); e.stopPropagation();
     a11yAct.activate(path);
+});
+
+// ---- what a real editing element reports back ------------------------------------------------
+// Delegated, because the overlay's elements are replaced as the tree changes; `input` and the
+// composition events all bubble.
+
+a11y.addEventListener('input', e => {
+    const el = e.target;
+    if (!editable(el) || !a11yAct) return;
+    // A composition in flight is the ENGINE's preedit (it paints the underline), so the
+    // composition events below carry it and these intermediate values are ignored.
+    if (e.isComposing) return;
+    if (document.activeElement === el) a11yAct.setEditText(el.value, el.selectionStart, el.selectionEnd);
+    // A value arriving for a field nobody is editing is a FILL — a password manager completing a
+    // form, which does not focus anything first. It goes through the binding, by path.
+    else if (el.getAttribute('data-path')) a11yAct.setText(el.getAttribute('data-path'), el.value);
+});
+
+// The engine renders the preedit itself (underlined, at the caret), so composition keeps the seam
+// it has always used rather than arriving as a run of value pushes.
+a11y.addEventListener('compositionstart', e => { if (editable(e.target) && a11yAct) a11yAct.composition(''); });
+a11y.addEventListener('compositionupdate', e => { if (editable(e.target) && a11yAct) a11yAct.composition(e.data || ''); });
+a11y.addEventListener('compositionend', e => {
+    if (!editable(e.target) || !a11yAct) return;
+    a11yAct.commitComposition(e.data || '');
+    // The browser's value is the truth once the IME is done with it; the engine's committed preedit
+    // should equal it, and this makes certain of it.
+    a11yAct.setEditText(e.target.value, e.target.selectionStart, e.target.selectionEnd);
+});
+
+// Caret and selection, wherever they came from: arrow keys, a drag, select-all, an IME moving the
+// cursor. selectionchange is the only event that covers all of them.
+document.addEventListener('selectionchange', () => {
+    const el = editingNow();
+    if (el && a11yAct) a11yAct.setEditSelection(el.selectionStart, el.selectionEnd);
 });
 
 // Hidden focused textarea that owns keyboard focus and receives NATIVE copy/cut/paste events — so
@@ -310,6 +391,11 @@ try {
         activate: path => I.A11yActivate(path),
         focus: path => I.A11yFocus(path),
         setValue: (path, value) => I.A11ySetValue(path, value),
+        setEditText: (text, s, e) => I.SetEditText(text, s, e),
+        setEditSelection: (s, e) => I.SetEditSelection(s, e),
+        setText: (path, text) => I.A11ySetText(path, text),
+        composition: text => I.SetComposition(text),
+        commitComposition: text => I.CommitComposition(text),
     };
     globalThis.__cupri = Object.assign(globalThis.__cupri || {}, {
         I,
@@ -355,7 +441,10 @@ try {
     // JS → C#: pointer + wheel. Registered now; they only fire after the runtime is running.
     // e.detail carries the click count (1/2/3 = single/double/triple) for word/line selection.
     canvas.addEventListener('pointerdown', e => {
-        focusKbd();
+        // Not while a real editing element has focus: the engine decides where focus goes next and
+        // the mirror's next publish moves it there. Yanking it to the hidden textarea first closes
+        // a phone's keyboard for the frame it takes to land on the field that was just tapped.
+        if (!editingNow()) focusKbd();
         profile(touch(e));
         const [x, y] = at(e);
         // Capture, so a finger that slides off the canvas mid-drag still reports — otherwise a
@@ -412,6 +501,37 @@ try {
         if (e.isComposing || e.keyCode === 229) return;
         const ctrl = e.ctrlKey || e.metaKey;                 // Cmd on macOS
         const mods = (e.shiftKey ? 1 : 0) | (ctrl ? 2 : 0);
+
+        // A real editing element owns the keys that EDIT. The browser's editor, IME, clipboard and
+        // undo are the whole point of putting one there, and forwarding those keystrokes as well
+        // would apply each of them twice. What stays with the engine is everything that is not
+        // editing — moving focus, dismissing, and the keys that mean something only IT knows.
+        const editingEl = editingNow();
+        if (editingEl) {
+            if (e.key === 'Tab') { I.EditKeyPress(e.shiftKey ? EK.ShiftTab : EK.Tab, mods); e.preventDefault(); return; }
+            if (e.key === 'Escape') { I.EditKeyPress(EK.Escape, mods); e.preventDefault(); return; }
+            // Enter is ALWAYS the engine's, in a textarea too: "Enter sends, Shift+Enter starts a
+            // new line", a tag field committing a chip, a single-line field committing and blurring
+            // — all of that lives in the engine, and a newline it decides to insert comes back
+            // through the value it republishes. Letting the browser insert one instead would have
+            // quietly turned the Showcase's submit-on-enter composer into a plain textarea.
+            if (e.key === 'Enter') { I.EditKeyPress(EK.Enter, mods); e.preventDefault(); return; }
+            // A combobox's list is navigated with the arrows, and the engine owns the highlight.
+            if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && editingEl.parentElement?.closest('[role="combobox"]'))
+            { I.EditKeyPress(EK[e.key], mods); e.preventDefault(); return; }
+            // Backspace in an EMPTY tag entry takes back the last chip — an engine idiom the
+            // browser has no equivalent for, and a no-op for any other empty field.
+            if (e.key === 'Backspace' && editingEl.value === '' && !ctrl) { I.EditKeyPress(EK.Backspace, mods); return; }
+            if (ctrl) {
+                const k = e.key.toLowerCase();
+                // Clipboard, undo/redo and select-all act natively ON THIS INPUT; the value and
+                // selection they produce come back through `input` and selectionchange.
+                if (k === 'c' || k === 'x' || k === 'v' || k === 'z' || k === 'y' || k === 'a') return;
+                if (k.length === 1 && I.KeyChord(k, mods)) { e.preventDefault(); return; }
+            }
+            return;   // printable text, arrows, Backspace, Delete, Home/End: the browser's
+        }
+
         if (ctrl) {
             const k = e.key.toLowerCase();
             // Let the native copy/cut/paste event fire — on the textarea, which is where the

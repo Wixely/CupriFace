@@ -173,7 +173,11 @@ milestone 1.
   and focus arriving on one, post back through the same `AccessibilityActivate` /
   `AccessibilityFocus` / `AccessibilitySetValue` entry points the native bridges use,
   and DOM focus follows the engine's. `pointer-events:none`, so a real pointer still
-  reaches the canvas.
+  reaches the canvas. A leaf text field is a real transparent `<input>`/`<textarea>`
+  over the painted field: while it holds focus the BROWSER owns the text, selection,
+  IME, clipboard and undo (reported back through `SetEditText`, into the permissive
+  buffer), and the engine keeps the keys that are not editing. A masked field is a
+  fill target only — its plaintext never enters the DOM.
 
 Design rule: **any element that conveys meaning must produce a semantics node.**
 Decorative nodes are explicitly marked `role=presentation`.

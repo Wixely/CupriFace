@@ -17,6 +17,35 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **A text field on the web is now a real `<input>`, so the browser's own editor works on it (#133).**
+  The canvas had one hidden textarea following the caret: typing and IME worked, nothing else did.
+  A screen reader saw a `role="textbox"` it could not edit, and a password manager saw no field at
+  all — `AutofillHint` was carried by the engine and unused by the web. Every leaf text field in the
+  accessibility overlay is now a transparent `<input>` (or `<textarea>` when multiline) positioned
+  over the painted field, carrying its kind, `placeholder`, `inputmode`, `enterkeyhint` and the
+  author's `autocomplete`. While one holds focus the **browser owns the text, the selection, the IME
+  and its own undo**, and reports them through `CupriDocument.SetEditText(text, selStart, selEnd)` —
+  a new seam that edits the permissive buffer exactly as typing does, so a value that is invalid
+  mid-edit is still not clamped under the cursor. The engine keeps the keys that are not editing:
+  Tab, Escape, Enter (so "Enter sends, Shift+Enter starts a new line" still holds), a combobox's
+  arrows, and app chords. A value the engine rewrites — a clamp, a reformat, a picked suggestion —
+  replaces what the browser holds and restores the caret the engine reports. Nothing to do in an
+  app. There is no change on any other host.
+
+  **A password is never published.** A masked field's plaintext stays out of the DOM, as it stays
+  out of every other bridge: its `<input type="password">` is a FILL TARGET, carrying the author's
+  `autocomplete` so a manager can find and fill it, and a fill arrives through the binding the way
+  any autofill does. The engine goes on owning the typing for a masked field. So filling works and
+  saving a newly typed password does not.
+
+- **A text field keeps its accessible name once there is text in it** — on every bridge, not just
+  the web. A component may keep the author's attributes on the custom element, and `<cupri-password>`
+  does: its inner `role="textbox"` carried neither the label nor the placeholder, and the
+  placeholder is only rendered while the field is empty. So a password field became nameless the
+  moment someone typed into it, and a screen reader announced it as "edit". The name now falls back
+  to what the author wrote on the component — and to nothing else: a control inside a labelled group
+  stays nameless rather than borrowing a name that reads as true.
+
 - **The web host's accessibility mirror is now a bridge (#133).** A screen reader could read the
   canvas and not use it: activating the mirror's "Dark mode" switch left the model unchanged, the
   mirror had no geometry (a 1×1 clipped div), and focus was never announced. The mirror is now a

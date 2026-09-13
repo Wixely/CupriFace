@@ -323,6 +323,23 @@ public static class WebHostCore
     public static void AccessibilitySetValue(string path, double value)
     { if (_doc?.AccessibilitySetValue(path, value) == true) _dirty = true; }
 
+    // ---- real editing elements -------------------------------------------------------------------
+    // A leaf text field is mirrored as a transparent <input>/<textarea> over the painted field, and
+    // while it holds focus the BROWSER owns the text, the selection, the IME and its own undo. These
+    // are how it reports back. Two doors, because they mean different things: the field being edited
+    // takes text into the PERMISSIVE buffer (invalid mid-edit is allowed, and clamping a value the
+    // moment it is typed is the bug that rule exists to prevent), while a value arriving for a field
+    // nobody is editing — a password manager filling a form — goes through the binding.
+
+    public static void SetEditText(string text, int selStart, int selEnd)
+    { if (_doc?.SetEditText(text, selStart, selEnd) == true) _dirty = true; }
+
+    public static void SetEditSelection(int start, int end)
+    { if (_doc?.SetTextSelection(start, end) == true) _dirty = true; }
+
+    public static void AccessibilitySetText(string path, string text)
+    { if (_doc?.AccessibilitySetText(path, text) == true) _dirty = true; }
+
     public static void PointerMove(double x, double y)
     { if (_doc?.DispatchPointerMove(L(x), L(y)) == true) _dirty = true; UpdateCursor(x, y); }
 

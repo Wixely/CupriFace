@@ -79,6 +79,12 @@ internal partial class Interop
     [JSExport] internal static void A11yFocus(string path) => WebHostCore.AccessibilityFocus(path);
     [JSExport] internal static void A11ySetValue(string path, double value) => WebHostCore.AccessibilitySetValue(path, value);
 
+    // The real editing element over the focused field reports its text and selection; a field
+    // nobody is editing reports a fill (a password manager) by path.
+    [JSExport] internal static void SetEditText(string text, int selStart, int selEnd) => WebHostCore.SetEditText(text, selStart, selEnd);
+    [JSExport] internal static void SetEditSelection(int start, int end) => WebHostCore.SetEditSelection(start, end);
+    [JSExport] internal static void A11ySetText(string path, string text) => WebHostCore.AccessibilitySetText(path, text);
+
     // ---- imports (module "cupri", registered by main.js) ---------------------------------------
 
     // The pixels are copied into the 2D canvas via putImageData; the damage rect narrows the blit
