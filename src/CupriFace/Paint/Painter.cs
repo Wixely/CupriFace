@@ -81,7 +81,7 @@ public sealed class Painter
         {
             var dx = _dragOx + d.X + d.DragOffsetX;
             var dy = _dragOy + d.Y + d.DragOffsetY;
-            list.Add(new ShadowRect(dx, dy, d.Width, d.Height, d.Style.BorderRadius, 0, 4, 16, 0, new SKColor(0, 0, 0, 0x33), false));
+            list.Add(new ShadowRect(dx, dy, d.Width, d.Height, d.Style.BorderRadius.Resolve(d.Width, d.Height), 0, 4, 16, 0, new SKColor(0, 0, 0, 0x33), false));
             PaintNode(list, d, _dragOx, _dragOy, topLayer, inTopLayer: false);
         }
         return list;
@@ -163,6 +163,10 @@ public sealed class Painter
         var absX = originX + node.X + node.DragOffsetX;
         var absY = originY + node.Y + node.DragOffsetY;
         var s = node.Style;
+        // Resolved ONCE, here, because a percentage radius is a fraction of this box and the box is
+        // only known now. Every command below takes the px it produces (an inline fragment resolves
+        // against its own line box instead — see the fragment loop).
+        var radius = s.BorderRadius.Resolve(node.Width, node.Height);
 
         if (node.IsText)
         {
@@ -199,22 +203,22 @@ public sealed class Painter
         if (s.BoxShadow is { Count: > 0 } shadows)
             foreach (var sh in shadows)
                 if (!sh.Inset)
-                    list.Add(new ShadowRect(absX, absY, node.Width, node.Height, s.BorderRadius,
+                    list.Add(new ShadowRect(absX, absY, node.Width, node.Height, radius,
                         sh.Dx, sh.Dy, sh.Blur, sh.Spread, sh.Color, false));
 
         // Background (fills the border box; drawn under the border).
         if (s.Background.Alpha > 0 && node.Width > 0)
-            list.Add(new FillRect(absX, absY, node.Width, node.Height, s.BorderRadius, s.Background));
+            list.Add(new FillRect(absX, absY, node.Width, node.Height, radius, s.Background));
 
         // Background gradient (CSS linear-/radial-gradient), painted over any solid background colour.
         if (s.BackgroundGradient is { } grad && node.Width > 0)
-            list.Add(new GradientRect(absX, absY, node.Width, node.Height, s.BorderRadius, grad));
+            list.Add(new GradientRect(absX, absY, node.Width, node.Height, radius, grad));
 
         // Border frame.
         var hasBorder = (node.BorderTopW + node.BorderRightW + node.BorderBottomW + node.BorderLeftW) > 0
                         && s.BorderColor.Alpha > 0 && s.BorderStyle != BorderLineStyle.None;
         if (hasBorder && node.Width > 0)
-            list.Add(new BorderRect(absX, absY, node.Width, node.Height, s.BorderRadius,
+            list.Add(new BorderRect(absX, absY, node.Width, node.Height, radius,
                 node.BorderTopW, node.BorderRightW, node.BorderBottomW, node.BorderLeftW, s.BorderColor, s.BorderStyle));
 
         // Inline element with a background/border (a <code> chip): one rounded box per line it spans
@@ -223,12 +227,15 @@ public sealed class Painter
         if (node.InlineFragments is { Count: > 0 } inlineBoxes)
             foreach (var f in inlineBoxes)
             {
+                // An inline box has no Width of its own, so a percentage here means a fraction of
+                // the fragment — which is the box actually being painted.
+                var fragRadius = s.BorderRadius.Resolve(f.W, f.H);
                 if (s.Background.Alpha > 0)
-                    list.Add(new FillRect(absX + f.X, absY + f.Y, f.W, f.H, s.BorderRadius, s.Background));
+                    list.Add(new FillRect(absX + f.X, absY + f.Y, f.W, f.H, fragRadius, s.Background));
                 if (s.BackgroundGradient is { } g)
-                    list.Add(new GradientRect(absX + f.X, absY + f.Y, f.W, f.H, s.BorderRadius, g));
+                    list.Add(new GradientRect(absX + f.X, absY + f.Y, f.W, f.H, fragRadius, g));
                 if (hasBorder)
-                    list.Add(new BorderRect(absX + f.X, absY + f.Y, f.W, f.H, s.BorderRadius,
+                    list.Add(new BorderRect(absX + f.X, absY + f.Y, f.W, f.H, fragRadius,
                         node.BorderTopW, node.BorderRightW, node.BorderBottomW, node.BorderLeftW, s.BorderColor, s.BorderStyle));
             }
 
@@ -236,7 +243,7 @@ public sealed class Painter
         if (s.BoxShadow is { Count: > 0 } insetShadows)
             foreach (var sh in insetShadows)
                 if (sh.Inset)
-                    list.Add(new ShadowRect(absX, absY, node.Width, node.Height, s.BorderRadius,
+                    list.Add(new ShadowRect(absX, absY, node.Width, node.Height, radius,
                         sh.Dx, sh.Dy, sh.Blur, sh.Spread, sh.Color, true));
 
         // Icon: fill an SVG path in the content box with the current color.
@@ -261,7 +268,7 @@ public sealed class Painter
                 surfaced = true; // the poster must not paint into it — the underlay is the picture now
                 list.Add(new ClearHole(
                     absX + node.ContentLeftInset, absY + node.ContentTopInset,
-                    node.Width - node.HorizontalInsets, node.Height - node.VerticalInsets, s.BorderRadius));
+                    node.Width - node.HorizontalInsets, node.Height - node.VerticalInsets, radius));
             }
             else if (source.CurrentFrame is not null)
             {
@@ -271,7 +278,7 @@ public sealed class Painter
                 list.Add(new DrawSurface(
                     absX + node.ContentLeftInset, absY + node.ContentTopInset,
                     node.Width - node.HorizontalInsets, node.Height - node.VerticalInsets,
-                    source, ParseFit(node.Element?.GetAttribute("data-object-fit")), s.BorderRadius));
+                    source, ParseFit(node.Element?.GetAttribute("data-object-fit")), radius));
             }
         }
 
@@ -281,14 +288,14 @@ public sealed class Painter
             list.Add(new DrawImage(
                 absX + node.ContentLeftInset, absY + node.ContentTopInset,
                 node.Width - node.HorizontalInsets, node.Height - node.VerticalInsets,
-                img, ParseFit(node.Element?.GetAttribute("data-object-fit")), s.BorderRadius));
+                img, ParseFit(node.Element?.GetAttribute("data-object-fit")), radius));
 
         // Clip children if overflow is not visible.
         var clip = s.Overflow != OverflowMode.Visible;
         if (clip)
             list.Add(new PushClip(absX + node.BorderLeftW, absY + node.BorderTopW,
                 node.Width - node.BorderLeftW - node.BorderRightW,
-                node.Height - node.BorderTopW - node.BorderBottomW, s.BorderRadius));
+                node.Height - node.BorderTopW - node.BorderBottomW, radius));
 
         // Chart line (line / sparkline / rolling): a polyline through normalised points scaled into the
         // content box, with an optional area fill (data-cupri-area) and dots (data-cupri-dots). Emitted

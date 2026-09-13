@@ -17,6 +17,36 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **`CF0060` no longer accuses correct markup when a `data-repeat` is nested inside another (#160).**
+  Repeat scopes were collected by resolving every `data-repeat` name against the ROOT model type
+  alone, so a collection living on an *item* type — a per-row detail panel, an options group, a
+  thread — resolved to nothing, its element type never entered scope, and every `{{path}}` inside it
+  was reported as naming nothing. At `Severity.Error`, which says "this will not appear on screen",
+  against markup that renders perfectly. Scopes now resolve to a fixed point: each repeat name is
+  tried against every type already in scope until a pass adds nothing, which is what the docstring
+  already claimed ("retried against the element type of every repeat collection in the document").
+  Bounded by the number of distinct row types, and a self-referential row type terminates. Measured
+  on the app that reported it: **3 errors before, 0 after**, with its 5 warnings unchanged.
+
+- **`border-radius` takes a percentage, and every corner takes its own value (#162, #163).** Both
+  were parsed by handing the whole declaration to a single-number parser, which failed and fell back
+  to zero — so `border-radius: 50%`, the standard circular avatar, painted a **square**, and
+  `border-radius: 14px 14px 0 0` painted **no rounding at all** rather than rounding the top. The
+  second is the worse failure: the author asked for some rounding and got none, with the
+  single-value control right beside it working, which makes the cause look like anything but the
+  value. The shorthand now expands the usual way (one value every corner, two TL/BR then TR/BL,
+  three adding the bottom left, four clockwise), takes the `A / B` two-axis form, and the four
+  `border-*-radius` longhands work. A percentage resolves against the box at paint time —
+  horizontally against its width and vertically against its height — so `50%` on a rectangle is the
+  **ellipse** CSS says it is rather than a circle. Hit testing follows the painted shape per corner:
+  a box rounded only at the top still takes a click at its square bottom corner.
+
+  Four things in this repository had been asking for this and silently not getting it: the bar
+  chart's bars (`5px 5px 0 0`), the line chart's dots and the Styling page's colour swatches
+  (`50%`), and the bottom sheet (`18px 18px 0 0`). They render as their stylesheets always asked.
+  The committed screenshots predate that and are correspondingly stale; regenerating them is a
+  separate pass, because this machine's fonts would drift every image in the set.
+
 - **`align-items` works on a column flex container (#161).** Centring a heading in a column — the
   most common flex idiom there is — did nothing. A column's cross axis is the WIDTH, and an auto
   width on a block fills its container, so the item was already the full width, there was no free

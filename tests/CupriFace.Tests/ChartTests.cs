@@ -66,7 +66,7 @@ public class ChartTests
         Assert.Equal(8, poly.Points.Count);          // 4 points × (x,y)
         Assert.True(poly.Fill.Alpha > 0);            // area fill on
         Assert.True(poly.Width > 0);                 // line stroked
-        Assert.Equal(4, cmds.OfType<FillRect>().Count(r => r.Radius >= 3 && r.W == r.H)); // 4 round dots
+        Assert.Equal(4, cmds.OfType<FillRect>().Count(r => r.Radius.TopLeft.X >= 3 && r.W == r.H)); // 4 round dots
     }
 
     [Fact]

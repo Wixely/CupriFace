@@ -119,15 +119,25 @@ public static class HitTesting
         var bottom = ay + node.Height - node.BorderBottomW;
         if (x < left || x >= right || y < top || y >= bottom) return false;
 
-        var radius = MathF.Min(MathF.Max(0, node.Style.BorderRadius),
-            MathF.Min(right - left, bottom - top) / 2f);
-        if (radius <= 0) return true;
+        // The corner nearest the point is the only one that can exclude it, and each has its own
+        // radius now — a card rounded at the top must not refuse a click at its square bottom edge.
+        // Percentages resolve against the border box, the same box the painter rounded.
+        var corners = node.Style.BorderRadius.Resolve(node.Width, node.Height);
+        if (corners.IsZero) return true;
+        var corner = y < (top + bottom) / 2f
+            ? x < (left + right) / 2f ? corners.TopLeft : corners.TopRight
+            : x < (left + right) / 2f ? corners.BottomLeft : corners.BottomRight;
 
-        var dx = x < left + radius ? x - (left + radius)
-            : x > right - radius ? x - (right - radius) : 0f;
-        var dy = y < top + radius ? y - (top + radius)
-            : y > bottom - radius ? y - (bottom - radius) : 0f;
-        return dx * dx + dy * dy <= radius * radius;
+        var rx = MathF.Min(MathF.Max(0, corner.X), (right - left) / 2f);
+        var ry = MathF.Min(MathF.Max(0, corner.Y), (bottom - top) / 2f);
+        if (rx <= 0 || ry <= 0) return true;
+
+        var dx = x < left + rx ? x - (left + rx)
+            : x > right - rx ? x - (right - rx) : 0f;
+        var dy = y < top + ry ? y - (top + ry)
+            : y > bottom - ry ? y - (bottom - ry) : 0f;
+        // An ellipse, not a circle: a percentage radius on a rectangle has different radii per axis.
+        return (dx * dx) / (rx * rx) + (dy * dy) / (ry * ry) <= 1f;
     }
 
     /// <summary>Absolute border-box of a node. Stops accumulating at a top-layer ancestor

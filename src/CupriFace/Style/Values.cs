@@ -213,3 +213,97 @@ public static class Colors
         return Named.TryGetValue(text, out color);
     }
 }
+
+/// <summary>
+/// One radius, as authored: a length in px, or a percentage of the box it will be drawn on.
+///
+/// <para>A percentage cannot be folded into a float at parse time the way <c>20px</c> can — it is
+/// resolved against the BOX, horizontally against its width and vertically against its height, which
+/// is what makes <c>border-radius: 50%</c> an ellipse on a rectangle rather than a circle. It used
+/// to be parsed with the ordinary px parser, which failed on the <c>%</c> and fell back to zero, so
+/// the canonical circular avatar rendered as a square (#162).</para>
+/// </summary>
+public readonly record struct RadiusLength(float Value, bool IsPercent)
+{
+    public static readonly RadiusLength Zero = new(0, false);
+    public bool IsZero => Value <= 0;
+    public float Resolve(float basis) => IsPercent ? Value / 100f * MathF.Max(0, basis) : Value;
+}
+
+/// <summary>
+/// <c>border-radius</c> as authored: four corners, each with a horizontal and a vertical radius.
+///
+/// <para>Stored per corner because the shorthand takes one to four values (TL, TR, BR, BL, with the
+/// usual mirroring), and per axis because <c>A / B</c> gives the horizontal radii before the slash
+/// and the vertical ones after. Both used to be handed whole to a single-number parser, which
+/// failed and fell back to zero — so a card asking for a rounded top edge got no rounding at all,
+/// which is worse than the value being ignored (#163).</para>
+/// </summary>
+public readonly record struct BorderRadiusSpec(
+    RadiusLength TopLeftX, RadiusLength TopLeftY,
+    RadiusLength TopRightX, RadiusLength TopRightY,
+    RadiusLength BottomRightX, RadiusLength BottomRightY,
+    RadiusLength BottomLeftX, RadiusLength BottomLeftY)
+{
+    public static readonly BorderRadiusSpec None = default;
+
+    /// <summary>Every corner the same length on both axes — what a single-value shorthand means.</summary>
+    public static BorderRadiusSpec Uniform(RadiusLength r) => new(r, r, r, r, r, r, r, r);
+
+    public bool IsZero => TopLeftX.IsZero && TopLeftY.IsZero && TopRightX.IsZero && TopRightY.IsZero
+                       && BottomRightX.IsZero && BottomRightY.IsZero && BottomLeftX.IsZero && BottomLeftY.IsZero;
+
+    /// <summary>Resolve against the border box. Percentages need this and lengths pass through.</summary>
+    public CornerRadii Resolve(float width, float height) => IsZero
+        ? CornerRadii.None
+        : new CornerRadii(
+            new SKPoint(TopLeftX.Resolve(width), TopLeftY.Resolve(height)),
+            new SKPoint(TopRightX.Resolve(width), TopRightY.Resolve(height)),
+            new SKPoint(BottomRightX.Resolve(width), BottomRightY.Resolve(height)),
+            new SKPoint(BottomLeftX.Resolve(width), BottomLeftY.Resolve(height)));
+}
+
+/// <summary>
+/// Four corners' radii in px, ready to draw: <c>(rx, ry)</c> each, clockwise from the top left.
+///
+/// <para>Implicitly convertible from a float, because most boxes are uniformly rounded or not
+/// rounded at all and every paint command that carries a radius should stay readable for that
+/// case.</para>
+/// </summary>
+public readonly record struct CornerRadii(SKPoint TopLeft, SKPoint TopRight, SKPoint BottomRight, SKPoint BottomLeft)
+{
+    public static readonly CornerRadii None = default;
+
+    public static implicit operator CornerRadii(float r)
+    {
+        var p = new SKPoint(r, r);
+        return new CornerRadii(p, p, p, p);
+    }
+
+    public bool IsZero => TopLeft.X <= 0 && TopLeft.Y <= 0 && TopRight.X <= 0 && TopRight.Y <= 0
+                       && BottomRight.X <= 0 && BottomRight.Y <= 0 && BottomLeft.X <= 0 && BottomLeft.Y <= 0;
+
+    /// <summary>The one radius that describes every corner, or null when they differ — so the common
+    /// case can keep taking Skia's cheap two-argument path.</summary>
+    public float? Uniform =>
+        TopLeft.X == TopLeft.Y && TopLeft == TopRight && TopLeft == BottomRight && TopLeft == BottomLeft
+            ? TopLeft.X : null;
+
+    /// <summary>Move every corner inwards by <paramref name="inset"/> — what a border stroke centred
+    /// on the edge needs, and what the uniform path already did by subtracting from one float.</summary>
+    public CornerRadii Deflate(float inset) => new(
+        new SKPoint(MathF.Max(0, TopLeft.X - inset), MathF.Max(0, TopLeft.Y - inset)),
+        new SKPoint(MathF.Max(0, TopRight.X - inset), MathF.Max(0, TopRight.Y - inset)),
+        new SKPoint(MathF.Max(0, BottomRight.X - inset), MathF.Max(0, BottomRight.Y - inset)),
+        new SKPoint(MathF.Max(0, BottomLeft.X - inset), MathF.Max(0, BottomLeft.Y - inset)));
+
+    /// <summary>The Skia shape. <c>SetRectRadii</c> scales every radius down proportionally when the
+    /// corners would overlap, which is the CSS rule too — so <c>999px</c> and <c>50%</c> both land on
+    /// the same capsule without this code clamping anything itself.</summary>
+    public SKRoundRect ToRoundRect(SKRect rect)
+    {
+        var rr = new SKRoundRect();
+        rr.SetRectRadii(rect, [TopLeft, TopRight, BottomRight, BottomLeft]);
+        return rr;
+    }
+}
