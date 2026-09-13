@@ -525,6 +525,19 @@ public sealed class LayoutEngine
         var n = items.Count;
         if (n == 0) return 0;
 
+        // Does this item's CROSS size come from the container, or from its own content? Only an auto
+        // cross can stretch, and only `align-items: stretch` stretches it — every other value means
+        // the item is sized by its content and then aligned within the line.
+        var stretchItems = s.AlignItems == AlignItems.Stretch;
+        bool CrossStretches(RenderNode it) =>
+            stretchItems && (horizontal ? it.Style.Height.IsAuto : it.Style.Width.IsAuto);
+
+        // Shrink-to-fit, capped at the container: the same measure an inline-block and an auto-width
+        // overlay already use.
+        float FitCrossWidth(RenderNode it, float available) => it.Style.Width.IsDefinite
+            ? MathF.Max(0, it.Style.Width.Resolve(available) - PadBorderX(it.Style))
+            : MathF.Min(available, MathF.Max(0, MaxContentWidth(it) - PadBorderX(it.Style)));
+
         var baseMain = new float[n];
         var naturalCross = new float[n];
         var mainMargin = new float[n];
@@ -543,7 +556,14 @@ public sealed class LayoutEngine
                 baseMain[i] = item.Style.Width.IsDefinite ? size0.W : MaxContentWidth(item);
             else
                 baseMain[i] = size0.H;
-            naturalCross[i] = horizontal ? size0.H : size0.W;
+            // A COLUMN's cross axis is the width, and an auto width on a block fills its container —
+            // so size0.W is the container's width, not the item's content. That is only what the
+            // item wants when it is being stretched; under any other align-items it shrinks to fit,
+            // exactly as an auto width does on the main axis of a row (the line above). Reporting
+            // the container's width here also made an auto-width column container size to its
+            // parent rather than to its widest child.
+            naturalCross[i] = horizontal ? size0.H
+                : CrossStretches(item) ? size0.W : FitCrossWidth(item, contentW);
         }
 
         var gap = horizontal ? s.ColumnGap : s.RowGap;
@@ -594,7 +614,8 @@ public sealed class LayoutEngine
             // A stretched item on a definite-cross line is skipped (it's sized by the stretch pass below,
             // not by its content), so the common stretch container keeps the same number of layout passes.
             var contentCross = !(crossKnown && single);      // the line's cross comes from the items' cross sizes
-            var stretch = s.AlignItems == AlignItems.Stretch;
+            var stretch = stretchItems;
+
             for (var i = start; i < end; i++)
             {
                 var item = items[i];
@@ -602,7 +623,12 @@ public sealed class LayoutEngine
                 if (!contentCross && itemStretch) continue;
                 var main = MathF.Max(0, finalMain[i - start] - (horizontal ? item.HorizontalInsets : item.VerticalInsets));
                 if (horizontal) LayoutNode(item, contentW, contentH, main, null);
-                else            LayoutNode(item, contentW, contentH, null, main);
+                // …and the same on the way out: a column item that is not stretched is laid out at
+                // its fit-content width, which is what the align pass below then centres. Passing
+                // null let it fill the container, so `align-items: center` had nothing to move —
+                // the item was already the full width and its text simply sat at the left (#161).
+                else LayoutNode(item, contentW, contentH,
+                                CrossStretches(item) ? null : FitCrossWidth(item, contentW), main);
                 naturalCross[i] = horizontal ? item.Height : item.Width;
             }
 

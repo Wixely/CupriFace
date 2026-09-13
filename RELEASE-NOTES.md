@@ -13,6 +13,20 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- **`align-items` works on a column flex container (#161).** Centring a heading in a column — the
+  most common flex idiom there is — did nothing. A column's cross axis is the WIDTH, and an auto
+  width on a block fills its container, so the item was already the full width, there was no free
+  space to centre it in, and its text simply sat at the left. An item with an explicit width centred
+  correctly, which made it look like an alignment bug rather than a sizing one. An unstretched item
+  now shrinks to its content first, exactly as an auto width already did on the main axis of a row,
+  and `align-items` then has something to move. `stretch` — the default — still fills the container.
+  Worth knowing if you relied on the old behaviour: `align-items: flex-start` was **also** stretching
+  the item and only looked right, so a flex-start item with a background now hugs its text.
+
 ## v0.24.0
 
 ### Added
