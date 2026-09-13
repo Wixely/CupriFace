@@ -155,10 +155,11 @@ public static partial class BindingEngine
         return (first, last, above, below);
     }
 
-    /// <summary><c>height="auto"</c>: the author has handed the box to CSS, so its height is the
-    /// layout's answer rather than an attribute's.</summary>
+    /// <summary>No height, or <c>height="auto"</c>: the box belongs to CSS, so its height is the
+    /// layout's answer rather than an attribute's. Only a NUMBER is the attribute's to give.</summary>
     private static bool SizedByLayout(IElement virt) =>
-        string.Equals(virt.GetAttribute("height"), "auto", StringComparison.OrdinalIgnoreCase);
+        virt.GetAttribute("height") is not { Length: > 0 } h
+        || h.Equals("auto", StringComparison.OrdinalIgnoreCase);
 
     private static double ItemH(IElement virt) => Dbl(virt.GetAttribute("item-height"), 40);
     private static double Dbl(string? s, double dflt) => double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var d) && d > 0 ? d : dflt;

@@ -30,12 +30,22 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   rows. Measured: a list laid out at 940px with `height="300"` leaves a **340px blank strip** at the
   bottom of the viewport once it is scrolled. It looks perfectly finished until someone scrolls it.
 
-  With `height="auto"` no inline height is written, so CSS decides the box, and the binder windows
-  off the height the last layout measured — the same bind-before-layout route the measured row
-  pitches already take, capped at the document's own viewport so an unconstrained list cannot grow
-  itself a frame at a time. An omitted `height` still means 300px, exactly as before, so no existing
-  list changes. The Showcase's list now takes its 224px from the stylesheet, rendering pixel for
-  pixel what it did.
+  With `height="auto"` — **or no `height` at all, which now means the same thing** — no inline height
+  is written, so the box belongs to the cascade, and the binder windows off the height the last
+  layout measured. That is the same bind-before-layout route the measured row pitches already take,
+  capped at the document's own viewport so an unconstrained list cannot grow itself a frame at a
+  time. A NUMBER still becomes an inline height and still beats every stylesheet rule: naming one is
+  how an author says "this size, and I mean it". The Showcase's list now takes its 224px from the
+  stylesheet, rendering pixel for pixel what it did.
+
+  **Upgrading.** A list that names a numeric `height` is unaffected. A list with NO `height`
+  attribute still comes out 300px and still scrolls, because that default moved from an inline style
+  into the component's own stylesheet — so the only change is that your CSS, a `@media` rule or a
+  flex parent can now override it, where previously nothing could. If a list of yours was relying on
+  a stylesheet rule being ignored, it will now be obeyed. (The default did not become CSS `auto`:
+  that was measured and rejected, because a scroller with no constraint grows to its whole content
+  and a bare 2,000-row list came out 80,000px tall with nothing to scroll — worse than the arbitrary
+  number it replaced.)
 
 - **A text field on the web is now a real `<input>`, so the browser's own editor works on it (#133).**
   The canvas had one hidden textarea following the caret: typing and IME worked, nothing else did.

@@ -1465,8 +1465,12 @@ public sealed partial class CupriDocument : IDisposable
         }
         EnsureFontFaces();
         _layout.Layout(_root, width, height);
-        CaptureVirtualHeights(_root); // measured pitches + scroll anchoring, before anything reads offsets
+        // Recorded BEFORE the capture pass, which reads the viewport height to bound what an
+        // auto-height virtual list may window. Assigning it afterwards left that height at 0 on the
+        // very first layout, so the first list measured itself as 1px tall and the next frame built
+        // one row where it needed eight — a visible flash of a nearly empty list, once, at startup.
         _laidOutWidth = width; _laidOutHeight = height; _layoutDirty = false;
+        CaptureVirtualHeights(_root); // measured pitches + scroll anchoring, before anything reads offsets
         ScrollCaretIntoView();  // after layout, before paint: keep the caret visible in a scrolled field
         ScrollCaretIntoViewX(); // and horizontally, in a single-line (nowrap) field
         var t1 = Stopwatch.GetTimestamp();

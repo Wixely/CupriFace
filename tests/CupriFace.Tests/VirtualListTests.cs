@@ -127,9 +127,9 @@ public class VirtualListTests
     /// inline style beats every rule in every stylesheet, which is the whole problem.</summary>
     [Theory]
     [InlineData("auto", false)]
+    [InlineData("", false)]         // omitted means auto too: layout decides unless a number says otherwise
     [InlineData("300", true)]
-    [InlineData("", true)]          // omitted is unchanged: the long-standing 300px default
-    public void Only_auto_leaves_the_height_to_the_stylesheet(string heightAttr, bool inlineHeight)
+    public void Only_a_number_takes_the_height_away_from_the_cascade(string heightAttr, bool inlineHeight)
     {
         var attr = heightAttr.Length > 0 ? $" height='{heightAttr}'" : "";
         using var t = new TestDoc(
@@ -168,5 +168,53 @@ public class VirtualListTests
         for (var i = 0; i < 3; i++) { t.Doc.Refresh(); t.Layout(); }
         var rows = RowTexts(t).Count;
         Assert.True(rows >= 940 / 40, $"once measured, the window should cover the 940px box; got {rows} rows");
+    }
+
+    /// <summary>
+    /// The upgrade this must not break. A list with no height attribute keeps the 300px it has
+    /// always had — but from the component's STYLESHEET now, not an inline style, so an app can
+    /// override it. Leaving it genuinely `auto` was measured and rejected: a scroller with no
+    /// constraint grows to its whole content, and a bare 2,000-row list came out 80,000px tall with
+    /// nothing to scroll, which is worse than the arbitrary number it replaced.
+    /// </summary>
+    [Fact]
+    public void A_list_with_no_height_still_gets_300px_and_still_scrolls()
+    {
+        using var t = new TestDoc(
+            "<body><cupri-virtual item-height='40'><div class='vrow' data-repeat='Items'>{{.}}</div></cupri-virtual></body>",
+            "body{margin:0} .vrow{height:40px}", new Model(), width: 400, height: 600, components: true);
+
+        var list = t.FindClass("cupri-virtual");
+        Assert.Equal(300f, list.Height, 1);
+        Assert.True(list.MaxScrollY > 39000, "it must still be a scroller, not a box as tall as its content");
+        Assert.InRange(RowTexts(t).Count, 8, 30);          // a screenful of 300px, not one row and not 1000
+    }
+
+    /// <summary>…and an app stylesheet now wins, which is the whole point: the same default used to
+    /// be an inline style, which nothing could override.</summary>
+    [Fact]
+    public void An_app_stylesheet_overrides_the_default_height()
+    {
+        using var t = new TestDoc(
+            "<body><cupri-virtual class='tall' item-height='40'><div class='vrow' data-repeat='Items'>{{.}}</div></cupri-virtual></body>",
+            "body{margin:0} .vrow{height:40px} .tall{height:520px}", new Model(), width: 400, height: 600, components: true);
+
+        Assert.Equal(520f, t.FindClass("cupri-virtual").Height, 1);
+    }
+
+    /// <summary>The first layout has measured nothing yet, and the capture pass reads the viewport
+    /// height to bound what a list may window. Recording that height AFTER the capture left it at
+    /// zero on the very first frame, so the list measured itself as 1px and the next frame built one
+    /// row where it needed eight — a flash of a nearly empty list, once, at startup.</summary>
+    [Fact]
+    public void The_window_does_not_dip_on_the_frame_after_the_first()
+    {
+        using var t = new TestDoc(
+            "<body><cupri-virtual item-height='40'><div class='vrow' data-repeat='Items'>{{.}}</div></cupri-virtual></body>",
+            "body{margin:0} .vrow{height:40px}", new Model(), width: 400, height: 600, components: true);
+
+        var counts = new List<int>();
+        for (var i = 0; i < 4; i++) { counts.Add(RowTexts(t).Count); t.Doc.Refresh(); t.Layout(); }
+        Assert.All(counts, c => Assert.True(c >= 300 / 40, $"a frame built {c} rows for a 300px box: {string.Join(",", counts)}"));
     }
 }

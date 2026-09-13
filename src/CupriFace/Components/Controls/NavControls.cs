@@ -203,7 +203,7 @@ public sealed class VirtualListComponent : ComponentBase
 {
     public override string Tag => "cupri-virtual";
     public override string DefaultCss => """
-        .cupri-virtual { display:block; overflow:scroll; }
+        .cupri-virtual { display:block; overflow:scroll; height:300px; }
         """;
     public override void Expand(IElement el)
     {
@@ -214,10 +214,18 @@ public sealed class VirtualListComponent : ComponentBase
         // windowing half by reading the raw anchor attribute, which is why nothing is translated.
         if (Str(el, "anchor", "") == "bottom") el.SetAttribute("data-follow-tail", "");
         var extra = el.GetAttribute("style") is { Length: > 0 } s ? ";" + s : "";
-        // height="auto": write NO height, so the stylesheet, a @media rule or a flex parent decides
-        // it. Anything else keeps the inline height it has always had — which also means it beats
-        // every stylesheet rule, so "auto" is the only way to let layout have the box.
-        var height = Str(el, "height", "300");
+        // No height, or height="auto": write NO inline height, so the box belongs to the cascade —
+        // the 300px above, or whatever the app's stylesheet, a @media rule or a flex parent says,
+        // all of which beat a component's own CSS. A NUMBER still becomes an inline height, which
+        // beats every rule there is: naming one is how an author says "this size, and I mean it".
+        //
+        // The 300px default moved from an inline style to that stylesheet rule rather than becoming
+        // `auto`, and the difference is the whole point. Inline, nothing could override it. As
+        // `auto` it would be no default at all: a scroller with no constraint grows to its full
+        // content, and a bare 2,000-row list measured 80,000px tall — worse than the arbitrary
+        // number it replaced. As a rule it is a default that anything can override, which is what
+        // was wanted from it.
+        var height = Str(el, "height", "auto");
         var box = height.Equals("auto", StringComparison.OrdinalIgnoreCase) ? "" : $"height:{height}px;";
         el.SetAttribute("style", $"{box}overflow:scroll{extra}");
     }
