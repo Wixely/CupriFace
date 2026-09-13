@@ -215,9 +215,11 @@ public sealed class SkiaWindow : IDisposable
     /// <summary>Raised on left-button press with client-area coordinates and the click count
     /// (1/2/3 = single/double/triple — for word/line text selection).</summary>
     public event Action<float, float, int>? PointerDown;
+    public event Action<float, float>? MiddlePointerDown;
     public event Action<float, float>? RightPointerDown;     // right-click → context menu
     public event Action<float, float>? PointerMove;
     public event Action<float, float>? PointerUp;
+    public event Action<float, float>? MiddlePointerUp;
     public event Action<float, float, float, KeyMods>? PointerWheel; // x, y, deltaY (notches), mods — Ctrl+wheel is zoom
     public event Action<string>? TextEntered;
     public event Action<EditKey, KeyMods>? EditKeyPressed;  // key + Shift/Ctrl modifiers
@@ -444,13 +446,14 @@ public sealed class SkiaWindow : IDisposable
             {
                 var (x, y) = ToLogicalClient(m.Position.X, m.Position.Y);
                 if (btn == MouseButton.Left) PointerDown?.Invoke(x, y, NextClickCount(x, y));
+                else if (btn == MouseButton.Middle) MiddlePointerDown?.Invoke(x, y);
                 else if (btn == MouseButton.Right) RightPointerDown?.Invoke(x, y);
             };
             mouse.MouseUp += (m, btn) =>
             {
-                if (btn != MouseButton.Left) return;
                 var (x, y) = ToLogicalClient(m.Position.X, m.Position.Y);
-                PointerUp?.Invoke(x, y);
+                if (btn == MouseButton.Left) PointerUp?.Invoke(x, y);
+                else if (btn == MouseButton.Middle) MiddlePointerUp?.Invoke(x, y);
             };
             mouse.MouseMove += (m, pos) =>
             {

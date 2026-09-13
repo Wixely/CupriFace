@@ -4960,6 +4960,7 @@ public sealed partial class CupriDocument : IDisposable
     {
         EnsureLaidOut();
         DismissContextMenuForScroll();
+        if (DispatchAuthoredWheel(x, y, pixelDelta, horizontalDelta)) return true;
         var hit = HitTesting.HitTest(_root, x, y);
         return ScrollCore(hit, hit, pixelDelta, horizontalDelta);
     }

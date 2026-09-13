@@ -15,6 +15,14 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ## Unreleased
 
+### Added
+
+- **Author-owned wheel surfaces and middle-button pointer capture.** `CupriDocument.OnWheel`
+  offers wheel input to opted-in elements before ordinary scrolling, and
+  `DispatchMiddlePointer` identifies middle-button gestures through `MultiPointerEvent.IsMiddleButton`.
+  Both desktop backends now forward the middle button, so canvas-style apps can implement
+  cursor-anchored wheel zoom and grab-to-pan without host-specific input code.
+
 ### Fixed
 
 - **`CF0060` no longer accuses correct markup when a `data-repeat` is nested inside another (#160).**

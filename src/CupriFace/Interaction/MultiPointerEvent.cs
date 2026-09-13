@@ -25,4 +25,5 @@ public sealed record MultiPointerEvent(
     IReadOnlyList<CupriPointer> Pointers,
     IElement Element,
     string Value,
-    object? Model);
+    object? Model,
+    bool IsMiddleButton = false);

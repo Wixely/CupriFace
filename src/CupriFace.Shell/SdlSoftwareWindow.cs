@@ -72,9 +72,11 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     public Func<RenderContext, SKRectI?>? RenderIncrementalFrame;
     private bool _presentDirty = true; // (re)present the current texture even without a re-render (expose/restore)
     public event Action<float, float, int>? PointerDown;    // x, y, click count (1/2/3)
+    public event Action<float, float>? MiddlePointerDown;
     public event Action<float, float>? RightPointerDown;    // right-click → context menu
     public event Action<float, float>? PointerMove;
     public event Action<float, float>? PointerUp;
+    public event Action<float, float>? MiddlePointerUp;
     public event Action<float, float, float, KeyMods>? PointerWheel; // x, y, deltaY (notches), mods — Ctrl+wheel is zoom
 
     /// <summary>
@@ -538,13 +540,15 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                     {
                         var (x, y) = ToLogicalClient(e.Button.X, e.Button.Y);
                         if (e.Button.Button == Sdl.ButtonRight) RightPointerDown?.Invoke(x, y);
-                        else PointerDown?.Invoke(x, y, e.Button.Clicks); // SDL tracks click count
+                        else if (e.Button.Button == Sdl.ButtonMiddle) MiddlePointerDown?.Invoke(x, y);
+                        else if (e.Button.Button == Sdl.ButtonLeft) PointerDown?.Invoke(x, y, e.Button.Clicks); // SDL tracks click count
                         break;
                     }
                     case EventType.Mousebuttonup:
                     {
                         var (x, y) = ToLogicalClient(e.Button.X, e.Button.Y);
-                        PointerUp?.Invoke(x, y);
+                        if (e.Button.Button == Sdl.ButtonMiddle) MiddlePointerUp?.Invoke(x, y);
+                        else if (e.Button.Button == Sdl.ButtonLeft) PointerUp?.Invoke(x, y);
                         break;
                     }
                     case EventType.Fingerdown:

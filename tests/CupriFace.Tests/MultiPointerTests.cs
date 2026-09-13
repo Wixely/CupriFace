@@ -41,6 +41,19 @@ public class MultiPointerTests
     }
 
     [Fact]
+    public void Middle_button_uses_pointer_capture_and_is_identified_to_the_author()
+    {
+        using var doc = CupriDocument.Load(Html, Css);
+        var middle = false;
+        doc.OnPointer("data-gesture", e => { middle = e.IsMiddleButton; return true; });
+        doc.BuildFrame(300, 400);
+
+        Assert.True(doc.DispatchMiddlePointer(-1, PointerPhase.Down, 50, 50));
+        Assert.True(doc.IsPointerCaptured(-1));
+        Assert.True(middle);
+    }
+
+    [Fact]
     public void Two_fingers_give_an_author_everything_a_pinch_needs()
     {
         // The engine computes no gesture. It hands over the pointer set, and this is what an author
