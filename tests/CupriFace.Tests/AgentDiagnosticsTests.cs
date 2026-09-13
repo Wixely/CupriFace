@@ -74,6 +74,70 @@ public class AgentDiagnosticsTests(ITestOutputHelper output)
         Assert.DoesNotContain(report.Findings, f => f.Code == "CF0060");
     }
 
+    /// <summary>
+    /// #160: a <c>data-repeat</c> nested inside another. Scopes were collected by resolving every
+    /// repeat name against the ROOT model type alone, so a collection living on an item type
+    /// resolved to nothing, its element type never entered scope, and every binding inside it was
+    /// reported as naming nothing — at <c>Severity.Error</c>, on markup that renders correctly.
+    ///
+    /// <para>That is the finding most likely to be believed, raised against working code, which is
+    /// how a checker gets switched off (the same reasoning as #145). A nested repeat is not exotic
+    /// either: any per-row detail panel — an attachment list, an options group, a thread — has this
+    /// shape.</para>
+    /// </summary>
+    [Fact]
+    public void A_repeat_nested_inside_another_repeat_is_not_reported()
+    {
+        var report = CupriDoctor.Check(
+            "<body><div data-repeat='Items'>{{Label}}"
+            + "<span data-repeat='Tabs'>{{TabKey}}</span></div></body>", Css, model: new Model());
+
+        foreach (var f in report.Findings) output.WriteLine(f.ToString());
+        Assert.DoesNotContain(report.Findings, f => f.Code == "CF0060");
+    }
+
+    /// <summary>Nesting does not stop at two: the scopes are resolved to a fixed point, so a repeat
+    /// three levels in is in scope as well.</summary>
+    [Fact]
+    public void Nesting_is_followed_as_deep_as_it_goes()
+    {
+        var report = CupriDoctor.Check(
+            "<body><div data-repeat='Items'>{{Label}}"
+            + "<span data-repeat='Tabs'>{{TabKey}}"
+            + "<em data-repeat='Options'>{{PickKey}}</em></span></div></body>", Css, model: new Model());
+
+        foreach (var f in report.Findings) output.WriteLine(f.ToString());
+        Assert.DoesNotContain(report.Findings, f => f.Code == "CF0060");
+    }
+
+    /// <summary>A row type holding more of its own kind — a comment thread, a tree — is a CYCLE in
+    /// the type graph. The search must finish rather than chase it, which it does because an element
+    /// type already in scope is never added twice.</summary>
+    [Fact]
+    public void A_self_referential_row_type_terminates()
+    {
+        var report = CupriDoctor.Check(
+            "<body><div data-repeat='Roots'>{{Name}}<div data-repeat='Children'>{{Name}}</div></div></body>",
+            Css, model: new TreeModel());
+
+        Assert.DoesNotContain(report.Findings, f => f.Code == "CF0060");
+    }
+
+    /// <summary>…and the rule still does its job inside a nested repeat. Widening the scopes must not
+    /// turn the check off: a name that exists on NO type in the document is still an error.</summary>
+    [Fact]
+    public void A_real_typo_inside_a_nested_repeat_is_still_reported()
+    {
+        var report = CupriDoctor.Check(
+            "<body><div data-repeat='Items'><span data-repeat='Tabs'>{{TabKye}}</span></div></body>",
+            Css, model: new Model());
+
+        var f = Assert.Single(report.Findings, x => x.Code == "CF0060");
+        output.WriteLine(f.ToString());
+        Assert.Contains("TabKye", f.Message);
+        Assert.Contains("Did you mean {{TabKey}}?", f.Fix);   // …and the suggestion sees the nested type
+    }
+
     [Fact]
     public void Without_a_model_the_binding_check_is_skipped_rather_than_guessed()
     {
@@ -575,5 +639,31 @@ public class AgentDiagnosticsTests(ITestOutputHelper output)
     private sealed class Item
     {
         public string Label => "row";
+        public List<Tab> Tabs { get; } = [new()];          // a repeat collection on an ITEM, not the root
+    }
+
+    private sealed class Tab
+    {
+        public string TabKey => "one";
+        public List<Option> Options { get; } = [new()];    // …and one level deeper again
+    }
+
+    private sealed class Option
+    {
+        public string PickKey => "a";
+    }
+
+    /// <summary>A row type holding more of its own kind — a comment thread, a tree. The fixed point
+    /// has to terminate on it, and the only thing stopping it is that an element type already in
+    /// scope is not added twice.</summary>
+    private sealed class Node
+    {
+        public string Name => "n";
+        public List<Node> Children { get; } = [];
+    }
+
+    private sealed class TreeModel
+    {
+        public List<Node> Roots { get; } = [new()];
     }
 }
