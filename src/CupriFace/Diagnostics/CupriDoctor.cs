@@ -161,7 +161,7 @@ public static partial class CupriDoctor
             TogglesWithNothingToToggle(dom, lines, findings);
             UnrenderedElements(doc, dom, registry, lines, findings);
             ScriptingHabits(dom, lines, findings);
-            BoxesThatDoNotFit(doc, lines, findings);
+            BoxesThatDoNotFit(doc, width, lines, findings);
             if (model is not null) UnresolvedBindings(html, model, lines, findings);
             doc.Dispose();
         }
@@ -618,18 +618,31 @@ public static partial class CupriDoctor
     /// <para>The rule itself lives in <see cref="BoxOverflow"/> so that this and
     /// <c>CupriDocument.DumpTree</c> cannot drift apart on what counts as overflow.</para>
     /// </summary>
-    private static void BoxesThatDoNotFit(CupriDocument doc, string[] lines, List<Finding> findings)
+    private static void BoxesThatDoNotFit(CupriDocument doc, int viewportWidth, string[] lines, List<Finding> findings)
     {
         var reported = new HashSet<string>(StringComparer.Ordinal);
 
         // A collapsed box collapses everything inside it, so its children are symptoms rather than
         // separate faults. Reporting the outermost one and stopping is the difference between one
         // actionable line and a wall of them.
-        void Walk(RenderNode n, bool insideCollapsed)
+        //
+        // `absX` is where this box starts on screen, and `clipRight` is the first edge past which
+        // content is LOST: the viewport, or the nearest ancestor with overflow:hidden. Sideways
+        // overflow is judged against that rather than against the parent alone, because the two
+        // questions have different answers and only one of them matters — a box 8px wider than a
+        // container with room to spare beside it is invisible, while the same 8px past the window
+        // edge is content nobody can reach. Measured on the Showcase at its design size, the
+        // geometric rule alone reported two such harmless cases; against the clip, none.
+        //
+        // A SCROLLING ancestor is the opposite of a clip: it is the author saying the content is
+        // wider on purpose and can be dragged to. It therefore exempts everything inside it (a
+        // sentinel of infinity), which is the same answer the vertical rule's advice already gives
+        // — "or set overflow:scroll to keep the size and scroll inside it".
+        void Walk(RenderNode n, bool insideCollapsed, float absX, float clipRight)
         {
             if (insideCollapsed)
             {
-                foreach (var c in n.Children) Walk(c, true);
+                foreach (var c in n.Children) Walk(c, true, absX + c.X, clipRight);
                 return;
             }
             var collapsed = false;
@@ -655,9 +668,40 @@ public static partial class CupriDoctor
                         + "or an image whose size never resolved.",
                         LineOf(lines, ClassNeedle(n))));
             }
-            foreach (var c in n.Children) Walk(c, collapsed);
+
+            // Sideways, and reported only when it escapes something that cuts it off. This is how a
+            // desktop layout fails on a phone: fixed columns that add up to more than the viewport
+            // simply run off the side, with nothing on screen to say the missing part exists.
+            if (BoxOverflow.OvershootX(n) is { } overX)
+            {
+                var contentRight = absX + n.Width - n.BorderRightW + overX;
+                if (contentRight > clipRight + 1f)
+                {
+                    var name = Name(n);
+                    if (reported.Add("x:" + name))
+                        findings.Add(new Finding(Severity.Warning, "CF0072",
+                            $"{name} is {n.Width:0}px wide but its contents need {n.Width + overX:0}px — "
+                            + $"they run {contentRight - clipRight:0}px past the "
+                            + $"{(clipRight >= viewportWidth - 0.5f ? "right-hand edge of the viewport" : "edge of the box that clips them")}, "
+                            + "where nothing on screen says they exist.",
+                            "Let the row wrap (flex-wrap:wrap), give the fixed widths a max-width or a "
+                            + "@media rule, or set overflow:scroll so it can be dragged sideways. "
+                            + "It does not clip or wrap on its own.",
+                            LineOf(lines, ClassNeedle(n))));
+                }
+            }
+
+            // overflow:hidden IS the edge for everything inside it; overflow:scroll removes the edge
+            // entirely, because what is outside can be dragged into view.
+            var childClip = n.Style.Overflow switch
+            {
+                OverflowMode.Hidden => MathF.Min(clipRight, absX + n.Width - n.BorderRightW),
+                OverflowMode.Scroll => float.PositiveInfinity,
+                _ => clipRight,
+            };
+            foreach (var c in n.Children) Walk(c, collapsed, absX + c.X, childClip);
         }
-        Walk(doc.Root, false);
+        Walk(doc.Root, false, doc.Root.X, viewportWidth);
 
         static string Name(RenderNode n) =>
             n.Element?.GetAttribute("class") is { Length: > 0 } cls
