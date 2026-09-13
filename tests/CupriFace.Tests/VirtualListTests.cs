@@ -74,4 +74,99 @@ public class VirtualListTests
         Assert.True(afterMore > afterFirst * 2.5f, $"drag should keep tracking (was {afterFirst}, now {afterMore})");
         Assert.Contains("Row", string.Join(" ", RowTexts(t)));   // list still windowed/valid after the drag
     }
+
+    // ---- height="auto": the list takes its height from LAYOUT (#152) ----------------------------
+
+    /// <summary>A chat client's main surface IS the virtual list, so it has to fill what the chrome
+    /// leaves. The height could only come from the attribute, which the component wrote as an INLINE
+    /// style — beating every stylesheet, @media rule and flex rule there is.</summary>
+    private const string FlexCss = """
+        body { margin:0; font-family:sans-serif }
+        .app { display:flex; flex-direction:column; height:100% }
+        .head { height:60px }
+        .list { flex:1; min-height:0 }
+        .vrow { height:40px }
+        """;
+
+    private static string FlexHtml(string heightAttr) =>
+        "<body><div class='app'><div class='head'></div>"
+        + $"<cupri-virtual class='list' height='{heightAttr}' item-height='40'>"
+        + "<div class='vrow' data-repeat='Items'>{{.}}</div>"
+        + "</cupri-virtual></div></body>";
+
+    /// <summary>
+    /// The failure, stated as the thing a user sees. Layout gives the list 940px; with a numeric
+    /// height the binder still materialises 300px of rows, so once it is scrolled the bottom of the
+    /// viewport has NOTHING in it — the list paints tall and mostly empty, and looks perfectly fine
+    /// until someone scrolls. With height="auto" the window is measured from the box layout gave it.
+    /// </summary>
+    [Fact]
+    public void A_list_sized_by_layout_windows_off_the_box_it_was_given()
+    {
+        Assert.True(BlankStripWhenScrolled("300") > 100, "the numeric case should leave a hole — if it does not, this test proves nothing");
+        Assert.Equal(0, BlankStripWhenScrolled("auto"));
+
+        static float BlankStripWhenScrolled(string heightAttr)
+        {
+            using var t = new TestDoc(FlexHtml(heightAttr), FlexCss, new Model(), width: 400, height: 1000, components: true);
+            var list = t.FindClass("cupri-virtual");
+            var (vx, vy) = TestDoc.Center(list);
+            for (var i = 0; i < 40; i++) { t.Doc.DispatchWheel(vx, vy, 500f); t.Layout(); }
+
+            list = t.FindClass("cupri-virtual");
+            var lastRowBottom = 0f;
+            foreach (var r in list.Children)
+                if (r.Element?.ClassList.Contains("vrow") == true)
+                    lastRowBottom = MathF.Max(lastRowBottom, r.Y - list.ContentTopInset + r.Height);
+            return MathF.Max(0, (float)list.ScrollY + list.ContentBoxHeight - lastRowBottom);
+        }
+    }
+
+    /// <summary>The mechanism, separately from its effect: auto writes NO inline height, so a
+    /// stylesheet can have the box. Anything else keeps the inline height it has always had — and an
+    /// inline style beats every rule in every stylesheet, which is the whole problem.</summary>
+    [Theory]
+    [InlineData("auto", false)]
+    [InlineData("300", true)]
+    [InlineData("", true)]          // omitted is unchanged: the long-standing 300px default
+    public void Only_auto_leaves_the_height_to_the_stylesheet(string heightAttr, bool inlineHeight)
+    {
+        var attr = heightAttr.Length > 0 ? $" height='{heightAttr}'" : "";
+        using var t = new TestDoc(
+            $"<body><cupri-virtual{attr} item-height='40'><div class='vrow' data-repeat='Items'>{{{{.}}}}</div></cupri-virtual></body>",
+            ".vrow{height:40px}", new Model(), width: 400, height: 1000, components: true);
+
+        var style = t.FindClass("cupri-virtual").Element!.GetAttribute("style") ?? "";
+        Assert.Equal(inlineHeight, style.Contains("height:", StringComparison.Ordinal));
+        Assert.Contains("overflow:scroll", style);
+    }
+
+    /// <summary>In a flex parent the box comes out the same size either way — flex:1 stretches it
+    /// past the inline height. That is precisely why the bug was invisible: the list PAINTS the
+    /// right size, and only the windowing is wrong.</summary>
+    [Fact]
+    public void The_box_looks_right_either_way_which_is_why_this_was_missed()
+    {
+        using var fixedHeight = new TestDoc(FlexHtml("300"), FlexCss, new Model(), width: 400, height: 1000, components: true);
+        using var auto = new TestDoc(FlexHtml("auto"), FlexCss, new Model(), width: 400, height: 1000, components: true);
+
+        Assert.Equal(940f, fixedHeight.FindClass("cupri-virtual").Height, 1);   // 1000 less a 60px header
+        Assert.Equal(940f, auto.FindClass("cupri-virtual").Height, 1);
+    }
+
+    /// <summary>Nothing has been measured before the first layout, so the first frame windows off the
+    /// default and the second corrects it — the same way a never-measured row uses the item-height
+    /// estimate. What must not happen is an empty list, or one that never recovers.</summary>
+    [Fact]
+    public void The_first_frame_has_no_measurement_yet_and_still_builds_rows()
+    {
+        using var t = new TestDoc(FlexHtml("auto"), FlexCss, new Model(), width: 400, height: 1000, components: true);
+        Assert.NotEmpty(RowTexts(t));
+
+        // Measure, bind, lay out: the correction lands on the frame after the measurement, the same
+        // way a re-measured row pitch does.
+        for (var i = 0; i < 3; i++) { t.Doc.Refresh(); t.Layout(); }
+        var rows = RowTexts(t).Count;
+        Assert.True(rows >= 940 / 40, $"once measured, the window should cover the 940px box; got {rows} rows");
+    }
 }

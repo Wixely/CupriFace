@@ -17,6 +17,26 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **`<cupri-virtual height="auto">` takes its height from layout (#152).** A virtual list could only
+  be sized by its `height` attribute, which the component wrote as an **inline** style — beating
+  every stylesheet rule, `@media` rule and flex rule there is. So a virtual list could never fill
+  the space its chrome leaves, and an app whose main surface IS the list had to compute the height
+  itself and push it through the view model on every resize, which is re-implementing layout outside
+  the engine.
+
+  The trap underneath it was worse than the limitation. The author's own `style` is appended AFTER
+  the component's, so `<cupri-virtual height="300" style="height:100%">` genuinely wins the paint —
+  but the binder windows off the ATTRIBUTE, so the list paints full height and materialises 300px of
+  rows. Measured: a list laid out at 940px with `height="300"` leaves a **340px blank strip** at the
+  bottom of the viewport once it is scrolled. It looks perfectly finished until someone scrolls it.
+
+  With `height="auto"` no inline height is written, so CSS decides the box, and the binder windows
+  off the height the last layout measured — the same bind-before-layout route the measured row
+  pitches already take, capped at the document's own viewport so an unconstrained list cannot grow
+  itself a frame at a time. An omitted `height` still means 300px, exactly as before, so no existing
+  list changes. The Showcase's list now takes its 224px from the stylesheet, rendering pixel for
+  pixel what it did.
+
 - **A text field on the web is now a real `<input>`, so the browser's own editor works on it (#133).**
   The canvas had one hidden textarea following the caret: typing and IME worked, nothing else did.
   A screen reader saw a `role="textbox"` it could not edit, and a password manager saw no field at

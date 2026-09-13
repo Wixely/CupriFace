@@ -190,6 +190,14 @@ public sealed class BoardComponent : ComponentBase
 /// returning to the bottom re-engages it. For prepended history ("load older"), tell the engine before
 /// refreshing: <see cref="CupriDocument.VirtualListInserted"/>. The windowing happens in the binder
 /// (see BindingEngine); this just styles the scroll box.
+///
+/// <para><b><c>height="auto"</c> takes the height from LAYOUT</b> — CSS, a <c>@media</c> rule, or a
+/// flex parent — which is what a list has to do when it is the main surface of a responsive app.
+/// Any other value is written as an inline height, and an inline style beats a stylesheet, so a
+/// numeric height cannot be overridden by CSS at all. Worse, the binder windows off the same number:
+/// a list told <c>height="300"</c> and then given <c>height:100%</c> by a stylesheet paints full
+/// height and materialises 300px of rows, so it looks right until it is scrolled. With
+/// <c>auto</c> the engine measures the laid-out box and windows off that.</para>
 /// </summary>
 public sealed class VirtualListComponent : ComponentBase
 {
@@ -206,7 +214,12 @@ public sealed class VirtualListComponent : ComponentBase
         // windowing half by reading the raw anchor attribute, which is why nothing is translated.
         if (Str(el, "anchor", "") == "bottom") el.SetAttribute("data-follow-tail", "");
         var extra = el.GetAttribute("style") is { Length: > 0 } s ? ";" + s : "";
-        el.SetAttribute("style", $"height:{Str(el, "height", "300")}px;overflow:scroll{extra}");
+        // height="auto": write NO height, so the stylesheet, a @media rule or a flex parent decides
+        // it. Anything else keeps the inline height it has always had — which also means it beats
+        // every stylesheet rule, so "auto" is the only way to let layout have the box.
+        var height = Str(el, "height", "300");
+        var box = height.Equals("auto", StringComparison.OrdinalIgnoreCase) ? "" : $"height:{height}px;";
+        el.SetAttribute("style", $"{box}overflow:scroll{extra}");
     }
 }
 

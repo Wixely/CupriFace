@@ -103,6 +103,10 @@ public sealed partial class CupriDocument : IDisposable
     // list's content width changes — rows are wrap-sized, so a resize invalidates every pitch (#67).
     private readonly Dictionary<string, List<float>> _virtualHeights = new();
     private readonly Dictionary<string, float> _virtualWidth = new();
+    // Each <cupri-virtual height="auto"> list's measured content-box height, so the binder can
+    // window off the box LAYOUT gave it rather than off an attribute. Same lifetime and keying as
+    // the pitches above; see CaptureVirtualList.
+    private readonly Dictionary<string, float> _virtualViewport = new();
     // Whether each virtual list sat at its bottom last frame — anchor="bottom" pins only while the
     // user is actually there, so one scroll up releases the pin until they return.
     private readonly Dictionary<string, bool> _virtualAtBottom = new();
@@ -732,7 +736,8 @@ public sealed partial class CupriDocument : IDisposable
                     _virtualScroll.GetValueOrDefault(key),
                     _virtualHeights.GetValueOrDefault(key),
                     _virtualAtBottom.GetValueOrDefault(key),
-                    Known: _virtualScroll.ContainsKey(key) || _virtualAtBottom.ContainsKey(key)),
+                    Known: _virtualScroll.ContainsKey(key) || _virtualAtBottom.ContainsKey(key),
+                    ViewportHeight: _virtualViewport.TryGetValue(key, out var vh) ? vh : null),
                 (key, y) => { _pendingVirtualScroll[key] = y; _virtualPinned.Add(key); });
         Mark("bind");
 
@@ -5029,6 +5034,13 @@ public sealed partial class CupriDocument : IDisposable
         var width = n.ContentBoxWidth;
         if (_virtualWidth.TryGetValue(key, out var w0) && MathF.Abs(w0 - width) > 0.5f) pitches.Clear();
         _virtualWidth[key] = width;
+
+        // The viewport a height="auto" list windows off. Measured here for the same reason the row
+        // pitches are: binding runs BEFORE layout, so the only height available at bind time is the
+        // one the previous layout produced. Capped at the document's own viewport, because an
+        // auto-height list in a context that does not constrain it grows to the rows it materialises
+        // — which would otherwise materialise more rows, and grow again, every frame.
+        _virtualViewport[key] = MathF.Min(n.ContentBoxHeight, MathF.Max(_laidOutHeight, 1f));
 
         var est = (float)VirtualItemH(n.Element!);
         var scrollY = Math.Clamp(n.ScrollY, 0, n.MaxScrollY);
