@@ -745,10 +745,25 @@ public static partial class CupriDoctor
     /// </summary>
     private static void UnresolvedBindings(string html, object model, string[] lines, List<Finding> findings)
     {
+        // Every repeat's element type, to a FIXED POINT. Resolving each name against the root type
+        // alone missed a repeat whose collection lives on an ITEM type — a per-row detail panel, an
+        // options group, a thread — so its element type never entered scope and every binding inside
+        // it was reported as naming nothing, at Severity.Error, on markup that renders correctly
+        // (#160). Bounded by the number of distinct row types: each pass either adds one or stops.
         var scopes = new List<Type> { model.GetType() };
-        foreach (Match r in RepeatAttr().Matches(html))
-            if (ItemType(model.GetType(), r.Groups[1].Value.Trim()) is { } item && !scopes.Contains(item))
-                scopes.Add(item);
+        var repeats = RepeatAttr().Matches(html).Select(r => r.Groups[1].Value.Trim()).Distinct().ToList();
+        bool added;
+        do
+        {
+            added = false;
+            foreach (var name in repeats)
+                foreach (var scope in scopes.ToList())
+                    if (ItemType(scope, name) is { } item && !scopes.Contains(item))
+                    {
+                        scopes.Add(item);
+                        added = true;
+                    }
+        } while (added);
 
         var reported = new HashSet<string>(StringComparer.Ordinal);
         foreach (Match m in Mustache().Matches(html))
