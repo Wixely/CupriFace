@@ -1062,6 +1062,31 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>The narrowest and widest the page may be scaled to.</summary>
     public const float MinZoom = 0.5f, MaxZoom = 4f;
 
+    /// <summary>
+    /// The viewport the document was last laid out in, in its OWN coordinates — the host's logical
+    /// size divided by <see cref="Zoom"/>. This is the size <c>@media</c> was evaluated against and
+    /// that <c>vw</c>/<c>vh</c> resolved to, so an app comparing it to its own breakpoints gets the
+    /// same answer the cascade did.
+    ///
+    /// <para>Post-zoom is the half that matters. An app that reads the host's logical width instead
+    /// disagrees with the stylesheet the moment zoom is not 1, and the disagreement is invisible
+    /// until someone changes their zoom level.</para>
+    ///
+    /// <para>What it is for: a responsive control with three states — auto, forced open, forced
+    /// closed — which is the minimum a collapsible sidebar needs, because a two-state flag cannot
+    /// override a media rule in both directions. Such a toggle means "the opposite of what I can
+    /// currently SEE", and below the breakpoint that is not the same as "the opposite of the flag".
+    /// Before this existed the only way to know was to record the width in <c>Present()</c> every
+    /// frame, which the engine's own Showcase did.</para>
+    ///
+    /// <para>Zero until the first layout: nothing has been measured yet, and reporting a default
+    /// would be a guess an app could not tell apart from a measurement.</para>
+    /// </summary>
+    public float ViewportWidth => _laidOutWidth;
+
+    /// <inheritdoc cref="ViewportWidth"/>
+    public float ViewportHeight => _laidOutHeight;
+
     private float _zoom = 1f;
 
     /// <summary>Whole-document zoom, 1 = unzoomed. Clamped to

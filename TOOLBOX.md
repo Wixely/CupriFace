@@ -864,6 +864,7 @@ rather than re-derived per app:
 | **Fixed** | `PresentInfo.Fixed(designW, designH)` | one size always; a bigger window reveals background, no reflow |
 | **Zoom** | `PresentInfo.Zoom(w, h, factor)` | fixed logical size, hard scale — like changing display DPI |
 | **Hybrid zoom** | `PresentInfo.Hybrid(w, h, designW, designH)` | zoom the tighter axis to design size, reflow the longer one |
+| **Adaptive** | `PresentInfo.Adaptive(w, h, designW, designH)` | Hybrid above the design size, Responsive below it — spends surplus, never crushes |
 
 **Hybrid** is the usual choice for mixed content: pure Zoom letterboxes, and pure Responsive lets a
 narrow window crush a layout that assumed room. One line in your app:
@@ -873,6 +874,15 @@ public override int Width  => 940;      // the size the layout was designed at
 public override int Height => 720;
 public override PresentInfo Present(float w, float h) => PresentInfo.Hybrid(w, h, Width, Height);
 ```
+
+**If that design size is a DESKTOP one and the app also has to meet a phone, use `Adaptive`
+instead.** Hybrid scales down as readily as up, and the logical viewport is `window / scale` — so
+below the design size the viewport comes out *wider* than the design, no `@media (max-width: …)`
+can ever match, and the only thing that happens is that everything gets smaller. A 1280-wide design
+on a 412dp phone lays out at 1280 logical and paints at 0.32x: 14px text at about 4.5dp, with no
+breakpoint able to fire. `Adaptive` floors the scale at 1, which hands the phone back its own
+width. (A layout designed phone-first wants no override at all — `Responsive` is the default, and
+there logical pixels *are* density-independent pixels.)
 
 The host repaints on demand — after input, on the `RefreshIntervalSeconds` cadence, or while
 something animates — so an idle page costs ~nothing.

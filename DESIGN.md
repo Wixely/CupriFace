@@ -684,8 +684,12 @@ logical size, and divides pointer coordinates by `scale`. This unifies four mode
 - **Zoom z%** — `PresentInfo.Zoom`: logical = window/z, scale = z (DPI-like; Skia scales the vectors crisply).
 - **Hybrid** — `PresentInfo.Hybrid`: `z = min(winW/designW, winH/designH)`: the tighter axis sits at
   design scale, the longer axis gets extra logical space and reflows.
+- **Adaptive** — `PresentInfo.Adaptive`: Hybrid above the design size, Responsive below it. The one
+  to use when a desktop design size must also meet a phone: Hybrid's scale goes below 1 there, and
+  since the logical viewport is `window/z` that makes it *wider* than the design, so no `max-width`
+  breakpoint can match and the layout can only shrink.
 
-All four are named constructors on `PresentInfo` rather than prose an app re-derives. They lived in
+All five are named constructors on `PresentInfo` rather than prose an app re-derives. They lived in
 a sample until v0.18.0, which meant the strategies were discoverable only by reading one — and an
 app author (or an agent) looking at the engine saw a record of three floats and no clue what to do
 with them.

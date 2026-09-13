@@ -113,6 +113,79 @@ public class PresentInfoTests
         Assert.Equal(1f, p.Scale);
     }
 
+    // ---- Adaptive: what a desktop-designed layout needs in order to meet a phone (#153) ----------
+
+    /// <summary>
+    /// The trap Adaptive exists for, stated as the phone that found it: a 1280x800 design on a
+    /// 412x915dp phone. Hybrid's scale goes BELOW 1 there, and since the logical viewport is
+    /// window/scale, a scale below 1 makes the viewport WIDER than the design — so the layout is
+    /// never handed a narrow viewport, no max-width breakpoint can match, and the only thing that
+    /// happens is that everything shrinks (14px text at about 4.5dp).
+    /// </summary>
+    [Fact]
+    public void Adaptive_hands_a_phone_the_viewport_it_actually_has()
+    {
+        const float phoneW = 412, phoneH = 915, deskW = 1280, deskH = 800;
+
+        var hybrid = PresentInfo.Hybrid(phoneW, phoneH, deskW, deskH);
+        Assert.True(hybrid.Scale < 1f);
+        Assert.True(hybrid.LogicalWidth >= deskW);           // …and so the breakpoints never fire
+
+        var adaptive = PresentInfo.Adaptive(phoneW, phoneH, deskW, deskH);
+        Assert.Equal(phoneW, adaptive.LogicalWidth, 2);      // the real device width, which @media sees
+        Assert.Equal(phoneH, adaptive.LogicalHeight, 2);
+        Assert.Equal(1f, adaptive.Scale);
+    }
+
+    /// <summary>Above the design size it is Hybrid — the surplus is spent on bigger content, which
+    /// is the entire reason to pick a scaling strategy over the responsive default.</summary>
+    [Theory]
+    [InlineData(1880, 1440)]
+    [InlineData(1200, 1600)]
+    public void Adaptive_spends_surplus_exactly_as_Hybrid_does(float winW, float winH)
+    {
+        var adaptive = PresentInfo.Adaptive(winW, winH, DesignW, DesignH);
+        var hybrid = PresentInfo.Hybrid(winW, winH, DesignW, DesignH);
+        Assert.True(adaptive.Scale > 1f);
+        Assert.Equal(hybrid.Scale, adaptive.Scale, 3);
+        Assert.Equal(hybrid.LogicalWidth, adaptive.LogicalWidth, 2);
+    }
+
+    /// <summary>The property that names it: the content never gets smaller than it was designed to
+    /// be. Below the design size it reflows instead, at scale 1, on either axis.</summary>
+    [Theory]
+    [InlineData(412, 915)]      // a phone, portrait
+    [InlineData(915, 412)]      // …and landscape, where the other axis is the tighter one
+    [InlineData(700, 700)]      // a small window on a desktop
+    [InlineData(940, 300)]      // wide enough, nowhere near tall enough
+    public void Adaptive_never_crushes(float winW, float winH)
+    {
+        var p = PresentInfo.Adaptive(winW, winH, DesignW, DesignH);
+        Assert.True(p.Scale >= 1f, $"scale {p.Scale} shrinks the content");
+        // Scale 1 means the viewport IS the window, so a narrow window is narrow to the stylesheet.
+        Assert.True(p.LogicalWidth <= winW + 0.01f);
+        Assert.True(p.LogicalHeight <= winH + 0.01f);
+    }
+
+    [Fact]
+    public void Adaptive_at_exactly_the_design_size_is_unscaled()
+    {
+        var p = PresentInfo.Adaptive(DesignW, DesignH, DesignW, DesignH);
+        Assert.Equal(1f, p.Scale);
+        Assert.Equal(DesignW, p.LogicalWidth, 2);
+    }
+
+    [Theory]
+    [InlineData(0, 720)]
+    [InlineData(940, 0)]
+    [InlineData(-940, 720)]
+    public void Adaptive_with_no_usable_design_size_reflows_rather_than_blanking(float dw, float dh)
+    {
+        var p = PresentInfo.Adaptive(1000, 800, dw, dh);
+        Assert.Equal(1000, p.LogicalWidth, 2);
+        Assert.Equal(1f, p.Scale);
+    }
+
     /// <summary>An extreme window must still produce something layout-able; the clamp is what stops
     /// a 40x window from asking for a 25-pixel viewport.</summary>
     [Fact]

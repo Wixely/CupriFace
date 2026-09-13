@@ -57,11 +57,18 @@ public readonly record struct PresentInfo(float LogicalWidth, float LogicalHeigh
     ///
     /// <para><c>z = min(windowW / designW, windowH / designH)</c>. The tighter axis ends up at design
     /// scale — so a layout tuned for <paramref name="designWidth"/> is never squeezed below it — while
-    /// the roomier axis gets extra logical space and reflows into it. On a phone that usually means
-    /// "fill the width, scroll the length"; on a wide monitor, "fill the height, spread out".</para>
+    /// the roomier axis gets extra logical space and reflows into it. On a wide monitor that means
+    /// "fill the height, spread out".</para>
     ///
     /// <para>The usual choice for mixed content, because pure <see cref="Zoom"/> letterboxes and pure
     /// <see cref="Responsive"/> lets a narrow window crush a layout that assumed room.</para>
+    ///
+    /// <para><b>It scales DOWN as readily as up, and on a phone that is rarely what is wanted.</b>
+    /// The logical viewport is <c>window / z</c>, so with <c>z &lt; 1</c> it is never narrower than
+    /// the design width — a 1280-wide design on a 412dp phone lays out at 1280 logical and paints at
+    /// 0.32x, which is 14px text at about 4.5dp, and no <c>@media (max-width: …)</c> below 1280 can
+    /// ever match. A layout with a desktop design size that must also meet a phone wants
+    /// <see cref="Adaptive"/>, which spends surplus without ever crushing.</para>
     /// </summary>
     /// <example>
     /// <code>
@@ -78,6 +85,38 @@ public readonly record struct PresentInfo(float LogicalWidth, float LogicalHeigh
         if (designWidth <= 0 || designHeight <= 0) return Responsive(windowWidth, windowHeight);
         return Zoom(windowWidth, windowHeight,
                     MathF.Min(windowWidth / designWidth, windowHeight / designHeight));
+    }
+
+    /// <summary>
+    /// <b>Adaptive</b>: spends surplus, never crushes. <see cref="Hybrid"/> above the design size,
+    /// plain <see cref="Responsive"/> below it — so a big monitor gets bigger content and a small
+    /// screen gets a real viewport and reflows.
+    ///
+    /// <para>This is the one to reach for when a layout has a DESKTOP design size and must also meet
+    /// a phone. Hybrid cannot: its scale falls below 1 there, and since the logical viewport is
+    /// <c>window / z</c>, that makes the viewport WIDER than the design — so the layout never sees a
+    /// narrow viewport, no <c>max-width</c> breakpoint can match, and the only thing that changes is
+    /// that everything gets smaller. A 1280-wide design on a 412dp phone lays out at 1280 logical
+    /// and paints at 0.32x: 14px text at about 4.5dp, and nothing an author writes can respond to
+    /// it. Clamping the scale at 1 turns that back into the 412dp viewport the phone actually has,
+    /// which is what <c>@media</c> is evaluated against.</para>
+    ///
+    /// <para>(A layout designed phone-first wants no override at all: <see cref="Responsive"/> is
+    /// the default, and there logical pixels ARE density-independent pixels.)</para>
+    /// </summary>
+    /// <example>
+    /// <code>
+    /// public override int Width =&gt; 1280;     // the size the layout was designed at
+    /// public override int Height =&gt; 800;
+    /// public override PresentInfo Present(float w, float h) =&gt; PresentInfo.Adaptive(w, h, Width, Height);
+    /// </code>
+    /// </example>
+    public static PresentInfo Adaptive(float windowWidth, float windowHeight,
+                                       float designWidth, float designHeight)
+    {
+        if (designWidth <= 0 || designHeight <= 0) return Responsive(windowWidth, windowHeight);
+        var z = MathF.Min(windowWidth / designWidth, windowHeight / designHeight);
+        return z <= 1f ? Responsive(windowWidth, windowHeight) : Zoom(windowWidth, windowHeight, z);
     }
 }
 
