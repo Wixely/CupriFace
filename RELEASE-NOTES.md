@@ -17,6 +17,14 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **A grid row is as tall as its items' margin box.** It was sized from their border boxes while the
+  margin was still applied to the item's position, so an item with a vertical margin overflowed its
+  row — and the grid — by exactly that margin, eating whatever padding sat below. Reported from the
+  colour picker, whose neutral ramp is the last row of the same grid and is set apart by a 9px top
+  margin: the popup declares 10px of padding and 1px of it survived under the greys. A stretched
+  item now also leaves room for its own margins instead of overflowing its cell by them. Every
+  Showcase page renders pixel-identical, so this reaches only grids whose items carry margins.
+
 - **`CF0060` no longer accuses correct markup when a `data-repeat` is nested inside another (#160).**
   Repeat scopes were collected by resolving every `data-repeat` name against the ROOT model type
   alone, so a collection living on an *item* type — a per-row detail panel, an options group, a
