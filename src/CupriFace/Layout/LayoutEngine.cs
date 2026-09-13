@@ -834,7 +834,20 @@ public sealed class LayoutEngine
         {
             var item = items[i];
             var cellW = SpanWidth(colWidths, colGap, placedCol[i], placedSpan[i]);
-            natural[i] = LayoutNode(item, contentW, contentH, MathF.Max(0, cellW - item.HorizontalInsets)).H;
+            // What occupies the cell is the item's MARGIN box. Sizing the row from the border box
+            // alone made a row exactly as short as its items' vertical margins, and the margin was
+            // still applied to the item's position — so the last row of a grid overflowed the
+            // container by that much and ate the padding below it. In the colour picker the neutral
+            // ramp's 9px top margin left 1px of a 10px pad under the greys.
+            //
+            // Margins are resolved BY the layout below, so they can only be read after it — the
+            // same order the flex path takes. A horizontal margin then narrows the box it was
+            // measured in, which is worth a second pass, but only for the items that have one.
+            var h = LayoutNode(item, contentW, contentH, MathF.Max(0, cellW - item.HorizontalInsets)).H;
+            var marginsX = item.MarginLeft + item.MarginRight;
+            if (marginsX > 0.01f)
+                h = LayoutNode(item, contentW, contentH, MathF.Max(0, cellW - marginsX - item.HorizontalInsets)).H;
+            natural[i] = h + item.MarginTop + item.MarginBottom;
             if (placedRowSpan[i] == 1)
                 rowHeights[placedRow[i]] = MathF.Max(rowHeights[placedRow[i]], natural[i]);
         }
@@ -875,13 +888,17 @@ public sealed class LayoutEngine
 
             var stretchX = s.JustifyItems == AlignItems.Stretch;
             var stretchY = s.AlignItems == AlignItems.Stretch;
-            var forceW = stretchX ? cellW - item.HorizontalInsets : (float?)null;
-            var forceH = stretchY ? cellH - item.VerticalInsets : (float?)null;
+            var marginsX = item.MarginLeft + item.MarginRight;
+            var marginsY = item.MarginTop + item.MarginBottom;
+            // A stretched item fills what is left of the cell AFTER its margins, and an aligned one
+            // is positioned by its margin box — the same box the row was sized from above.
+            var forceW = stretchX ? cellW - marginsX - item.HorizontalInsets : (float?)null;
+            var forceH = stretchY ? cellH - marginsY - item.VerticalInsets : (float?)null;
             var size = LayoutNode(item, contentW, contentH,
                 forceW is { } fw ? MathF.Max(0, fw) : null, forceH is { } fh ? MathF.Max(0, fh) : null);
 
-            var offX = AlignOffset(s.JustifyItems, cellW - size.W);
-            var offY = AlignOffset(s.AlignItems, cellH - size.H);
+            var offX = AlignOffset(s.JustifyItems, cellW - size.W - marginsX);
+            var offY = AlignOffset(s.AlignItems, cellH - size.H - marginsY);
             item.X = insetL + colX[placedCol[i]] + offX + item.MarginLeft;
             item.Y = insetT + rowY[placedRow[i]] + offY + item.MarginTop;
         }
