@@ -40,6 +40,25 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   engine's own Showcase had been shadowing the width from `Present()` every frame to answer that,
   and now reads it from the document (which also fixes the shadow being the pre-zoom width).
 
+- **`CF0072` — CupriDoctor sees horizontal overflow (#154).** It was vertical only, which left the
+  exact failure mode of a desktop layout on a phone undetectable: fixed columns adding up to more
+  than the viewport simply run off the side, with nothing on screen to say the missing part exists.
+  `CupriDoctor.Check(html, css, width: 412, height: 915, model: model)` is now "does this survive a
+  phone" as a single CI assertion.
+
+  Two things make it quiet enough to leave on. It has no pinned-width requirement, because width is
+  not height — a block box's `auto` width is filled from its parent rather than grown from its
+  content, so the overflowing box is usually one that was never given a width at all, and requiring
+  a definite width would have missed every real instance. And it reports only overflow that reaches
+  an edge that LOSES content: the viewport, or an ancestor with `overflow:hidden`. An
+  `overflow:scroll` ancestor exempts everything inside it, because the content can be dragged to.
+  Measured on the Showcase: the geometric rule alone reported two harmless cases at the design size,
+  and this one reports none at either the design size or a phone's — which is now a gate. Only the
+  OUTERMOST box that runs off the edge is reported, because everything inside one is off the edge
+  too: a chrome of three fixed columns holding an over-wide card produced three findings for one
+  visual failure before that rule, and fixing the first is what decides whether the others were ever
+  real.
+
 - **`<cupri-virtual height="auto">` takes its height from layout (#152).** A virtual list could only
   be sized by its `height` attribute, which the component wrote as an **inline** style — beating
   every stylesheet rule, `@media` rule and flex rule there is. So a virtual list could never fill
@@ -112,9 +131,9 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   reaches the canvas, and republishes patch the live DOM keyed by `data-path` rather than replacing
   `innerHTML`, which would tear focus off the node holding it on every settled frame. Nothing to do
   in an app. `BuildAriaHtml` takes an optional `presentScale` so the overlay scales with the
-  canvas; `AriaHtml.Serialize` takes the same. Text fields keep DOM focus on the hidden keyboard
-  textarea (IME and clipboard live there); a real `<input>` per field is the next step, separately.
-  Gated in `tests/WebTouchGate/A11yTests.cs` against Chromium's accessibility tree.
+  canvas; `AriaHtml.Serialize` takes the same. Text fields were left on the hidden keyboard textarea
+  by this change and are handled by the real-`<input>` entry above, which shipped in the same
+  release. Gated in `tests/WebTouchGate/A11yTests.cs` against Chromium's accessibility tree.
 
   Three engine fixes the gate forced, each of them measured rather than reasoned:
   - **The web host published the mirror only on frames whose pixels changed.** The frame after an

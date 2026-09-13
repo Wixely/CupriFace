@@ -148,6 +148,108 @@ public class AgentDiagnosticsTests(ITestOutputHelper output)
         Assert.Contains("overflow it by 8px", f.Message);
     }
 
+    // ---- CF0072: content that runs off the side (#154) -------------------------------------------
+    // A desktop layout meeting a phone fails THIS way, and nothing reported it: the vertical rule
+    // requires a pinned height, and width does not work like height — a block box's auto width is
+    // filled from its parent rather than grown from its content, so the overflowing box is usually
+    // one that was never given a width at all.
+
+    private const string Chrome =
+        "<body><div class='chrome'><div class='rail'></div><div class='side'></div><div class='roster'></div></div></body>";
+    private const string ChromeCss =
+        "body{margin:0} .chrome{display:flex} .rail{width:72px;height:40px} .side{width:248px;height:40px}"
+        + " .roster{width:236px;height:40px} .rail,.side,.roster{flex-shrink:0}";
+
+    /// <summary>The report this was built from: three fixed columns totalling 556px in a 412dp
+    /// viewport. On a desktop they fit and there is nothing to say; on the phone the right-hand one
+    /// is simply not on screen, with nothing to indicate that it exists.</summary>
+    [Fact]
+    public void Fixed_columns_wider_than_the_phone_they_are_on_are_reported()
+    {
+        Assert.DoesNotContain(CupriDoctor.Check(Chrome, ChromeCss, width: 1200, height: 915).Findings,
+            f => f.Code == "CF0072");
+
+        var f = Assert.Single(CupriDoctor.Check(Chrome, ChromeCss, width: 412, height: 915).Findings,
+                              x => x.Code == "CF0072");
+        output.WriteLine(f.ToString());
+        Assert.Contains("556px", f.Message);          // what the contents need
+        Assert.Contains("144px", f.Message);          // …and how far past the edge that puts them
+        Assert.Contains("viewport", f.Message);
+    }
+
+    /// <summary>One visual failure, one finding. Everything inside a box that is already off the edge
+    /// is off the edge too, and each nested box that also overflows its own parent would report
+    /// again — measured before this rule: a chrome of three fixed columns holding an over-wide card
+    /// produced three findings for one problem. The outermost is the one to act on, and fixing it is
+    /// what decides whether the others were ever real.</summary>
+    [Fact]
+    public void Only_the_outermost_box_that_runs_off_the_edge_is_reported()
+    {
+        var report = CupriDoctor.Check(
+            "<body><div class='chrome'><div class='rail'></div>"
+            + "<div class='roster'><div class='card'><div class='inner'></div></div></div></div></body>",
+            "body{margin:0} .chrome{display:flex} .rail{width:72px;height:200px;flex-shrink:0}"
+            + " .roster{width:600px;height:200px;flex-shrink:0} .card{width:700px;height:100px} .inner{width:900px;height:40px}",
+            width: 412, height: 915);
+
+        var f = Assert.Single(report.Findings, x => x.Code == "CF0072");
+        output.WriteLine(f.ToString());
+        Assert.Contains("chrome", f.Message);      // the container, not the card three levels down
+    }
+
+    /// <summary>The author's escape hatch, and the advice the finding itself gives: a box that
+    /// scrolls sideways is the author saying the content is wider on purpose and can be dragged to.
+    /// It must silence the finding for everything inside it, or the advice contradicts the rule.</summary>
+    [Fact]
+    public void A_box_that_scrolls_sideways_is_not_a_finding()
+    {
+        var report = CupriDoctor.Check(Chrome, ChromeCss + " .chrome{overflow:scroll}", width: 412, height: 915);
+        Assert.DoesNotContain(report.Findings, f => f.Code == "CF0072");
+    }
+
+    /// <summary>Overflow that never reaches an edge is invisible, and reporting it is how a checker
+    /// earns being switched off. A box 40px wider than its container, inside a viewport with room
+    /// to spare beside it, is not a finding — measured on the Showcase at its design size, where
+    /// the geometric rule alone produced two such reports and this one produces none.</summary>
+    [Fact]
+    public void Overflow_that_reaches_no_edge_is_not_reported()
+    {
+        var report = CupriDoctor.Check(
+            "<body><div class='cap'><div class='wide'></div></div></body>",
+            "body{margin:0} .cap{max-width:200px} .wide{width:240px;height:20px}",
+            width: 1000, height: 600);
+
+        Assert.DoesNotContain(report.Findings, f => f.Code == "CF0072");
+    }
+
+    /// <summary>…but the same overflow inside something that CLIPS is content nobody can reach,
+    /// which is the whole point of the check.</summary>
+    [Fact]
+    public void Overflow_cut_off_by_a_hidden_ancestor_is_reported()
+    {
+        var report = CupriDoctor.Check(
+            "<body><div class='clip'><div class='cap'><div class='wide'></div></div></div></body>",
+            "body{margin:0} .clip{width:200px;overflow:hidden} .cap{width:200px} .wide{width:240px;height:20px}",
+            width: 1000, height: 600);
+
+        var f = Assert.Single(report.Findings, x => x.Code == "CF0072");
+        output.WriteLine(f.ToString());
+        Assert.Contains("clips them", f.Message);
+    }
+
+    /// <summary>A paragraph whose last line ends near the right edge is not overflowing. Text is
+    /// measured by its LINE BOXES: a text node inside a block spans the full content width whether
+    /// or not the glyphs do, so judging it by its box would report most paragraphs on the page.</summary>
+    [Fact]
+    public void Ordinary_wrapped_text_is_not_reported()
+    {
+        var report = CupriDoctor.Check(
+            "<body><p>Some ordinary prose that wraps across a few lines and ends wherever it ends.</p></body>",
+            "body{margin:0;font-family:sans-serif} p{width:200px}", width: 400, height: 300);
+
+        Assert.DoesNotContain(report.Findings, f => f.Code == "CF0072");
+    }
+
     // ---- CF0071: boxes with no area ------------------------------------------------------------
 
     [Fact]
@@ -280,6 +382,34 @@ public class AgentDiagnosticsTests(ITestOutputHelper output)
         var noisy = report.Findings.Where(f => f.Code is "CF0031" or "CF0020").ToList();
         foreach (var f in noisy) output.WriteLine(f.ToString());
         Assert.Empty(noisy);
+    }
+
+    /// <summary>
+    /// What #154 asked the check to make possible: "does this layout survive a phone" as one
+    /// assertion. The Showcase is a desktop-designed app with responsive rules, so it is exactly
+    /// the thing that would fail — and every page of it is checked, because the failure is per-page
+    /// and the landing section would have hidden the rest.
+    ///
+    /// <para>Both widths on purpose. The design size proves the rule is quiet where nothing is
+    /// wrong, which is the property that decides whether a checker stays switched on.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(940, 720)]      // the size the Showcase was designed at
+    [InlineData(393, 771)]      // the reporting device, in dp
+    public void TheShippedShowcaseFitsSideways(int width, int height)
+    {
+        var app = new CupriFace.Demo.ShowcaseApp();
+        var model = (CupriFace.Demo.ShowcaseModel)app.Model!;
+        var offScreen = new List<string>();
+        foreach (var section in new[] { "controls", "components", "charts", "images", "overlays",
+                                        "layout", "motion", "styling", "markdown", "keyboard", "settings" })
+        {
+            model.Section = section;
+            var report = CupriDoctor.Check(app.Html, app.Css, app.Components, width, height, model);
+            foreach (var f in report.Findings.Where(f => f.Code == "CF0072")) offScreen.Add($"[{section}] {f}");
+        }
+        foreach (var line in offScreen) output.WriteLine(line);
+        Assert.Empty(offScreen);
     }
 
     // ---- CF0080: characters no font can draw ---------------------------------------------------
