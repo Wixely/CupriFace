@@ -2467,8 +2467,20 @@ public sealed partial class CupriDocument : IDisposable
     /// (the canvas is opaque to assistive tech). See <see cref="Accessibility.AriaHtml"/>.
     /// <paramref name="presentScale"/> is the host's canvas scale, so the overlay's boxes land on
     /// the painted controls in the page's own pixels; the document's zoom is applied here.</summary>
-    public string BuildAriaHtml(float width, float height, float presentScale = 1f) =>
-        Accessibility.AriaHtml.Serialize(BuildAccessibilityTree(width, height), _zoom * presentScale);
+    public string BuildAriaHtml(float width, float height, float presentScale = 1f)
+    {
+        var tree = BuildAccessibilityTree(width, height);
+        // The focused field's selection travels with the tree, so a host driving a real editing
+        // element can put the caret back where the ENGINE says it is after a value it rewrote
+        // (a clamp, a reformat, a picked suggestion). Without it the caret jumps to the end.
+        // The buffer travels verbatim with it: what an editor must hold is the text being edited,
+        // not the trimmed text a screen reader reads. A masked field's never leaves the engine —
+        // the serialiser drops it, and the page leaves the field for a password manager to fill.
+        var edit = _focusKey is null ? ((string, int, int)?)null
+            : (_editBuffer ?? BindingEngine.Resolve(_model, _focusKey)?.ToString() ?? "",
+               Math.Min(_selAnchor, _caret), Math.Max(_selAnchor, _caret));
+        return Accessibility.AriaHtml.Serialize(tree, _zoom * presentScale, edit);
+    }
 
     /// <summary>
     /// Dispatch a click at (x,y): hit-test, run built-in control behaviour (switch
@@ -3283,6 +3295,68 @@ public sealed partial class CupriDocument : IDisposable
         _caret = e;
         _caretMoved = true;
         _maskRevealPos = -1;              // moving the caret is not a fresh keystroke
+        Refresh();
+        return true;
+    }
+
+    /// <summary>
+    /// Replace the focused field's text and selection with what an EXTERNAL editor now holds — the
+    /// web host's real <c>&lt;input&gt;</c> over the painted field, where the browser owns the
+    /// keystrokes, the IME, the clipboard and its own undo, and reports the result.
+    ///
+    /// <para>It edits the PERMISSIVE buffer, exactly as typing does, and deliberately not through
+    /// the binding: a field mid-edit is allowed to be invalid (a red border, validated and clamped
+    /// on blur), and committing every keystroke through the model would clamp "1" to a minimum of 10
+    /// the moment it was typed. <see cref="AccessibilitySetText"/> is the other door — a value
+    /// arriving for a field nobody is editing (a password manager filling a form), which does go
+    /// through the binding because there is no edit in progress to be permissive about.</para>
+    ///
+    /// <para>Ignored while an IME composition is in flight: the preedit lives inside this same
+    /// buffer, and the composition seam owns it until it commits. Returns false when nothing is
+    /// focused or nothing changed.</para>
+    /// </summary>
+    public bool SetEditText(string text, int selStart, int selEnd) => Bump(SetEditTextCore(text, selStart, selEnd));
+
+    private bool SetEditTextCore(string text, int selStart, int selEnd)
+    {
+        if (_focusKey is null || _model is null || HasComposition) return false;
+
+        // The same normalisation the keystroke path applies, so text arriving from a platform
+        // editor cannot carry line endings the engine's own typing would never produce.
+        text = text.Replace("\r\n", "\n").Replace('\r', '\n');
+        if (!_focusMultiline && text.IndexOf('\n') >= 0) text = text.Replace('\n', ' ');
+
+        var old = _editBuffer ?? BindingEngine.Resolve(_model, _focusKey)?.ToString() ?? "";
+        var caret = Math.Clamp(selEnd, 0, text.Length);
+        var anchor = Math.Clamp(selStart, 0, text.Length);
+        if (text == old && caret == _caret && anchor == _selAnchor) return false;
+
+        if (text != old)
+        {
+            // Undo history, grouped the way typing is: a run of single characters appended at the
+            // caret is one step, anything else (a paste, a deletion, a replaced selection) starts a
+            // new one. Without the grouping every keystroke became its own undo step, so Ctrl+Z
+            // walked back one letter at a time on the web and one word at a time everywhere else.
+            var typingChar = text.Length == old.Length + 1 && text.StartsWith(old, StringComparison.Ordinal)
+                             && text[^1] is not ('\n' or ' ');
+            if (!(typingChar && _typingGroup))
+            {
+                _undo.Add(new EditState(old, Math.Clamp(_caret, 0, old.Length), Math.Clamp(_selAnchor, 0, old.Length)));
+                if (_undo.Count > 300) _undo.RemoveAt(0);
+                _redo.Clear();
+            }
+            _typingGroup = typingChar;
+            _editBuffer = text;
+            _listHi = -1;                  // the suggestion list re-filters on edit
+            // Live-commit only while the buffer is valid, so other bindings track it; invalid text
+            // stays in the buffer and the model keeps its last good value.
+            if (BufferValid(text)) BindingEngine.TrySet(_model, _focusKey, text);
+        }
+
+        _caret = caret;
+        _selAnchor = anchor;
+        _caretMoved = true;
+        _maskRevealPos = -1;               // the external editor renders its own; ours shows nothing
         Refresh();
         return true;
     }

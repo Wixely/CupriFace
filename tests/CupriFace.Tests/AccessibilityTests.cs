@@ -1,10 +1,11 @@
 using CupriFace.Accessibility;
 using CupriFace.Interaction;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace CupriFace.Tests;
 
-public class AccessibilityTests
+public class AccessibilityTests(ITestOutputHelper output)
 {
     private sealed class Model { public bool On { get; set; } = true; public int Volume { get; set; } = 60; }
 
@@ -186,17 +187,140 @@ public class AccessibilityTests
     [Fact]
     public void Aria_html_reads_a_field_value_not_its_placeholder()
     {
-        // A value-bearing role's text content is its accessible VALUE. It used to be the name, so an
-        // empty field read its own placeholder back as though that had been typed.
+        // A field's VALUE is its value and its placeholder is its name. It used to report the
+        // placeholder as the value, so an empty field read its own hint back as though that had
+        // been typed. (A leaf text field is mirrored as a real <input>, so its value is the value
+        // attribute — the same claim, in the place an input keeps it.)
         var html = "<body><cupri-textfield placeholder=\"Type your name…\" value=\"{{Name}}\"></cupri-textfield></body>";
         using var filled = new TestDoc(html, "", new Person { Name = "Ada" }, components: true);
         var aria = filled.Doc.BuildAriaHtml(400, 300);
         Assert.Contains("role=\"textbox\"", aria);
-        Assert.Contains(">Ada<", aria);
+        Assert.Contains("value=\"Ada\"", aria);
 
         using var empty = new TestDoc(html, "", new Person { Name = "" }, components: true);
         var ariaEmpty = empty.Doc.BuildAriaHtml(400, 300);
-        Assert.DoesNotContain(">Type your name…<", ariaEmpty);   // the placeholder is the NAME, not the value
+        Assert.DoesNotContain("value=\"Type your name…\"", ariaEmpty);   // the placeholder is the NAME
+        Assert.Contains("placeholder=\"Type your name…\"", ariaEmpty);   // …and also, literally, the placeholder
+    }
+
+    // ---- a text field is mirrored as a REAL editing element, so the browser's own editor, IME ----
+    // ---- and password manager work on it (#133, second half). -----------------------------------
+
+    [Fact]
+    public void A_text_field_is_mirrored_as_a_real_input_carrying_what_an_editor_needs()
+    {
+        const string html = """
+            <body>
+              <cupri-textfield placeholder="Email" value="{{Name}}" inputmode="email"
+                               enterkeyhint="next" autocomplete="email"></cupri-textfield>
+            </body>
+            """;
+        using var t = new TestDoc(html, "", new Person { Name = "ada@example.com" }, components: true);
+        var aria = t.Doc.BuildAriaHtml(400, 300);
+        output.WriteLine(aria);
+
+        Assert.Contains("<input ", aria);
+        Assert.Contains("type=\"text\"", aria);
+        Assert.Contains("value=\"ada@example.com\"", aria);
+        Assert.Contains("inputmode=\"email\"", aria);        // which keyboard a phone offers
+        Assert.Contains("enterkeyhint=\"next\"", aria);      // what its action key says
+        Assert.Contains("autocomplete=\"email\"", aria);     // how a password manager finds the field
+        Assert.Contains("spellcheck=\"false\"", aria);       // the engine paints the text; nothing to correct
+        // Still a tab stop for nobody: the engine owns Tab, and an <input> would otherwise be one
+        // by default — which is exactly the claim the mirror must not make.
+        Assert.Contains("tabindex=\"-1\"", aria);
+        Assert.DoesNotContain("tabindex=\"0\"", aria);
+    }
+
+    [Fact]
+    public void A_password_field_is_a_fill_target_and_never_publishes_its_value()
+    {
+        // The rule every bridge already keeps — a masked field's plaintext does not leave the
+        // engine — holds here too, and it is the reason the web host goes on owning the typing for
+        // one. What the input exists for is the other direction: a password manager can FIND it
+        // (type + autocomplete) and fill it, which it cannot do to a canvas at all.
+        const string html = "<body><cupri-password value=\"{{Name}}\" autocomplete=\"current-password\"></cupri-password></body>";
+        using var t = new TestDoc(html, "", new Person { Name = "hunter2" }, components: true);
+        var aria = t.Doc.BuildAriaHtml(400, 300);
+        output.WriteLine(aria);
+
+        Assert.Contains("type=\"password\"", aria);
+        Assert.Contains("autocomplete=\"current-password\"", aria);
+        Assert.DoesNotContain("hunter2", aria);
+        Assert.DoesNotContain("value=\"", aria[aria.IndexOf("type=\"password\"", StringComparison.Ordinal)..]);
+    }
+
+    [Fact]
+    public void A_field_keeps_its_name_once_there_is_text_in_it()
+    {
+        // Found by the browser gate, and it was never a web bug: a component may keep the author's
+        // attributes on the custom element, and <cupri-password> does. Its inner role="textbox"
+        // carries neither the label nor the placeholder, and the placeholder is only RENDERED while
+        // the field is empty — so a password field became nameless to EVERY bridge the moment
+        // someone typed into it, and a screen reader announced it as just "edit".
+        var m = new Secret();
+        using var t = new TestDoc("<body><cupri-password value=\"{{Pw}}\" reveal=\"{{Show}}\" aria-label=\"Password\"></cupri-password></body>",
+                                  "", m, components: true);
+
+        Assert.Equal("Password", NameOfRole(t, "textbox"));      // empty: named by its placeholder
+
+        m.Pw = "hunter2";
+        t.Doc.Refresh(); t.Layout();
+        Assert.Equal("Password", NameOfRole(t, "textbox"));      // filled: named by the author's label
+
+        m.Show = true;
+        t.Doc.Refresh(); t.Layout();
+        Assert.Equal("Password", NameOfRole(t, "textbox"));      // revealed: still named
+
+        // The label is the COMPONENT's, not any ancestor's: a control with no name of its own inside
+        // a labelled group stays nameless rather than borrowing a name that reads as true.
+        using var grouped = new TestDoc(
+            "<body><div role=\"group\" aria-label=\"Filters\"><div role=\"textbox\"></div></div></body>");
+        Assert.Null(NameOfRole(grouped, "textbox"));
+
+        static string? NameOfRole(TestDoc t, string role) =>
+            FindRole(t.Doc.BuildAccessibilityTree(400, 300), role)!.Name;
+    }
+
+    private sealed class Secret { public string Pw { get; set; } = ""; public bool Show { get; set; } }
+
+    [Fact]
+    public void A_multiline_field_is_a_textarea_and_a_container_stays_a_container()
+    {
+        using var area = new TestDoc("<body><cupri-textarea value=\"{{Name}}\"></cupri-textarea></body>",
+                                     "", new Person { Name = "line one" }, components: true);
+        var aria = area.Doc.BuildAriaHtml(400, 300);
+        Assert.Contains("<textarea ", aria);
+        Assert.Contains(">line one</textarea>", aria);       // a textarea's content IS its value
+
+        // A combobox HOLDS the textbox you type in (and a picker holds its grid). Turning a
+        // container into an input would drop everything inside it from the tree, which is the
+        // mirror's whole job — so only a LEAF text field becomes one.
+        using var combo = new TestDoc(
+            "<body><div role=\"combobox\" aria-label=\"City\"><div role=\"textbox\" aria-label=\"City\"></div></div></body>");
+        var comboAria = combo.Doc.BuildAriaHtml(400, 300);
+        output.WriteLine(comboAria);
+        Assert.Contains("<div role=\"combobox\"", comboAria);
+        Assert.Contains("<input role=\"textbox\"", comboAria);
+    }
+
+    [Fact]
+    public void The_focused_field_carries_its_buffer_verbatim_and_the_engine_s_selection()
+    {
+        // What an editor holds is the text being EDITED. AccessibilityNode.Value is the rendered
+        // text and therefore trimmed, which is right for a screen reader and wrong here: typing a
+        // trailing space into a field whose mirror reported the trimmed text had that space taken
+        // straight back out again on the next frame.
+        var m = new Person { Name = "" };
+        using var t = new TestDoc("<body><cupri-textfield value=\"{{Name}}\"></cupri-textfield></body>",
+                                  "", m, components: true);
+        t.ClickNode(t.FindRole("textbox"));
+        t.Type("hi ");
+
+        var aria = t.Doc.BuildAriaHtml(400, 300);
+        output.WriteLine(aria);
+        Assert.Contains("value=\"hi \"", aria);
+        Assert.Contains("data-sel=\"3,3\"", aria);   // the caret the ENGINE has, to put back after a rewrite
     }
 
     [Fact]

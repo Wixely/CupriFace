@@ -45,6 +45,32 @@ public sealed class AccessibilityNode
     /// the binding path (<c>data-bind-value</c>/<c>data-bind-checked</c>). Null when anonymous.</summary>
     public string? AutomationId;
 
+    // ---- what an editing surface needs, for a bridge that can offer a REAL one -------------------
+    // The web host positions a transparent <input> at a text field's box, so the browser's own
+    // editor, IME and password manager work on it. These say which input to build. They are
+    // authored attributes, so every bridge could use them; today only the web host does.
+
+    /// <summary>The field masks its text (<c>data-mask</c>, e.g. <c>&lt;cupri-password&gt;</c>) —
+    /// <c>type="password"</c> on the web. <see cref="Value"/> stays masked for such a field on
+    /// every bridge, so a password is never published; see <see cref="AriaHtml"/>.</summary>
+    public bool Masked;
+
+    /// <summary>The field takes hard line breaks (<c>data-multiline</c>) — a <c>&lt;textarea&gt;</c>
+    /// rather than an <c>&lt;input&gt;</c>, and Enter inserts rather than commits.</summary>
+    public bool Multiline;
+
+    /// <summary>The web platform's <c>inputmode</c>, authored on the field: which virtual keyboard
+    /// to offer. Empty when the author didn't say.</summary>
+    public string InputMode = "";
+
+    /// <summary>The web platform's <c>enterkeyhint</c>: what the keyboard's action key should say.</summary>
+    public string EnterKeyHint = "";
+
+    /// <summary>The field's placeholder, as authored. (It is also the accessible NAME when nothing
+    /// else names the field — but a real input wants it as a placeholder as well, or the browser
+    /// shows an empty box where every other field on the page shows a hint.)</summary>
+    public string? Placeholder;
+
     /// <summary>The web platform's <c>autocomplete</c> token — <c>username</c>,
     /// <c>current-password</c>, <c>email</c>, <c>tel</c>, <c>name</c>, <c>postal-code</c>… What a
     /// password manager needs in order to know WHAT to fill. Null when the author didn't say, in
@@ -210,6 +236,26 @@ public static class AccessibilityTree
         return null;
     }
 
+    private static string? NullIfEmpty(string s) => s.Length > 0 ? s : null;
+
+    /// <summary>An attribute the author wrote on the custom element a control expanded out of.
+    /// Bounded by the component itself (<c>data-cupri-expanded</c> marks it), never the whole page:
+    /// inheriting a name from any ancestor would give every unlabelled control inside a labelled
+    /// group the group's name, which is worse than nameless because it reads as true.</summary>
+    private static string? ComponentAttr(IElement el, string name)
+    {
+        // Only the HOST may supply it — not an arbitrary ancestor, and not an intermediate wrapper.
+        // Anything carrying a role of its own is a different control and ends the search: a bare
+        // textbox inside <div role="group" aria-label="Filters"> is nameless, and calling it
+        // "Filters" would be worse than saying nothing, because it reads as true.
+        for (var e = el.ParentElement; e is not null; e = e.ParentElement)
+        {
+            if (e.HasAttribute("data-cupri-expanded")) return NullIfEmpty(e.GetAttribute(name) ?? "");
+            if (e.GetAttribute("role") is { Length: > 0 } || e.LocalName is "body" or "form") return null;
+        }
+        return null;
+    }
+
     private static string? FirstAttr(IElement el, params string[] names)
     {
         foreach (var name in names)
@@ -275,6 +321,20 @@ public static class AccessibilityTree
                 break;
         }
 
+        // The same attributes UpdateFocus reads when the field takes focus, from the same element,
+        // so what a bridge builds an editor from and what the engine edits cannot disagree.
+        if (role is "textbox" or "searchbox" or "combobox" or "spinbutton")
+        {
+            sem.Masked = el.HasAttribute("data-mask");
+            sem.Multiline = el.HasAttribute("data-multiline");
+            sem.InputMode = el.GetAttribute("inputmode") ?? (el.HasAttribute("data-numeric") ? "numeric" : "");
+            sem.EnterKeyHint = el.GetAttribute("enterkeyhint") ?? "";
+            sem.Placeholder = el.GetAttribute("placeholder") is { Length: > 0 } ph
+                ? ph
+                : NullIfEmpty(CollectText(render, placeholdersOnly: true).Trim())
+                  ?? ComponentAttr(el, "placeholder");
+        }
+
         if (el.GetAttribute("aria-selected") is ("true" or "false") and var sel) sem.Selected = sel == "true";
         if (el.GetAttribute("aria-expanded") is ("true" or "false") and var exp) sem.Expanded = exp == "true";
     }
@@ -292,7 +352,13 @@ public static class AccessibilityTree
         {
             var ph = CollectText(render, placeholdersOnly: true).Trim();
             if (ph.Length > 0) return ph;
-            return el.GetAttribute("placeholder") is { Length: > 0 } attr ? attr : null;
+            if (el.GetAttribute("placeholder") is { Length: > 0 } attr) return attr;
+            // …and failing that, what the AUTHOR wrote on the custom element this field came out of.
+            // A component is free to keep the attribute there — <cupri-password aria-label="Password">
+            // expands into an inner role="textbox" that carries neither — and the placeholder is only
+            // RENDERED while the field is empty. So a password with a password in it was nameless, on
+            // every bridge at once, and only from the moment someone typed into it.
+            return ComponentAttr(el, "aria-label") ?? ComponentAttr(el, "placeholder");
         }
 
         // CONTAINERS never take their name from descendant text: a virtualised list's "name"

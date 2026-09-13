@@ -66,10 +66,13 @@ public class A11yTests(WebHostFixture host, ITestOutputHelper output)
         var page = await ArriveAsync(host);
         // An icon-only button with no label is announced as "button" and nothing else. The
         // Showcase had four of these, two of them owned by the pagination control itself.
+        // A text field is a real <input>, whose text is its `value` and never its content — so a
+        // query written against textContent alone would call every field nameless, and one that
+        // counted the value as a name would be the very confusion the next test exists to forbid.
         var nameless = await page.EvaluateAsync<string[]>($$"""
             () => [...document.querySelectorAll('{{Mirror}} [role="button"],{{Mirror}} [role="slider"],{{Mirror}} [role="switch"],{{Mirror}} [role="checkbox"],{{Mirror}} [role="radio"],{{Mirror}} [role="textbox"],{{Mirror}} [role="combobox"],{{Mirror}} [role="spinbutton"]')]
-                .filter(n => !n.getAttribute('aria-label') && !n.textContent.trim())
-                .map(n => n.getAttribute('role'))
+                .filter(n => !n.getAttribute('aria-label') && !n.getAttribute('placeholder') && !n.textContent.trim())
+                .map(n => n.getAttribute('role') + '#' + n.getAttribute('data-path'))
             """);
         Assert.True(nameless.Length == 0, $"nameless interactive nodes: {string.Join(", ", nameless)}");
     }
@@ -78,11 +81,15 @@ public class A11yTests(WebHostFixture host, ITestOutputHelper output)
     public async Task A_field_reads_its_value_not_its_placeholder()
     {
         var page = await ArriveAsync(host);
-        // A value-bearing role's text content is its accessible VALUE. It used to be the name, so an
-        // empty search box read its own placeholder back as though it had been typed.
+        // A field's value is its VALUE and its placeholder is its NAME. It used to report the
+        // placeholder as the value, so an empty search box read its own hint back as though it had
+        // been typed. On a real input the value is the `value` property, which is where this now
+        // looks — the claim is the same one, in the place an input keeps it.
         var echoes = await page.EvaluateAsync<int>($$"""
             () => [...document.querySelectorAll('{{Mirror}} [role="textbox"],{{Mirror}} [role="searchbox"]')]
-                .filter(n => n.getAttribute('aria-label') && n.textContent.trim() === n.getAttribute('aria-label').trim()).length
+                .filter(n => { const label = n.getAttribute('aria-label'); if (!label) return false;
+                               const value = n.value !== undefined ? n.value : n.textContent;
+                               return value.trim() === label.trim(); }).length
             """);
         Assert.Equal(0, echoes);
     }
@@ -230,6 +237,122 @@ public class A11yTests(WebHostFixture host, ITestOutputHelper output)
         await page.WaitForFunctionAsync(
             "([m, p, v]) => { const s = document.querySelector(m + ' [data-path=\"' + p + '\"]'); return s && Number(s.getAttribute('aria-valuenow')) === v; }",
             new object[] { Mirror, path, target }, new() { Timeout = 5_000 });
+    }
+
+    // ---- real editing elements ---------------------------------------------------------------------
+    // A leaf text field is mirrored as a transparent <input> over the painted field, and while it
+    // holds focus the BROWSER owns the text: its editor, its IME, its clipboard, its password
+    // manager. These say that the two halves stay in step — what the browser holds is what the
+    // engine holds — and that the one thing which must never cross does not.
+
+    /// <summary>Focus a field through the engine (as an AT would) and hand back its live input.</summary>
+    private static async Task<ILocator> FocusFieldAsync(IPage page, string placeholder)
+    {
+        var sel = $"{Mirror} input[placeholder=\"{placeholder}\"]";
+        await page.WaitForSelectorAsync(sel, new() { State = WaitForSelectorState.Attached, Timeout = 10_000 });
+        await page.EvaluateAsync($"() => {{ const el = document.querySelector('{sel}'); globalThis.__cupri.a11yAct.focus(el.getAttribute('data-path')); }}");
+        // The engine decides focus; the page puts DOM focus on that field's input when it publishes.
+        await page.WaitForFunctionAsync($"() => document.activeElement === document.querySelector('{sel}')",
+            null, new() { Timeout = 10_000 });
+        return page.Locator(sel);
+    }
+
+    [Fact]
+    public async Task A_text_field_is_a_real_input_and_what_the_browser_types_reaches_the_engine()
+    {
+        var page = await ArriveAsync(host);
+        var field = await FocusFieldAsync(page, "Type your name…");
+
+        await page.Keyboard.TypeAsync("Ada L");
+        // TWO different claims, and the second is the one that matters. `value` is the DOM property,
+        // which the browser wrote by itself. The `value` ATTRIBUTE is what the ENGINE published in
+        // its next mirror, so it agreeing is the engine having taken the text.
+        await Assertions.Expect(field).ToHaveValueAsync("Ada L", new() { Timeout = 5_000 });
+        await page.WaitForFunctionAsync(
+            $"() => document.querySelector('{Mirror} input[placeholder=\"Type your name…\"]').getAttribute('value') === 'Ada L'",
+            null, new() { Timeout = 5_000 });
+
+        // Selection too: the engine tracks the caret the browser is showing, so a screen reader and
+        // the painted caret agree with each other.
+        var sel = await page.EvaluateAsync<string>($"() => document.querySelector('{Mirror} input[placeholder=\"Type your name…\"]').getAttribute('data-sel')");
+        output.WriteLine($"engine caret after typing: {sel}");
+        Assert.Equal("5,5", sel);
+    }
+
+    [Fact]
+    public async Task Typing_is_the_browsers_and_Tab_is_still_the_engines()
+    {
+        var page = await ArriveAsync(host);
+        var field = await FocusFieldAsync(page, "Type your name…");
+        await page.Keyboard.TypeAsync("x");
+        await Assertions.Expect(field).ToHaveValueAsync("x", new() { Timeout = 5_000 });
+
+        // Tab inside a real input would move the browser's focus to the next form control; the
+        // engine owns it, so the field the ENGINE focuses next is what gets DOM focus.
+        var before = await page.EvaluateAsync<string>($"() => document.querySelector('{Mirror} [data-focused]').getAttribute('data-path')");
+        await page.Keyboard.PressAsync("Tab");
+        await page.WaitForFunctionAsync(
+            $"(p) => {{ const f = document.querySelector('{Mirror} [data-focused]'); return f && f.getAttribute('data-path') !== p; }}",
+            before, new() { Timeout = 5_000 });
+        var after = await page.EvaluateAsync<string>($"() => document.querySelector('{Mirror} [data-focused]').getAttribute('data-path')");
+        output.WriteLine($"Tab moved the engine's focus {before} -> {after}");
+        // …and DOM focus went with it rather than staying in the field that was being typed into.
+        var stranded = await page.EvaluateAsync<bool>($"() => document.activeElement === document.querySelector('{Mirror} input[placeholder=\"Type your name…\"]')");
+        Assert.False(stranded, "DOM focus stayed in the field the engine had already left");
+    }
+
+    [Fact]
+    public async Task A_password_field_is_a_fill_target_whose_plaintext_never_reaches_the_page()
+    {
+        var page = await ArriveAsync(host);
+        var pw = page.Locator($"{Mirror} input[type=\"password\"]").First;
+        await Assertions.Expect(pw).ToHaveCountAsync(1, new() { Timeout = 10_000 });
+        // What a password manager looks for, and cannot find anywhere in a canvas.
+        Assert.Equal("Password", await pw.GetAttributeAsync("aria-label"));
+        Assert.Null(await pw.GetAttributeAsync("value"));
+
+        // A fill: what the manager does, to a field nobody focused. It reaches the model through
+        // the binding, the same door any autofill uses.
+        await page.EvaluateAsync($$"""
+            () => { const el = document.querySelector('{{Mirror}} input[type="password"]');
+                    el.value = 'correct-horse'; el.dispatchEvent(new Event('input', { bubbles: true })); }
+            """);
+
+        // Nothing published it back: the engine paints bullets and the mirror carries bullets, so
+        // the plaintext appears nowhere in the page — which is the rule every bridge already keeps.
+        await page.WaitForTimeoutAsync(700);
+        var html = await page.EvaluateAsync<string>($"() => document.querySelector('{Mirror}').innerHTML");
+        Assert.DoesNotContain("correct-horse", html);
+
+        // …and the engine really did take it. The Showcase can reveal the field, and a revealed
+        // field is no longer masked — so its value becomes publishable, and there it is.
+        await page.GetByRole(AriaRole.Button, new() { Name = "Show password" }).DispatchEventAsync("click");
+        await page.WaitForFunctionAsync(
+            $"() => {{ const el = document.querySelector('{Mirror} input[aria-label=\"Password\"]'); return el && el.getAttribute('value') === 'correct-horse'; }}",
+            null, new() { Timeout = 5_000 });
+    }
+
+    [Fact]
+    public async Task A_value_the_engine_rewrites_replaces_what_the_browser_holds()
+    {
+        var page = await ArriveAsync(host);
+        // The Showcase's Quantity stepper takes 0..20. Typing past the maximum is allowed while the
+        // field is being edited — never block mid-edit — and clamped when it commits. That clamp
+        // has to arrive back in the input, or the browser goes on showing a number the model does
+        // not have.
+        var field = page.Locator($"{Mirror} input[aria-label=\"Quantity\"]");
+        await Assertions.Expect(field).ToHaveCountAsync(1, new() { Timeout = 10_000 });
+        await page.EvaluateAsync($"() => {{ const el = document.querySelector('{Mirror} input[aria-label=\"Quantity\"]'); globalThis.__cupri.a11yAct.focus(el.getAttribute('data-path')); }}");
+        await page.WaitForFunctionAsync($"() => document.activeElement === document.querySelector('{Mirror} input[aria-label=\"Quantity\"]')",
+            null, new() { Timeout = 10_000 });
+
+        await page.Keyboard.PressAsync("Control+a");
+        await page.Keyboard.TypeAsync("999");
+        await Assertions.Expect(field).ToHaveValueAsync("999", new() { Timeout = 5_000 });   // permissive mid-edit
+
+        await page.Keyboard.PressAsync("Enter");                                             // commit → clamp
+        await Assertions.Expect(field).ToHaveValueAsync("20", new() { Timeout = 5_000 });
+        output.WriteLine("999 committed as " + await field.InputValueAsync());
     }
 
     /// <summary>Mean brightness of a patch of the page's content area, read back from the canvas —
