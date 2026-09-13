@@ -177,6 +177,26 @@ public class AgentDiagnosticsTests(ITestOutputHelper output)
         Assert.Contains("viewport", f.Message);
     }
 
+    /// <summary>One visual failure, one finding. Everything inside a box that is already off the edge
+    /// is off the edge too, and each nested box that also overflows its own parent would report
+    /// again — measured before this rule: a chrome of three fixed columns holding an over-wide card
+    /// produced three findings for one problem. The outermost is the one to act on, and fixing it is
+    /// what decides whether the others were ever real.</summary>
+    [Fact]
+    public void Only_the_outermost_box_that_runs_off_the_edge_is_reported()
+    {
+        var report = CupriDoctor.Check(
+            "<body><div class='chrome'><div class='rail'></div>"
+            + "<div class='roster'><div class='card'><div class='inner'></div></div></div></div></body>",
+            "body{margin:0} .chrome{display:flex} .rail{width:72px;height:200px;flex-shrink:0}"
+            + " .roster{width:600px;height:200px;flex-shrink:0} .card{width:700px;height:100px} .inner{width:900px;height:40px}",
+            width: 412, height: 915);
+
+        var f = Assert.Single(report.Findings, x => x.Code == "CF0072");
+        output.WriteLine(f.ToString());
+        Assert.Contains("chrome", f.Message);      // the container, not the card three levels down
+    }
+
     /// <summary>The author's escape hatch, and the advice the finding itself gives: a box that
     /// scrolls sideways is the author saying the content is wider on purpose and can be dragged to.
     /// It must silence the finding for everything inside it, or the advice contradicts the rule.</summary>

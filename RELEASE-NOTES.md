@@ -30,7 +30,11 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   an edge that LOSES content: the viewport, or an ancestor with `overflow:hidden`. An
   `overflow:scroll` ancestor exempts everything inside it, because the content can be dragged to.
   Measured on the Showcase: the geometric rule alone reported two harmless cases at the design size,
-  and this one reports none at either the design size or a phone's — which is now a gate.
+  and this one reports none at either the design size or a phone's — which is now a gate. Only the
+  OUTERMOST box that runs off the edge is reported, because everything inside one is off the edge
+  too: a chrome of three fixed columns holding an over-wide card produced three findings for one
+  visual failure before that rule, and fixing the first is what decides whether the others were ever
+  real.
 
 - **A text field on the web is now a real `<input>`, so the browser's own editor works on it (#133).**
   The canvas had one hidden textarea following the caret: typing and IME worked, nothing else did.

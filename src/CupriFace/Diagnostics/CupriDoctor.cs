@@ -638,11 +638,11 @@ public static partial class CupriDoctor
         // wider on purpose and can be dragged to. It therefore exempts everything inside it (a
         // sentinel of infinity), which is the same answer the vertical rule's advice already gives
         // — "or set overflow:scroll to keep the size and scroll inside it".
-        void Walk(RenderNode n, bool insideCollapsed, float absX, float clipRight)
+        void Walk(RenderNode n, bool insideCollapsed, bool insideOffScreen, float absX, float clipRight)
         {
             if (insideCollapsed)
             {
-                foreach (var c in n.Children) Walk(c, true, absX + c.X, clipRight);
+                foreach (var c in n.Children) Walk(c, true, insideOffScreen, absX + c.X, clipRight);
                 return;
             }
             var collapsed = false;
@@ -672,11 +672,18 @@ public static partial class CupriDoctor
             // Sideways, and reported only when it escapes something that cuts it off. This is how a
             // desktop layout fails on a phone: fixed columns that add up to more than the viewport
             // simply run off the side, with nothing on screen to say the missing part exists.
-            if (BoxOverflow.OvershootX(n) is { } overX)
+            // …and only the OUTERMOST one. Everything inside a box that is already off the edge is
+            // off the edge too, and each nested box that also overflows its own parent would report
+            // again: measured on a chrome of three fixed columns holding an over-wide card, one
+            // visual failure produced three findings. The first is the one to act on, and fixing it
+            // is what decides whether the others were ever real.
+            var offScreen = false;
+            if (!insideOffScreen && BoxOverflow.OvershootX(n) is { } overX)
             {
                 var contentRight = absX + n.Width - n.BorderRightW + overX;
                 if (contentRight > clipRight + 1f)
                 {
+                    offScreen = true;
                     var name = Name(n);
                     if (reported.Add("x:" + name))
                         findings.Add(new Finding(Severity.Warning, "CF0072",
@@ -699,9 +706,9 @@ public static partial class CupriDoctor
                 OverflowMode.Scroll => float.PositiveInfinity,
                 _ => clipRight,
             };
-            foreach (var c in n.Children) Walk(c, collapsed, absX + c.X, childClip);
+            foreach (var c in n.Children) Walk(c, collapsed, insideOffScreen || offScreen, absX + c.X, childClip);
         }
-        Walk(doc.Root, false, doc.Root.X, viewportWidth);
+        Walk(doc.Root, false, false, doc.Root.X, viewportWidth);
 
         static string Name(RenderNode n) =>
             n.Element?.GetAttribute("class") is { Length: > 0 } cls
