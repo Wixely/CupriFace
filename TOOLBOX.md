@@ -1021,6 +1021,36 @@ This works identically in an app's stylesheet and inside a component's own `Defa
 deliberately no `@media (pointer: coarse)`: it would mean teaching the CSS parser a new shape to
 reach exactly what the cascade already does with a class.
 
+### Testing touch: `TouchDriver`
+
+Touch is not a mouse with different coordinates, so a test that drives it with `DispatchClick`
+proves nothing about it: touch activates on finger-**up**, so a press that turns into a scroll must
+never press what it began on, and that deferral is the one behaviour a click cannot exercise.
+
+`TouchDriver` (in `CupriFace.Interaction`) is one call per gesture, on a clock it owns — headless,
+nothing sleeps, and the same script produces the same events on any machine.
+
+```csharp
+var touch = new TouchDriver(doc);
+touch.Tap(x, y);                              // activates on release
+touch.DoubleTap(x, y);                        // word select; TripleTap for a line
+touch.LongPress(x, y);                        // the context menu
+touch.Swipe(x, y, dy: -180);                  // scroll, and stop where the finger left it
+touch.Fling(x, y, dy: -180);                  // …or let go moving; then call doc.Animate(t)
+touch.Pinch(cx, cy, gapFrom: 40, gapTo: 160); // two fingers → an OnPointer handler
+touch.Cancel();                               // the platform took the gesture away
+```
+
+Three things it gets right that are easy to get wrong by hand: a **long press** only fires when the
+host ticks its deadline (down and up alone just give you a tap); a **fling's** momentum comes from
+the velocity of the last 100 ms before release and then needs frames to play out, while a **swipe**
+pauses before lifting so it deliberately does not fling; and a swipe on a slider, scrollbar thumb,
+reorder handle or split divider is a **drag from the first contact** rather than a deferred tap.
+
+`new TouchDriver(doc, new TouchOptions { SlopPx = …, LongPressSeconds = … })` moves the thresholds,
+for testing a gesture at its boundary. `Input` exposes the recogniser underneath for anything the
+verbs do not cover.
+
 ### Multi-touch: `doc.OnPointer`
 
 The engine's own gestures — tap, scroll, fling, long-press, and the drag surfaces on sliders,
