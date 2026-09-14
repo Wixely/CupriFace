@@ -15,6 +15,15 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ## Unreleased
 
+### Fixed
+
+- **The Showcase's Markdown page can be opened by name again.** `--section markdown` silently landed
+  on Inputs, and an internal link naming it did nothing, because the set of routable section ids was
+  a hand-written copy of the sidebar and the Markdown page had been added to one and not the other.
+  Neither failure reported anything: you got the default page and assumed you had mistyped the id.
+  The ids are read out of the sidebar markup now, so the two cannot drift, and a test walks every
+  page the sidebar offers and opens each by name.
+
 ### Added
 
 - **Borders differ per side.** `border-left` / `-right` / `-top` / `-bottom`, the `border-*-width`
