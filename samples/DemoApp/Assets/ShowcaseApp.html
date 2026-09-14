@@ -52,7 +52,12 @@
         </div>
         <div class="row">
           <span class="lbl">Name</span>
-          <cupri-textfield value="{{Name}}" placeholder="Type your name…"></cupri-textfield>
+          <cupri-textfield value="{{Name}}" placeholder="Type your name…" style="width:200px"></cupri-textfield>
+          <!-- The same control with float-label, and DELIBERATELY no <span class="lbl"> beside it:
+               the placeholder becomes the label as soon as there is something to label, so the field
+               carries its own name and the row costs one column instead of two. Type into it. -->
+          <cupri-textfield value="{{Feedback}}" placeholder="What is wrong with it?" float-label
+                           style="width:240px"></cupri-textfield>
         </div>
         <div class="row">
           <span class="lbl">City</span>

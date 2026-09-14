@@ -341,6 +341,28 @@ outside of an input dispatch (e.g. a background timer), call `doc.Refresh()` (or
   (Ctrl+C/X/V), and **undo/redo** (Ctrl+Z / Ctrl+Y or Ctrl+Shift+Z — history is per‑field) on both
   desktop and web. Editing is permissive: the field shows a red border while a value is invalid and
   validates/clamps on blur.
+- **`float-label` — the placeholder becomes the label.** A labelled field normally costs two lines,
+  a label above and a box below. A placeholder-only field costs one, and then forgets what it was
+  for the moment you type into it. `float-label` costs one: the prompt sits where the value will go
+  while the field is empty, and rises to a smaller line inside the box once there is a value to
+  label.
+  ```html
+  <!-- no separate label element beside it — the field carries its own name -->
+  <cupri-textfield value="{{Feedback}}" placeholder="What is wrong with it?" float-label></cupri-textfield>
+  ```
+  Opt‑in, because it changes the field's height: the label's row is reserved in the padding whether
+  the label has risen or not, so typing the first character never shoves the rest of a form down.
+  That costs about 9px over a plain field. It needs a `placeholder` to have anything to float — with
+  none, the attribute does nothing rather than reserving a row for an empty label.
+
+  **It is also better named than a plain placeholder.** The label carries the placeholder class, so
+  the accessibility tree keeps it out of the field's *value* and uses it as the field's *name* — in
+  both states. An ordinary placeholder is only rendered while the field is empty, so a filled field
+  has to fall back to the attribute.
+
+  Single‑line fields only for now. In a `cupri-textarea` the box scrolls its own content, and a
+  label pinned inside it would scroll away with the text.
+
 - **Validation.** A bound field can carry `required`, `pattern="regex"`, `minlength`, and numeric
   `min`/`max`. The engine shows the red border while a rule fails and injects an inline error message
   **once the field is left** (blurred) or the form is validated — so it never nags mid‑type. `error="…"`
@@ -560,7 +582,7 @@ static config unless noted.
 | `<cupri-progress>` | Read‑only progress bar | `value` (0), `max` (100) | — | — | `progressbar` |
 | `<cupri-button>` | Themed button | `variant` (`primary`\|`ghost`) | — | label text/HTML | `button` |
 | `<cupri-icon-button>` | Icon‑only button | `icon` | — | — | `button` |
-| `<cupri-textfield>` | Single‑line text input | `value`, `placeholder` | `value` | — | `textbox` |
+| `<cupri-textfield>` | Single‑line text input | `value`, `placeholder`, `float-label` | `value` | — | `textbox` |
 |  ↳ *draws its value with* `var(--cupri-text, …)` *and its placeholder with* `var(--cupri-muted, …)` — **not** the inherited `color`, so a dark theme must set those variables or the typed value stays near-black. | | | | | |
 | `<cupri-number>` | Numeric field + `−/+` steppers | `value`, `min`, `max`, `step` | `value` | — | `spinbutton` |
 | `<cupri-textarea>` | Multi‑line text input | `value`, `placeholder`, `follow-tail` | `value` | — | `textbox` (`aria-multiline`) |
