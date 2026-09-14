@@ -30,10 +30,29 @@ public sealed record ShadowRect(float X, float Y, float W, float H, CornerRadii 
 /// <summary>Fill the (rounded) box (X,Y,W,H,Radius) with a CSS gradient (linear/radial).</summary>
 public sealed record GradientRect(float X, float Y, float W, float H, CornerRadii Radius, Gradient Gradient) : PaintCommand;
 
+/// <param name="Color">The TOP edge's colour, and the whole box's when the four agree — which is
+/// the ordinary case and the one the stroked fast path in the rasteriser needs.</param>
+/// <param name="RightColor">Null when every edge shares <paramref name="Color"/>. A one-sided
+/// border is four widths and four colours: the edge that draws has one, and the three that do not
+/// are absent rather than transparent.</param>
 public sealed record BorderRect(
     float X, float Y, float W, float H, CornerRadii Radius,
     float Top, float Right, float Bottom, float Left, SKColor Color,
-    BorderLineStyle Style = BorderLineStyle.Solid) : PaintCommand;
+    BorderLineStyle Style = BorderLineStyle.Solid,
+    SKColor? RightColor = null, SKColor? BottomColor = null, SKColor? LeftColor = null) : PaintCommand
+{
+    /// <summary>Every edge the same colour — so the rasteriser can stroke one rounded rectangle
+    /// instead of filling four sides.</summary>
+    public bool UniformColor => RightColor is null && BottomColor is null && LeftColor is null;
+
+    public SKColor ColorOf(int side) => side switch
+    {
+        0 => Color,
+        1 => RightColor ?? Color,
+        2 => BottomColor ?? Color,
+        _ => LeftColor ?? Color,
+    };
+}
 
 public sealed record TextRun(
     float X, float Y, float ContainerWidth, float LineWidth, float LineHeight,

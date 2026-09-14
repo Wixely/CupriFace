@@ -424,7 +424,10 @@ public sealed class SkiaRasterizer
 
     private static void DrawBorder(SKCanvas canvas, SKPaint paint, BorderRect b)
     {
-        var uniform = b.Top > 0 && Approximately(b.Top, b.Right) && Approximately(b.Top, b.Bottom) && Approximately(b.Top, b.Left);
+        // The stroked path draws one rounded rectangle in one colour, so it needs the four widths
+        // AND the four colours to agree. A box with a single coloured edge takes the per-edge path.
+        var uniform = b.Top > 0 && Approximately(b.Top, b.Right) && Approximately(b.Top, b.Bottom)
+                      && Approximately(b.Top, b.Left) && b.UniformColor;
         if (uniform)
         {
             // Stroke centred on the border-box edge, inset by half width.
@@ -448,11 +451,11 @@ public sealed class SkiaRasterizer
             return;
         }
 
-        // Non-uniform: draw each present edge as a filled rectangle.
-        if (b.Top > 0) canvas.DrawRect(new SKRect(b.X, b.Y, b.X + b.W, b.Y + b.Top), paint);
-        if (b.Bottom > 0) canvas.DrawRect(new SKRect(b.X, b.Y + b.H - b.Bottom, b.X + b.W, b.Y + b.H), paint);
-        if (b.Left > 0) canvas.DrawRect(new SKRect(b.X, b.Y, b.X + b.Left, b.Y + b.H), paint);
-        if (b.Right > 0) canvas.DrawRect(new SKRect(b.X + b.W - b.Right, b.Y, b.X + b.W, b.Y + b.H), paint);
+        // Non-uniform: draw each present edge as a filled rectangle, in its OWN colour.
+        if (b.Top > 0) { paint.Color = b.ColorOf(0); canvas.DrawRect(new SKRect(b.X, b.Y, b.X + b.W, b.Y + b.Top), paint); }
+        if (b.Bottom > 0) { paint.Color = b.ColorOf(2); canvas.DrawRect(new SKRect(b.X, b.Y + b.H - b.Bottom, b.X + b.W, b.Y + b.H), paint); }
+        if (b.Left > 0) { paint.Color = b.ColorOf(3); canvas.DrawRect(new SKRect(b.X, b.Y, b.X + b.Left, b.Y + b.H), paint); }
+        if (b.Right > 0) { paint.Color = b.ColorOf(1); canvas.DrawRect(new SKRect(b.X + b.W - b.Right, b.Y, b.X + b.W, b.Y + b.H), paint); }
     }
 
     private void DrawText(SKCanvas canvas, SKPaint paint, TextRun t)

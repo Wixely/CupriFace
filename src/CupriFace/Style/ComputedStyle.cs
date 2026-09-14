@@ -62,7 +62,25 @@ public sealed class ComputedStyle
 
     // Border
     public float BorderTop, BorderRight, BorderBottom, BorderLeft;
-    public SKColor BorderColor = SKColors.Black;
+    public SKColor BorderTopColor = SKColors.Black, BorderRightColor = SKColors.Black,
+                   BorderBottomColor = SKColors.Black, BorderLeftColor = SKColors.Black;
+
+    /// <summary>The border colour as the <c>border-color</c> shorthand means it: reading gives the
+    /// top edge's, writing sets all four. Kept so the single-colour callers — the transition on
+    /// <c>border-color</c>, and layout's "does this box paint anything" test — say what they mean
+    /// without knowing the sides exist.</summary>
+    public SKColor BorderColor
+    {
+        get => BorderTopColor;
+        set => BorderTopColor = BorderRightColor = BorderBottomColor = BorderLeftColor = value;
+    }
+
+    /// <summary>True when any edge would actually draw: it has a width AND a visible colour. A
+    /// one-sided border makes the other three transparent-by-absence rather than zero-width, so a
+    /// test against one shared colour would have answered for the wrong edge.</summary>
+    public bool AnyBorderVisible =>
+        (BorderTop > 0 && BorderTopColor.Alpha > 0) || (BorderRight > 0 && BorderRightColor.Alpha > 0)
+        || (BorderBottom > 0 && BorderBottomColor.Alpha > 0) || (BorderLeft > 0 && BorderLeftColor.Alpha > 0);
     public BorderLineStyle BorderStyle = BorderLineStyle.Solid;
     /// <summary>Per corner and per axis, and unresolved: a percentage is a fraction of the BOX, so it
     /// becomes a number only when there is a box to measure it against. <see cref="BorderRadiusSpec.Resolve"/>.</summary>

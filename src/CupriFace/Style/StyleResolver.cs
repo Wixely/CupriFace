@@ -370,9 +370,27 @@ public sealed class StyleResolver
                 case "grid-row": s.GridRow = ParsePlacement(v); break;
 
                 case "border": ParseBorderShorthand(s, v); break;
-                case "border-width": { var w = ParsePx(v); s.BorderTop = s.BorderRight = s.BorderBottom = s.BorderLeft = w; break; }
-                case "border-color": if (Colors.TryParse(v, out var bc)) s.BorderColor = bc; break;
+                case "border-width": ParseBorderWidths(s, v); break;
+                case "border-color": ParseBorderColors(s, v); break;
                 case "border-style": if (ParseBorderStyle(v) is { } st) s.BorderStyle = st; break;
+
+                // One edge at a time - a column separator, a header underline, the coloured rule down
+                // the side of a quoted reply. The engine has always laid these out and painted them;
+                // there was simply no property that reached them (#170).
+                case "border-top": ParseBorderShorthand(s, v, Side.Top); break;
+                case "border-right": ParseBorderShorthand(s, v, Side.Right); break;
+                case "border-bottom": ParseBorderShorthand(s, v, Side.Bottom); break;
+                case "border-left": ParseBorderShorthand(s, v, Side.Left); break;
+
+                case "border-top-width": SetBorderWidth(s, Side.Top, ParsePx(v)); break;
+                case "border-right-width": SetBorderWidth(s, Side.Right, ParsePx(v)); break;
+                case "border-bottom-width": SetBorderWidth(s, Side.Bottom, ParsePx(v)); break;
+                case "border-left-width": SetBorderWidth(s, Side.Left, ParsePx(v)); break;
+
+                case "border-top-color": if (Colors.TryParse(v, out var tc)) s.BorderTopColor = tc; break;
+                case "border-right-color": if (Colors.TryParse(v, out var rc)) s.BorderRightColor = rc; break;
+                case "border-bottom-color": if (Colors.TryParse(v, out var bbc)) s.BorderBottomColor = bbc; break;
+                case "border-left-color": if (Colors.TryParse(v, out var lc)) s.BorderLeftColor = lc; break;
                 case "border-radius": s.BorderRadius = ParseBorderRadius(v); break;
                 case "border-top-left-radius": s.BorderRadius = WithCorner(s.BorderRadius, 0, v); break;
                 case "border-top-right-radius": s.BorderRadius = WithCorner(s.BorderRadius, 1, v); break;
@@ -1194,15 +1212,70 @@ public sealed class StyleResolver
         if (parts.Length >= 3) s.FlexBasis = ParseLen(parts[2]);
     }
 
-    private static void ParseBorderShorthand(ComputedStyle s, string v)
+    /// <summary>Which edge a longhand is talking about; <see cref="Side.All"/> is the shorthand.</summary>
+    private enum Side { All, Top, Right, Bottom, Left }
+
+    /// <summary><c>border</c> and its four per-edge forms: a width, a style and a colour in any
+    /// order, applied to one side or to all of them.
+    ///
+    /// <para><b>Style stays whole-box.</b> Width and colour are per side; a mixed style (dashed on
+    /// one edge, solid on another) is not expressible and the last one parsed wins. The painter
+    /// treats the dash pattern as a property of the whole stroked box, and a border differing by
+    /// style per edge is rare enough not to earn a second representation - but it is a real limit,
+    /// so it is stated here and in TOOLBOX rather than discovered.</para></summary>
+    private static void ParseBorderShorthand(ComputedStyle s, string v, Side side = Side.All)
     {
         foreach (var token in v.Split(' ', StringSplitOptions.RemoveEmptyEntries))
         {
             if (token.EndsWith("px", StringComparison.OrdinalIgnoreCase) || CssNumber.TryParse(token, out _))
-            { var w = ParsePx(token); s.BorderTop = s.BorderRight = s.BorderBottom = s.BorderLeft = w; }
+                SetBorderWidth(s, side, ParsePx(token));
             else if (ParseBorderStyle(token) is { } st) s.BorderStyle = st;
-            else if (Colors.TryParse(token, out var c)) s.BorderColor = c;
+            else if (Colors.TryParse(token, out var c)) SetBorderColor(s, side, c);
         }
+    }
+
+    private static void SetBorderWidth(ComputedStyle s, Side side, float w)
+    {
+        if (side is Side.All or Side.Top) s.BorderTop = w;
+        if (side is Side.All or Side.Right) s.BorderRight = w;
+        if (side is Side.All or Side.Bottom) s.BorderBottom = w;
+        if (side is Side.All or Side.Left) s.BorderLeft = w;
+    }
+
+    private static void SetBorderColor(ComputedStyle s, Side side, SKColor c)
+    {
+        if (side is Side.All or Side.Top) s.BorderTopColor = c;
+        if (side is Side.All or Side.Right) s.BorderRightColor = c;
+        if (side is Side.All or Side.Bottom) s.BorderBottomColor = c;
+        if (side is Side.All or Side.Left) s.BorderLeftColor = c;
+    }
+
+    /// <summary><c>border-width</c>, one to four values, mirrored the way every CSS box shorthand
+    /// mirrors: one is every edge, two are top/bottom then left/right, three add the bottom, four go
+    /// clockwise from the top. It used to hand the whole string to the single-length parser, which
+    /// failed on anything containing a space and fell back to zero - so <c>border-width: 1px 0 0 0</c>
+    /// removed the border entirely, and with no CF0050 to say so, because the property name was
+    /// known (#170).</summary>
+    private static void ParseBorderWidths(ComputedStyle s, string v)
+    {
+        var p = v.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (p.Length == 0) return;
+        var top = ParsePx(p[0]);
+        var right = p.Length > 1 ? ParsePx(p[1]) : top;
+        var bottom = p.Length > 2 ? ParsePx(p[2]) : top;
+        var left = p.Length > 3 ? ParsePx(p[3]) : right;
+        s.BorderTop = top; s.BorderRight = right; s.BorderBottom = bottom; s.BorderLeft = left;
+    }
+
+    /// <summary><c>border-color</c>, one to four values, mirrored the same way.</summary>
+    private static void ParseBorderColors(ComputedStyle s, string v)
+    {
+        var p = SplitTopLevel(v);
+        if (p.Count == 0 || !Colors.TryParse(p[0], out var top)) return;
+        var right = p.Count > 1 && Colors.TryParse(p[1], out var r) ? r : top;
+        var bottom = p.Count > 2 && Colors.TryParse(p[2], out var b) ? b : top;
+        var left = p.Count > 3 && Colors.TryParse(p[3], out var l) ? l : right;
+        s.BorderTopColor = top; s.BorderRightColor = right; s.BorderBottomColor = bottom; s.BorderLeftColor = left;
     }
 
     // Supported border-style keywords; hidden→None, unknowns (double/groove/…) fall back to Solid.
