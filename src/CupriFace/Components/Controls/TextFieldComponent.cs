@@ -29,8 +29,16 @@ public sealed class TextFieldComponent : ComponentBase
            reads as prompts rather than as a column of headings.
 
            The row is reserved in the padding whether the label has risen or not, so typing the
-           first character does not shove the rest of the form down. */
-        .cupri-textfield[data-float-label] { position:relative; padding-top:22px; padding-bottom:5px; }
+           first character does not shove the rest of the form down.
+
+           IT IS THE SAME HEIGHT AS A PLAIN FIELD, and that is the constraint everything else here
+           bends to. One of these sitting in a row beside ordinary fields has to line up with them;
+           a control that is nine pixels taller than its neighbours reads as a mistake whatever it
+           is doing with its label. So the label's row is bought out of the existing padding rather
+           than added to it — the top gains 3px and the bottom gives up 3px — and the label shrinks
+           far enough to live in what that buys. The value sits 3px lower than it would in a plain
+           field, which is the whole visible cost. */
+        .cupri-textfield[data-float-label] { position:relative; padding:12px 12px 6px; }
         /* Colour comes from .cupri-tf-ph and does not change when it rises. Darkening it would
            have to name a second colour, and a theme that defines --cupri-muted would then see no
            change at all while an unthemed page did — a difference that only shows up in someone
@@ -38,7 +46,7 @@ public sealed class TextFieldComponent : ComponentBase
         .cupri-tf-label { position:absolute; left:12px; top:0; font-size:15px;
                           transform-origin:left center; transition:transform 150ms; }
         /* transform, not top/font-size: transform is what this engine animates. */
-        .cupri-tf-label[data-raised] { transform:translateY(-17px) scale(0.76); }
+        .cupri-tf-label[data-raised] { transform:translateY(-15px) scale(0.68); }
         /* Inline validation message the engine injects after an invalid, visited field. */
         .cupri-field-error { display:block; color:#d92d20; font-size:13px; margin:5px 0 2px; }
         """;

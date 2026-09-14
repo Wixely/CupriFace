@@ -22,11 +22,13 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   it was for the moment you type into it. This costs one. The prompt sits where the value will go
   while the field is empty and rises to a smaller line inside the box once there is a value to label.
 
-  Opt-in, because it changes the field's height — the label's row is reserved whether the label has
-  risen or not, so typing the first character never shoves the rest of a form down. About 9px over a
-  plain field. With no `placeholder` the attribute does nothing rather than reserving a row for an
-  empty label. Single-line fields only: a `cupri-textarea` scrolls its own content and a label pinned
-  inside it would scroll away with the text.
+  **Exactly as tall as a plain field**, so one in a row of ordinary fields lines up with them: the
+  label's row is bought out of the existing padding rather than added to it, and the only visible
+  cost is the value sitting 3px lower. The row is reserved whether the label has risen or not, so
+  typing the first character never shoves the rest of a form down. With no `placeholder` the
+  attribute does nothing rather than reserving a row for an empty label. Single-line fields only: a
+  `cupri-textarea` scrolls its own content and a label pinned inside it would scroll away with the
+  text.
 
   It is also better *named* than a plain placeholder. The label carries the placeholder class, so the
   accessibility tree keeps it out of the field's value and uses it as the field's name in **both**

@@ -114,21 +114,29 @@ public class FloatLabelTests(ITestOutputHelper output)
 
     // ---- what it costs, and what it leaves alone -----------------------------------------------
 
-    /// <summary>It is taller than a plain field, because it holds two rows of information. Asserted
-    /// so the cost is a stated number rather than a surprise in someone's layout.</summary>
-    [Fact]
-    public void It_is_taller_than_a_plain_field_but_not_by_much()
+    /// <summary>
+    /// It is EXACTLY as tall as a plain field, filled or empty. One of these sitting in a row beside
+    /// ordinary fields has to line up with them; a control nine pixels taller than its neighbours
+    /// reads as a mistake whatever it is doing with its label.
+    ///
+    /// <para>That is why the label's row is bought out of the existing padding rather than added to
+    /// it. The only visible cost is the value sitting 3px lower than it would in a plain field.</para>
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("test123")]
+    public void It_is_exactly_as_tall_as_a_plain_field(string value)
     {
-        var (a, _) = Field("test123");
+        var (a, _) = Field(value);
         var floated = a.FindClass("cupri-textfield").Height;
         a.Dispose();
 
-        var (b, _) = Field("test123", floatLabel: false);
+        var (b, _) = Field(value, floatLabel: false);
         var plain = b.FindClass("cupri-textfield").Height;
         b.Dispose();
 
         output.WriteLine($"plain {plain:0.0}  float-label {floated:0.0}");
-        Assert.InRange(floated - plain, 1f, 14f);
+        Assert.Equal(plain, floated, 0.5);
     }
 
     /// <summary>A field that did not ask for it is untouched — same markup as before, placeholder

@@ -350,10 +350,15 @@ outside of an input dispatch (e.g. a background timer), call `doc.Refresh()` (or
   <!-- no separate label element beside it — the field carries its own name -->
   <cupri-textfield value="{{Feedback}}" placeholder="What is wrong with it?" float-label></cupri-textfield>
   ```
-  Opt‑in, because it changes the field's height: the label's row is reserved in the padding whether
-  the label has risen or not, so typing the first character never shoves the rest of a form down.
-  That costs about 9px over a plain field. It needs a `placeholder` to have anything to float — with
-  none, the attribute does nothing rather than reserving a row for an empty label.
+  **It is exactly as tall as a plain field**, so one of these in a row of ordinary fields lines up
+  with them. The label's row is bought out of the existing padding rather than added to it, and the
+  only visible cost is the value sitting 3px lower than it would otherwise. The row is reserved
+  whether the label has risen or not, so typing the first character never shoves the rest of a form
+  down. It needs a `placeholder` to have anything to float — with none, the attribute does nothing
+  rather than reserving a row for an empty label.
+
+  Opt‑in all the same: a dense form of them is not always what an author wants, and the value's
+  3px offset is visible if one sits directly above a plain field rather than beside it.
 
   **It is also better named than a plain placeholder.** The label carries the placeholder class, so
   the accessibility tree keeps it out of the field's *value* and uses it as the field's *name* — in
