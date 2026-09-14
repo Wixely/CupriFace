@@ -325,7 +325,9 @@ public class FloatLabelTests(ITestOutputHelper output)
         b.Dispose();
 
         output.WriteLine($"resting y={resting}  raised y={raised}");
-        Assert.True(resting > 0 && raised > 0, $"could not find the label (resting {resting}, raised {raised})");
+        // -1 is "no label ink found at all"; 0 is legitimate now that the raised label reaches the
+        // field's top edge to sit on its border.
+        Assert.True(resting >= 0 && raised >= 0, $"could not find the label (resting {resting}, raised {raised})");
         Assert.True(raised < resting - 6, $"the raised label should sit clearly higher: {raised} vs {resting}");
     }
 }

@@ -31,6 +31,13 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   reserving a row for an empty label. Single-line fields only: a `cupri-textarea` scrolls its own
   content and a label pinned inside it would scroll away with the text.
 
+  Risen, the label sits **on** the field's top border with a pill of the field's own surface colour
+  notching the line it crosses. Getting it out there meant the field could no longer be the thing
+  that clips its own text, so **the engine now scrolls whatever clips a single-line field's text
+  rather than assuming that is the field** (`ClipOwner`). For every existing field those are the
+  same element and nothing changes; it lets a component put a clip closer in, which is what keeps a
+  long value inside the box while the label hangs over the border.
+
   It is also better *named* than a plain placeholder. The label carries the placeholder class, so the
   accessibility tree keeps it out of the field's value and uses it as the field's name in **both**
   states — an ordinary placeholder is only rendered while the field is empty.

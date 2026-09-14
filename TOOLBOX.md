@@ -357,9 +357,10 @@ outside of an input dispatch (e.g. a background timer), call `doc.Refresh()` (or
   typing the first character moves nothing but the label. The risen label lives in the headroom the
   top padding already provides, which is why it is as small as it is.
 
-  It needs a `placeholder` to have anything to float — with none, the attribute does nothing rather
-  than reserving a row for an empty label. Opt‑in because it is a look, not because it costs
-  anything.
+  Risen, it sits **on** the field's top border, with a pill of the field's own surface colour
+  cutting a notch out of the line it crosses. It needs a `placeholder` to have anything to float —
+  with none, the attribute does nothing rather than reserving a row for an empty label. Opt‑in
+  because it is a look, not because it costs anything.
 
   **It is also better named than a plain placeholder.** The label carries the placeholder class, so
   the accessibility tree keeps it out of the field's *value* and uses it as the field's *name* — in
