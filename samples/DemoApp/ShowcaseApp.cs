@@ -25,11 +25,30 @@ public sealed class ShowcaseApp : CupriApp
 {
     private readonly ShowcaseModel _model = new();
 
-    // Section ids a <a href="…"> link may route to (mirrors the sidebar nav). An unknown internal href
-    // is ignored rather than blanking every section.
-    private static readonly HashSet<string> KnownSections =
-        ["controls", "components", "charts", "images", "3d", "overlays", "layout", "motion", "styling",
-         "keyboard", "settings", "diag"];
+    // Section ids that `--section` and an <a href="…"> may route to. READ OUT OF THE SIDEBAR rather
+    // than listed here: every nav item in the markup carries data-section="…", and that markup is what
+    // decides a section exists at all. This used to be a hand-written copy sitting beside it, and it
+    // drifted the first time it could — the Markdown page was added to the sidebar and never to the
+    // list, so `--section markdown` silently landed on Inputs and a link to it did nothing. Neither
+    // failure says anything; you get the default page and assume you typed the id wrong.
+    private static readonly HashSet<string> KnownSections = SectionsInSidebar();
+
+    /// <summary>Every <c>data-section</c> id in the sidebar markup. A plain scan rather than a regex:
+    /// this runs once at startup on every host, NativeAOT included.</summary>
+    private static HashSet<string> SectionsInSidebar()
+    {
+        const string attr = "data-section=\"";
+        var html = Assets.ShowcaseApp.Html.ReadText();
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = html.IndexOf(attr, StringComparison.Ordinal); i >= 0;
+                 i = html.IndexOf(attr, i + attr.Length, StringComparison.Ordinal))
+        {
+            var start = i + attr.Length;
+            var end = html.IndexOf('"', start);
+            if (end > start) ids.Add(html[start..end]);
+        }
+        return ids;
+    }
 
     /// <summary>Optionally start on a given section (a sidebar id like "images") — the hosts pass
     /// e.g. `--section images` through, so a dev (or a UI test) lands straight on the page under
