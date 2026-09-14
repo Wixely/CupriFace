@@ -601,7 +601,8 @@ jobs:
           # no APK. This is the same question a consumer answers the expensive way, by shipping.
           RESOLVED=$(dotnet build tests/PackageConsumer/PackageConsumer.csproj -c Release \
             -p:CupriFacePackageVersion=$VER \
-            -getProperty:UseMonoRuntime -getProperty:_AndroidRuntime) || {
+            -getProperty:UseMonoRuntime -getProperty:_AndroidRuntime \
+            -getProperty:CupriFacePinnedCoreClr) || {
               echo "::error::could not evaluate the consumer project"; exit 1; }
           echo "$RESOLVED"
 
@@ -609,7 +610,16 @@ jobs:
           import json, sys
           got = json.loads(sys.argv[1])["Properties"]
           mono, runtime = got["UseMonoRuntime"], got["_AndroidRuntime"]
-          print(f"consumer resolved: UseMonoRuntime={mono} _AndroidRuntime={runtime}")
+          # The marker says the PACKAGE is why this app is on CoreCLR, and it is what gates the
+          # build note explaining XA1040. Free to check here, and without it the note could stop
+          # appearing with nothing to notice.
+          pinned = got["CupriFacePinnedCoreClr"]
+          print(f"consumer resolved: UseMonoRuntime={mono} _AndroidRuntime={runtime} pinnedByPackage={pinned}")
+          if pinned != "true":
+              print("::error::the package no longer records that IT chose CoreCLR "
+                    f"(CupriFacePinnedCoreClr={pinned!r}), so the build note explaining XA1040 "
+                    "will not appear for consumers.")
+              sys.exit(1)
           if mono != "false" or runtime != "CoreCLR":
               print("::error::CupriFace.Android's CoreCLR pin does not reach package consumers: "
                     f"UseMonoRuntime={mono}, _AndroidRuntime={runtime}. An app consuming this "

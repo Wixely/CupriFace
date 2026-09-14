@@ -51,6 +51,20 @@ takes pointer and key events with no display attached. That also makes UI genuin
   repo, `samples/AndroidProbe/MONO-CRASH.md`). An app that sets `UseMonoRuntime=true` anyway fails
   the build with **CUPRI0001** rather than shipping an APK that dies during startup; set
   `CupriFaceAllowMonoRuntime=true` to build it regardless.
+
+  **Your build will warn `XA1040`: "The CoreCLR runtime on Android is an experimental feature and
+  not yet suitable for production use." That is expected, and this package is the cause of it.**
+  The warning is Microsoft's and it is accurate about the runtime; what it cannot say is that the
+  choice was forced. The trade in full:
+
+  - XA1040 fires for **any** runtime that is not Mono — NativeAOT trips it too. Mono is the only
+    runtime it stays quiet about, and Mono is the one that crashes. There is no configuration here
+    that is both warning-free and working.
+  - It clears when CoreCLR on Android stops being experimental. That is a **different** upstream
+    event from Mono's defect being fixed; a Mono fix would only restore Mono as an *option*.
+  - Nothing needs doing about it. The build prints a note next to the warning explaining the above;
+    `CupriFaceQuietRuntimeNote=true` silences the note (not the warning), and `<NoWarn>XA1040</NoWarn>`
+    silences the warning if you would rather not see it every build.
 - **App icons come in two kinds, and CupriFace only owns one of them.** Override `CupriApp.Icon`
   with PNG/JPEG bytes and every host adapts it to its own *runtime* icon: the desktop window and
   taskbar, the browser tab's favicon, the Android recents card. The **launcher** icon is not

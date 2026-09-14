@@ -32,6 +32,11 @@
     which is what tests/PackageConsumer exists for.
   -->
   <PropertyGroup>
+    <!-- The marker is set FIRST, while UseMonoRuntime is still empty, because it records whether
+         THIS PACKAGE is the reason the app is on CoreCLR. An app that chose CoreCLR itself gets no
+         explanation from us; it already has one. The .targets beside this file uses it to explain
+         the XA1040 warning the choice produces. -->
+    <CupriFacePinnedCoreClr Condition="'$(UseMonoRuntime)' == ''">true</CupriFacePinnedCoreClr>
     <UseMonoRuntime Condition="'$(UseMonoRuntime)' == ''">false</UseMonoRuntime>
   </PropertyGroup>
 </Project>
