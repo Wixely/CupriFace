@@ -39,14 +39,20 @@ public sealed class TextFieldComponent : ComponentBase
            far enough to live in what that buys. The value sits 3px lower than it would in a plain
            field, which is the whole visible cost. */
         .cupri-textfield[data-float-label] { position:relative; padding:12px 12px 6px; }
-        /* Colour comes from .cupri-tf-ph and does not change when it rises. Darkening it would
-           have to name a second colour, and a theme that defines --cupri-muted would then see no
-           change at all while an unthemed page did — a difference that only shows up in someone
+        /* AT REST IT PAINTS EXACTLY WHERE A PLAIN FIELD'S PLACEHOLDER DOES. Until someone types,
+           nobody should be able to tell the two apart — the feature is meant to cost nothing until
+           it has something to say. Hence the NEGATIVE top: the box was pushed down to buy room for
+           the risen label, and the label alone has to ignore that and stay on the plain field's
+           text line.
+
+           Colour comes from .cupri-tf-ph and does not change when the label rises. Darkening it
+           would have to name a second colour, and a theme that defines --cupri-muted would then see
+           no change at all while an unthemed page did — a difference that only shows up in someone
            else's app. Size and position carry the state instead, in both. */
-        .cupri-tf-label { position:absolute; left:12px; top:0; font-size:15px;
+        .cupri-tf-label { position:absolute; left:0; top:-3px; font-size:15px;
                           transform-origin:left center; transition:transform 150ms; }
         /* transform, not top/font-size: transform is what this engine animates. */
-        .cupri-tf-label[data-raised] { transform:translateY(-15px) scale(0.68); }
+        .cupri-tf-label[data-raised] { transform:translateY(-12px) scale(0.68); }
         /* Inline validation message the engine injects after an invalid, visited field. */
         .cupri-field-error { display:block; color:#d92d20; font-size:13px; margin:5px 0 2px; }
         """;

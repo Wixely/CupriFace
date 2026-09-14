@@ -196,6 +196,51 @@ public class FloatLabelTests(ITestOutputHelper output)
 
     // ---- and what someone actually sees ---------------------------------------------------------
 
+    /// <summary>
+    /// UNTIL SOMEONE TYPES, IT IS A PLAIN FIELD. Pixel for pixel — same height, same border, same
+    /// prompt on the same line. The feature is meant to cost nothing until it has something to say,
+    /// and an empty form of these should not read as a column of subtly different boxes.
+    ///
+    /// <para>Asserted by subtraction rather than by eye: the two are rendered alone at the same
+    /// place and differenced. This is the assertion that catches the geometry drifting — the value
+    /// sits 3px lower to make room for the risen label, and the label has to ignore that and stay on
+    /// the plain field's text line.</para>
+    /// </summary>
+    [Fact]
+    public void An_empty_one_is_indistinguishable_from_a_plain_field()
+    {
+        SKBitmap Shot(bool floatLabel)
+        {
+            var (t, _) = Field("", floatLabel);
+            var bmp = t.Render(SKColors.White);
+            t.Dispose();
+            return bmp;
+        }
+
+        using var plain = Shot(false);
+        using var floated = Shot(true);
+
+        var diff = CupriFace.Diagnostics.ImageDiff.Compare(plain, floated);
+        output.WriteLine(diff.ToString());
+        Assert.True(diff.IsIdentical, "an empty float-label field must paint exactly like a plain one: " + diff);
+    }
+
+    /// <summary>…and the moment there IS a value, it is different — the control above proves nothing
+    /// on its own if the label never moves.</summary>
+    [Fact]
+    public void A_filled_one_is_visibly_different()
+    {
+        var (a, _) = Field("test123", floatLabel: false);
+        using var plain = a.Render(SKColors.White);
+        a.Dispose();
+
+        var (b, _) = Field("test123");
+        using var floated = b.Render(SKColors.White);
+        b.Dispose();
+
+        Assert.False(CupriFace.Diagnostics.ImageDiff.Compare(plain, floated).IsIdentical);
+    }
+
     /// <summary>The topmost row of pixels the label's ink occupies. A raised label has to be higher
     /// than a resting one — the display list can say `data-raised` all it likes.</summary>
     private static int LabelTop(TestDoc t)
