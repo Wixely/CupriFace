@@ -626,6 +626,13 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                             Scancode.ScancodeEscape => EditKey.Escape,
                             _ => EditKey.None,
                         };
+                        // A HELD key repeats — SDL delivers the repeats itself, which is why this
+                        // window always had auto-repeat and the GLFW one did not (Silk's GLFW input
+                        // backend drops InputAction.Repeat, so holding Backspace there deleted one
+                        // character and stopped). Two keys are one-shot on both windows: a held Tab
+                        // would fly through the focus ring and a held Escape would close a stack of
+                        // things nobody meant to close.
+                        if (e.Key.Repeat != 0 && ek is EditKey.Escape or EditKey.Tab or EditKey.ShiftTab) break;
                         if (ek != EditKey.None) EditKeyPressed?.Invoke(ek, mods);
                         break;
                     }
