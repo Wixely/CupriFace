@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    An Android app that consumes CupriFace.Android as a NUGET PACKAGE and sets nothing itself.
+
+    It exists because nothing else in this repository does. Every Android app here — AndroidViewer,
+    AndroidLottie, AndroidProbe, GlProbe.Android — sets UseMonoRuntime in its own csproj, because
+    buildTransitive does not cross a ProjectReference edge. So the package's own build contribution,
+    the thing every OUTSIDE consumer depends on, had never been exercised by a single build in the
+    tree that produces it. It was broken for the package's entire life and nothing said a word
+    (#172): the CoreCLR pin sat in the package's .targets, which NuGet imports long after the
+    Android workload has already defaulted UseMonoRuntime to true, so its "only if unset" guard
+    could never be true.
+
+    DELIBERATELY NOT IN CupriFace.slnx. It resolves against a package version that only exists once
+    something has packed it into the local feed beside it, so an ordinary solution restore must not
+    see it. CI packs, restores this, and asks MSBuild what the runtime resolved to.
+
+    Never built, only EVALUATED — `dotnet build -getProperty:` reports the resolved value without
+    running a target, which is the whole question here and needs no Java, no emulator and no APK.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-android</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <SupportedOSPlatformVersion>24.0</SupportedOSPlatformVersion>
+    <ApplicationId>com.cupriface.packageconsumer</ApplicationId>
+    <ApplicationVersion>1</ApplicationVersion>
+    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <IsPackable>false</IsPackable>
+
+    <!-- The version CI just packed into ./feed. The default names nothing on purpose: this project
+         is meant to fail loudly if someone restores it without packing first, rather than quietly
+         resolving some other version from nuget.org and checking the wrong package. -->
+    <CupriFacePackageVersion Condition="'$(CupriFacePackageVersion)' == ''">0.0.0-not-packed</CupriFacePackageVersion>
+
+    <!-- THE POINT OF THE WHOLE PROJECT: no <UseMonoRuntime> here. The package supplies it, or the
+         check fails. Adding one to make a build go green would delete the only coverage there is. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CupriFace.Android" Version="$(CupriFacePackageVersion)" />
+  </ItemGroup>
+
+</Project>

@@ -1,18 +1,22 @@
 <Project>
   <!--
-    Flows into apps that consume the CupriFace.Android NUPKG (repo-internal apps set this in
-    their own csproj — buildTransitive does not cross ProjectReference edges).
+    The LATE half of the package's build contribution. The CoreCLR pin itself is in the .props
+    beside this file, because a default has to be set before the Android SDK sets its own; see the
+    import-order note there (#172).
 
-    CoreCLR is the supported runtime, and this default is load-bearing, not advisory: the Mono
-    runtime pack shipped with .NET 10 (10.0.11) has a code-generation defect that crashes
-    CupriFace apps during startup — a native SIGSEGV inside Mono-compiled CoreLib where string
-    CONTENT is dereferenced as a string REFERENCE. It reproduces on arm64 hardware and x64
-    emulators alike, with AOT and JIT alike (they share Mono's code generator), trimmed or not.
-    Full forensics and the upstream-ready report: samples/AndroidProbe/MONO-CRASH.md in the
-    CupriFace repository. Re-evaluate when the Mono runtime pack moves past 10.0.11 — the
-    AndroidProbe workflow's variant matrix exists to answer exactly that.
+    What belongs here is the opposite kind of thing: a check that needs the FINAL answer. By the
+    time this file is imported the workload has resolved _AndroidRuntime, so this can see what the
+    app is actually going to ship.
+
+    Why it is worth an error rather than a warning. A consumer who ends up on Mono has no way to
+    find out except by shipping an APK that dies in OnCreate, on a device, with a managed exception
+    whose stack points at innocent string code. That is the single most expensive failure this
+    package can hand someone, and it is completely invisible at build time. Turning it into a build
+    error that names the cause costs a consumer who genuinely wants Mono one property.
   -->
-  <PropertyGroup>
-    <UseMonoRuntime Condition="'$(UseMonoRuntime)' == ''">false</UseMonoRuntime>
-  </PropertyGroup>
+  <Target Name="CupriFaceCheckAndroidRuntime" BeforeTargets="Build"
+          Condition="'$(UseMonoRuntime)' == 'true' and '$(CupriFaceAllowMonoRuntime)' != 'true'">
+    <Error Code="CUPRI0001"
+           Text="CupriFace.Android requires the CoreCLR runtime, and this app is building against Mono (UseMonoRuntime=true, _AndroidRuntime=$(_AndroidRuntime)). The Mono runtime pack in .NET 10 (10.0.11) has a code-generation defect that crashes CupriFace apps during startup, in OnCreate, before the first frame — it reproduces on arm64 hardware and x64 emulators, under AOT and JIT alike. Remove UseMonoRuntime from this project to take the package's default, or set CupriFaceAllowMonoRuntime=true to build anyway and accept the crash. Forensics: samples/AndroidProbe/MONO-CRASH.md." />
+  </Target>
 </Project>

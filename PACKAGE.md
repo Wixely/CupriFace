@@ -46,9 +46,11 @@ takes pointer and key events with no display attached. That also makes UI genuin
 - Requires **.NET 10**. Skia and HarfBuzz natives for Windows, Linux and macOS come in as
   dependencies, so one build runs on any desktop OS.
 - On Android the runtime is **CoreCLR** — `CupriFace.Android` pins `UseMonoRuntime=false` for
-  every consumer via its buildTransitive targets. This is a correctness requirement, not a
-  preference: Mono 10.0.11 miscompiles the engine on Android (forensics in the repo,
-  `samples/AndroidProbe/MONO-CRASH.md`).
+  every consumer from its `buildTransitive/CupriFace.Android.props`. This is a correctness
+  requirement, not a preference: Mono 10.0.11 miscompiles the engine on Android (forensics in the
+  repo, `samples/AndroidProbe/MONO-CRASH.md`). An app that sets `UseMonoRuntime=true` anyway fails
+  the build with **CUPRI0001** rather than shipping an APK that dies during startup; set
+  `CupriFaceAllowMonoRuntime=true` to build it regardless.
 - **App icons come in two kinds, and CupriFace only owns one of them.** Override `CupriApp.Icon`
   with PNG/JPEG bytes and every host adapts it to its own *runtime* icon: the desktop window and
   taskbar, the browser tab's favicon, the Android recents card. The **launcher** icon is not
