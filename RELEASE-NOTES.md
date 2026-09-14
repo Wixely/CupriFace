@@ -13,6 +13,35 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Added
+
+- **Borders differ per side.** `border-left` / `-right` / `-top` / `-bottom`, the `border-*-width`
+  and `border-*-color` longhands, and the one-to-four-value forms of `border-width` and
+  `border-color` all resolve now. Width and colour are per edge; **`border-style` stays whole-box**,
+  so a dashed left beside a solid top is not expressible and the last style parsed wins.
+
+  Both halves used to fail, and differently. `border-left: 3px solid #fbbf24` was not in the
+  property switch at all, so it was discarded and CF0050 said so. `border-width: 1px 0 0 0` **was**
+  in the switch, and handed the whole string to the single-length parser, which failed and fell back
+  to zero — so the box lost its border and nothing reported anything, because the property name was
+  known.
+
+### Changed
+
+- **Components look slightly different, because their own stylesheets finally apply.** Tabs, the
+  accordion, table rows, the number field's stepper and the Markdown blockquote have always carried
+  per-side border declarations that were silently thrown away. They paint now: the tab strip gets its
+  rail and the active tab its copper underline, accordion items and table rows get separators, the
+  stepper gets its divider. Nothing was restyled — the declarations were already there. Borders take
+  space, so content below them shifts down by one or two pixels.
+
+  **If you relied on one of those declarations doing nothing, it no longer does.** A border occupies
+  width: a 1px divider on one cell of a flex row makes that cell a pixel wider than its neighbours.
+  Where a divider must not change layout, use `box-shadow: inset -1px 0 0 …`, which is what the
+  resizable table's column divider now does so its header cells stay aligned with the body.
+
 ## v0.24.1
 
 ### Fixed

@@ -289,7 +289,10 @@ meets its §7 performance budget. Below is delivery order, not a ceiling.
 
 **In scope v1**
 - Box model: `width/height`, `min/max-*`, `margin`, `padding`, `border`,
-  `box-sizing`, `border-radius`.
+  `box-sizing`, `border-radius`. Border **width and colour are per side**
+  (`border-left`, `border-top-width`, `border-color: a b c d`, …);
+  **`border-style` is whole-box** — a dashed left beside a solid top is not
+  expressible, and the last style parsed wins.
 - Layout: `display: flex | block | inline-block | none`, full flexbox
   (`flex-direction`, `justify-content`, `align-*`, `flex-grow/shrink/basis`,
   `gap`, `order`, `flex-wrap`), `position: relative | absolute`, `top/left/...`,

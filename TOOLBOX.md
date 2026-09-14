@@ -399,6 +399,20 @@ controls handle their own state.
   looks like it dims as you type — which reads as a disabled field rather than a theming gap.
   The default accent is copper `#B87333` (hence *Cupri*). Controls that don't read a variable can
   still be restyled through their class hooks.
+- **Borders, per side.** `border-left` and its three siblings, `border-top-width` and friends,
+  `border-bottom-color` and friends, and the one-to-four-value forms of `border-width` and
+  `border-color` all work — a header underline, a column separator, the coloured rule down the side
+  of a quoted reply. Values mirror the way every CSS box shorthand does: one is every edge, two are
+  top/bottom then left/right, three add the bottom, four go clockwise from the top.
+  ```css
+  .quote  { border-left: 3px solid var(--cupri-border); padding-left: 12px; }
+  .rule   { border-width: 1px 0 0 0; border-color: var(--cupri-border); }
+  ```
+  **`border-style` is whole-box.** Width and colour are per side; a dashed left beside a solid top is
+  not expressible and the last style parsed wins. Note also that a border **occupies width**, so a
+  1px divider on one cell of a flex row makes that cell a pixel wider than its neighbours — use
+  `box-shadow: inset -1px 0 0 …` when the divider must not change the layout.
+
 - `@media (width ...)` is supported and re‑resolves on viewport change, so layouts can be responsive.
 - **`position: sticky`.** An element flows normally, but while its scroll container is scrolled it holds
   at the top (its `top` offset from the scrollport) instead of scrolling away — pinning a section header —

@@ -140,6 +140,22 @@ public sealed class Painter
         return false;
     }
 
+    /// <summary>One border command, carrying each edge's colour only when they differ — so the
+    /// common single-colour box still takes the rasteriser's stroked fast path.</summary>
+    private static BorderRect BorderCmd(float x, float y, float w, float h, CornerRadii radius,
+                                        RenderNode node, ComputedStyle s)
+    {
+        var uniform = s.BorderRightColor == s.BorderTopColor
+                      && s.BorderBottomColor == s.BorderTopColor
+                      && s.BorderLeftColor == s.BorderTopColor;
+        return new BorderRect(x, y, w, h, radius,
+            node.BorderTopW, node.BorderRightW, node.BorderBottomW, node.BorderLeftW,
+            s.BorderTopColor, s.BorderStyle,
+            uniform ? null : s.BorderRightColor,
+            uniform ? null : s.BorderBottomColor,
+            uniform ? null : s.BorderLeftColor);
+    }
+
     private void PaintNode(DisplayList list, RenderNode node, float originX, float originY, List<RenderNode> topLayer, bool inTopLayer,
         List<StickyItem>? stickyCollect = null, float scrollTop = float.NegativeInfinity)
     {
@@ -215,11 +231,11 @@ public sealed class Painter
             list.Add(new GradientRect(absX, absY, node.Width, node.Height, radius, grad));
 
         // Border frame.
-        var hasBorder = (node.BorderTopW + node.BorderRightW + node.BorderBottomW + node.BorderLeftW) > 0
-                        && s.BorderColor.Alpha > 0 && s.BorderStyle != BorderLineStyle.None;
+        // ANY edge that has both a width and a visible colour. Testing one shared colour answered
+        // for the wrong edge once a border could differ per side (#170).
+        var hasBorder = s.AnyBorderVisible && s.BorderStyle != BorderLineStyle.None;
         if (hasBorder && node.Width > 0)
-            list.Add(new BorderRect(absX, absY, node.Width, node.Height, radius,
-                node.BorderTopW, node.BorderRightW, node.BorderBottomW, node.BorderLeftW, s.BorderColor, s.BorderStyle));
+            list.Add(BorderCmd(absX, absY, node.Width, node.Height, radius, node, s));
 
         // Inline element with a background/border (a <code> chip): one rounded box per line it spans
         // (Width is 0 — a passthrough inline box), painted behind its text. Coords are in the block's
@@ -235,8 +251,7 @@ public sealed class Painter
                 if (s.BackgroundGradient is { } g)
                     list.Add(new GradientRect(absX + f.X, absY + f.Y, f.W, f.H, fragRadius, g));
                 if (hasBorder)
-                    list.Add(new BorderRect(absX + f.X, absY + f.Y, f.W, f.H, fragRadius,
-                        node.BorderTopW, node.BorderRightW, node.BorderBottomW, node.BorderLeftW, s.BorderColor, s.BorderStyle));
+                    list.Add(BorderCmd(absX + f.X, absY + f.Y, f.W, f.H, fragRadius, node, s));
             }
 
         // Box shadow: inset (inner) shadows paint on top of the background, clipped inside the box.

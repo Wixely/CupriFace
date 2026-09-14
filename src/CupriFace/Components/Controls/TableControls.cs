@@ -30,9 +30,14 @@ public sealed class TableComponent : ComponentBase
                        color:var(--cupri-text, #1e2430); font-size:14px; }
         .cupri-cell[data-sortable] { color:var(--cupri-muted, #4a5262); }
         .cupri-cell[data-sortable][data-hover] { background:var(--cupri-hover, #eef1f5); }
-        /* Resizable table: header cells show a column divider you can drag from the right edge. */
-        .cupri-table[data-cupri-colresize] .cupri-row.header .cupri-cell { border-right:1px var(--cupri-border, #e6e9f0); }
-        .cupri-table[data-cupri-colresize] .cupri-row.header .cupri-cell:last-child { border-right:0px transparent; }
+        /* Resizable table: header cells show a column divider you can drag from the right edge.
+           An INSET SHADOW rather than border-right, because the divider must not occupy width: a
+           dragged column's width is written as flex-basis, which is content-box, so a 1px border on
+           the header cell alone would make it a pixel wider than the body cells beneath it and the
+           columns would stop lining up. (It never showed before #170, when border-right was silently
+           discarded; it does now, so the divider has to sit outside the box model.) */
+        .cupri-table[data-cupri-colresize] .cupri-row.header .cupri-cell { box-shadow:inset -1px 0 0 var(--cupri-border, #e6e9f0); }
+        .cupri-table[data-cupri-colresize] .cupri-row.header .cupri-cell:last-child { box-shadow:none; }
         """;
 
     public override void Expand(IElement el)
