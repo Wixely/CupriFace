@@ -225,6 +225,62 @@ public class FloatLabelTests(ITestOutputHelper output)
         Assert.True(diff.IsIdentical, "an empty float-label field must paint exactly like a plain one: " + diff);
     }
 
+    /// <summary>
+    /// …and it is still a plain field once someone has CLICKED INTO it. This is the state a person
+    /// actually looks at longest before typing, and the one where the caret gives the geometry away:
+    /// anchored to the value span it sat three pixels below the prompt it was standing in front of.
+    /// </summary>
+    [Fact]
+    public void An_empty_focused_one_is_indistinguishable_too()
+    {
+        SKBitmap Shot(bool floatLabel)
+        {
+            var (t, _) = Field("", floatLabel);
+            t.ClickNode(t.FindClass("cupri-textfield"));
+            var bmp = t.Render(SKColors.White);
+            t.Dispose();
+            return bmp;
+        }
+
+        using var plain = Shot(false);
+        using var floated = Shot(true);
+
+        var diff = CupriFace.Diagnostics.ImageDiff.Compare(plain, floated);
+        output.WriteLine(diff.ToString());
+        Assert.True(diff.IsIdentical, "a focused empty float-label field must paint like a plain one: " + diff);
+    }
+
+    /// <summary>
+    /// The caret never moves — not between empty and filled, and not from where a plain field puts
+    /// it. Stated on the geometry as well as in pixels, because "the caret is 3px low" is the kind
+    /// of thing an image diff reports as a blur of changed pixels rather than as a cause.
+    ///
+    /// <para>It took two goes. Anchoring the caret to the value span put it below the prompt it was
+    /// standing in front of; then buying the label's room out of the padding moved the content box
+    /// down, which moved the value, the caret AND the caret's clip — the clip cropping three pixels
+    /// off the top of the caret in an empty field. The version that survives moves nothing at all.</para>
+    /// </summary>
+    [Fact]
+    public void The_caret_is_exactly_where_a_plain_field_puts_it()
+    {
+        float CaretY(string value, bool floatLabel)
+        {
+            var (t, _) = Field(value, floatLabel);
+            t.ClickNode(t.FindClass("cupri-textfield"));
+            var y = t.Doc.GetTextInputState().CaretRect!.Value.Y;
+            t.Dispose();
+            return y;
+        }
+
+        var plainEmpty = CaretY("", false);
+        var floatEmpty = CaretY("", true);
+        var floatFilled = CaretY("test123", true);
+
+        output.WriteLine($"plain {plainEmpty:0.00}   float empty {floatEmpty:0.00}   float filled {floatFilled:0.00}");
+        Assert.Equal(plainEmpty, floatEmpty, 0.01);
+        Assert.Equal(plainEmpty, floatFilled, 0.01);
+    }
+
     /// <summary>…and the moment there IS a value, it is different — the control above proves nothing
     /// on its own if the label never moves.</summary>
     [Fact]

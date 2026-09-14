@@ -31,28 +31,31 @@ public sealed class TextFieldComponent : ComponentBase
            The row is reserved in the padding whether the label has risen or not, so typing the
            first character does not shove the rest of the form down.
 
-           IT IS THE SAME HEIGHT AS A PLAIN FIELD, and that is the constraint everything else here
-           bends to. One of these sitting in a row beside ordinary fields has to line up with them;
-           a control that is nine pixels taller than its neighbours reads as a mistake whatever it
-           is doing with its label. So the label's row is bought out of the existing padding rather
-           than added to it — the top gains 3px and the bottom gives up 3px — and the label shrinks
-           far enough to live in what that buys. The value sits 3px lower than it would in a plain
-           field, which is the whole visible cost. */
-        .cupri-textfield[data-float-label] { position:relative; padding:12px 12px 6px; }
+           IT CHANGES NOTHING ABOUT THE BOX, and that is the constraint everything else here bends
+           to. Same height, same padding, same content box — so the value, the caret and the caret's
+           clip sit exactly where a plain field puts them, and one of these in a row of ordinary
+           fields lines up with them in every state.
+
+           That leaves the risen label nowhere to go but the 11px of headroom the top padding
+           already provides, which is why it shrinks as far as it does. Buying the room instead — a
+           deeper top padding, a shallower bottom — was tried first and moved the content box down
+           with it: the value sat 3px low, and the caret's clip cut 3px off the top of the caret in
+           an empty field. Six stray pixels, found by differencing against a plain field, and the
+           reason this version does not touch the padding at all. */
+        .cupri-textfield[data-float-label] { position:relative; }
         /* AT REST IT PAINTS EXACTLY WHERE A PLAIN FIELD'S PLACEHOLDER DOES. Until someone types,
            nobody should be able to tell the two apart — the feature is meant to cost nothing until
-           it has something to say. Hence the NEGATIVE top: the box was pushed down to buy room for
-           the risen label, and the label alone has to ignore that and stay on the plain field's
-           text line.
+           it has something to say. It sits at the top of the content box, which is where a plain
+           field's placeholder sits, because the box is never moved.
 
            Colour comes from .cupri-tf-ph and does not change when the label rises. Darkening it
            would have to name a second colour, and a theme that defines --cupri-muted would then see
            no change at all while an unthemed page did — a difference that only shows up in someone
            else's app. Size and position carry the state instead, in both. */
-        .cupri-tf-label { position:absolute; left:0; top:-3px; font-size:15px;
+        .cupri-tf-label { position:absolute; left:0; top:0; font-size:15px;
                           transform-origin:left center; transition:transform 150ms; }
         /* transform, not top/font-size: transform is what this engine animates. */
-        .cupri-tf-label[data-raised] { transform:translateY(-12px) scale(0.68); }
+        .cupri-tf-label[data-raised] { transform:translateY(-13px) scale(0.6); }
         /* Inline validation message the engine injects after an invalid, visited field. */
         .cupri-field-error { display:block; color:#d92d20; font-size:13px; margin:5px 0 2px; }
         """;
@@ -64,16 +67,23 @@ public sealed class TextFieldComponent : ComponentBase
         el.ClassList.Add("cupri-textfield");
 
         // float-label: the placeholder becomes a label once the field has something in it, instead
-        // of vanishing the moment it is most needed. Opt-in, because it changes the field's height
-        // and a dense form full of them is not always what an author wants.
+        // of vanishing the moment it is most needed. Opt-in because it is a look, not because it
+        // costs anything: the box is identical to a plain field's in every state.
         var placeholder = Str(el, "placeholder");
         if (Flag(el, "float-label") && placeholder.Length > 0)
         {
             el.SetAttribute("data-float-label", "");
-            // The caret anchor is the VALUE span either way, empty or not, so the caret sits on the
-            // text line rather than on the label — the label is a label, not the text being edited.
-            el.InnerHtml = Label(placeholder, raised: value.Length > 0)
-                           + $"<span class='cupri-tf-text' data-caret-anchor>{Escape(value)}</span>";
+            // The caret anchors to whatever is CURRENTLY on the text line, which is the label while
+            // the field is empty and the value once there is one. Anchoring it to the value span
+            // either way put the caret three pixels below the prompt it was sitting in front of, so
+            // a focused empty field looked subtly wrong next to a plain one — the whole thing this
+            // field is supposed to be indistinguishable from until you type.
+            //
+            // This is what the ordinary branch below already does: an empty field anchors the caret
+            // to its placeholder span.
+            var filled = value.Length > 0;
+            el.InnerHtml = Label(placeholder, raised: filled, caretAnchor: !filled)
+                           + $"<span class='cupri-tf-text'{(filled ? " data-caret-anchor" : "")}>{Escape(value)}</span>";
             return;
         }
 
@@ -94,8 +104,9 @@ public sealed class TextFieldComponent : ComponentBase
     /// named in BOTH states, which is better than an ordinary placeholder manages: that one is only
     /// rendered while the field is empty, so a filled field fell through to the attribute.</para>
     /// </summary>
-    internal static string Label(string text, bool raised) =>
-        $"<span class='cupri-tf-ph cupri-tf-label'{(raised ? " data-raised" : "")}>{Escape(text)}</span>";
+    internal static string Label(string text, bool raised, bool caretAnchor = false) =>
+        $"<span class='cupri-tf-ph cupri-tf-label'{(raised ? " data-raised" : "")}"
+        + $"{(caretAnchor ? " data-caret-anchor" : "")}>{Escape(text)}</span>";
 
     private static string Escape(string s) =>
         s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");

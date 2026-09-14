@@ -22,14 +22,14 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   it was for the moment you type into it. This costs one. The prompt sits where the value will go
   while the field is empty and rises to a smaller line inside the box once there is a value to label.
 
-  **Until someone types, it is a plain field — pixel for pixel**, which is asserted by subtraction
-  rather than by eye. Same height, same border, prompt on the same line, so one of these in a row of
-  ordinary fields is invisible until it has something to label. The label's row is bought out of the
-  existing padding rather than added to it, so the only difference a value brings is the text
-  sitting 3px lower. The row is reserved whether the label has risen or not, so typing the first
-  character never shoves the rest of a form down. With no `placeholder` the attribute does nothing
-  rather than reserving a row for an empty label. Single-line fields only: a `cupri-textarea` scrolls
-  its own content and a label pinned inside it would scroll away with the text.
+  **Until someone types, it is a plain field — pixel for pixel**, focused or not, asserted by
+  subtraction rather than by eye. Same height, same border, prompt and caret on the same line. The
+  box is never touched, so the value, the caret and everything below sit exactly where a plain field
+  puts them in both states: a mixed column lines up throughout, and typing the first character moves
+  nothing but the label. The risen label lives in the headroom the top padding already provides,
+  which is why it is as small as it is. With no `placeholder` the attribute does nothing rather than
+  reserving a row for an empty label. Single-line fields only: a `cupri-textarea` scrolls its own
+  content and a label pinned inside it would scroll away with the text.
 
   It is also better *named* than a plain placeholder. The label carries the placeholder class, so the
   accessibility tree keeps it out of the field's value and uses it as the field's name in **both**
