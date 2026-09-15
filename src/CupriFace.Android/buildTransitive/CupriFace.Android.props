@@ -1,0 +1,42 @@
+<Project>
+  <!--
+    Flows into apps that consume the CupriFace.Android NUPKG (repo-internal apps set this in
+    their own csproj — buildTransitive does not cross ProjectReference edges).
+
+    CoreCLR is the supported runtime, and this default is load-bearing, not advisory: the Mono
+    runtime pack shipped with .NET 10 (10.0.11) has a code-generation defect that crashes
+    CupriFace apps during startup — a native SIGSEGV inside Mono-compiled CoreLib where string
+    CONTENT is dereferenced as a string REFERENCE. It reproduces on arm64 hardware and x64
+    emulators alike, with AOT and JIT alike (they share Mono's code generator), trimmed or not.
+    Full forensics and the upstream-ready report: samples/AndroidProbe/MONO-CRASH.md in the
+    CupriFace repository. Re-evaluate when the Mono runtime pack moves past 10.0.11 — the
+    AndroidProbe workflow's variant matrix exists to answer exactly that.
+
+    THIS FILE IS .props, AND THAT IS THE WHOLE POINT (#172). The same PropertyGroup lived in the
+    package's .targets for its entire life and never once fired, because of when the two are
+    imported:
+
+      1. Sdk.props, package buildTransitive/*.props, Directory.Build.props   ← .props lands HERE
+      2. the project body
+      3. Sdk.targets → the Android workload's DefaultProperties.targets:
+             <UseMonoRuntime Condition=" '$(UseMonoRuntime)' == '' ">true</UseMonoRuntime>
+      4. NuGet's generated .nuget.g.targets → package buildTransitive/*.targets  ← .targets landed HERE
+
+    By step 4 the property is already 'true', so a guard of "'$(UseMonoRuntime)' == ''" can never
+    be true and the pin was a no-op. Right shape, wrong file. From step 1 the guard holds, and the
+    Android SDK's own "== ''" condition at step 3 then correctly declines to overwrite it.
+
+    Nothing in this repository caught it: every Android app here (AndroidViewer, AndroidLottie,
+    AndroidProbe, GlProbe.Android) sets UseMonoRuntime in its own csproj, so none of them has ever
+    exercised the buildTransitive path. The guard against that is a package-consumer build in CI,
+    which is what tests/PackageConsumer exists for.
+  -->
+  <PropertyGroup>
+    <!-- The marker is set FIRST, while UseMonoRuntime is still empty, because it records whether
+         THIS PACKAGE is the reason the app is on CoreCLR. An app that chose CoreCLR itself gets no
+         explanation from us; it already has one. The .targets beside this file uses it to explain
+         the XA1040 warning the choice produces. -->
+    <CupriFacePinnedCoreClr Condition="'$(UseMonoRuntime)' == ''">true</CupriFacePinnedCoreClr>
+    <UseMonoRuntime Condition="'$(UseMonoRuntime)' == ''">false</UseMonoRuntime>
+  </PropertyGroup>
+</Project>
