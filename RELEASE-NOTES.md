@@ -17,6 +17,37 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **`CupriFace.Android`'s CoreCLR pin now actually reaches apps that consume the package.** It
+  never has. The pin sat in the package's `buildTransitive/*.targets`, guarded on the property
+  being unset — and NuGet imports a package's `.targets` long after the Android workload has
+  already defaulted `UseMonoRuntime` to `true`, so the guard could never be true. Right shape,
+  wrong file. **Every consuming app shipped Mono and died in `OnCreate` before its first frame**,
+  which is the exact crash the pin exists to prevent. Moving the same one line to a
+  `buildTransitive/*.props` fixes it: from there the Android SDK's own "only if unset" condition
+  correctly declines to overwrite it.
+
+  Nothing in this repository could have caught it. Every Android app here sets `UseMonoRuntime` in
+  its own csproj, because buildTransitive does not cross a `ProjectReference` edge, so the
+  package's build contribution had never been exercised by a single build in the tree that produces
+  it. `tests/PackageConsumer` is now a CI gate that consumes the package the way an outside app
+  does and asks MSBuild which runtime it resolved to.
+
+  **If you carry a hand-written `UseMonoRuntime=false` in your Android csproj, you can delete it.**
+  Keeping it is harmless. And an app that opts back INTO Mono now fails the build with
+  **CUPRI0001**, naming the cause, instead of producing an APK that crashes on a device; set
+  `CupriFaceAllowMonoRuntime=true` if you want to build it anyway.
+
+- **The `XA1040` warning now says who caused it.** Choosing CoreCLR makes the Android SDK warn that
+  the runtime is "an experimental feature and not yet suitable for production use" — accurate, and
+  completely silent about the fact that this package forced the choice. A consumer got a production-
+  readiness warning in a build they did not configure, with nothing connecting it to CupriFace.
+  The build now prints the reason next to it, and `PACKAGE.md` states the trade in full: XA1040
+  fires for **any** non-Mono runtime (NativeAOT included), so Mono is the only runtime it stays
+  quiet about and the only one that crashes — there is no setting that is both quiet and working.
+  It clears when CoreCLR on Android stops being experimental, which is a *different* upstream event
+  from Mono's defect being fixed. `CupriFaceQuietRuntimeNote=true` silences the note,
+  `<NoWarn>XA1040</NoWarn>` the warning. CUPRI0001 says the same thing from the other direction.
+
 - **The Showcase's Markdown page can be opened by name again.** `--section markdown` silently landed
   on Inputs, and an internal link naming it did nothing, because the set of routable section ids was
   a hand-written copy of the sidebar and the Markdown page had been added to one and not the other.
