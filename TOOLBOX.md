@@ -356,6 +356,36 @@ outside of an input dispatch (e.g. a background timer), call `doc.Refresh()` (or
   `\n`. Tabs and newlines survive; a single‑line field then flattens the newlines to spaces. This
   applies to text arriving through a platform editor too (the browser's real `<textarea>`, Android's
   input connection), so every host holds the same thing.
+
+- **`float-label` — the placeholder becomes the label.** A labelled field normally costs two lines,
+  a label above and a box below. A placeholder-only field costs one, and then forgets what it was
+  for the moment you type into it. `float-label` costs one: the prompt sits where the value will go
+  while the field is empty, and rises to a smaller line inside the box once there is a value to
+  label.
+  ```html
+  <!-- no separate label element beside it — the field carries its own name -->
+  <cupri-textfield value="{{Feedback}}" placeholder="What is wrong with it?" float-label></cupri-textfield>
+  ```
+  **Until someone types, it is a plain field — pixel for pixel.** Same height, same border, prompt
+  and caret on the same line; there is nothing to notice until there is something to label. The box
+  is never touched, so the value, the caret and everything below stay exactly where a plain field
+  puts them, in both states — a mixed column of these and ordinary fields lines up throughout, and
+  typing the first character moves nothing but the label. The risen label lives in the headroom the
+  top padding already provides, which is why it is as small as it is.
+
+  Risen, it sits **on** the field's top border, with a pill of the field's own surface colour
+  cutting a notch out of the line it crosses. It needs a `placeholder` to have anything to float —
+  with none, the attribute does nothing rather than reserving a row for an empty label. Opt‑in
+  because it is a look, not because it costs anything.
+
+  **It is also better named than a plain placeholder.** The label carries the placeholder class, so
+  the accessibility tree keeps it out of the field's *value* and uses it as the field's *name* — in
+  both states. An ordinary placeholder is only rendered while the field is empty, so a filled field
+  has to fall back to the attribute.
+
+  Single‑line fields only for now. In a `cupri-textarea` the box scrolls its own content, and a
+  label pinned inside it would scroll away with the text.
+
 - **Validation.** A bound field can carry `required`, `pattern="regex"`, `minlength`, and numeric
   `min`/`max`. The engine shows the red border while a rule fails and injects an inline error message
   **once the field is left** (blurred) or the form is validated — so it never nags mid‑type. `error="…"`
@@ -575,7 +605,7 @@ static config unless noted.
 | `<cupri-progress>` | Read‑only progress bar | `value` (0), `max` (100) | — | — | `progressbar` |
 | `<cupri-button>` | Themed button | `variant` (`primary`\|`ghost`) | — | label text/HTML | `button` |
 | `<cupri-icon-button>` | Icon‑only button | `icon` | — | — | `button` |
-| `<cupri-textfield>` | Single‑line text input | `value`, `placeholder` | `value` | — | `textbox` |
+| `<cupri-textfield>` | Single‑line text input | `value`, `placeholder`, `float-label` | `value` | — | `textbox` |
 |  ↳ *draws its value with* `var(--cupri-text, …)` *and its placeholder with* `var(--cupri-muted, …)` — **not** the inherited `color`, so a dark theme must set those variables or the typed value stays near-black. | | | | | |
 | `<cupri-number>` | Numeric field + `−/+` steppers | `value`, `min`, `max`, `step` | `value` | — | `spinbutton` |
 | `<cupri-textarea>` | Multi‑line text input | `value`, `placeholder`, `follow-tail` | `value` | — | `textbox` (`aria-multiline`) |

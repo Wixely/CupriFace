@@ -15,6 +15,33 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ## Unreleased
 
+### Added
+
+- **`float-label` on `<cupri-textfield>`: the placeholder becomes the label.** A labelled field costs
+  two lines, a label above and a box below; a placeholder-only field costs one and then forgets what
+  it was for the moment you type into it. This costs one. The prompt sits where the value will go
+  while the field is empty and rises to a smaller line inside the box once there is a value to label.
+
+  **Until someone types, it is a plain field — pixel for pixel**, focused or not, asserted by
+  subtraction rather than by eye. Same height, same border, prompt and caret on the same line. The
+  box is never touched, so the value, the caret and everything below sit exactly where a plain field
+  puts them in both states: a mixed column lines up throughout, and typing the first character moves
+  nothing but the label. The risen label lives in the headroom the top padding already provides,
+  which is why it is as small as it is. With no `placeholder` the attribute does nothing rather than
+  reserving a row for an empty label. Single-line fields only: a `cupri-textarea` scrolls its own
+  content and a label pinned inside it would scroll away with the text.
+
+  Risen, the label sits **on** the field's top border with a pill of the field's own surface colour
+  notching the line it crosses. Getting it out there meant the field could no longer be the thing
+  that clips its own text, so **the engine now scrolls whatever clips a single-line field's text
+  rather than assuming that is the field** (`ClipOwner`). For every existing field those are the
+  same element and nothing changes; it lets a component put a clip closer in, which is what keeps a
+  long value inside the box while the label hangs over the border.
+
+  It is also better *named* than a plain placeholder. The label carries the placeholder class, so the
+  accessibility tree keeps it out of the field's value and uses it as the field's name in **both**
+  states — an ordinary placeholder is only rendered while the field is empty.
+
 ### Fixed
 
 - **Pasting no longer mangles every non-ASCII character on the GLFW desktop window.** GLFW's

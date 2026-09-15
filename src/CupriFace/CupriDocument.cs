@@ -1596,6 +1596,28 @@ public sealed partial class CupriDocument : IDisposable
         sc.ScrollY = Math.Clamp(newScroll, 0, sc.MaxScrollY);
     }
 
+    /// <summary>
+    /// The element that CLIPS a single-line field's text, and therefore the one whose horizontal
+    /// caret-follow offset moves it: the nearest ancestor of the caret anchor, up to and including
+    /// the field, whose overflow is not visible.
+    ///
+    /// <para>For every ordinary field that IS the field — it carries both the clip and the nowrap,
+    /// and nothing changes. It stops being the field when a component puts a clip closer in, which
+    /// is what lets a float-label field let its label out over its own border while the value it is
+    /// labelling still clips to the box. Scrolling the field there would have moved the clip along
+    /// with the text and scrolled nothing at all.</para>
+    /// </summary>
+    private static RenderNode ClipOwner(RenderNode field, RenderNode anchor)
+    {
+        RenderNode? best = null;
+        for (var n = anchor; n is not null; n = n.Parent)
+        {
+            if (n.Style.Overflow != OverflowMode.Visible) best ??= n;
+            if (ReferenceEquals(n, field)) break;
+        }
+        return best ?? field;
+    }
+
     // Keep the caret horizontally visible in a single-line (white-space:nowrap) field by scrolling its
     // content — mirrors ScrollCaretIntoView on the X axis. Preserved across rebuilds via NodeState.
     private void ScrollCaretIntoViewX()
@@ -1610,12 +1632,14 @@ public sealed partial class CupriDocument : IDisposable
         var caret = Math.Clamp(_caret, 0, value.Length);
         var caretX = _fonts.MeasureText(anchor.Style, value[..caret]); // from the text start
         var full = value.Length == 0 ? 0 : _fonts.MeasureText(anchor.Style, value);
-        var boxW = field.ContentBoxWidth;
+        // Whatever clips the text is what has to move it; see ClipOwner.
+        var scroller = ClipOwner(field, anchor);
+        var boxW = scroller.ContentBoxWidth;
 
-        var sx = field.ScrollX;
+        var sx = scroller.ScrollX;
         if (caretX - sx < 0) sx = caretX;                    // caret ran off the left → reveal it
         else if (caretX - sx > boxW) sx = caretX - boxW;     // ran off the right → reveal it
-        field.ScrollX = Math.Clamp(sx, 0, MathF.Max(0, full - boxW));
+        scroller.ScrollX = Math.Clamp(sx, 0, MathF.Max(0, full - boxW));
     }
 
     // The focused field's scroll-container content box (painted), for clipping caret/selection; null if none.
@@ -1626,7 +1650,9 @@ public sealed partial class CupriDocument : IDisposable
         // A single-line (nowrap) field scrolls horizontally under overflow:hidden — clip the caret and
         // selection to its content box so they never draw past the field edge when scrolled.
         var sc = ScrollableContainer(focused)
-            ?? (focused is { } f && f.Style.WhiteSpace == WhiteSpaceMode.NoWrap ? f : null);
+            ?? (focused is { } f && f.Style.WhiteSpace == WhiteSpaceMode.NoWrap
+                ? ClipOwner(f, FindCaretAnchor(f) ?? f)
+                : null);
         if (sc is null) return null;
         var (sx, sy) = PaintedTopLeft(sc);
         return (sx + sc.ContentLeftInset, sy + sc.ContentTopInset,
