@@ -87,6 +87,17 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **A carousel could not be moved at all with an ordinary mouse.** It scrolls sideways and only
+  sideways, and both ways of reaching that axis needed particular hardware or a hand: a horizontal
+  wheel, or a finger. A plain wheel has no horizontal component and a scroll box is not a drag
+  surface, so on a desktop there was no way to move it — the component read as broken while every
+  part of it worked.
+
+  Two fixes. **A wheel over a scroller that can only move sideways now moves it sideways**, which is
+  what browsers do, and chains outward at its end exactly as the vertical axis already did. And a
+  scroll box can opt into being pushed by hand with **`data-drag-scroll`**, which `cupri-carousel`
+  sets on its viewport.
+
 - **Pasting no longer mangles every non-ASCII character on the GLFW desktop window.** GLFW's
   clipboard is UTF-8 and Silk's binding for it decoded those bytes as the ANSI code page, so
   `a—b€ü` arrived as `aâ€”bâ‚¬Ã¼` — and copying OUT wrote the same mangling back for whatever read
@@ -150,6 +161,7 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   It clears when CoreCLR on Android stops being experimental, which is a *different* upstream event
   from Mono's defect being fixed. `CupriFaceQuietRuntimeNote=true` silences the note,
   `<NoWarn>XA1040</NoWarn>` the warning. CUPRI0001 says the same thing from the other direction.
+### Fixed
 
 - **The Showcase's Markdown page can be opened by name again.** `--section markdown` silently landed
   on Inputs, and an internal link naming it did nothing, because the set of routable section ids was

@@ -463,17 +463,29 @@ controls handle their own state.
   the wider **track** around it, which stays invisible until the pointer is inside it and then shows
   itself while the thumb fattens to fill it — the growth is the affordance, and says the column will
   take a press before one is made.
-
   A press anywhere in the track does something: on the thumb it drags, above or below it it pages
   (a visible height less an overlap, so a line or two of context survives the jump). Nothing behind
   the column receives the press — a button that happens to sit under a scrollbar is not what anyone
   aimed at. Dragging carries on if the pointer wanders out of the column, which is what hands do.
+
 
   `CupriFace.Interaction.Scrollbar` carries the numbers if an app needs to reserve a gutter beside a
   list: `TrackWidth`, `ThumbWidth`, `ThumbWidthHot`, `PageFraction`, and `Track`/`Thumb` for the
   rectangles themselves. The painter and the hit-test both read it, so what you can grab is exactly
   what you can see. (Vertical only — the engine paints no horizontal scrollbar, though a box that
   overflows sideways still scrolls by wheel and by touch.)
+
+
+- **Dragging a scroll box by hand (`data-drag-scroll`).** A scroll box takes the wheel and a
+  finger; it does not take a mouse drag, because dragging across a page selects its text and turning
+  every scroller into something a hand pushes would take that away everywhere. Put
+  `data-drag-scroll` on one and a press that TRAVELS pans it instead. `<cupri-carousel>` sets it on
+  its own viewport.
+  Related, and the reason a carousel felt broken with an ordinary mouse: **a wheel over a scroller
+  that can only move SIDEWAYS now moves it sideways**, as browsers do. A plain wheel has no
+  horizontal component, so the one axis such a strip has was otherwise unreachable without a tilt
+  wheel or a trackpad. At its end the wheel chains outward to the page, exactly as the vertical axis
+  already did.
 
 - **`position: sticky`.** An element flows normally, but while its scroll container is scrolled it holds
   at the top (its `top` offset from the scrollport) instead of scrolling away — pinning a section header —
@@ -753,6 +765,7 @@ to the bottom as new lines arrive (logging), *unless* the user has scrolled up:
 | `<cupri-tabs>` | Tab strip; one panel at a time | `value` = active tab `id` | `value` | `<cupri-tab id="…" label="…">panel…</cupri-tab>` | `tablist`/`tab`/`tabpanel` |
 | `<cupri-accordion>` | Collapsible sections | — | — | `<cupri-accordion-item label="…" open="{{…}}">…</cupri-accordion-item>` | item hdr `button` |
 | `<cupri-tree>` | Hierarchical tree | — | — | nested `<cupri-tree-item label="…" open="{{…}}">…</cupri-tree-item>` | `tree`/`treeitem` |
+| `<cupri-carousel>` | Horizontal strip of panels | `peek`, `slide-width`, `gap` | — | `<cupri-slide>…</cupri-slide>` | — |
 | `<cupri-reorder>` | Drag‑to‑reorder list: drag a row by its grip and the others slide to open a gap; on drop, the document's `OnReorder(e => …)` fires with the item's old/new index (typically reorders the bound model list) | — | — | `<cupri-reorder-item>…</cupri-reorder-item>` (often `data-repeat="List"`) | — |
 | `<cupri-board>` | Kanban: a row of `<cupri-reorder>` columns. Drag a card's grip within a column or across to another (source closes its gap, target opens one, the card follows the pointer); `OnReorder` carries the source `List`/`From` and target `ToList`/`To` | — | — | column wrappers, each holding a `<cupri-reorder>` | — |
 | `<cupri-split>` | Resizable panels with draggable dividers (auto‑inserted between panels); drag a divider to grow one panel and shrink its neighbour. `vertical` stacks them; nestable. Give it a bounded size | `vertical` | — | `<cupri-split-panel size="N">…</cupri-split-panel>` (`size` = initial share) | — |

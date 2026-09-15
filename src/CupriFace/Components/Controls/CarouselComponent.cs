@@ -28,7 +28,7 @@ public sealed class CarouselComponent : ComponentBase
         /* The viewport IS the row. A scroll box measures its DIRECT children to find its scrollable
            extent, so slides wrapped in an inner track would leave the track — one child, viewport
            width — as the only thing measured, and nothing would ever scroll. */
-        .cupri-carousel-viewport { display:flex; align-items:stretch; overflow:scroll; }
+        .cupri-carousel-viewport { display:flex; align-items:stretch; overflow:scroll; cursor:grab; }
         .cupri-carousel-slide { flex:none; background:var(--cupri-surface, #fff);
                                 border:1px var(--cupri-border, #e6e9f0); border-radius:10px;
                                 padding:14px; color:var(--cupri-text, #1e2430); box-sizing:border-box; }
@@ -66,7 +66,12 @@ public sealed class CarouselComponent : ComponentBase
         el.ClassList.Add("cupri-carousel");
 
         var vpStyle = height > 0 ? $" style='height:{F(height)}px'" : "";
-        el.InnerHtml = $"<div class='cupri-carousel-viewport'{vpStyle}>{sb}</div>";
+        // data-drag-scroll: a hand can push the strip. Opt-in at the engine level rather than
+        // automatic for every scroll box, because dragging a page's text selection and dragging the
+        // page itself are different gestures and only a strip like this wants the second one. The
+        // engine waits for travel past a slop before it pans, so a press that turns out to be a
+        // click on a card still activates it.
+        el.InnerHtml = $"<div class='cupri-carousel-viewport' data-drag-scroll{vpStyle}>{sb}</div>";
     }
 }
 
