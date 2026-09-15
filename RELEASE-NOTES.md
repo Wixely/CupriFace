@@ -13,7 +13,7 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
-## Unreleased
+## v0.25.0
 
 ### Added
 
@@ -31,19 +31,6 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   already drifted: the hit-test padded the thumb by six pixels on one side and eight on the other to
   make a five-pixel bar catchable, so what you could grab was not where it was drawn.
 
-- **Pages that used inline `<code>` chips were painting five percent wrong, and nobody could see
-  why.** A chip lays out as a 0x0 box with padding, which gives it a negative content height — so
-  "content taller than the box" was arithmetically true of an element with nothing in it, and the
-  scrollbar code took it for a scroll container. Its thumb height then divided by a zero content
-  height and came out **infinite**, and its position multiplied zero by that infinity and came out
-  **NaN**.
-
-  No bar was ever visible, because a rectangle at NaN is nowhere. What it did instead was disturb
-  what was composited after it: the Showcase's gradient swatches, further down the same page,
-  painted visibly washed out. Three pages were affected. It was found by differencing screenshots
-  over an unrelated change, and there is now a test that asserts no frame contains non-finite
-  geometry at all — run against real Showcase pages, because the page that had the bug is not one
-  anybody would have thought to check.
 - **`TouchDriver`: touch you can script, the way `DispatchClick` scripts a mouse.** The gesture
   recogniser was always headless and deterministic; driving it was not. A test had to invent a
   monotonic clock, know the slop radius, know that a long press only fires when the host ticks its
@@ -60,6 +47,7 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   Documented in CLAUDE.md beside the mouse and keyboard verbs, where an agent looking for "how do I
   drive this" reads — it said nothing about touch before, so the honest conclusion from reading it
   was that touch could not be simulated at all.
+
 - **`float-label` on `<cupri-textfield>`: the placeholder becomes the label.** A labelled field costs
   two lines, a label above and a box below; a placeholder-only field costs one and then forgets what
   it was for the moment you type into it. This costs one. The prompt sits where the value will go
@@ -85,7 +73,46 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   accessibility tree keeps it out of the field's value and uses it as the field's name in **both**
   states — an ordinary placeholder is only rendered while the field is empty.
 
+- **Borders differ per side.** `border-left` / `-right` / `-top` / `-bottom`, the `border-*-width`
+  and `border-*-color` longhands, and the one-to-four-value forms of `border-width` and
+  `border-color` all resolve now. Width and colour are per edge; **`border-style` stays whole-box**,
+  so a dashed left beside a solid top is not expressible and the last style parsed wins.
+
+  Both halves used to fail, and differently. `border-left: 3px solid #fbbf24` was not in the
+  property switch at all, so it was discarded and CF0050 said so. `border-width: 1px 0 0 0` **was**
+  in the switch, and handed the whole string to the single-length parser, which failed and fell back
+  to zero — so the box lost its border and nothing reported anything, because the property name was
+  known.
+
+### Changed
+
+- **Components look slightly different, because their own stylesheets finally apply.** Tabs, the
+  accordion, table rows, the number field's stepper and the Markdown blockquote have always carried
+  per-side border declarations that were silently thrown away. They paint now: the tab strip gets its
+  rail and the active tab its copper underline, accordion items and table rows get separators, the
+  stepper gets its divider. Nothing was restyled — the declarations were already there. Borders take
+  space, so content below them shifts down by one or two pixels.
+
+  **If you relied on one of those declarations doing nothing, it no longer does.** A border occupies
+  width: a 1px divider on one cell of a flex row makes that cell a pixel wider than its neighbours.
+  Where a divider must not change layout, use `box-shadow: inset -1px 0 0 …`, which is what the
+  resizable table's column divider now does so its header cells stay aligned with the body.
+
 ### Fixed
+
+- **Pages that used inline `<code>` chips were painting five percent wrong, and nobody could see
+  why.** A chip lays out as a 0x0 box with padding, which gives it a negative content height — so
+  "content taller than the box" was arithmetically true of an element with nothing in it, and the
+  scrollbar code took it for a scroll container. Its thumb height then divided by a zero content
+  height and came out **infinite**, and its position multiplied zero by that infinity and came out
+  **NaN**.
+
+  No bar was ever visible, because a rectangle at NaN is nowhere. What it did instead was disturb
+  what was composited after it: the Showcase's gradient swatches, further down the same page,
+  painted visibly washed out. Three pages were affected. It was found by differencing screenshots
+  over an unrelated change, and there is now a test that asserts no frame contains non-finite
+  geometry at all — run against real Showcase pages, because the page that had the bug is not one
+  anybody would have thought to check.
 
 - **A carousel could not be moved at all with an ordinary mouse.** It scrolls sideways and only
   sideways, and both ways of reaching that axis needed particular hardware or a hand: a horizontal
@@ -131,6 +158,7 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   (CRLF, a lone CR, U+2028/U+2029) normalises to `\n`. The same applies to text pushed in by a
   platform editor — the browser's real `<textarea>`, Android's input connection — where a paste never
   reaches the keystroke path at all.
+
 - **`CupriFace.Android`'s CoreCLR pin now actually reaches apps that consume the package.** It
   never has. The pin sat in the package's `buildTransitive/*.targets`, guarded on the property
   being unset — and NuGet imports a package's `.targets` long after the Android workload has
@@ -161,7 +189,6 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   It clears when CoreCLR on Android stops being experimental, which is a *different* upstream event
   from Mono's defect being fixed. `CupriFaceQuietRuntimeNote=true` silences the note,
   `<NoWarn>XA1040</NoWarn>` the warning. CUPRI0001 says the same thing from the other direction.
-### Fixed
 
 - **The Showcase's Markdown page can be opened by name again.** `--section markdown` silently landed
   on Inputs, and an internal link naming it did nothing, because the set of routable section ids was
@@ -169,34 +196,6 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   Neither failure reported anything: you got the default page and assumed you had mistyped the id.
   The ids are read out of the sidebar markup now, so the two cannot drift, and a test walks every
   page the sidebar offers and opens each by name.
-
-### Added
-
-- **Borders differ per side.** `border-left` / `-right` / `-top` / `-bottom`, the `border-*-width`
-  and `border-*-color` longhands, and the one-to-four-value forms of `border-width` and
-  `border-color` all resolve now. Width and colour are per edge; **`border-style` stays whole-box**,
-  so a dashed left beside a solid top is not expressible and the last style parsed wins.
-
-  Both halves used to fail, and differently. `border-left: 3px solid #fbbf24` was not in the
-  property switch at all, so it was discarded and CF0050 said so. `border-width: 1px 0 0 0` **was**
-  in the switch, and handed the whole string to the single-length parser, which failed and fell back
-  to zero — so the box lost its border and nothing reported anything, because the property name was
-  known.
-
-### Changed
-
-- **Components look slightly different, because their own stylesheets finally apply.** Tabs, the
-  accordion, table rows, the number field's stepper and the Markdown blockquote have always carried
-  per-side border declarations that were silently thrown away. They paint now: the tab strip gets its
-  rail and the active tab its copper underline, accordion items and table rows get separators, the
-  stepper gets its divider. Nothing was restyled — the declarations were already there. Borders take
-  space, so content below them shifts down by one or two pixels.
-
-  **If you relied on one of those declarations doing nothing, it no longer does.** A border occupies
-  width: a 1px divider on one cell of a flex row makes that cell a pixel wider than its neighbours.
-  Where a divider must not change layout, use `box-shadow: inset -1px 0 0 …`, which is what the
-  resizable table's column divider now does so its header cells stay aligned with the body.
-
 ## v0.24.1
 
 ### Fixed
