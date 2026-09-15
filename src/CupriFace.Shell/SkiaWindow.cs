@@ -1,10 +1,15 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using CupriFace.Hosting;
 using CupriFace.Interaction;
 using Silk.NET.Input;
 using Silk.NET.Maths;
 using Silk.NET.Windowing;
 using SkiaSharp;
+// Aliases, not a namespace import: Silk.NET.GLFW and Silk.NET.Input both define MouseButton and Key,
+// and pulling the whole namespace in makes every existing use of those ambiguous.
+using GlfwApi = Silk.NET.GLFW.Glfw;
+using GlfwWindow = Silk.NET.GLFW.WindowHandle;
 
 namespace CupriFace.Shell;
 
@@ -223,11 +228,73 @@ public sealed class SkiaWindow : IDisposable
     public event Action<EditKey, KeyMods>? EditKeyPressed;  // key + Shift/Ctrl modifiers
     public event Action<char, KeyMods>? Shortcut;           // Ctrl/Cmd + letter (a/c/x/v …) or =/-/0 (zoom)
 
-    /// <summary>OS clipboard text, for copy/cut/paste (Silk keyboard, no P/Invoke).</summary>
+    /// <summary>
+    /// OS clipboard text, for copy/cut/paste.
+    ///
+    /// <para>GLFW's clipboard is UTF-8, and Silk's binding for it (which is what
+    /// <c>IKeyboard.ClipboardText</c> calls) decodes those bytes as the ANSI code page. Pasting
+    /// <c>a—b€ü</c> produced <c>aâ€”bâ‚¬Ã¼</c>: every non-ASCII character in a pasted quotation, name
+    /// or price came through as mojibake, and copying out wrote the same mangling back to the
+    /// clipboard for whatever read it next. Measured, not guessed — the raw bytes round-trip
+    /// perfectly through the very same call.</para>
+    ///
+    /// <para>So the entry points are resolved through GLFW's own loader and marshalled explicitly,
+    /// exactly as the SDL software window already does. Falls back to Silk's property if either
+    /// symbol cannot be resolved, which keeps ASCII working on a GLFW that somehow lacks them.</para>
+    /// </summary>
     public string? ClipboardText
     {
-        get => _input?.Keyboards is { Count: > 0 } ks ? ks[0].ClipboardText : null;
-        set { if (value is not null && _input is not null) foreach (var kb in _input.Keyboards) kb.ClipboardText = value; }
+        get
+        {
+            unsafe
+            {
+                if (GlfwClipboard is { } g && g.Get != 0 && GlfwWindowHandle is { } h)
+                {
+                    var p = ((delegate* unmanaged[Cdecl]<GlfwWindow*, byte*>)g.Get)((GlfwWindow*)h);
+                    return p is null ? null : Marshal.PtrToStringUTF8((IntPtr)p);
+                }
+            }
+            return _input?.Keyboards is { Count: > 0 } ks ? ks[0].ClipboardText : null;
+        }
+        set
+        {
+            if (value is null) return;
+            unsafe
+            {
+                if (GlfwClipboard is { } g && g.Set != 0 && GlfwWindowHandle is { } h)
+                {
+                    var utf8 = System.Text.Encoding.UTF8.GetBytes(value + '\0');  // null-terminated UTF-8
+                    fixed (byte* b = utf8)
+                        ((delegate* unmanaged[Cdecl]<GlfwWindow*, byte*, void>)g.Set)((GlfwWindow*)h, b);
+                    return;
+                }
+            }
+            if (_input is not null) foreach (var kb in _input.Keyboards) kb.ClipboardText = value;
+        }
+    }
+
+    private nint? GlfwWindowHandle => _window?.Native?.Glfw;
+
+    // Resolved once, through GLFW's own loader rather than a hardcoded library name, so this works
+    // wherever Silk found glfw3 in the first place.
+    private static (nint Get, nint Set)? _glfwClipboard;
+    private static bool _glfwClipboardTried;
+    private static (nint Get, nint Set)? GlfwClipboard
+    {
+        get
+        {
+            if (_glfwClipboardTried) return _glfwClipboard;
+            _glfwClipboardTried = true;
+            try
+            {
+                var ctx = GlfwApi.GetApi().Context;
+                if (ctx.TryGetProcAddress("glfwGetClipboardString", out var get)
+                    && ctx.TryGetProcAddress("glfwSetClipboardString", out var set))
+                    _glfwClipboard = (get, set);
+            }
+            catch (Exception ex) { KeyDiag.Log("glfw clipboard symbols unavailable: " + ex.Message); }
+            return _glfwClipboard;
+        }
     }
 
     // Click-count tracking (Silk MouseDown carries no count, unlike SDL): rapid clicks near
@@ -506,8 +573,11 @@ public sealed class SkiaWindow : IDisposable
                     Key.Escape => EditKey.Escape,
                     _ => EditKey.None,
                 };
-                if (ek != EditKey.None) EditKeyPressed?.Invoke(ek, mods);
+                if (ek == EditKey.None) return;
+                EditKeyPressed?.Invoke(ek, mods);
+                BeginRepeat(k, key, ek);
             };
+            kb.KeyUp += (_, key, _) => { if (_repeatKey == key) _repeat.Release(); };
         }
 
         // D, and the window's real size — LAST in OnLoad on purpose. The window was created at the
@@ -670,12 +740,60 @@ public sealed class SkiaWindow : IDisposable
             _grContext, _renderTarget, GRSurfaceOrigin.BottomLeft, SKColorType.Rgba8888);
     }
 
+    // ---- Held-key auto-repeat ------------------------------------------------------------------
+    //
+    // Silk's GLFW backend raises KeyDown for InputAction.Press only — it has no case for
+    // InputAction.Repeat, so GLFW's own repeats are dropped on the floor. Holding Backspace deleted
+    // exactly one character and then sat there; so did holding an arrow. TYPING repeated fine,
+    // because the character callback fires on repeat, which made the field feel broken rather than
+    // unimplemented: letters flowed, deletion did not.
+    //
+    // The SDL software window never had this — it reads SDL's events directly and SDL delivers the
+    // repeats — so the two desktop windows disagreed about the same keystroke. This makes the GLFW
+    // one behave like the SDL one, at the same shape of delay and rate the OS uses.
+    private readonly Stopwatch _repeatWall = Stopwatch.StartNew();
+    private readonly RepeatClock _repeat = new();
+    private EditKey _repeatEdit;
+    private Key _repeatKey;
+    private IKeyboard? _repeatBoard;
+
+    private void BeginRepeat(IKeyboard board, Key key, EditKey edit)
+    {
+        // Escape and Tab are one-shot: a held Tab would fly through the focus ring and a held Escape
+        // would close a stack of things nobody meant to close. Everything else repeats, which is the
+        // set SDL already repeats on the other desktop window.
+        if (edit is EditKey.Escape or EditKey.Tab or EditKey.ShiftTab) { _repeat.Release(); return; }
+        _repeatBoard = board;
+        _repeatKey = key;
+        _repeatEdit = edit;
+        _repeat.Press(_repeatWall.Elapsed.TotalMilliseconds);
+    }
+
+    private static KeyMods ModsOf(IKeyboard k) =>
+        ((k.IsKeyPressed(Key.ShiftLeft) || k.IsKeyPressed(Key.ShiftRight)) ? KeyMods.Shift : 0)
+        | (Ctrl(k) ? KeyMods.Ctrl : 0);
+
+    /// <summary>One frame's worth of auto-repeat. Re-reads the modifiers each time, so letting go of
+    /// Shift mid-repeat stops extending the selection, and re-checks that the key is still
+    /// physically down — a KeyUp missed while the window was unfocused would otherwise repeat for
+    /// ever.</summary>
+    private void PumpKeyRepeat()
+    {
+        if (!_repeat.Armed || _repeatBoard is not { } board) return;
+        if (!board.IsKeyPressed(_repeatKey)) { _repeat.Release(); return; }
+        if (!_repeat.ShouldFire(_repeatWall.Elapsed.TotalMilliseconds)) return;
+
+        EditKeyPressed?.Invoke(_repeatEdit, ModsOf(board));
+        _forceRender = true;      // a repeat is a change; do not let a damage check swallow the frame
+    }
+
     private void OnRender(double deltaSeconds)
     {
         // Before Tick, so anything the host does on the tick already sees the new scale. Polling
         // rather than hooking WM_DPICHANGED: GLFW owns this window's procedure, and subclassing it
         // to intercept one message is a far larger liability than one cheap query per frame.
         PollDeviceScale();
+        PumpKeyRepeat();          // before Tick, so a repeat is part of the frame it belongs to
         Tick?.Invoke();
 
         EnsureSurface();

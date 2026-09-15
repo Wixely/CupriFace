@@ -341,6 +341,22 @@ outside of an input dispatch (e.g. a background timer), call `doc.Refresh()` (or
   (Ctrl+C/X/V), and **undo/redo** (Ctrl+Z / Ctrl+Y or Ctrl+Shift+Z — history is per‑field) on both
   desktop and web. Editing is permissive: the field shows a red border while a value is invalid and
   validates/clamps on blur.
+
+  **Keys, in a multi‑line field.** ↑/↓ move a VISUAL row (a soft‑wrapped row counts, as it does in
+  a browser) and keep the caret's column across a run of them, so passing a short line does not drag
+  it left. Home/End are scoped to that row. A single‑line field keeps whole‑value Home/End, which is
+  what `<input>` does. Ctrl+←/→ move by word, Ctrl+Backspace/Delete remove one.
+
+  **Deleting takes a whole character, not a code point.** An emoji, a family emoji joined by
+  zero‑width joiners, and `e` + a combining acute are each one Backspace.
+
+  **Text from outside is cleaned on the way in.** A paste from a PDF, a spreadsheet cell or a
+  terminal is stripped of control characters that have no glyph (NUL, vertical tab, form feed, the
+  C1 range) and has every flavour of line break — CRLF, a lone CR, U+2028/U+2029 — normalised to
+  `\n`. Tabs and newlines survive; a single‑line field then flattens the newlines to spaces. This
+  applies to text arriving through a platform editor too (the browser's real `<textarea>`, Android's
+  input connection), so every host holds the same thing.
+
 - **`float-label` — the placeholder becomes the label.** A labelled field normally costs two lines,
   a label above and a box below. A placeholder-only field costs one, and then forgets what it was
   for the moment you type into it. `float-label` costs one: the prompt sits where the value will go
