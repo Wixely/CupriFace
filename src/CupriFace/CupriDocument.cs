@@ -93,6 +93,14 @@ public sealed partial class CupriDocument : IDisposable
     private string? _dragPath;
     private bool _caretMoved;           // caret changed since last render → scroll it into view once
     private RenderNode? _scrollDrag;    // scrollable node whose scrollbar thumb is being dragged
+    // Drag-to-pan (data-drag-scroll): the node being panned, where the press started, and where its
+    // scroll offsets were then. Held as a PATH — a rebuild between press and move would strand a
+    // node reference. Not engaged until the pointer has travelled past the slop, so a press that
+    // turns out to be a click still activates what it landed on.
+    private string? _panPath;
+    private float _panX0, _panY0, _panScrollX0, _panScrollY0;
+    private bool _panEngaged;
+    private const float PanSlopPx = 4f;
     private float _scrollDragY0, _scrollDragScroll0;
     // Each <cupri-virtual> list's scroll offset by its data-repeat path, so the next rebuild windows it to
     // the rows in view. Updated when a virtual list scrolls (which then rebuilds to re-window).
@@ -2572,6 +2580,13 @@ public sealed partial class CupriDocument : IDisposable
         // else — shared with the touch layer, which must know these drag from the FIRST touch.
         if (TryGrabDragSurface(hit, x, y)) return true;
 
+        // A pannable scroller under the pointer becomes a PAN CANDIDATE. Deliberately not a grab:
+        // the press must still reach whatever it landed on, because most presses on a carousel are
+        // someone clicking a card rather than starting a drag. Only travel past the slop turns it
+        // into a pan, and by then the click has already happened — which is how a real carousel
+        // behaves and why this is not in TryGrabDragSurface.
+        StartPanCandidate(hit, x, y);
+
         // :active press feedback — mark the pressed element chain (restyled below; cleared on pointer-up).
         SetActive(hit.Element);
 
@@ -2614,6 +2629,54 @@ public sealed partial class CupriDocument : IDisposable
         else if (_activeChain.Count > 0) ReStyle(); // show the :active press even if nothing else changed
         ReconcileScope(); // a click may have opened/closed an overlay → update the focus scope
         return handled || focusChanged || strayClosed || _activeChain.Count > 0;
+    }
+
+    /// <summary>Note a press on a scroller that has opted into drag-to-pan, without consuming it.
+    /// The element opts in with <c>data-drag-scroll</c>; <c>&lt;cupri-carousel&gt;</c> sets it on its
+    /// viewport, and an app can put it on any scroll box it wants a hand to be able to push.</summary>
+    private void StartPanCandidate(RenderNode hit, float x, float y)
+    {
+        _panPath = null; _panEngaged = false;
+        for (var n = hit; n is not null; n = n.Parent)
+        {
+            if (n.Element?.HasAttribute("data-drag-scroll") != true) continue;
+            if (!n.IsScrollableX && !n.IsScrollable) return;      // nothing to pan
+            _panPath = PathOf(n);
+            _panX0 = x; _panY0 = y;
+            _panScrollX0 = n.ScrollX; _panScrollY0 = Math.Clamp(n.ScrollY, 0, n.MaxScrollY);
+            return;
+        }
+    }
+
+    /// <summary>One frame of a pan. Returns whether anything moved.</summary>
+    private bool MovePan(float x, float y)
+    {
+        if (_panPath is null || NodeAtPath(_panPath) is not { } n) return false;
+        var dx = x - _panX0;
+        var dy = y - _panY0;
+        // Below the slop this is still a click that happens to be wobbling.
+        if (!_panEngaged && MathF.Abs(dx) < PanSlopPx && MathF.Abs(dy) < PanSlopPx) return false;
+        _panEngaged = true;
+
+        var moved = false;
+        if (n.IsScrollableX)
+        {
+            var before = n.ScrollX;
+            // The content follows the hand: dragging left moves the strip left, which is a scroll
+            // offset INCREASING. Anything else feels like pushing a rope.
+            n.ScrollX = Math.Clamp(_panScrollX0 - dx, 0, n.MaxScrollX);
+            moved |= MathF.Abs(n.ScrollX - before) > 0.01f;
+        }
+        if (n.IsScrollable)
+        {
+            var before = n.ScrollY;
+            n.ScrollY = Math.Clamp(_panScrollY0 - dy, 0, n.MaxScrollY);
+            moved |= MathF.Abs(n.ScrollY - before) > 0.01f;
+            if (moved) RewindowVirtual(n);
+        }
+        // A pan that has engaged is not a text selection, whatever the press started on.
+        if (moved) _textDrag = false;
+        return moved;
     }
 
     /// <summary>Try to grab a drag surface under the pointer — resize grip, table column boundary,
@@ -4856,6 +4919,8 @@ public sealed partial class CupriDocument : IDisposable
     {
         EnsureLaidOut();
         if (_colPath is not null) return MoveColumnResize(x);
+        // Before the text-selection drag below: once a pan has engaged, the gesture is a pan.
+        if (_panPath is not null && MovePan(x, y)) return true;
         if (_splitA is not null) return MoveSplit(x, y);
         if (_reorderItems is not null) return MoveReorder(x, y);
         if (_resizeDrag is { } rz)
@@ -4918,6 +4983,7 @@ public sealed partial class CupriDocument : IDisposable
         if (_reorderItems is not null) { EndReorder(); return true; }
         if (_splitA is not null) { _splitA = null; _splitB = null; return true; }
         if (_colPath is not null) { _colPath = null; return true; }
+        _panPath = null; _panEngaged = false;
         _dragging = false; _dragSeek = null; _dragUndecided = false; _windowDrag = false; _textDrag = false; _scrollDrag = null; _resizeDrag = null; return ClearActive();
     }
 
@@ -4987,6 +5053,17 @@ public sealed partial class CupriDocument : IDisposable
         if (Math.Abs(pixelDelta) > 0.01f)
             for (var n = yStart; n is not null; n = n.Parent)
             {
+                // A scroller that can ONLY move sideways takes the wheel sideways. Browsers do this,
+                // and without it an ordinary mouse cannot move a carousel AT ALL: a plain wheel has
+                // no horizontal component, so the one axis the strip has was unreachable unless the
+                // pointing device happened to have a tilt wheel or a trackpad.
+                if (!n.IsScrollable && n.IsScrollableX)
+                {
+                    var beforeX = n.ScrollX;
+                    n.ScrollX = Math.Clamp(n.ScrollX + pixelDelta, 0, n.MaxScrollX);
+                    if (Math.Abs(n.ScrollX - beforeX) > 0.01f) { moved = true; break; }
+                    continue;   // at its edge: chain outward, as the vertical axis does
+                }
                 if (!n.IsScrollable) continue;
                 var before = n.ScrollY;
                 n.ScrollY = Math.Clamp(n.ScrollY + pixelDelta, 0, n.MaxScrollY);

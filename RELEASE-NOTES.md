@@ -17,6 +17,19 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **A carousel could not be moved at all with an ordinary mouse.** It scrolls sideways and only
+  sideways, and both ways of reaching that axis needed particular hardware or a hand: a horizontal
+  wheel, or a finger. A plain wheel has no horizontal component and a scroll box is not a drag
+  surface, so on a desktop there was no way to move it — the component read as broken while every
+  part of it worked.
+
+  Two fixes. **A wheel over a scroller that can only move sideways now moves it sideways**, which is
+  what browsers do, and chains outward at its end exactly as the vertical axis already did. And a
+  scroll box can opt into being pushed by hand with **`data-drag-scroll`**, which `cupri-carousel`
+  sets on its viewport.
+
+### Fixed
+
 - **The Showcase's Markdown page can be opened by name again.** `--section markdown` silently landed
   on Inputs, and an internal link naming it did nothing, because the set of routable section ids was
   a hand-written copy of the sidebar and the Markdown page had been added to one and not the other.
