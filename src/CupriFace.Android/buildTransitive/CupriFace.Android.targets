@@ -1,18 +1,58 @@
 <Project>
   <!--
-    Flows into apps that consume the CupriFace.Android NUPKG (repo-internal apps set this in
-    their own csproj — buildTransitive does not cross ProjectReference edges).
+    The LATE half of the package's build contribution. The CoreCLR pin itself is in the .props
+    beside this file, because a default has to be set before the Android SDK sets its own; see the
+    import-order note there (#172).
 
-    CoreCLR is the supported runtime, and this default is load-bearing, not advisory: the Mono
-    runtime pack shipped with .NET 10 (10.0.11) has a code-generation defect that crashes
-    CupriFace apps during startup — a native SIGSEGV inside Mono-compiled CoreLib where string
-    CONTENT is dereferenced as a string REFERENCE. It reproduces on arm64 hardware and x64
-    emulators alike, with AOT and JIT alike (they share Mono's code generator), trimmed or not.
-    Full forensics and the upstream-ready report: samples/AndroidProbe/MONO-CRASH.md in the
-    CupriFace repository. Re-evaluate when the Mono runtime pack moves past 10.0.11 — the
-    AndroidProbe workflow's variant matrix exists to answer exactly that.
+    What belongs here is the opposite kind of thing: checks and explanations that need the FINAL
+    answer. By the time this file is imported the workload has resolved _AndroidRuntime, so both
+    targets below can see what the app is actually going to ship.
   -->
-  <PropertyGroup>
-    <UseMonoRuntime Condition="'$(UseMonoRuntime)' == ''">false</UseMonoRuntime>
-  </PropertyGroup>
+
+  <!--
+    Say why XA1040 is there.
+
+    Choosing CoreCLR makes the Android SDK emit XA1040: "The CoreCLR runtime on Android is an
+    experimental feature and not yet suitable for production use." The warning is accurate and it is
+    Microsoft's to make — but it is silent about the fact that the choice was FORCED, and a consumer
+    reading it has nothing at all connecting it to this package. That is a warning about production
+    readiness, arriving in a build the developer did not configure, with no visible cause.
+
+    So the cause is printed next to it. The full shape of the trade is worth stating plainly:
+
+      * Mono is the ONLY runtime XA1040 does not warn about (its condition is "not MonoVM"; NativeAOT
+        trips it too) — and Mono is the one that does not work.
+      * So there is no configuration here that is both warning-free and functional, and the warning
+        cannot be "fixed" at this end. It clears when CoreCLR on Android stops being experimental,
+        which is a different upstream event from Mono's defect being repaired.
+
+    A MESSAGE, not a warning. A package that adds a warning to every consumer's build for something
+    the consumer cannot act on is noise, and it would break anyone building with
+    TreatWarningsAsErrors — turning an explanatory note into a build failure is precisely the
+    opposite of the point. High importance, so it survives normal verbosity and CI logs.
+  -->
+  <Target Name="CupriFaceExplainCoreClrRuntime" BeforeTargets="Build"
+          Condition="'$(CupriFacePinnedCoreClr)' == 'true'
+                     and '$(_AndroidRuntime)' != 'MonoVM'
+                     and '$(EnablePreviewFeatures)' != 'true'
+                     and '$(CupriFaceQuietRuntimeNote)' != 'true'">
+    <Message Importance="high"
+             Text="CupriFace.Android: the XA1040 warning about an experimental runtime is expected here, and this package is the reason for it. CupriFace pins UseMonoRuntime=false because the Mono runtime pack in .NET 10 miscompiles the engine — a code-generation defect in Mono's string comparison path that crashes the app during startup, on device, before the first frame (forensics: samples/AndroidProbe/MONO-CRASH.md in the CupriFace repository). Mono is the only runtime XA1040 does not warn about and the only one that does not work, so there is no setting here that is both quiet and functional. Set CupriFaceQuietRuntimeNote=true to silence this note; it does not silence XA1040." />
+  </Target>
+
+  <!--
+    And refuse the configuration that crashes.
+
+    Why it is worth an error rather than a warning, where the note above is not: a consumer who ends
+    up on Mono has no way to find out except by shipping an APK that dies in OnCreate, on a device,
+    with a managed exception whose stack points at innocent string code. That is the single most
+    expensive failure this package can hand someone, and it is completely invisible at build time.
+    Turning it into a build error that names the cause costs a consumer who genuinely wants Mono one
+    property.
+  -->
+  <Target Name="CupriFaceCheckAndroidRuntime" BeforeTargets="Build"
+          Condition="'$(UseMonoRuntime)' == 'true' and '$(CupriFaceAllowMonoRuntime)' != 'true'">
+    <Error Code="CUPRI0001"
+           Text="CupriFace.Android requires the CoreCLR runtime, and this app is building against Mono (UseMonoRuntime=true, _AndroidRuntime=$(_AndroidRuntime)). This is not a preference: the Mono runtime pack in .NET 10 (10.0.11) has a code-generation defect that miscompiles the engine's string handling, and a CupriFace app built against it crashes during startup, in OnCreate, before the first frame. It reproduces on arm64 hardware and x64 emulators, under AOT and JIT alike, trimmed or not. CoreCLR runs the identical IL correctly and is the supported configuration — it is what this package defaults you to, and the XA1040 'experimental runtime' warning that comes with it is the known cost of the workaround. Remove UseMonoRuntime from this project to take that default, or set CupriFaceAllowMonoRuntime=true to build against Mono anyway and accept the startup crash. Forensics: samples/AndroidProbe/MONO-CRASH.md." />
+  </Target>
 </Project>

@@ -23,7 +23,10 @@ artifacts/
 
 # NuGet
 *.nupkg
+*.snupkg
 .nuget/
+# The local feed the package-consumer check packs into. Built on demand, never committed.
+tests/PackageConsumer/feed/
 
 # OS
 .DS_Store

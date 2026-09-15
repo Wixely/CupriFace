@@ -413,6 +413,9 @@ public sealed partial class ShowcaseModel
 
     public int Volume { get; set; } = 60;
     public string Name { get; set; } = "";
+    /// <summary>The float-label demo's field, empty on purpose: the whole point only shows when you
+    /// type into it, and a pre-filled one would look like an ordinary labelled field.</summary>
+    public string Feedback { get; set; } = "";
     public string City { get; set; } = "";
     // Validation demo form.
     public string SignupName { get; set; } = "";

@@ -33,8 +33,96 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   Documented in CLAUDE.md beside the mouse and keyboard verbs, where an agent looking for "how do I
   drive this" reads — it said nothing about touch before, so the honest conclusion from reading it
   was that touch could not be simulated at all.
+- **`float-label` on `<cupri-textfield>`: the placeholder becomes the label.** A labelled field costs
+  two lines, a label above and a box below; a placeholder-only field costs one and then forgets what
+  it was for the moment you type into it. This costs one. The prompt sits where the value will go
+  while the field is empty and rises to a smaller line inside the box once there is a value to label.
+
+  **Until someone types, it is a plain field — pixel for pixel**, focused or not, asserted by
+  subtraction rather than by eye. Same height, same border, prompt and caret on the same line. The
+  box is never touched, so the value, the caret and everything below sit exactly where a plain field
+  puts them in both states: a mixed column lines up throughout, and typing the first character moves
+  nothing but the label. The risen label lives in the headroom the top padding already provides,
+  which is why it is as small as it is. With no `placeholder` the attribute does nothing rather than
+  reserving a row for an empty label. Single-line fields only: a `cupri-textarea` scrolls its own
+  content and a label pinned inside it would scroll away with the text.
+
+  Risen, the label sits **on** the field's top border with a pill of the field's own surface colour
+  notching the line it crosses. Getting it out there meant the field could no longer be the thing
+  that clips its own text, so **the engine now scrolls whatever clips a single-line field's text
+  rather than assuming that is the field** (`ClipOwner`). For every existing field those are the
+  same element and nothing changes; it lets a component put a clip closer in, which is what keeps a
+  long value inside the box while the label hangs over the border.
+
+  It is also better *named* than a plain placeholder. The label carries the placeholder class, so the
+  accessibility tree keeps it out of the field's value and uses it as the field's name in **both**
+  states — an ordinary placeholder is only rendered while the field is empty.
 
 ### Fixed
+
+- **Pasting no longer mangles every non-ASCII character on the GLFW desktop window.** GLFW's
+  clipboard is UTF-8 and Silk's binding for it decoded those bytes as the ANSI code page, so
+  `a—b€ü` arrived as `aâ€”bâ‚¬Ã¼` — and copying OUT wrote the same mangling back for whatever read
+  it next. The entry points are called directly and marshalled as UTF-8 now, which is what the SDL
+  software window already did. Measured both ways: the raw bytes round-trip exactly, emoji included.
+
+- **A held key repeats on the GLFW desktop window.** Holding Backspace deleted one character and
+  stopped; so did holding an arrow. Silk's GLFW input backend raises KeyDown for a press and has no
+  case for a repeat, so GLFW's own repeats were dropped — while TYPING repeated fine, because the
+  character callback does fire on repeat, which made a field feel broken rather than unfinished.
+  450 ms, then about 30 a second, and a stall does not come back as a burst. Tab and Escape stay
+  one-shot on **both** desktop windows now: a held Tab flew through the focus ring on the SDL one.
+
+- **↑/↓ move the caret in a multi-line field.** They did nothing at all: the focus-movement branch
+  runs only when no field is focused, so the arrows reached the insert case, found no text and
+  stopped. A textarea could not be walked vertically by keyboard. They move a VISUAL row now (a soft
+  wrap counts, as in a browser) and keep the caret's column across a run of them.
+
+- **Home/End are scoped to the line in a multi-line field.** They jumped to the start and end of the
+  whole buffer, so Home in a long note went to the top of it and Shift+Home selected everything above
+  the caret. A single-line field still takes Home/End to the whole value, which is what `<input>` does.
+
+- **Backspace deletes a character, not a code point.** `é` written as `e` plus a combining acute took
+  two presses and left a bare `e` after the first, which reads as a keystroke that did not work. One
+  Backspace now takes a whole grapheme — a combining accent, an emoji, a family emoji joined by
+  zero-width joiners. Delete does the same forwards.
+
+- **Text from outside is cleaned on the way in.** A paste from a PDF, a spreadsheet or a terminal
+  carried its control characters straight into the model: a NUL or a vertical tab became part of the
+  app's data. Those are stripped now, tabs and newlines are kept, and every flavour of line break
+  (CRLF, a lone CR, U+2028/U+2029) normalises to `\n`. The same applies to text pushed in by a
+  platform editor — the browser's real `<textarea>`, Android's input connection — where a paste never
+  reaches the keystroke path at all.
+- **`CupriFace.Android`'s CoreCLR pin now actually reaches apps that consume the package.** It
+  never has. The pin sat in the package's `buildTransitive/*.targets`, guarded on the property
+  being unset — and NuGet imports a package's `.targets` long after the Android workload has
+  already defaulted `UseMonoRuntime` to `true`, so the guard could never be true. Right shape,
+  wrong file. **Every consuming app shipped Mono and died in `OnCreate` before its first frame**,
+  which is the exact crash the pin exists to prevent. Moving the same one line to a
+  `buildTransitive/*.props` fixes it: from there the Android SDK's own "only if unset" condition
+  correctly declines to overwrite it.
+
+  Nothing in this repository could have caught it. Every Android app here sets `UseMonoRuntime` in
+  its own csproj, because buildTransitive does not cross a `ProjectReference` edge, so the
+  package's build contribution had never been exercised by a single build in the tree that produces
+  it. `tests/PackageConsumer` is now a CI gate that consumes the package the way an outside app
+  does and asks MSBuild which runtime it resolved to.
+
+  **If you carry a hand-written `UseMonoRuntime=false` in your Android csproj, you can delete it.**
+  Keeping it is harmless. And an app that opts back INTO Mono now fails the build with
+  **CUPRI0001**, naming the cause, instead of producing an APK that crashes on a device; set
+  `CupriFaceAllowMonoRuntime=true` if you want to build it anyway.
+
+- **The `XA1040` warning now says who caused it.** Choosing CoreCLR makes the Android SDK warn that
+  the runtime is "an experimental feature and not yet suitable for production use" — accurate, and
+  completely silent about the fact that this package forced the choice. A consumer got a production-
+  readiness warning in a build they did not configure, with nothing connecting it to CupriFace.
+  The build now prints the reason next to it, and `PACKAGE.md` states the trade in full: XA1040
+  fires for **any** non-Mono runtime (NativeAOT included), so Mono is the only runtime it stays
+  quiet about and the only one that crashes — there is no setting that is both quiet and working.
+  It clears when CoreCLR on Android stops being experimental, which is a *different* upstream event
+  from Mono's defect being fixed. `CupriFaceQuietRuntimeNote=true` silences the note,
+  `<NoWarn>XA1040</NoWarn>` the warning. CUPRI0001 says the same thing from the other direction.
 
 - **The Showcase's Markdown page can be opened by name again.** `--section markdown` silently landed
   on Inputs, and an internal link naming it did nothing, because the set of routable section ids was
@@ -1159,7 +1247,6 @@ too.
 
 ### Added
 
-
 - **`CupriFace.Web.NativeAot` — the browser host, compiled ahead of time** ([#78]). The second web
   runtime now has a package too, so `samples/WebLlvm` is three lines of app rather than ~740 lines
   of host. The API is identical to `CupriFace.Web.Mono` — same namespace, same `WebHost.Run` — so
@@ -1188,7 +1275,6 @@ too.
 [#79]: https://github.com/Wixely/CupriFace/issues/79
 
 ### Fixed
-
 
 - **The NativeAOT-LLVM web host now positions the IME** ([#77]). It had composition input but never
   told JS where the caret was, so a candidate window opened at the page's top-left instead of at
