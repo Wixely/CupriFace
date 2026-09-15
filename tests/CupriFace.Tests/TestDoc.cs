@@ -70,6 +70,12 @@ public sealed class TestDoc : IDisposable
     public void Key(EditKey key, KeyMods mods = KeyMods.None) { Doc.DispatchKey(null, key, mods); Layout(); }
     public void Type(string text) { Doc.DispatchKey(text, EditKey.None); Layout(); }
 
+    /// <summary>Touch, on a scripted clock — <c>t.Touch.Tap(x, y)</c>, <c>Swipe</c>, <c>Fling</c>,
+    /// <c>LongPress</c>, <c>Pinch</c>. Lazily made, and wired to re-lay-out after every finger event
+    /// the way the input helpers above do, so the next hit-test sees a positioned tree.</summary>
+    public TouchDriver Touch => _touch ??= new TouchDriver(Doc, onFrame: Layout);
+    private TouchDriver? _touch;
+
     public void ClickNode(RenderNode n, int clicks = 1) { var (x, y) = Center(n); Click(x, y, clicks); }
     public void ClickMatch(Func<RenderNode, bool> match) => ClickNode(Find(match)!);
     public void HoverClass(string cls) { var (x, y) = Center(FindClass(cls)); Move(x, y); }

@@ -17,6 +17,22 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **`TouchDriver`: touch you can script, the way `DispatchClick` scripts a mouse.** The gesture
+  recogniser was always headless and deterministic; driving it was not. A test had to invent a
+  monotonic clock, know the slop radius, know that a long press only fires when the host ticks its
+  deadline, and know that momentum comes from the velocity of the last 100 ms before the finger
+  lifts. Each is easy to get wrong, and a gesture built wrong does nothing — which reads as a bug in
+  whatever was under test.
+
+  One call per gesture now: `Tap`, `DoubleTap`, `TripleTap`, `LongPress`, `Swipe`, `Fling`, `Pinch`,
+  `Cancel`, plus `Advance` to let scripted time pass. The clock is owned, so nothing sleeps and the
+  same script produces the same events on any machine. `Swipe` ends still and `Fling` ends moving,
+  which is the distinction momentum actually turns on. `TouchOptions` moves the thresholds for a
+  boundary test, and `Input` exposes the recogniser for anything the verbs do not cover.
+
+  Documented in CLAUDE.md beside the mouse and keyboard verbs, where an agent looking for "how do I
+  drive this" reads — it said nothing about touch before, so the honest conclusion from reading it
+  was that touch could not be simulated at all.
 - **`float-label` on `<cupri-textfield>`: the placeholder becomes the label.** A labelled field costs
   two lines, a label above and a box below; a placeholder-only field costs one and then forgets what
   it was for the moment you type into it. This costs one. The prompt sits where the value will go
