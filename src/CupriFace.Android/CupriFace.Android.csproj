@@ -27,7 +27,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Reaches nupkg CONSUMERS only (repo-internal apps set UseMonoRuntime in their csproj). -->
+    <!-- Reaches nupkg CONSUMERS only (repo-internal apps set UseMonoRuntime in their csproj).
+         BOTH files ship, and which one a thing lives in is load-bearing: .props is imported before
+         the Android workload picks a runtime, .targets long after it. The CoreCLR pin has to be in
+         the first and the runtime CHECK has to be in the second. See the comment in the .props
+         (#172) — the pin spent its whole life in .targets and never fired once. -->
+    <None Include="buildTransitive\CupriFace.Android.props" Pack="true" PackagePath="buildTransitive\" />
     <None Include="buildTransitive\CupriFace.Android.targets" Pack="true" PackagePath="buildTransitive\" />
   </ItemGroup>
 

@@ -77,6 +77,10 @@ public sealed partial class CupriDocument : IDisposable
     private readonly HashSet<string> _touched = new(); // fields visited (blurred) → their error text may show
     private bool _validateAll;            // set by ValidateAll() (form submit) → show every field's error
     private string? _editBuffer; // raw text being edited (permissive); validated/committed on blur
+    // The x a run of Up/Down is aiming for, in the row's own coordinates. Held across consecutive
+    // vertical moves so passing through a short line does not drag the caret left with it; cleared
+    // by anything else that moves the caret.
+    private float? _caretGoalX;
     private int _caret;
     private int _selAnchor;      // selection anchor; selection is [min(anchor,caret), max]. anchor==caret ⇒ none.
     private int _listHi = -1;    // highlighted option index for a focused listbox field (combobox); -1 = none
@@ -101,6 +105,8 @@ public sealed partial class CupriDocument : IDisposable
     private float _panX0, _panY0, _panScrollX0, _panScrollY0;
     private bool _panEngaged;
     private const float PanSlopPx = 4f;
+    private string? _scrollbarHotPath;  // the scrollbar the pointer is over (a path: the tree is rebuilt)
+    private RenderNode? _scrollbarHotNode;
     private float _scrollDragY0, _scrollDragScroll0;
     // Each <cupri-virtual> list's scroll offset by its data-repeat path, so the next rebuild windows it to
     // the rows in view. Updated when a virtual list scrolls (which then rebuilds to re-window).
@@ -1509,6 +1515,10 @@ public sealed partial class CupriDocument : IDisposable
         var t1 = Stopwatch.GetTimestamp();
         _tLayout = Ms(t0, t1);
 
+        // Re-attach the hovered scrollbar to THIS tree. The flag lives on a node and the tree is
+        // rebuilt constantly, so the path is the durable half — without this a bar lit up under the
+        // pointer and went dark again on the next rebuild, for as long as the pointer sat still.
+        ApplyScrollbarHot();
         var list = _painter.Build(_root);
         // Caret + selection are drawn outside the scrolled subtree, so clip them to the focused
         // field's scroll box — otherwise they'd draw over neighbours when the field is scrolled.
@@ -1600,6 +1610,28 @@ public sealed partial class CupriDocument : IDisposable
         sc.ScrollY = Math.Clamp(newScroll, 0, sc.MaxScrollY);
     }
 
+    /// <summary>
+    /// The element that CLIPS a single-line field's text, and therefore the one whose horizontal
+    /// caret-follow offset moves it: the nearest ancestor of the caret anchor, up to and including
+    /// the field, whose overflow is not visible.
+    ///
+    /// <para>For every ordinary field that IS the field — it carries both the clip and the nowrap,
+    /// and nothing changes. It stops being the field when a component puts a clip closer in, which
+    /// is what lets a float-label field let its label out over its own border while the value it is
+    /// labelling still clips to the box. Scrolling the field there would have moved the clip along
+    /// with the text and scrolled nothing at all.</para>
+    /// </summary>
+    private static RenderNode ClipOwner(RenderNode field, RenderNode anchor)
+    {
+        RenderNode? best = null;
+        for (var n = anchor; n is not null; n = n.Parent)
+        {
+            if (n.Style.Overflow != OverflowMode.Visible) best ??= n;
+            if (ReferenceEquals(n, field)) break;
+        }
+        return best ?? field;
+    }
+
     // Keep the caret horizontally visible in a single-line (white-space:nowrap) field by scrolling its
     // content — mirrors ScrollCaretIntoView on the X axis. Preserved across rebuilds via NodeState.
     private void ScrollCaretIntoViewX()
@@ -1614,12 +1646,14 @@ public sealed partial class CupriDocument : IDisposable
         var caret = Math.Clamp(_caret, 0, value.Length);
         var caretX = _fonts.MeasureText(anchor.Style, value[..caret]); // from the text start
         var full = value.Length == 0 ? 0 : _fonts.MeasureText(anchor.Style, value);
-        var boxW = field.ContentBoxWidth;
+        // Whatever clips the text is what has to move it; see ClipOwner.
+        var scroller = ClipOwner(field, anchor);
+        var boxW = scroller.ContentBoxWidth;
 
-        var sx = field.ScrollX;
+        var sx = scroller.ScrollX;
         if (caretX - sx < 0) sx = caretX;                    // caret ran off the left → reveal it
         else if (caretX - sx > boxW) sx = caretX - boxW;     // ran off the right → reveal it
-        field.ScrollX = Math.Clamp(sx, 0, MathF.Max(0, full - boxW));
+        scroller.ScrollX = Math.Clamp(sx, 0, MathF.Max(0, full - boxW));
     }
 
     // The focused field's scroll-container content box (painted), for clipping caret/selection; null if none.
@@ -1630,7 +1664,9 @@ public sealed partial class CupriDocument : IDisposable
         // A single-line (nowrap) field scrolls horizontally under overflow:hidden — clip the caret and
         // selection to its content box so they never draw past the field edge when scrolled.
         var sc = ScrollableContainer(focused)
-            ?? (focused is { } f && f.Style.WhiteSpace == WhiteSpaceMode.NoWrap ? f : null);
+            ?? (focused is { } f && f.Style.WhiteSpace == WhiteSpaceMode.NoWrap
+                ? ClipOwner(f, FindCaretAnchor(f) ?? f)
+                : null);
         if (sc is null) return null;
         var (sx, sy) = PaintedTopLeft(sc);
         return (sx + sc.ContentLeftInset, sy + sc.ContentTopInset,
@@ -1738,7 +1774,12 @@ public sealed partial class CupriDocument : IDisposable
     /// (<c>[Start,End]</c>, contiguous so no caret position falls in a gap), its visible text, and
     /// the absolute top-left it is PAINTED at (matching the painter's <c>AbsoluteBox(textNode)+line.X/Y</c>),
     /// so caret/selection/hit-testing line up with wrapped text instead of a synthetic line grid.</summary>
-    private readonly record struct TextRow(int Start, int End, string Text, float X, float Y, float Height, bool NewlineAfter);
+    /// <param name="LineEnd">This is the LAST visual row of its logical line — so End belongs at the
+    /// logical line's end (trailing spaces and all) rather than at the wrap point. A wrapped row's
+    /// End sits after the whitespace the wrap consumed, which is a row further down than the one
+    /// someone pressing End is looking at.</param>
+    private readonly record struct TextRow(int Start, int End, string Text, float X, float Y, float Height,
+                                           bool NewlineAfter, bool LineEnd = false);
 
     private static List<TextRow> BuildTextRows(RenderNode anchor, string value)
     {
@@ -1776,7 +1817,8 @@ public sealed partial class CupriDocument : IDisposable
                     // caret/scroll never falls through to the bottom row.
                     var end = offset + (r + 1 < lines.Count ? cols[r + 1] : lineText.Length);
                     rows.Add(new TextRow(offset + cols[r], end, lines[r].Text,
-                        tx + lines[r].X, ty + lines[r].Y, lines[r].Height, r == lines.Count - 1 && newlineAfter));
+                        tx + lines[r].X, ty + lines[r].Y, lines[r].Height,
+                        r == lines.Count - 1 && newlineAfter, r == lines.Count - 1));
                 }
             }
             else
@@ -1784,11 +1826,88 @@ public sealed partial class CupriDocument : IDisposable
                 // Empty logical line (or no laid-out text): a zero-width row at the line box.
                 var (dx, dy) = PaintedTopLeft(div ?? anchor);
                 rows.Add(new TextRow(offset, offset, "",
-                    dx + (div?.ContentLeftInset ?? 0f), dy + (div?.ContentTopInset ?? 0f), lh, newlineAfter));
+                    dx + (div?.ContentLeftInset ?? 0f), dy + (div?.ContentTopInset ?? 0f), lh, newlineAfter, true));
             }
             offset += lineText.Length + 1;
         }
         return rows;
+    }
+
+    /// <summary>Text arriving from outside the engine, made safe to hold. Strips the control
+    /// characters that have no glyph and no meaning in a field — NUL, vertical tab, form feed, the
+    /// C1 range — and normalises CRLF and a lone CR to a newline, so a paste from Windows, a PDF or
+    /// a terminal does not put characters into the model that the app never asked for and cannot
+    /// display. Newline and tab survive: those two are text.</summary>
+    internal static string SanitiseInsert(string text)
+    {
+        if (text.Length == 0) return text;
+        var needs = false;
+        foreach (var c in text)
+            // U+2028/U+2029 are category Zl/Zp, NOT control characters, so char.IsControl says no to
+            // them \u2014 and a LINE SEPARATOR from a Word document would have sailed past this check and
+            // sat in the buffer as an invisible character that is not a newline.
+            if (c is '\r' or '\u0085' or '\u2028' or '\u2029'
+                || (char.IsControl(c) && c is not ('\n' or '\t'))) { needs = true; break; }
+        if (!needs) return text;
+
+        var sb = new System.Text.StringBuilder(text.Length);
+        for (var i = 0; i < text.Length; i++)
+        {
+            var c = text[i];
+            if (c == '\r')
+            {
+                sb.Append('\n');
+                if (i + 1 < text.Length && text[i + 1] == '\n') i++;   // CRLF is ONE line break
+                continue;
+            }
+            if (c == '\u0085' || c == '\u2028' || c == '\u2029') { sb.Append('\n'); continue; }
+            if (char.IsControl(c) && c is not ('\n' or '\t')) continue;
+            sb.Append(c);
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>The focused field's visual rows and the index of the one the caret is in — the SAME
+    /// wrap-aware rows the caret and selection are painted from, so Home/End and Up/Down land where
+    /// the text actually is rather than where the newlines are. Null when there is nothing laid out
+    /// to ask, in which case the caller falls back to whole-buffer behaviour.</summary>
+    private (List<TextRow> Rows, int Index)? CaretRows(string value)
+    {
+        if (_layoutDirty) return null;
+        var field = FindFocused(_root);
+        if (field is null) return null;
+        var rows = BuildTextRows(FindCaretAnchor(field) ?? field, value);
+        if (rows.Count == 0) return null;
+        var row = RowForCaret(rows, Math.Clamp(_caret, 0, value.Length));
+        return (rows, rows.IndexOf(row));
+    }
+
+    /// <summary>Where End belongs on a row: the logical line's end on the row that finishes it
+    /// (so trailing spaces are included, as every editor does), and the wrap point otherwise.</summary>
+    private static int RowEnd(TextRow r) => r.LineEnd ? r.End : r.Start + r.Text.Length;
+
+    /// <summary>The x a vertical move is aiming for, in the row's own coordinates. Sticky across a
+    /// run of Up/Down so passing through a short line does not drag the caret left with it — which
+    /// is the difference between arrow keys that feel like a text editor and ones that do not.</summary>
+    private float CaretGoalX(string value, TextRow row, int caret)
+    {
+        if (_caretGoalX is { } g) return g;
+        var field = FindFocused(_root);
+        var style = (field is null ? null : (FindCaretAnchor(field) ?? field).Style) ?? _root.Style;
+        var from = Math.Clamp(row.Start, 0, value.Length);
+        var to = Math.Clamp(caret, from, value.Length);
+        var x = _fonts.MeasureText(style, value[from..to]);
+        _caretGoalX = x;
+        return x;
+    }
+
+    /// <summary>The offset in <paramref name="row"/> nearest a goal x — the other half of a vertical
+    /// move, and the same measurement a click uses to place the caret.</summary>
+    private int OffsetInRow(TextRow row, float goalX)
+    {
+        var field = FindFocused(_root);
+        var style = (field is null ? null : (FindCaretAnchor(field) ?? field).Style) ?? _root.Style;
+        return row.Start + NearestColumn(style, row.Text, goalX);
     }
 
     // The visual row a caret sits in: the row whose [Start,End] contains it, else the nearest by
@@ -1851,16 +1970,72 @@ public sealed partial class CupriDocument : IDisposable
         return null;
     }
 
-    // The scrollbar thumb rect (painted), mirroring the Painter; null if not scrollable.
+    /// <summary>The scrollbar thumb's painted rect, or null if the node does not scroll. The
+    /// geometry itself lives in <see cref="Interaction.Scrollbar"/>, which the painter uses too —
+    /// this used to be a second copy of the arithmetic and the two had already drifted.</summary>
     private (float X, float Y, float W, float H)? ThumbRect(RenderNode n)
     {
-        if (!n.IsScrollable) return null;
+        if (!Interaction.Scrollbar.Applies(n)) return null;
         var (ax, ay) = PaintedTopLeft(n);
-        var boxH = n.ContentBoxHeight;
-        var thumbH = MathF.Max(28f, boxH * boxH / n.ScrollContentHeight);
-        var thumbY = ay + n.ContentTopInset + Math.Clamp(n.ScrollY, 0, n.MaxScrollY) / n.MaxScrollY * (boxH - thumbH);
-        var thumbX = ax + n.Width - n.BorderRightW - 8f;
-        return (thumbX, thumbY, 5f, thumbH);
+        return Interaction.Scrollbar.Thumb(n, ax, ay, n.ScrollbarHot);
+    }
+
+    /// <summary>A press in the empty part of the track: move a page towards it, the way a desktop
+    /// scrollbar has always done. Less an overlap, so a line or two of context survives the jump —
+    /// a full viewport leaves nothing to reattach the eye to.</summary>
+    private void PageScroll(RenderNode n, float y)
+    {
+        var (_, ay) = PaintedTopLeft(n);
+        var th = Interaction.Scrollbar.Thumb(n, 0f, ay, n.ScrollbarHot);
+        var page = n.ContentBoxHeight * Interaction.Scrollbar.PageFraction;
+        var to = y < th.Y ? n.ScrollY - page : n.ScrollY + page;
+        n.ScrollY = Math.Clamp(to, 0, n.MaxScrollY);
+        // A paged scroll is a scroll: a virtual list has to re-window around where it landed, or the
+        // rows it should now be showing are not built.
+        RewindowVirtual(n);
+    }
+
+    /// <summary>Is the pointer in this node's scrollbar track? The track is the hit surface: a press
+    /// anywhere in it does something, on the thumb or not.</summary>
+    private bool InScrollTrack(RenderNode n, float x, float y)
+    {
+        if (!Interaction.Scrollbar.Applies(n)) return false;
+        var (ax, ay) = PaintedTopLeft(n);
+        return Interaction.Scrollbar.InTrack(n, ax, ay, x, y);
+    }
+
+    private bool OnScrollThumb(RenderNode n, float x, float y)
+    {
+        if (!Interaction.Scrollbar.Applies(n)) return false;
+        var (ax, ay) = PaintedTopLeft(n);
+        return Interaction.Scrollbar.OnThumb(n, ax, ay, x, y, n.ScrollbarHot);
+    }
+
+    /// <summary>The scrollable whose track the pointer is in, if any. Walks the hit chain so a
+    /// scrollbar inside a scrollbar answers for the innermost one the pointer is actually over.</summary>
+    private RenderNode? ScrollTrackAt(float x, float y)
+    {
+        for (var n = HitTesting.HitTest(_root, x, y); n is not null; n = n.Parent)
+            if (InScrollTrack(n, x, y)) return n;
+        return null;
+    }
+
+    /// <summary>Remember which scrollbar the pointer is over, so the painter can show its track and
+    /// fatten its thumb. Held as a PATH rather than a node: the tree is rebuilt constantly and a
+    /// reference taken on one frame is a dead node by the next.</summary>
+    private bool SetScrollbarHot(string? path)
+    {
+        if (path == _scrollbarHotPath) return false;
+        _scrollbarHotPath = path;
+        ApplyScrollbarHot();
+        return true;
+    }
+
+    private void ApplyScrollbarHot()
+    {
+        if (_scrollbarHotNode is { } old) old.ScrollbarHot = false;
+        _scrollbarHotNode = _scrollbarHotPath is null ? null : NodeAtPath(_scrollbarHotPath);
+        if (_scrollbarHotNode is { } now) now.ScrollbarHot = true;
     }
 
     // Is (x,y) over the resize grip (bottom-right corner) of a resizable node?
@@ -2698,13 +2873,19 @@ public sealed partial class CupriDocument : IDisposable
         for (var n = hit; n is not null; n = n.Parent)
             if (StartColumnResize(n, x)) return true;
 
-        // Grabbing a scrollbar thumb starts a scroll-drag (takes priority; doesn't focus/blur).
+        // A press in a scrollbar TRACK always does something (takes priority; doesn't focus/blur).
+        // On the thumb it drags; above or below it, it pages, the way every desktop scrollbar has
+        // since they were invented. The track is the target, not the bar inside it.
         for (var n = hit; n is not null; n = n.Parent)
-            if (ThumbRect(n) is { } tr && x >= tr.X - 6 && x <= tr.X + tr.W + 8 && y >= tr.Y && y <= tr.Y + tr.H)
+        {
+            if (!InScrollTrack(n, x, y)) continue;
+            if (OnScrollThumb(n, x, y))
             {
                 _scrollDrag = n; _scrollDragScroll0 = Math.Clamp(n.ScrollY, 0, n.MaxScrollY); _scrollDragY0 = y;
-                return true;
             }
+            else PageScroll(n, y);
+            return true;
+        }
 
         // Grabbing a drag-reorder handle starts a reorder drag (paint-time; doesn't focus/blur).
         for (var n = hit; n is not null; n = n.Parent)
@@ -2738,8 +2919,7 @@ public sealed partial class CupriDocument : IDisposable
         {
             if (InResizeGrip(n, x, y)) return PressKind.DragSurface;
             if (ColumnBoundaryAt(n, x) is not null) return PressKind.DragSurface;
-            if (ThumbRect(n) is { } tr && x >= tr.X - 6 && x <= tr.X + tr.W + 8 && y >= tr.Y && y <= tr.Y + tr.H)
-                return PressKind.DragSurface;
+            if (InScrollTrack(n, x, y)) return PressKind.DragSurface;
             if (n.Element?.ClassList.Contains("cupri-reorder-handle") == true) return PressKind.DragSurface;
             if (n.Element?.ClassList.Contains("cupri-split-divider") == true) return PressKind.DragSurface;
             if (n.Element?.GetAttribute("role") == "slider") return PressKind.DragSurface;
@@ -3418,9 +3598,12 @@ public sealed partial class CupriDocument : IDisposable
     {
         if (_focusKey is null || _model is null || HasComposition) return false;
 
-        // The same normalisation the keystroke path applies, so text arriving from a platform
-        // editor cannot carry line endings the engine's own typing would never produce.
-        text = text.Replace("\r\n", "\n").Replace('\r', '\n');
+        // The same normalisation the keystroke path applies, so text arriving from a platform editor
+        // — the browser's real <textarea>, Android's input connection — cannot carry line endings or
+        // control characters the engine's own typing would never produce. A paste in the browser
+        // never reaches the keystroke path at all: the page's editor takes it and pushes the whole
+        // new value through here, so the guarantee has to be made in both places or in neither.
+        text = SanitiseInsert(text);
         if (!_focusMultiline && text.IndexOf('\n') >= 0) text = text.Replace('\n', ' ');
 
         var old = _editBuffer ?? BindingEngine.Resolve(_model, _focusKey)?.ToString() ?? "";
@@ -3733,6 +3916,9 @@ public sealed partial class CupriDocument : IDisposable
         var hasSel = selS != selE;
         var edited = false;
         var (oValue, oCaret, oAnchor) = (value, caret, anchor); // pre-edit snapshot (for undo)
+        // Only a run of Up/Down keeps the goal column; every other key re-derives it from wherever
+        // the caret ends up.
+        if (key is not (EditKey.Up or EditKey.Down)) _caretGoalX = null;
 
         switch (key)
         {
@@ -3748,8 +3934,38 @@ public sealed partial class CupriDocument : IDisposable
                 else caret = ctrl ? WordRight(value, caret) : caret + StepForward(value, caret);
                 if (!shift) anchor = caret;
                 break;
-            case EditKey.Home: caret = 0; if (!shift) anchor = caret; break;
-            case EditKey.End: caret = value.Length; if (!shift) anchor = caret; break;
+            // Home/End are LINE-scoped in a multi-line field, as they are in every editor and every
+            // browser textarea. They used to jump to the start and end of the whole buffer, so Home
+            // in a long note went to the top of it and Shift+Home selected everything above the
+            // caret. A single-line field keeps whole-buffer behaviour: that is what <input> does,
+            // and its "lines" are only soft wraps of one logical line.
+            case EditKey.Home:
+                caret = _focusMultiline && CaretRows(value) is { } hc ? hc.Rows[hc.Index].Start : 0;
+                if (!shift) anchor = caret;
+                break;
+            case EditKey.End:
+                caret = _focusMultiline && CaretRows(value) is { } ec ? RowEnd(ec.Rows[ec.Index]) : value.Length;
+                if (!shift) anchor = caret;
+                break;
+
+            // Up/Down move the caret a VISUAL row in a multi-line field. They did nothing at all
+            // before: the focus-movement branch above only runs with no field focused, the listbox
+            // branch only for a combobox, and the edit switch had no case — so the arrows reached
+            // `default`, found no text to insert, and silently stopped. A textarea could not be
+            // walked vertically by keyboard, which is also how a screen-reader user reads one back.
+            case EditKey.Up or EditKey.Down when _focusMultiline && CaretRows(value) is { } vc:
+            {
+                var row = vc.Rows[vc.Index];
+                var goal = CaretGoalX(value, row, caret);
+                var next = vc.Index + (key == EditKey.Up ? -1 : +1);
+                // Off the top or bottom: go to the very start or end, which is what every editor
+                // does rather than refusing to move.
+                caret = next < 0 ? 0
+                      : next >= vc.Rows.Count ? value.Length
+                      : Math.Clamp(OffsetInRow(vc.Rows[next], goal), 0, value.Length);
+                if (!shift) anchor = caret;
+                break;
+            }
 
             case EditKey.Backspace
                 when _focusTagList is { Length: > 0 } backPath && (_editBuffer ?? "").Length == 0 && !hasSel:
@@ -3817,6 +4033,13 @@ public sealed partial class CupriDocument : IDisposable
             default:
                 if (!string.IsNullOrEmpty(text))
                 {
+                    // Text arriving from OUTSIDE — a paste from a PDF, a spreadsheet cell, a terminal —
+                    // carries whatever control characters the source had. A NUL or a vertical tab has
+                    // no glyph, no meaning here, and would be committed to the model and handed back to
+                    // the app as part of its data. Strip them the way a browser does, keeping the two
+                    // that mean something: a newline, and a tab.
+                    text = SanitiseInsert(text);
+                    if (text.Length == 0) break;
                     // A single-line field takes no hard line breaks (like <input>): a pasted multi-line
                     // string collapses its newlines to spaces so it stays one logical line.
                     if (!_focusMultiline && text.IndexOf('\n') >= 0) text = text.Replace('\n', ' ');
@@ -3826,12 +4049,36 @@ public sealed partial class CupriDocument : IDisposable
                 break;
         }
 
-        // Caret/delete arithmetic is CODE-POINT aware: an emoji is two UTF-16 units, and stepping
-        // one unit would split the surrogate pair into mojibake the model then commits.
-        static int StepBack(string v, int at) =>
-            at >= 2 && char.IsLowSurrogate(v[at - 1]) && char.IsHighSurrogate(v[at - 2]) ? 2 : at > 0 ? 1 : 0;
-        static int StepForward(string v, int at) =>
-            at + 1 < v.Length && char.IsHighSurrogate(v[at]) && char.IsLowSurrogate(v[at + 1]) ? 2 : at < v.Length ? 1 : 0;
+        // Caret/delete arithmetic is GRAPHEME aware, not code-unit and not code-point. An emoji is
+        // two UTF-16 units and stepping one would split the surrogate pair into mojibake; "e" plus a
+        // combining acute is two code points that paint as ONE character "é", and deleting one of
+        // them left a bare "e" behind after a backspace that looked like it should have cleared the
+        // letter. StringInfo walks the text elements the reader actually sees.
+        static int StepBack(string v, int at)
+        {
+            if (at <= 0) return 0;
+            var start = 0;
+            var e = System.Globalization.StringInfo.GetTextElementEnumerator(v);
+            while (e.MoveNext())
+            {
+                var i = e.ElementIndex;
+                if (i >= at) break;
+                start = i;
+            }
+            return Math.Max(1, at - start);
+        }
+        static int StepForward(string v, int at)
+        {
+            if (at >= v.Length) return 0;
+            var e = System.Globalization.StringInfo.GetTextElementEnumerator(v);
+            while (e.MoveNext())
+            {
+                if (e.ElementIndex < at) continue;
+                if (e.ElementIndex > at) return e.ElementIndex - at;     // mid-cluster: to its end
+                return Math.Max(1, ((string)e.Current).Length);
+            }
+            return Math.Max(1, v.Length - at);
+        }
 
         // Mobile-style peek: a masked field briefly shows the character you just typed, then re-masks
         // it (Animate expires the peek). Any other edit — delete, navigation, multi-char paste —
@@ -4918,7 +5165,12 @@ public sealed partial class CupriDocument : IDisposable
     private bool DispatchPointerMoveCore(float x, float y)
     {
         EnsureLaidOut();
-        if (_colPath is not null) return MoveColumnResize(x);
+        // Which scrollbar the pointer is over, before anything else looks at the position. While a
+        // thumb is being dragged the pointer may well have left the column — the bar stays hot,
+        // because the gesture is still about it.
+        var hotChanged = SetScrollbarHot(_scrollDrag is { } bar ? PathOf(bar)
+                                         : ScrollTrackAt(x, y) is { } track ? PathOf(track) : null);
+        if (_colPath is not null) return MoveColumnResize(x) || hotChanged;
         // Before the text-selection drag below: once a pan has engaged, the gesture is a pan.
         if (_panPath is not null && MovePan(x, y)) return true;
         if (_splitA is not null) return MoveSplit(x, y);
@@ -4968,6 +5220,7 @@ public sealed partial class CupriDocument : IDisposable
         if (_textDrag && _focusKey is not null && FindFocused(_root) is { } field)
         {
             _caret = CaretFromPoint(field, FindCaretAnchor(field) ?? field, x, y);
+            _caretGoalX = null;   // a click sets a new column for any vertical move that follows
             _caretMoved = true; // auto-scroll if the drag runs past the visible edge
             return true; // caret/selection only → repaint, no rebuild
         }

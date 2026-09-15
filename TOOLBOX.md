@@ -341,6 +341,51 @@ outside of an input dispatch (e.g. a background timer), call `doc.Refresh()` (or
   (Ctrl+C/X/V), and **undo/redo** (Ctrl+Z / Ctrl+Y or Ctrl+Shift+Z — history is per‑field) on both
   desktop and web. Editing is permissive: the field shows a red border while a value is invalid and
   validates/clamps on blur.
+
+  **Keys, in a multi‑line field.** ↑/↓ move a VISUAL row (a soft‑wrapped row counts, as it does in
+  a browser) and keep the caret's column across a run of them, so passing a short line does not drag
+  it left. Home/End are scoped to that row. A single‑line field keeps whole‑value Home/End, which is
+  what `<input>` does. Ctrl+←/→ move by word, Ctrl+Backspace/Delete remove one.
+
+  **Deleting takes a whole character, not a code point.** An emoji, a family emoji joined by
+  zero‑width joiners, and `e` + a combining acute are each one Backspace.
+
+  **Text from outside is cleaned on the way in.** A paste from a PDF, a spreadsheet cell or a
+  terminal is stripped of control characters that have no glyph (NUL, vertical tab, form feed, the
+  C1 range) and has every flavour of line break — CRLF, a lone CR, U+2028/U+2029 — normalised to
+  `\n`. Tabs and newlines survive; a single‑line field then flattens the newlines to spaces. This
+  applies to text arriving through a platform editor too (the browser's real `<textarea>`, Android's
+  input connection), so every host holds the same thing.
+
+- **`float-label` — the placeholder becomes the label.** A labelled field normally costs two lines,
+  a label above and a box below. A placeholder-only field costs one, and then forgets what it was
+  for the moment you type into it. `float-label` costs one: the prompt sits where the value will go
+  while the field is empty, and rises to a smaller line inside the box once there is a value to
+  label.
+  ```html
+  <!-- no separate label element beside it — the field carries its own name -->
+  <cupri-textfield value="{{Feedback}}" placeholder="What is wrong with it?" float-label></cupri-textfield>
+  ```
+  **Until someone types, it is a plain field — pixel for pixel.** Same height, same border, prompt
+  and caret on the same line; there is nothing to notice until there is something to label. The box
+  is never touched, so the value, the caret and everything below stay exactly where a plain field
+  puts them, in both states — a mixed column of these and ordinary fields lines up throughout, and
+  typing the first character moves nothing but the label. The risen label lives in the headroom the
+  top padding already provides, which is why it is as small as it is.
+
+  Risen, it sits **on** the field's top border, with a pill of the field's own surface colour
+  cutting a notch out of the line it crosses. It needs a `placeholder` to have anything to float —
+  with none, the attribute does nothing rather than reserving a row for an empty label. Opt‑in
+  because it is a look, not because it costs anything.
+
+  **It is also better named than a plain placeholder.** The label carries the placeholder class, so
+  the accessibility tree keeps it out of the field's *value* and uses it as the field's *name* — in
+  both states. An ordinary placeholder is only rendered while the field is empty, so a filled field
+  has to fall back to the attribute.
+
+  Single‑line fields only for now. In a `cupri-textarea` the box scrolls its own content, and a
+  label pinned inside it would scroll away with the text.
+
 - **Validation.** A bound field can carry `required`, `pattern="regex"`, `minlength`, and numeric
   `min`/`max`. The engine shows the red border while a rule fails and injects an inline error message
   **once the field is left** (blurred) or the form is validated — so it never nags mid‑type. `error="…"`
@@ -414,18 +459,28 @@ controls handle their own state.
   `box-shadow: inset -1px 0 0 …` when the divider must not change the layout.
 
 - `@media (width ...)` is supported and re‑resolves on viewport change, so layouts can be responsive.
+- **Scrollbars.** A scrolling box draws a thin thumb at its right-hand edge. The pointer's target is
+  the wider **track** around it, which stays invisible until the pointer is inside it and then shows
+  itself while the thumb fattens to fill it — the growth is the affordance, and says the column will
+  take a press before one is made.
+  A press anywhere in the track does something: on the thumb it drags, above or below it it pages
+  (a visible height less an overlap, so a line or two of context survives the jump). Nothing behind
+  the column receives the press — a button that happens to sit under a scrollbar is not what anyone
+  aimed at. Dragging carries on if the pointer wanders out of the column, which is what hands do.
+
+
   `CupriFace.Interaction.Scrollbar` carries the numbers if an app needs to reserve a gutter beside a
   list: `TrackWidth`, `ThumbWidth`, `ThumbWidthHot`, `PageFraction`, and `Track`/`Thumb` for the
   rectangles themselves. The painter and the hit-test both read it, so what you can grab is exactly
   what you can see. (Vertical only — the engine paints no horizontal scrollbar, though a box that
   overflows sideways still scrolls by wheel and by touch.)
 
+
 - **Dragging a scroll box by hand (`data-drag-scroll`).** A scroll box takes the wheel and a
   finger; it does not take a mouse drag, because dragging across a page selects its text and turning
   every scroller into something a hand pushes would take that away everywhere. Put
   `data-drag-scroll` on one and a press that TRAVELS pans it instead. `<cupri-carousel>` sets it on
   its own viewport.
-
   Related, and the reason a carousel felt broken with an ordinary mouse: **a wheel over a scroller
   that can only move SIDEWAYS now moves it sideways**, as browsers do. A plain wheel has no
   horizontal component, so the one axis such a strip has was otherwise unreachable without a tilt
@@ -578,7 +633,7 @@ static config unless noted.
 | `<cupri-progress>` | Read‑only progress bar | `value` (0), `max` (100) | — | — | `progressbar` |
 | `<cupri-button>` | Themed button | `variant` (`primary`\|`ghost`) | — | label text/HTML | `button` |
 | `<cupri-icon-button>` | Icon‑only button | `icon` | — | — | `button` |
-| `<cupri-textfield>` | Single‑line text input | `value`, `placeholder` | `value` | — | `textbox` |
+| `<cupri-textfield>` | Single‑line text input | `value`, `placeholder`, `float-label` | `value` | — | `textbox` |
 |  ↳ *draws its value with* `var(--cupri-text, …)` *and its placeholder with* `var(--cupri-muted, …)` — **not** the inherited `color`, so a dark theme must set those variables or the typed value stays near-black. | | | | | |
 | `<cupri-number>` | Numeric field + `−/+` steppers | `value`, `min`, `max`, `step` | `value` | — | `spinbutton` |
 | `<cupri-textarea>` | Multi‑line text input | `value`, `placeholder`, `follow-tail` | `value` | — | `textbox` (`aria-multiline`) |
@@ -1039,6 +1094,36 @@ So adapting is ordinary CSS, with no new syntax to learn and nothing to switch o
 This works identically in an app's stylesheet and inside a component's own `DefaultCss`. There is
 deliberately no `@media (pointer: coarse)`: it would mean teaching the CSS parser a new shape to
 reach exactly what the cascade already does with a class.
+
+### Testing touch: `TouchDriver`
+
+Touch is not a mouse with different coordinates, so a test that drives it with `DispatchClick`
+proves nothing about it: touch activates on finger-**up**, so a press that turns into a scroll must
+never press what it began on, and that deferral is the one behaviour a click cannot exercise.
+
+`TouchDriver` (in `CupriFace.Interaction`) is one call per gesture, on a clock it owns — headless,
+nothing sleeps, and the same script produces the same events on any machine.
+
+```csharp
+var touch = new TouchDriver(doc);
+touch.Tap(x, y);                              // activates on release
+touch.DoubleTap(x, y);                        // word select; TripleTap for a line
+touch.LongPress(x, y);                        // the context menu
+touch.Swipe(x, y, dy: -180);                  // scroll, and stop where the finger left it
+touch.Fling(x, y, dy: -180);                  // …or let go moving; then call doc.Animate(t)
+touch.Pinch(cx, cy, gapFrom: 40, gapTo: 160); // two fingers → an OnPointer handler
+touch.Cancel();                               // the platform took the gesture away
+```
+
+Three things it gets right that are easy to get wrong by hand: a **long press** only fires when the
+host ticks its deadline (down and up alone just give you a tap); a **fling's** momentum comes from
+the velocity of the last 100 ms before release and then needs frames to play out, while a **swipe**
+pauses before lifting so it deliberately does not fling; and a swipe on a slider, scrollbar thumb,
+reorder handle or split divider is a **drag from the first contact** rather than a deferred tap.
+
+`new TouchDriver(doc, new TouchOptions { SlopPx = …, LongPressSeconds = … })` moves the thresholds,
+for testing a gesture at its boundary. `Input` exposes the recogniser underneath for anything the
+verbs do not cover.
 
 ### Multi-touch: `doc.OnPointer`
 
