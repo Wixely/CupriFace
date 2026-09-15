@@ -390,14 +390,22 @@ public sealed class Painter
 
         if (clip) list.Add(new PopClip());
 
-        // Scrollbar thumb (on top of content, inside the padding box).
-        if (node.IsScrollable)
+        // Scrollbar (on top of content, inside the padding box). The geometry is Interaction's, not
+        // the painter's: the hit-test asks the same question and the two answers used to be written
+        // out separately and drift.
+        if (Interaction.Scrollbar.Applies(node))
         {
-            var boxH = node.ContentBoxHeight;
-            var thumbH = MathF.Max(28f, boxH * boxH / node.ScrollContentHeight);
-            var thumbY = absY + node.ContentTopInset + scrollY / node.MaxScrollY * (boxH - thumbH);
-            var thumbX = absX + node.Width - node.BorderRightW - 8f;
-            list.Add(new FillRect(thumbX, thumbY, 5f, thumbH, 2.5f, new SKColor(0x60, 0x6a, 0x7a, 0xB0)));
+            var hot = node.ScrollbarHot;
+            // The track shows only while the pointer is in it. That is the whole affordance — an
+            // empty column is invisible until it is worth knowing about, and then it is obvious.
+            if (hot)
+            {
+                var tr = Interaction.Scrollbar.Track(node, absX, absY);
+                list.Add(new FillRect(tr.X, tr.Y, tr.W, tr.H, tr.W / 2f, new SKColor(0x60, 0x6a, 0x7a, 0x20)));
+            }
+            var th = Interaction.Scrollbar.Thumb(node, absX, absY, hot);
+            list.Add(new FillRect(th.X, th.Y, th.W, th.H, th.W / 2f,
+                new SKColor(0x60, 0x6a, 0x7a, hot ? (byte)0xE0 : (byte)0xB0)));
         }
 
         // Resize grip (CSS resize) in the bottom-right corner.

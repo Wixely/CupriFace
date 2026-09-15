@@ -70,6 +70,12 @@ public sealed class RenderNode
     public float ScrollY;
     public float ScrollX; // horizontal caret scroll for a single-line (white-space:nowrap) text field
 
+    /// <summary>The pointer is over this node's scrollbar track (or dragging its thumb), so the
+    /// track shows and the thumb is fat. Set by the document each frame from the hovered path —
+    /// hover is a pointer question, not a layout one, and the tree is rebuilt too often to hold a
+    /// node reference across it.</summary>
+    public bool ScrollbarHot;
+
     public float ContentBoxWidth => Width - HorizontalInsets;
 
     // Natural (content-sized) border-box height from the last layout, computed before any explicit
@@ -113,6 +119,7 @@ public sealed class RenderNode
     public float EffectiveScrollY => Math.Clamp(ScrollY, 0, MaxScrollY) + OverscrollY;
 
     public float MaxScrollY => MathF.Max(0, ScrollContentHeight - ContentBoxHeight);
+
     public bool IsScrollable => MaxScrollY > 0.5f;
 
     /// <summary>The widest child extent inside a scroll container, mirroring
