@@ -97,6 +97,8 @@ public sealed partial class CupriDocument : IDisposable
     private string? _dragPath;
     private bool _caretMoved;           // caret changed since last render → scroll it into view once
     private RenderNode? _scrollDrag;    // scrollable node whose scrollbar thumb is being dragged
+    private string? _scrollbarHotPath;  // the scrollbar the pointer is over (a path: the tree is rebuilt)
+    private RenderNode? _scrollbarHotNode;
     private float _scrollDragY0, _scrollDragScroll0;
     // Each <cupri-virtual> list's scroll offset by its data-repeat path, so the next rebuild windows it to
     // the rows in view. Updated when a virtual list scrolls (which then rebuilds to re-window).
@@ -1505,6 +1507,10 @@ public sealed partial class CupriDocument : IDisposable
         var t1 = Stopwatch.GetTimestamp();
         _tLayout = Ms(t0, t1);
 
+        // Re-attach the hovered scrollbar to THIS tree. The flag lives on a node and the tree is
+        // rebuilt constantly, so the path is the durable half — without this a bar lit up under the
+        // pointer and went dark again on the next rebuild, for as long as the pointer sat still.
+        ApplyScrollbarHot();
         var list = _painter.Build(_root);
         // Caret + selection are drawn outside the scrolled subtree, so clip them to the focused
         // field's scroll box — otherwise they'd draw over neighbours when the field is scrolled.
@@ -1956,16 +1962,72 @@ public sealed partial class CupriDocument : IDisposable
         return null;
     }
 
-    // The scrollbar thumb rect (painted), mirroring the Painter; null if not scrollable.
+    /// <summary>The scrollbar thumb's painted rect, or null if the node does not scroll. The
+    /// geometry itself lives in <see cref="Interaction.Scrollbar"/>, which the painter uses too —
+    /// this used to be a second copy of the arithmetic and the two had already drifted.</summary>
     private (float X, float Y, float W, float H)? ThumbRect(RenderNode n)
     {
-        if (!n.IsScrollable) return null;
+        if (!Interaction.Scrollbar.Applies(n)) return null;
         var (ax, ay) = PaintedTopLeft(n);
-        var boxH = n.ContentBoxHeight;
-        var thumbH = MathF.Max(28f, boxH * boxH / n.ScrollContentHeight);
-        var thumbY = ay + n.ContentTopInset + Math.Clamp(n.ScrollY, 0, n.MaxScrollY) / n.MaxScrollY * (boxH - thumbH);
-        var thumbX = ax + n.Width - n.BorderRightW - 8f;
-        return (thumbX, thumbY, 5f, thumbH);
+        return Interaction.Scrollbar.Thumb(n, ax, ay, n.ScrollbarHot);
+    }
+
+    /// <summary>A press in the empty part of the track: move a page towards it, the way a desktop
+    /// scrollbar has always done. Less an overlap, so a line or two of context survives the jump —
+    /// a full viewport leaves nothing to reattach the eye to.</summary>
+    private void PageScroll(RenderNode n, float y)
+    {
+        var (_, ay) = PaintedTopLeft(n);
+        var th = Interaction.Scrollbar.Thumb(n, 0f, ay, n.ScrollbarHot);
+        var page = n.ContentBoxHeight * Interaction.Scrollbar.PageFraction;
+        var to = y < th.Y ? n.ScrollY - page : n.ScrollY + page;
+        n.ScrollY = Math.Clamp(to, 0, n.MaxScrollY);
+        // A paged scroll is a scroll: a virtual list has to re-window around where it landed, or the
+        // rows it should now be showing are not built.
+        RewindowVirtual(n);
+    }
+
+    /// <summary>Is the pointer in this node's scrollbar track? The track is the hit surface: a press
+    /// anywhere in it does something, on the thumb or not.</summary>
+    private bool InScrollTrack(RenderNode n, float x, float y)
+    {
+        if (!Interaction.Scrollbar.Applies(n)) return false;
+        var (ax, ay) = PaintedTopLeft(n);
+        return Interaction.Scrollbar.InTrack(n, ax, ay, x, y);
+    }
+
+    private bool OnScrollThumb(RenderNode n, float x, float y)
+    {
+        if (!Interaction.Scrollbar.Applies(n)) return false;
+        var (ax, ay) = PaintedTopLeft(n);
+        return Interaction.Scrollbar.OnThumb(n, ax, ay, x, y, n.ScrollbarHot);
+    }
+
+    /// <summary>The scrollable whose track the pointer is in, if any. Walks the hit chain so a
+    /// scrollbar inside a scrollbar answers for the innermost one the pointer is actually over.</summary>
+    private RenderNode? ScrollTrackAt(float x, float y)
+    {
+        for (var n = HitTesting.HitTest(_root, x, y); n is not null; n = n.Parent)
+            if (InScrollTrack(n, x, y)) return n;
+        return null;
+    }
+
+    /// <summary>Remember which scrollbar the pointer is over, so the painter can show its track and
+    /// fatten its thumb. Held as a PATH rather than a node: the tree is rebuilt constantly and a
+    /// reference taken on one frame is a dead node by the next.</summary>
+    private bool SetScrollbarHot(string? path)
+    {
+        if (path == _scrollbarHotPath) return false;
+        _scrollbarHotPath = path;
+        ApplyScrollbarHot();
+        return true;
+    }
+
+    private void ApplyScrollbarHot()
+    {
+        if (_scrollbarHotNode is { } old) old.ScrollbarHot = false;
+        _scrollbarHotNode = _scrollbarHotPath is null ? null : NodeAtPath(_scrollbarHotPath);
+        if (_scrollbarHotNode is { } now) now.ScrollbarHot = true;
     }
 
     // Is (x,y) over the resize grip (bottom-right corner) of a resizable node?
@@ -2748,13 +2810,19 @@ public sealed partial class CupriDocument : IDisposable
         for (var n = hit; n is not null; n = n.Parent)
             if (StartColumnResize(n, x)) return true;
 
-        // Grabbing a scrollbar thumb starts a scroll-drag (takes priority; doesn't focus/blur).
+        // A press in a scrollbar TRACK always does something (takes priority; doesn't focus/blur).
+        // On the thumb it drags; above or below it, it pages, the way every desktop scrollbar has
+        // since they were invented. The track is the target, not the bar inside it.
         for (var n = hit; n is not null; n = n.Parent)
-            if (ThumbRect(n) is { } tr && x >= tr.X - 6 && x <= tr.X + tr.W + 8 && y >= tr.Y && y <= tr.Y + tr.H)
+        {
+            if (!InScrollTrack(n, x, y)) continue;
+            if (OnScrollThumb(n, x, y))
             {
                 _scrollDrag = n; _scrollDragScroll0 = Math.Clamp(n.ScrollY, 0, n.MaxScrollY); _scrollDragY0 = y;
-                return true;
             }
+            else PageScroll(n, y);
+            return true;
+        }
 
         // Grabbing a drag-reorder handle starts a reorder drag (paint-time; doesn't focus/blur).
         for (var n = hit; n is not null; n = n.Parent)
@@ -2788,8 +2856,7 @@ public sealed partial class CupriDocument : IDisposable
         {
             if (InResizeGrip(n, x, y)) return PressKind.DragSurface;
             if (ColumnBoundaryAt(n, x) is not null) return PressKind.DragSurface;
-            if (ThumbRect(n) is { } tr && x >= tr.X - 6 && x <= tr.X + tr.W + 8 && y >= tr.Y && y <= tr.Y + tr.H)
-                return PressKind.DragSurface;
+            if (InScrollTrack(n, x, y)) return PressKind.DragSurface;
             if (n.Element?.ClassList.Contains("cupri-reorder-handle") == true) return PressKind.DragSurface;
             if (n.Element?.ClassList.Contains("cupri-split-divider") == true) return PressKind.DragSurface;
             if (n.Element?.GetAttribute("role") == "slider") return PressKind.DragSurface;
@@ -5035,7 +5102,12 @@ public sealed partial class CupriDocument : IDisposable
     private bool DispatchPointerMoveCore(float x, float y)
     {
         EnsureLaidOut();
-        if (_colPath is not null) return MoveColumnResize(x);
+        // Which scrollbar the pointer is over, before anything else looks at the position. While a
+        // thumb is being dragged the pointer may well have left the column — the bar stays hot,
+        // because the gesture is still about it.
+        var hotChanged = SetScrollbarHot(_scrollDrag is { } bar ? PathOf(bar)
+                                         : ScrollTrackAt(x, y) is { } track ? PathOf(track) : null);
+        if (_colPath is not null) return MoveColumnResize(x) || hotChanged;
         if (_splitA is not null) return MoveSplit(x, y);
         if (_reorderItems is not null) return MoveReorder(x, y);
         if (_resizeDrag is { } rz)

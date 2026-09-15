@@ -459,6 +459,22 @@ controls handle their own state.
   `box-shadow: inset -1px 0 0 …` when the divider must not change the layout.
 
 - `@media (width ...)` is supported and re‑resolves on viewport change, so layouts can be responsive.
+- **Scrollbars.** A scrolling box draws a thin thumb at its right-hand edge. The pointer's target is
+  the wider **track** around it, which stays invisible until the pointer is inside it and then shows
+  itself while the thumb fattens to fill it — the growth is the affordance, and says the column will
+  take a press before one is made.
+
+  A press anywhere in the track does something: on the thumb it drags, above or below it it pages
+  (a visible height less an overlap, so a line or two of context survives the jump). Nothing behind
+  the column receives the press — a button that happens to sit under a scrollbar is not what anyone
+  aimed at. Dragging carries on if the pointer wanders out of the column, which is what hands do.
+
+  `CupriFace.Interaction.Scrollbar` carries the numbers if an app needs to reserve a gutter beside a
+  list: `TrackWidth`, `ThumbWidth`, `ThumbWidthHot`, `PageFraction`, and `Track`/`Thumb` for the
+  rectangles themselves. The painter and the hit-test both read it, so what you can grab is exactly
+  what you can see. (Vertical only — the engine paints no horizontal scrollbar, though a box that
+  overflows sideways still scrolls by wheel and by touch.)
+
 - **`position: sticky`.** An element flows normally, but while its scroll container is scrolled it holds
   at the top (its `top` offset from the scrollport) instead of scrolling away — pinning a section header —
   and releases when its containing block scrolls out. It paints above the content that slides under it, so

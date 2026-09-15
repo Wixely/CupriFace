@@ -17,6 +17,33 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **Scrollbars have a track, and the whole of it is live.** The bar was five pixels wide and the
+  only thing you could press was the thumb; the empty space above and below it did nothing at all.
+  There is now a wider track column behind it — invisible until the pointer is in it, and then
+  visible, with the thumb fattening to fill it.
+
+  A press anywhere in that column acts: on the thumb it drags, above or below it it pages by a
+  visible height less an overlap, the way desktop scrollbars have always paged. The press never
+  reaches the content behind the column, and a drag survives the pointer leaving it.
+
+  The painter and the hit-test now read one geometry (`CupriFace.Interaction.Scrollbar`, public, so
+  an app can reserve a gutter of the right width). They used to work it out separately and had
+  already drifted: the hit-test padded the thumb by six pixels on one side and eight on the other to
+  make a five-pixel bar catchable, so what you could grab was not where it was drawn.
+
+- **Pages that used inline `<code>` chips were painting five percent wrong, and nobody could see
+  why.** A chip lays out as a 0x0 box with padding, which gives it a negative content height — so
+  "content taller than the box" was arithmetically true of an element with nothing in it, and the
+  scrollbar code took it for a scroll container. Its thumb height then divided by a zero content
+  height and came out **infinite**, and its position multiplied zero by that infinity and came out
+  **NaN**.
+
+  No bar was ever visible, because a rectangle at NaN is nowhere. What it did instead was disturb
+  what was composited after it: the Showcase's gradient swatches, further down the same page,
+  painted visibly washed out. Three pages were affected. It was found by differencing screenshots
+  over an unrelated change, and there is now a test that asserts no frame contains non-finite
+  geometry at all — run against real Showcase pages, because the page that had the bug is not one
+  anybody would have thought to check.
 - **`TouchDriver`: touch you can script, the way `DispatchClick` scripts a mouse.** The gesture
   recogniser was always headless and deterministic; driving it was not. A test had to invent a
   monotonic clock, know the slop radius, know that a long press only fires when the host ticks its
