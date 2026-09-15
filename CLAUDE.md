@@ -116,6 +116,36 @@ doc.DispatchClick(box.X + box.W / 2f, box.Y + box.H / 2f);
 
 Render, click, render again — state changes are checkable too, not just static layout.
 
+**Touch is a finger, not a mouse, and it has its own driver.** A tap is not a click: touch
+activates on finger-UP, so a press that turns into a scroll must never press what it began on.
+`TouchDriver` is one call per gesture, on a clock it owns — nothing sleeps, and the same script
+produces the same events on any machine.
+
+```csharp
+var touch = new TouchDriver(doc);             // CupriFace.Interaction
+touch.Tap(x, y);                              // activates on release, like a finger
+touch.DoubleTap(x, y);                        // escalates the click count → word select
+touch.LongPress(x, y);                        // the context menu
+touch.Swipe(x, y, dy: -180);                  // scroll, and STOP where the finger left it
+touch.Fling(x, y, dy: -180);                  // …or let go moving, and keep going
+touch.Pinch(cx, cy, gapFrom: 40, gapTo: 160); // two fingers, to an OnPointer handler
+touch.Advance(1.0);                           // let scripted time pass
+```
+
+Three things that bite if you drive `TouchInput` by hand instead:
+
+- **A long press only fires when the host ticks the deadline.** Down and up alone wait for ever and
+  give you a tap. `LongPress` ticks it.
+- **A fling's momentum comes from the last 100 ms before release, and then needs frames.** After
+  `Fling`, call `doc.Animate(t)` with a rising `t` (or `doc.Settle`) or the content sits exactly
+  where the finger left it — which looks like a fling that did nothing. `Swipe` deliberately pauses
+  before lifting, so it does *not* fling.
+- **A swipe on a slider, scrollbar thumb, reorder handle or split divider is a drag from the first
+  contact**, not a deferred tap. Same verb; the engine decides.
+
+`new TouchDriver(doc, new TouchOptions { SlopPx = … })` moves the thresholds, for testing a gesture
+at its boundary. `tests/CupriFace.Tests/TouchDriverTests.cs` is a worked example of each verb.
+
 ### Gotchas
 
 - `doc.Refresh()` before the first render, and throw away one frame before capturing — layout and

@@ -573,6 +573,63 @@ jobs:
       - name: Install the Android workload
         run: dotnet workload install android --skip-manifest-update
 
+      # WHAT A CONSUMER GETS, not what this repo's own apps get. Every Android app in this tree sets
+      # UseMonoRuntime in its own csproj, because buildTransitive does not cross a ProjectReference
+      # edge — so the package's build contribution, the thing every outside consumer depends on, was
+      # never exercised by any build here. It was a no-op for the package's entire life and nothing
+      # said a word (#172): the pin sat in the package's .targets, which NuGet imports long AFTER
+      # the Android workload has defaulted UseMonoRuntime to true, so its "only if unset" guard
+      # could never fire. Consuming apps shipped Mono and died in OnCreate, on a device, before a
+      # frame.
+      #
+      # Early in the job on purpose: it costs one pack and one restore, and it fails before the long
+      # APK builds below.
+      - name: The package's CoreCLR pin reaches a real consumer
+        run: |
+          set -euo pipefail
+          VER="0.0.0-consumercheck"
+          FEED="$PWD/tests/PackageConsumer/feed"
+          rm -rf "$FEED" && mkdir -p "$FEED"
+          # The Android package and the engine it depends on, so the consumer's restore is real and
+          # resolves entirely from this feed plus nuget.org.
+          dotnet pack src/CupriFace/CupriFace.csproj -c Release -o "$FEED" -p:Version=$VER
+          dotnet pack src/CupriFace.Android/CupriFace.Android.csproj -c Release -o "$FEED" -p:Version=$VER
+
+          dotnet restore tests/PackageConsumer/PackageConsumer.csproj -p:CupriFacePackageVersion=$VER
+
+          # -getProperty reports the RESOLVED value without running a target: no Java, no emulator,
+          # no APK. This is the same question a consumer answers the expensive way, by shipping.
+          RESOLVED=$(dotnet build tests/PackageConsumer/PackageConsumer.csproj -c Release \
+            -p:CupriFacePackageVersion=$VER \
+            -getProperty:UseMonoRuntime -getProperty:_AndroidRuntime \
+            -getProperty:CupriFacePinnedCoreClr) || {
+              echo "::error::could not evaluate the consumer project"; exit 1; }
+          echo "$RESOLVED"
+
+          python3 - "$RESOLVED" <<'PY'
+          import json, sys
+          got = json.loads(sys.argv[1])["Properties"]
+          mono, runtime = got["UseMonoRuntime"], got["_AndroidRuntime"]
+          # The marker says the PACKAGE is why this app is on CoreCLR, and it is what gates the
+          # build note explaining XA1040. Free to check here, and without it the note could stop
+          # appearing with nothing to notice.
+          pinned = got["CupriFacePinnedCoreClr"]
+          print(f"consumer resolved: UseMonoRuntime={mono} _AndroidRuntime={runtime} pinnedByPackage={pinned}")
+          if pinned != "true":
+              print("::error::the package no longer records that IT chose CoreCLR "
+                    f"(CupriFacePinnedCoreClr={pinned!r}), so the build note explaining XA1040 "
+                    "will not appear for consumers.")
+              sys.exit(1)
+          if mono != "false" or runtime != "CoreCLR":
+              print("::error::CupriFace.Android's CoreCLR pin does not reach package consumers: "
+                    f"UseMonoRuntime={mono}, _AndroidRuntime={runtime}. An app consuming this "
+                    "package would ship Mono and crash during startup. The pin must be in "
+                    "buildTransitive/CupriFace.Android.props (imported before the Android workload "
+                    "defaults the property), not in the .targets (imported long after).")
+              sys.exit(1)
+          print("the package defaults a consumer to CoreCLR")
+          PY
+
       - name: Build the APKs (and prove no desktop native rode along)
         run: |
           # On a v* tag the APK carries that version, so the app's About page names the build a
