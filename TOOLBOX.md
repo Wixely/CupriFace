@@ -504,6 +504,15 @@ controls handle their own state.
   code { background: var(--cupri-hover); border: 1px solid var(--cupri-border);
          border-radius: 5px; padding: 1px 5px; }   /* an inline code chip */
   ```
+- **`line-height`** takes a unitless ratio (`1.5`), a length (`24px`), `em`, `%`, or `normal`. A
+  ratio and `em`/`%` are resolved against the element's own font size; a **length is a length** and
+  keeps the same line box whatever the font size is, inheriting as one. A unit the parser does not
+  read — `rem`, `ch`, `calc()` — is reported by `CupriDoctor` (CF0050) rather than quietly replaced.
+
+  Worth knowing because the glyph sits at the BOTTOM of the line box: a line-height larger than you
+  meant pushes text down and out of its container, and everything after it down the page. If a
+  layout's last elements have vanished off the frame, this is the first thing to look at.
+
 - **Motion.** `@keyframes` (looping animations) and **`transition`** are both supported. A `transition`
   eases a property from its old value to its new one whenever that value changes — on `[data-hover]`,
   `:focus`, a state/class change, a model update, or the theme toggle. Animatable: `opacity`,
@@ -511,8 +520,12 @@ controls handle their own state.
   box sizes **`height`** and **`width`** — a `height` animates to/from `auto` too (a panel collapse/expand,
   as `<cupri-accordion>` does); `width` animates between definite sizes (a sidebar collapsing to an icon
   rail). Timing: `linear`/`ease`/`ease-in`/`ease-out`/`ease-in-out` or `cubic-bezier(x1,y1,x2,y2)`
-  (overshoot allowed). All but `height`/`width` are paint‑only (cheap); a size transition re‑lays‑out each
-  frame, so the element and everything around it reflow as it animates.
+  (overshoot allowed). The same timing keywords apply to an **animation**, shaping each interval
+  between two keyframes — through the `animation` shorthand or `animation-timing-function`. Nothing
+  is ever interpolated past the first or last keyframe.
+
+  All but `height`/`width` are paint‑only (cheap); a size transition re‑lays‑out each frame, so the
+  element and everything around it reflow as it animates.
   ```css
   .nav  { transition: background-color 0.2s ease, color 0.2s ease; }   /* smooth hover highlight */
   .card { transition: transform 0.25s ease-out; }
