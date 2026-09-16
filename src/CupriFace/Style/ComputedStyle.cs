@@ -126,7 +126,13 @@ public sealed class ComputedStyle
     public string? AnimationName;
     public float AnimationDuration; // seconds
     public float AnimationDelay;    // seconds; negative starts part-way through, as in CSS
-    public float AnimationIterations = 1f; // CSS default: once; `infinite` is +∞
+    public float AnimationIterations = 1f;
+
+    /// <summary>The animation's timing function. Parsed but THROWN AWAY until now: every keyword was
+    /// matched and discarded, so `ease-out` and `linear` produced identical values at every sample
+    /// and an animation only ever ran linearly (noticed while isolating #184). The curve machinery
+    /// already existed for transitions; animations simply never asked for it.</summary>
+    public Easing AnimationEasing = Easing.Linear; // CSS default: once; `infinite` is +∞
     public bool AnimationFillForwards;  // hold the last frame after the run
     public bool AnimationFillBackwards; // show the first frame during the delay
     internal AnimationBase? AnimBase;    // the values a keyframe overrides, captured before its first frame

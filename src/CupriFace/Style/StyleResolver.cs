@@ -412,6 +412,10 @@ public sealed class StyleResolver
                 case "animation-delay": s.AnimationDelay = ParseSeconds(v); break;
                 case "animation-iteration-count": s.AnimationIterations = ParseIterations(v); break;
                 case "animation-fill-mode": ParseFillMode(s, v); break;
+                case "animation-timing-function":
+                    if (Easing.FromKeyword(v.Trim().ToLowerInvariant()) is { } ease) s.AnimationEasing = ease;
+                    else UnsupportedProperty?.Invoke("animation-timing-function", v);
+                    break;
                 case "transition": ParseTransition(s, v); break;
                 case "filter": ParseFilter(s, v); break;
                 case "backdrop-filter" or "-webkit-backdrop-filter": s.BackdropFilter = ParseFilterOps(v); break;
@@ -928,6 +932,7 @@ public sealed class StyleResolver
         // token is none of those and not a keyword.
         s.AnimationName = null; s.AnimationDuration = 0f; s.AnimationDelay = 0f; s.AnimationIterations = 1f;
         s.AnimationFillForwards = s.AnimationFillBackwards = false;
+        s.AnimationEasing = Easing.Linear;
         var times = 0;
         foreach (var tok in v.Split(' ', StringSplitOptions.RemoveEmptyEntries))
         {
@@ -944,7 +949,12 @@ public sealed class StyleResolver
                 case "forwards": s.AnimationFillForwards = true; break;
                 case "backwards": s.AnimationFillBackwards = true; break;
                 case "both": s.AnimationFillForwards = s.AnimationFillBackwards = true; break;
-                case "none" or "linear" or "ease" or "ease-in" or "ease-out" or "ease-in-out" or "step-start" or "step-end"
+                // The timing keywords USED TO BE MATCHED AND DROPPED HERE, which is why ease-out and
+                // linear produced identical values: every animation ran linearly however it was
+                // written. The curve was already implemented for transitions.
+                case "linear" or "ease" or "ease-in" or "ease-out" or "ease-in-out":
+                    s.AnimationEasing = Easing.FromKeyword(low) ?? Easing.Linear; break;
+                case "none" or "step-start" or "step-end"
                      or "normal" or "reverse" or "alternate" or "alternate-reverse" or "running" or "paused": break;
                 default:
                     if (low.StartsWith("cubic-bezier") || low.StartsWith("steps")) break;

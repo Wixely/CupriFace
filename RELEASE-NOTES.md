@@ -17,6 +17,22 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **A CSS comment inside `@keyframes` silently corrupted the animation.** The keyframes parser read
+  the RAW stylesheet while every other parser got a copy with the comments stripped, so a
+  `/* comment */` between two stops was swallowed into the next stop's selector — `"/* one */ 60%"`
+  parses as no percentage — and that stop was dropped. What remained was then interpolated across and
+  **extrapolated past**: with two comments a bar declared to finish at 545px settled at 714px and
+  held there. No exception, no diagnostic, a clean doctor report, and a smooth animation to a wrong
+  number. Comments are legal anywhere, and the stops are exactly where an author wants them.
+
+  Also, nothing is extrapolated beyond the first or last keyframe any more, however that is reached.
+
+- **An animation's timing function was parsed and thrown away.** Every keyword was matched and
+  discarded, so `ease-out` and `linear` produced identical values at every sample and every animation
+  ran linearly. Noticed while isolating the comment bug. The curve machinery already existed for
+  transitions; animations simply never asked for it. Both the shorthand and
+  `animation-timing-function` are honoured now, and an unreadable one is reported rather than ignored.
+
 - **A `line-height` in px produced a line box font-size/16 times too tall.** A length was divided by
   a hardcoded 16 to fake a ratio — "refined once font-size is known", and nothing refined it. At 48px
   the box came out three times the height asked for; at 16px it was exactly right, which is why it
