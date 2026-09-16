@@ -348,7 +348,9 @@ public sealed class FontService : IDisposable
     public float MeasureText(ComputedStyle s, string text) => MeasureText(s.FontFamily, s.FontWeight, s.FontSize, text, s.FontStyle);
 
     /// <summary>Line height in px for a style (font-size × line-height multiple).</summary>
-    public static float LineHeightPx(ComputedStyle s) => s.FontSize * s.LineHeight;
+    /// <summary>The line box, in px: an absolute <c>line-height</c> as given, otherwise the ratio
+    /// against this element's own font size.</summary>
+    public static float LineHeightPx(ComputedStyle s) => s.LineHeightPx ?? s.FontSize * s.LineHeight;
 
     public void Dispose()
     {

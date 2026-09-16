@@ -17,6 +17,19 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **A `line-height` in px produced a line box font-size/16 times too tall.** A length was divided by
+  a hardcoded 16 to fake a ratio — "refined once font-size is known", and nothing refined it. At 48px
+  the box came out three times the height asked for; at 16px it was exactly right, which is why it
+  looked like a fixed factor. The glyph sits at the bottom of that box, so text landed BELOW its own
+  container and everything after it was pushed down the page. **`em` and `%` were not recognised at
+  all** and fell back to the default with no diagnostic.
+
+  A length is kept as a length now and inherits as one; `em` and `%` are the ratio they describe; a
+  unit the parser does not understand is REPORTED (CF0050) rather than silently replaced with a
+  number. The symptom used to appear nowhere near the cause — "the last few elements of my layout
+  have vanished off the frame" — and it made a no-JavaScript odometer, a digit column sliding inside
+  `overflow:hidden`, impossible to build. There is a test for that shape now.
+
 - **`CupriDoctor` returned findings belonging to other documents.** The sink an ignored CSS property
   was announced through was one field for the whole PROCESS, so a check running alongside anything
   else got whatever happened to be in it. Two checks at once traded findings — the document that

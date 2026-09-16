@@ -421,7 +421,7 @@ public sealed class StyleResolver
                 case "font-size": s.FontSize = ParsePx(v, s.FontSize); break;
                 case "font-weight": s.FontWeight = ParseWeight(v); break;
                 case "font-family": s.FontFamily = v.Split(',')[0].Trim().Trim('"', '\''); break;
-                case "line-height": s.LineHeight = ParseLineHeight(v); break;
+                case "line-height": ApplyLineHeight(s, v); break;
                 case "text-align": s.TextAlign = v.ToLowerInvariant() switch { "center" => TextAlign.Center, "right" => TextAlign.Right, _ => TextAlign.Left }; break;
                 case "white-space":
                     s.WhiteSpace = v.Trim().ToLowerInvariant() switch
@@ -748,11 +748,54 @@ public sealed class StyleResolver
         _ => int.TryParse(v, out var w) ? w : 400,
     };
 
-    private static float ParseLineHeight(string v)
+    /// <summary>
+    /// <c>line-height</c> in every spelling CSS allows for it.
+    ///
+    /// <list type="bullet">
+    /// <item>A unitless number is a RATIO of the element's font size — the usual spelling.</item>
+    /// <item><c>em</c> and <c>%</c> are the same ratio said differently (<c>2em</c> and <c>200%</c>
+    /// are the ratio 2). Both used to be unrecognised and fell back to 1.2 with no diagnostic, so a
+    /// deliberate line-height did nothing at all.</item>
+    /// <item>A LENGTH (<c>px</c>) is an absolute line box and is kept as one. It used to be divided
+    /// by a hardcoded 16 to fake a ratio, which made the line box font-size/16 times too tall —
+    /// three times over at 48px, and the glyph sits at the bottom of that box, so the text landed
+    /// below its own container and everything after it was pushed down the page (#181).</item>
+    /// <item><c>normal</c> is the initial 1.2.</item>
+    /// </list>
+    ///
+    /// <para>The one place this parts company with CSS: an <c>em</c>/<c>%</c> line-height computes
+    /// to a length in a browser and inherits as that length, where here it inherits as the ratio and
+    /// is re-resolved against each element's own font size. That differs only for a child with a
+    /// different font size, and is much closer than ignoring the declaration was.</para>
+    /// </summary>
+    private static void ApplyLineHeight(ComputedStyle s, string v)
     {
         v = v.Trim();
-        if (v.EndsWith("px", StringComparison.OrdinalIgnoreCase)) return ParsePx(v) / 16f; // rough; refined once font-size known
-        return CssNumber.TryParse(v, out var n) ? n : 1.2f;
+        if (v.Equals("normal", StringComparison.OrdinalIgnoreCase))
+        {
+            s.LineHeight = 1.2f; s.LineHeightPx = null; return;
+        }
+        if (v.EndsWith("%", StringComparison.Ordinal)
+            && CssNumber.TryParse(v[..^1], out var pct))
+        {
+            s.LineHeight = pct / 100f; s.LineHeightPx = null; return;
+        }
+        if (v.EndsWith("em", StringComparison.OrdinalIgnoreCase)
+            && CssNumber.TryParse(v[..^2], out var em))
+        {
+            s.LineHeight = em; s.LineHeightPx = null; return;
+        }
+        if (v.EndsWith("px", StringComparison.OrdinalIgnoreCase))
+        {
+            s.LineHeightPx = ParsePx(v); return;                 // an absolute box, kept as one
+        }
+        if (CssNumber.TryParse(v, out var n))
+        {
+            s.LineHeight = n; s.LineHeightPx = null; return;
+        }
+        // Anything else (rem, ch, calc(…)) is not understood. Leave the value alone and let the
+        // resolver's own reporting say so, rather than silently substituting a number.
+        UnsupportedProperty?.Invoke("line-height", v);
     }
 
     // ---- grid parsers --------------------------------------------------------

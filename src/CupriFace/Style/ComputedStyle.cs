@@ -157,6 +157,18 @@ public sealed class ComputedStyle
     public int FontWeight = 400;
     public string FontFamily = "sans-serif";
     public float LineHeight = 1.2f; // multiple of font-size
+
+    /// <summary>An ABSOLUTE line box in px, when <c>line-height</c> was given as a length. Null when
+    /// it is a ratio, which is the usual case and the initial value.
+    ///
+    /// <para>A length cannot be folded into <see cref="LineHeight"/>, and folding it was the bug: a
+    /// px value was divided by a hardcoded 16 to make a ratio "refined once font-size is known", and
+    /// nothing ever refined it. The line box came out font-size/16 times too tall — three times over
+    /// at 48px, exactly once at 16px, so it looked like a fixed factor to anyone testing at a single
+    /// size (#181).</para>
+    ///
+    /// <para>Inherited as a length, which is what CSS does with a length.</para></summary>
+    public float? LineHeightPx;
     public TextAlign TextAlign = TextAlign.Left;
     public WhiteSpaceMode WhiteSpace = WhiteSpaceMode.Normal; // inherited
     // Mid-token line breaking (inherited, like all text-wrapping behaviour). Two flags because they
@@ -183,6 +195,7 @@ public sealed class ComputedStyle
         FontWeight = parent.FontWeight;
         FontFamily = parent.FontFamily;
         LineHeight = parent.LineHeight;
+        LineHeightPx = parent.LineHeightPx;
         TextAlign = parent.TextAlign;
         WhiteSpace = parent.WhiteSpace;
         WordBreakAll = parent.WordBreakAll;
