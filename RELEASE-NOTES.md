@@ -13,6 +13,28 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- **`CupriDoctor` returned findings belonging to other documents.** The sink an ignored CSS property
+  was announced through was one field for the whole PROCESS, so a check running alongside anything
+  else got whatever happened to be in it. Two checks at once traded findings — the document that
+  produced one was as likely to lose it as another was to gain it — and, worse, merely RENDERING a
+  document on another thread planted its warnings in a check of a different one. 115 of 120 checks
+  of a clean document came back carrying a renderer's warning.
+
+  There was no way around it from outside either: locking every `Check` does not help when the other
+  thread is not calling `Check`. The sinks are per-thread now, which is the right scope because a
+  document is worked on by one thread; a renderer on another has no hook set and announces nothing.
+
+- **`CupriDoctor.Check(html, null)` silently skipped every CSS check.** A null stylesheet was read as
+  "do not look at CSS" rather than "there is no external stylesheet", and it took the document's own
+  `<style>` block with it — so a document that keeps its rules where nearly every document keeps them
+  reported no problems found. `null` is the obvious argument, and the signature (`string? css`)
+  invites it. `null` and `""` now mean the same thing, and a finding is located by looking in the
+  markup as well as the stylesheet, since an inline block lives in the first.
+
 ## v0.25.0
 
 ### Added

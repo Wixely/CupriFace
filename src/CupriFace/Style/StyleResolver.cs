@@ -562,7 +562,18 @@ public sealed class StyleResolver
     /// thread-safe and not meant to be — it exists for a development-time check, not a running
     /// app.</para>
     /// </summary>
-    internal static Action<string, string>? UnsupportedProperty;
+    /// <summary>
+    /// Where an ignored property is announced, for whoever is currently checking a document.
+    ///
+    /// <para><b>Per thread, and that is load-bearing.</b> It used to be one field for the whole
+    /// process, so any document resolving styles anywhere wrote into whatever check happened to be
+    /// running — a concurrent <c>CupriDoctor.Check</c> got another document's findings, and
+    /// <em>merely rendering</em> a document on another thread was enough to plant a warning in a
+    /// check of a different one (#185). Findings were moved rather than copied, so a check could
+    /// equally well LOSE its own. A document is worked on by one thread, so the thread is the right
+    /// scope: a renderer on another thread has no hook set and announces nothing.</para>
+    /// </summary>
+    [ThreadStatic] internal static Action<string, string>? UnsupportedProperty;
 
     private static string SubstituteViewportUnits(string value, float vw, float vh, out bool used)
     {
