@@ -13,7 +13,14 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
-## Unreleased
+## v0.25.1
+
+Five silent ones. **Two of these change what an existing app renders**, because both were producing
+the wrong thing before:
+
+- if you set `line-height` in `px`, your text is no longer several times further down than you asked
+  for — check any layout that was built around the old behaviour;
+- your `@keyframes` animations now ease the way they were written, instead of always running linearly.
 
 ### Fixed
 
