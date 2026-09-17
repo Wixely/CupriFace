@@ -44,11 +44,22 @@ public static partial class CssParser
     [GeneratedRegex(@"/\*.*?\*/", RegexOptions.Singleline)]
     private static partial Regex CommentRegex();
 
+    /// <summary>CSS with its comments removed.
+    ///
+    /// <para>Public to the assembly because the keyframes parser needs the SAME answer. It used to
+    /// work on the raw text, so a <c>/* comment */</c> between two stops was swallowed into the next
+    /// stop's selector — <c>"/* one */ 60%"</c> parses as no percentage at all, and the stop was
+    /// silently dropped. The animation then interpolated between whatever stops were left and
+    /// extrapolated past the end: with two comments a bar declared to finish at 545px settled at
+    /// 714px and held there (#184). Comments are legal anywhere, and the stops of a keyframes block
+    /// are exactly where an author wants to write them.</para></summary>
+    internal static string StripComments(string css) => CommentRegex().Replace(css, string.Empty);
+
     public static List<CssRule> Parse(string? css)
     {
         var rules = new List<CssRule>();
         if (string.IsNullOrWhiteSpace(css)) return rules;
-        ParseInto(CommentRegex().Replace(css, string.Empty), rules, media: null);
+        ParseInto(StripComments(css), rules, media: null);
         return rules;
     }
 

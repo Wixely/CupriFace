@@ -13,6 +13,57 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- **A CSS comment inside `@keyframes` silently corrupted the animation.** The keyframes parser read
+  the RAW stylesheet while every other parser got a copy with the comments stripped, so a
+  `/* comment */` between two stops was swallowed into the next stop's selector — `"/* one */ 60%"`
+  parses as no percentage — and that stop was dropped. What remained was then interpolated across and
+  **extrapolated past**: with two comments a bar declared to finish at 545px settled at 714px and
+  held there. No exception, no diagnostic, a clean doctor report, and a smooth animation to a wrong
+  number. Comments are legal anywhere, and the stops are exactly where an author wants them.
+
+  Also, nothing is extrapolated beyond the first or last keyframe any more, however that is reached.
+
+- **An animation's timing function was parsed and thrown away.** Every keyword was matched and
+  discarded, so `ease-out` and `linear` produced identical values at every sample and every animation
+  ran linearly. Noticed while isolating the comment bug. The curve machinery already existed for
+  transitions; animations simply never asked for it. Both the shorthand and
+  `animation-timing-function` are honoured now, and an unreadable one is reported rather than ignored.
+
+- **A `line-height` in px produced a line box font-size/16 times too tall.** A length was divided by
+  a hardcoded 16 to fake a ratio — "refined once font-size is known", and nothing refined it. At 48px
+  the box came out three times the height asked for; at 16px it was exactly right, which is why it
+  looked like a fixed factor. The glyph sits at the bottom of that box, so text landed BELOW its own
+  container and everything after it was pushed down the page. **`em` and `%` were not recognised at
+  all** and fell back to the default with no diagnostic.
+
+  A length is kept as a length now and inherits as one; `em` and `%` are the ratio they describe; a
+  unit the parser does not understand is REPORTED (CF0050) rather than silently replaced with a
+  number. The symptom used to appear nowhere near the cause — "the last few elements of my layout
+  have vanished off the frame" — and it made a no-JavaScript odometer, a digit column sliding inside
+  `overflow:hidden`, impossible to build. There is a test for that shape now.
+
+- **`CupriDoctor` returned findings belonging to other documents.** The sink an ignored CSS property
+  was announced through was one field for the whole PROCESS, so a check running alongside anything
+  else got whatever happened to be in it. Two checks at once traded findings — the document that
+  produced one was as likely to lose it as another was to gain it — and, worse, merely RENDERING a
+  document on another thread planted its warnings in a check of a different one. 115 of 120 checks
+  of a clean document came back carrying a renderer's warning.
+
+  There was no way around it from outside either: locking every `Check` does not help when the other
+  thread is not calling `Check`. The sinks are per-thread now, which is the right scope because a
+  document is worked on by one thread; a renderer on another has no hook set and announces nothing.
+
+- **`CupriDoctor.Check(html, null)` silently skipped every CSS check.** A null stylesheet was read as
+  "do not look at CSS" rather than "there is no external stylesheet", and it took the document's own
+  `<style>` block with it — so a document that keeps its rules where nearly every document keeps them
+  reported no problems found. `null` is the obvious argument, and the signature (`string? css`)
+  invites it. `null` and `""` now mean the same thing, and a finding is located by looking in the
+  markup as well as the stylesheet, since an inline block lives in the first.
+
 ## v0.25.0
 
 ### Added

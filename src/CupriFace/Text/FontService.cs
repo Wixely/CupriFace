@@ -308,7 +308,10 @@ public sealed class FontService : IDisposable
     /// <summary>Development-time hook: a codepoint no available face could draw. Set by
     /// <c>CupriDoctor</c> around a trial render; null the rest of the time, so this costs a null
     /// check on a path that already only runs once per unseen character.</summary>
-    internal static Action<int>? GlyphMissing;
+    /// <summary>Per THREAD, for the same reason <see cref="Style.StyleResolver.UnsupportedProperty"/>
+    /// is: one field for the whole process meant a render on another thread could plant a finding in
+    /// a check of a different document, or take one away (#185).</summary>
+    [ThreadStatic] internal static Action<int>? GlyphMissing;
 
     private bool HasGlyph(SKTypeface tf, int cp)
     {
@@ -345,7 +348,9 @@ public sealed class FontService : IDisposable
     public float MeasureText(ComputedStyle s, string text) => MeasureText(s.FontFamily, s.FontWeight, s.FontSize, text, s.FontStyle);
 
     /// <summary>Line height in px for a style (font-size × line-height multiple).</summary>
-    public static float LineHeightPx(ComputedStyle s) => s.FontSize * s.LineHeight;
+    /// <summary>The line box, in px: an absolute <c>line-height</c> as given, otherwise the ratio
+    /// against this element's own font size.</summary>
+    public static float LineHeightPx(ComputedStyle s) => s.LineHeightPx ?? s.FontSize * s.LineHeight;
 
     public void Dispose()
     {

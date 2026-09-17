@@ -412,6 +412,10 @@ public sealed class StyleResolver
                 case "animation-delay": s.AnimationDelay = ParseSeconds(v); break;
                 case "animation-iteration-count": s.AnimationIterations = ParseIterations(v); break;
                 case "animation-fill-mode": ParseFillMode(s, v); break;
+                case "animation-timing-function":
+                    if (Easing.FromKeyword(v.Trim().ToLowerInvariant()) is { } ease) s.AnimationEasing = ease;
+                    else UnsupportedProperty?.Invoke("animation-timing-function", v);
+                    break;
                 case "transition": ParseTransition(s, v); break;
                 case "filter": ParseFilter(s, v); break;
                 case "backdrop-filter" or "-webkit-backdrop-filter": s.BackdropFilter = ParseFilterOps(v); break;
@@ -421,7 +425,7 @@ public sealed class StyleResolver
                 case "font-size": s.FontSize = ParsePx(v, s.FontSize); break;
                 case "font-weight": s.FontWeight = ParseWeight(v); break;
                 case "font-family": s.FontFamily = v.Split(',')[0].Trim().Trim('"', '\''); break;
-                case "line-height": s.LineHeight = ParseLineHeight(v); break;
+                case "line-height": ApplyLineHeight(s, v); break;
                 case "text-align": s.TextAlign = v.ToLowerInvariant() switch { "center" => TextAlign.Center, "right" => TextAlign.Right, _ => TextAlign.Left }; break;
                 case "white-space":
                     s.WhiteSpace = v.Trim().ToLowerInvariant() switch
@@ -562,7 +566,18 @@ public sealed class StyleResolver
     /// thread-safe and not meant to be — it exists for a development-time check, not a running
     /// app.</para>
     /// </summary>
-    internal static Action<string, string>? UnsupportedProperty;
+    /// <summary>
+    /// Where an ignored property is announced, for whoever is currently checking a document.
+    ///
+    /// <para><b>Per thread, and that is load-bearing.</b> It used to be one field for the whole
+    /// process, so any document resolving styles anywhere wrote into whatever check happened to be
+    /// running — a concurrent <c>CupriDoctor.Check</c> got another document's findings, and
+    /// <em>merely rendering</em> a document on another thread was enough to plant a warning in a
+    /// check of a different one (#185). Findings were moved rather than copied, so a check could
+    /// equally well LOSE its own. A document is worked on by one thread, so the thread is the right
+    /// scope: a renderer on another thread has no hook set and announces nothing.</para>
+    /// </summary>
+    [ThreadStatic] internal static Action<string, string>? UnsupportedProperty;
 
     private static string SubstituteViewportUnits(string value, float vw, float vh, out bool used)
     {
@@ -737,11 +752,54 @@ public sealed class StyleResolver
         _ => int.TryParse(v, out var w) ? w : 400,
     };
 
-    private static float ParseLineHeight(string v)
+    /// <summary>
+    /// <c>line-height</c> in every spelling CSS allows for it.
+    ///
+    /// <list type="bullet">
+    /// <item>A unitless number is a RATIO of the element's font size — the usual spelling.</item>
+    /// <item><c>em</c> and <c>%</c> are the same ratio said differently (<c>2em</c> and <c>200%</c>
+    /// are the ratio 2). Both used to be unrecognised and fell back to 1.2 with no diagnostic, so a
+    /// deliberate line-height did nothing at all.</item>
+    /// <item>A LENGTH (<c>px</c>) is an absolute line box and is kept as one. It used to be divided
+    /// by a hardcoded 16 to fake a ratio, which made the line box font-size/16 times too tall —
+    /// three times over at 48px, and the glyph sits at the bottom of that box, so the text landed
+    /// below its own container and everything after it was pushed down the page (#181).</item>
+    /// <item><c>normal</c> is the initial 1.2.</item>
+    /// </list>
+    ///
+    /// <para>The one place this parts company with CSS: an <c>em</c>/<c>%</c> line-height computes
+    /// to a length in a browser and inherits as that length, where here it inherits as the ratio and
+    /// is re-resolved against each element's own font size. That differs only for a child with a
+    /// different font size, and is much closer than ignoring the declaration was.</para>
+    /// </summary>
+    private static void ApplyLineHeight(ComputedStyle s, string v)
     {
         v = v.Trim();
-        if (v.EndsWith("px", StringComparison.OrdinalIgnoreCase)) return ParsePx(v) / 16f; // rough; refined once font-size known
-        return CssNumber.TryParse(v, out var n) ? n : 1.2f;
+        if (v.Equals("normal", StringComparison.OrdinalIgnoreCase))
+        {
+            s.LineHeight = 1.2f; s.LineHeightPx = null; return;
+        }
+        if (v.EndsWith("%", StringComparison.Ordinal)
+            && CssNumber.TryParse(v[..^1], out var pct))
+        {
+            s.LineHeight = pct / 100f; s.LineHeightPx = null; return;
+        }
+        if (v.EndsWith("em", StringComparison.OrdinalIgnoreCase)
+            && CssNumber.TryParse(v[..^2], out var em))
+        {
+            s.LineHeight = em; s.LineHeightPx = null; return;
+        }
+        if (v.EndsWith("px", StringComparison.OrdinalIgnoreCase))
+        {
+            s.LineHeightPx = ParsePx(v); return;                 // an absolute box, kept as one
+        }
+        if (CssNumber.TryParse(v, out var n))
+        {
+            s.LineHeight = n; s.LineHeightPx = null; return;
+        }
+        // Anything else (rem, ch, calc(…)) is not understood. Leave the value alone and let the
+        // resolver's own reporting say so, rather than silently substituting a number.
+        UnsupportedProperty?.Invoke("line-height", v);
     }
 
     // ---- grid parsers --------------------------------------------------------
@@ -874,6 +932,7 @@ public sealed class StyleResolver
         // token is none of those and not a keyword.
         s.AnimationName = null; s.AnimationDuration = 0f; s.AnimationDelay = 0f; s.AnimationIterations = 1f;
         s.AnimationFillForwards = s.AnimationFillBackwards = false;
+        s.AnimationEasing = Easing.Linear;
         var times = 0;
         foreach (var tok in v.Split(' ', StringSplitOptions.RemoveEmptyEntries))
         {
@@ -890,7 +949,12 @@ public sealed class StyleResolver
                 case "forwards": s.AnimationFillForwards = true; break;
                 case "backwards": s.AnimationFillBackwards = true; break;
                 case "both": s.AnimationFillForwards = s.AnimationFillBackwards = true; break;
-                case "none" or "linear" or "ease" or "ease-in" or "ease-out" or "ease-in-out" or "step-start" or "step-end"
+                // The timing keywords USED TO BE MATCHED AND DROPPED HERE, which is why ease-out and
+                // linear produced identical values: every animation ran linearly however it was
+                // written. The curve was already implemented for transitions.
+                case "linear" or "ease" or "ease-in" or "ease-out" or "ease-in-out":
+                    s.AnimationEasing = Easing.FromKeyword(low) ?? Easing.Linear; break;
+                case "none" or "step-start" or "step-end"
                      or "normal" or "reverse" or "alternate" or "alternate-reverse" or "running" or "paused": break;
                 default:
                     if (low.StartsWith("cubic-bezier") || low.StartsWith("steps")) break;

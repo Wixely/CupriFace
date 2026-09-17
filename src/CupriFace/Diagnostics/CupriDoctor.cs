@@ -167,8 +167,8 @@ public static partial class CupriDoctor
         }
 
         MissingGlyphs(missingGlyphs, findings);
-        UnsupportedCssProperties(unsupportedCss, css, findings);
-        UnsupportedCssFunctions(css, findings);
+        UnsupportedCssProperties(unsupportedCss, css, html, findings);
+        UnsupportedCssFunctions(css, html, findings);
 
         findings.Sort((a, b) =>
         {
@@ -516,16 +516,35 @@ public static partial class CupriDoctor
 
     // ---- 5. CSS the resolver threw away --------------------------------------------------------
 
-    private static void UnsupportedCssProperties(List<string> ignored, string? css,
+    /// <summary>
+    /// The properties the resolver threw away.
+    ///
+    /// <para>A null <paramref name="css"/> means "there is no external stylesheet", NOT "skip the
+    /// CSS checks" — which is what it used to mean, and it took the document's own
+    /// <c>&lt;style&gt;</c> block with it (#183). A composition that keeps its rules where nearly
+    /// every composition keeps them reported clean, and the signature (<c>string? css</c>) invites
+    /// exactly that call. A linter that is silent when it has not looked is worse than one that is
+    /// absent, because the absent one makes nobody confident.</para>
+    ///
+    /// <para>Lines are looked for in the stylesheet AND in the markup, since an inline block lives
+    /// in the second. A property with no line is still reported: the finding is the point, the line
+    /// number is a convenience.</para>
+    /// </summary>
+    private static void UnsupportedCssProperties(List<string> ignored, string? css, string html,
                                                  List<Finding> findings)
     {
-        if (css is null) return;
-        var lines = css.Replace("\r\n", "\n").Split('\n');
+        var lines = CssLines(css, html);
         foreach (var prop in ignored.Distinct(StringComparer.OrdinalIgnoreCase))
             findings.Add(new Finding(Severity.Warning, "CF0050",
                 $"CSS property '{prop}' is not supported and was ignored.",
                 Suggest(prop), LineOf(lines, prop + ":")));
     }
+
+    /// <summary>Everywhere CSS can be written in what the caller handed us: the stylesheet, then the
+    /// markup (for an inline <c>&lt;style&gt;</c>). Concatenated rather than chosen between, because
+    /// a document may well have both.</summary>
+    private static string[] CssLines(string? css, string html) =>
+        ((css ?? "") + "\n" + html).Replace("\r\n", "\n").Split('\n');
 
     private static string Suggest(string prop) => prop switch
     {
@@ -542,10 +561,9 @@ public static partial class CupriDoctor
     /// FUNCTION inside it is not, so the declaration is accepted and then quietly paints nothing.
     /// This is the one list here that IS hand-written, because there is no hook to derive it from —
     /// so it is kept short and specific rather than trying to be complete.</summary>
-    private static void UnsupportedCssFunctions(string? css, List<Finding> findings)
+    private static void UnsupportedCssFunctions(string? css, string html, List<Finding> findings)
     {
-        if (css is null) return;
-        var lines = css.Replace("\r\n", "\n").Split('\n');
+        var lines = CssLines(css, html);
         for (var i = 0; i < lines.Length; i++)
             foreach (var (needle, fix) in FunctionGaps)
                 if (lines[i].Contains(needle, StringComparison.OrdinalIgnoreCase))

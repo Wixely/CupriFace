@@ -30,6 +30,11 @@ public static partial class Animation
         var map = new Dictionary<string, List<Keyframe>>(StringComparer.OrdinalIgnoreCase);
         if (string.IsNullOrWhiteSpace(css)) return map;
 
+        // The same stripping the rest of the stylesheet gets. Without it a comment between two
+        // stops rides into the next stop's selector, which then parses as no percentage and is
+        // dropped — see CssParser.StripComments (#184).
+        css = CssParser.StripComments(css);
+
         foreach (Match header in KeyframesHeader().Matches(css))
         {
             var name = header.Groups[1].Value;
@@ -131,6 +136,16 @@ public static partial class Animation
         }
         var span = b.Offset - a.Offset;
         var local = span > 0 ? (progress - a.Offset) / span : 0f;
+        // CLAMPED, because nothing outside the stops is ever animated to. When progress falls
+        // outside every bracketing pair the loop above leaves a and b as the first and last frames,
+        // and an unclamped fraction then EXTRAPOLATES past the value the author wrote — a bar
+        // declared to end at 545px settled at 714px and held there. That only happened because a
+        // comment had silently dropped the stops in between (#184), but extrapolating past the last
+        // keyframe is wrong however it is reached.
+        local = Math.Clamp(local, 0f, 1f);
+        // The timing function shapes each interval between two stops, which is what CSS says it
+        // does. Until now it was parsed and discarded, so every animation ran linearly.
+        local = s.AnimationEasing.Eval(local);
 
         var from = new ComputedStyle();
         var to = new ComputedStyle();

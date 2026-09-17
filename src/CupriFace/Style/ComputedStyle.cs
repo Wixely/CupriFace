@@ -126,7 +126,13 @@ public sealed class ComputedStyle
     public string? AnimationName;
     public float AnimationDuration; // seconds
     public float AnimationDelay;    // seconds; negative starts part-way through, as in CSS
-    public float AnimationIterations = 1f; // CSS default: once; `infinite` is +∞
+    public float AnimationIterations = 1f;
+
+    /// <summary>The animation's timing function. Parsed but THROWN AWAY until now: every keyword was
+    /// matched and discarded, so `ease-out` and `linear` produced identical values at every sample
+    /// and an animation only ever ran linearly (noticed while isolating #184). The curve machinery
+    /// already existed for transitions; animations simply never asked for it.</summary>
+    public Easing AnimationEasing = Easing.Linear; // CSS default: once; `infinite` is +∞
     public bool AnimationFillForwards;  // hold the last frame after the run
     public bool AnimationFillBackwards; // show the first frame during the delay
     internal AnimationBase? AnimBase;    // the values a keyframe overrides, captured before its first frame
@@ -157,6 +163,18 @@ public sealed class ComputedStyle
     public int FontWeight = 400;
     public string FontFamily = "sans-serif";
     public float LineHeight = 1.2f; // multiple of font-size
+
+    /// <summary>An ABSOLUTE line box in px, when <c>line-height</c> was given as a length. Null when
+    /// it is a ratio, which is the usual case and the initial value.
+    ///
+    /// <para>A length cannot be folded into <see cref="LineHeight"/>, and folding it was the bug: a
+    /// px value was divided by a hardcoded 16 to make a ratio "refined once font-size is known", and
+    /// nothing ever refined it. The line box came out font-size/16 times too tall — three times over
+    /// at 48px, exactly once at 16px, so it looked like a fixed factor to anyone testing at a single
+    /// size (#181).</para>
+    ///
+    /// <para>Inherited as a length, which is what CSS does with a length.</para></summary>
+    public float? LineHeightPx;
     public TextAlign TextAlign = TextAlign.Left;
     public WhiteSpaceMode WhiteSpace = WhiteSpaceMode.Normal; // inherited
     // Mid-token line breaking (inherited, like all text-wrapping behaviour). Two flags because they
@@ -183,6 +201,7 @@ public sealed class ComputedStyle
         FontWeight = parent.FontWeight;
         FontFamily = parent.FontFamily;
         LineHeight = parent.LineHeight;
+        LineHeightPx = parent.LineHeightPx;
         TextAlign = parent.TextAlign;
         WhiteSpace = parent.WhiteSpace;
         WordBreakAll = parent.WordBreakAll;
