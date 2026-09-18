@@ -294,6 +294,71 @@ try {
     canvas.addEventListener("pointercancel", e => { if (touch(e)) M._TouchCancel(e.pointerId, e.timeStamp); });
     canvas.addEventListener("wheel", e => { profile(false); const [x, y] = at(e); M._Wheel(x, y, e.deltaY); e.preventDefault(); }, { passive: false });
 
+    // ---- files dragged in from the desktop -----------------------------------------------------
+    // The page is the only host that learns about a drag BEFORE the drop, so it is the only one that
+    // can light up a target while the files are still in the air. dragover fires continuously and
+    // must preventDefault on every one of them, or the browser navigates to the file instead.
+    //
+    // The bytes stay here. A File is a blob handle, not data: it is kept in dropFiles and read only
+    // if the app asks (js_drop_read), so dragging in a 4GB video costs nothing unless someone wants
+    // its contents.
+    const dropFiles = new Map();
+    let dropSeq = 0;
+    const accepts = () => { try { return !!M._AcceptsFileDrop(); } catch { return false; } };
+    const hasFiles = e => Array.prototype.includes.call(e.dataTransfer?.types || [], "Files");
+
+    canvas.addEventListener("dragenter", e => {
+        if (!hasFiles(e) || !accepts()) return;
+        e.preventDefault();
+    });
+    canvas.addEventListener("dragover", e => {
+        if (!hasFiles(e) || !accepts()) return;
+        e.preventDefault();                       // "yes, you may drop here"
+        e.dataTransfer.dropEffect = "copy";
+        const [x, y] = at(e);
+        M._DropOver(x, y);
+    });
+    canvas.addEventListener("dragleave", e => {
+        // Fires for children too; only a leave that actually exits the canvas counts.
+        if (e.relatedTarget && canvas.contains(e.relatedTarget)) return;
+        M._DropLeave();
+    });
+    canvas.addEventListener("drop", e => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();                       // never let the browser open the file itself
+        if (!accepts()) { M._DropLeave(); return; }
+        const files = Array.from(e.dataTransfer.files || []);
+        if (!files.length) { M._DropLeave(); return; }
+        for (const f of files) {
+            const id = ++dropSeq;
+            dropFiles.set(id, f);
+            globalThis.__cupri.sendText(f.name, "DropName");
+            globalThis.__cupri.sendText(f.type || "", "DropType");
+            M._DropFile(id, f.size);
+        }
+        const [x, y] = at(e);
+        M._DropCommit(x, y);
+    });
+
+    // Answer a read the engine asked for: fill a buffer it owns, then say it is ready. Errors come
+    // back as DropFailed so the app can tell "unreadable" from "empty".
+    globalThis.__cupri.dropRead = (id, token) => {
+        const file = dropFiles.get(id);
+        if (!file) { globalThis.__cupri.dropFail(token, "the file is no longer available"); return; }
+        file.arrayBuffer().then(buf => {
+            const bytes = new Uint8Array(buf);
+            const ptr = M._DropBuffer(token, bytes.length);
+            if (!ptr) { globalThis.__cupri.dropFail(token, "out of memory"); return; }
+            M.HEAPU8.set(bytes, ptr);
+            M._DropBytes(token, bytes.length);
+        }).catch(err => globalThis.__cupri.dropFail(token, String(err && err.message || err)));
+    };
+    globalThis.__cupri.dropFail = (token, message) => {
+        const ptr = M._TextBuffer(message.length + 1);
+        M.stringToUTF16(message, ptr, (message.length + 1) * 2);
+        M._DropFailed(message.length, token);
+    };
+
     let EK = { Backspace: 1, Delete: 2, ArrowLeft: 3, ArrowRight: 4, Home: 5, End: 6, Enter: 7, ArrowUp: 8, ArrowDown: 9, Escape: 13, Tab: 10, ShiftTab: 11, SelectAll: 14 };
     // WINDOW-level, not kbd: app chords (Ctrl+K…) must beat the browser's own (address-bar search)
     // even when the hidden textarea lost focus (fresh load, returning to the tab via its title bar).

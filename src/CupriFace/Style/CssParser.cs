@@ -92,7 +92,11 @@ public static partial class CssParser
             {
                 // Interaction pseudo-classes are matched via marker attributes toggled at runtime.
                 var sel = selRaw.Replace(":hover", "[data-hover]").Replace(":active", "[data-active]")
-                                .Replace(":focus", "[data-focus]");
+                                .Replace(":focus", "[data-focus]")
+                                // Files being dragged over a .cupri-drop target. CSS has no standard
+                                // pseudo for this (only a -moz- prefixed one), but an author reaching
+                                // for it is reaching for :hover's neighbour, so it is spelled like one.
+                                .Replace(":drop-over", "[data-drop-over]");
                 var rule = new CssRule
                 {
                     Selector = sel,

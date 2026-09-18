@@ -181,6 +181,103 @@ public sealed partial class CupriDocument : IDisposable
     public readonly record struct ReorderEvent(IElement List, int From, int To, IElement ToList);
     public CupriDocument OnReorder(Action<ReorderEvent> handler) { _onReorder = handler; return this; }
 
+    // ---- files dropped from outside the window ---------------------------------------------------
+    // The counterpart to reorder: that drags WITHIN the window, this accepts what the OS (or the
+    // browser) drags INTO it. Same shape deliberately — markup names the target with a class, the app
+    // registers one handler, the event carries the IElement — because they are the same gesture as far
+    // as the person doing it is concerned, and the boundary between them should not be visible.
+
+    private Action<FileDropEvent>? _onFileDrop;
+    private IElement? _dropTarget;   // currently carrying data-drop-over, cleared on leave/drop
+
+    /// <summary>
+    /// A drop of one or more files onto the window. <see cref="Target"/> is the nearest enclosing
+    /// element carrying <c>cupri-drop</c>, or <b>null</b> when the drop landed somewhere no element
+    /// claimed — which is not a failure: an app that accepts files anywhere on its window simply
+    /// ignores it. <see cref="X"/>/<see cref="Y"/> are document coordinates, so they can be handed
+    /// straight to <see cref="DumpTree"/>'s numbers or a hit test.
+    /// </summary>
+    public readonly record struct FileDropEvent(IElement? Target, float X, float Y, IReadOnlyList<DroppedFile> Files);
+
+    /// <summary>Register the handler for files dropped on the window. Fluent, like
+    /// <see cref="OnReorder"/>. The files arrive with their metadata already populated; their bytes
+    /// are read asynchronously — see <see cref="DroppedFile"/> for why that split exists.</summary>
+    public CupriDocument OnFileDrop(Action<FileDropEvent> handler) { _onFileDrop = handler; return this; }
+
+    /// <summary>Whether anything would come of a drop — false when no handler is registered. Hosts ask
+    /// before telling the platform they accept a drag, so a document that wants no files does not get
+    /// a drop cursor over it.</summary>
+    public bool AcceptsFileDrop => _onFileDrop is not null;
+
+    /// <summary>
+    /// The pointer is over the window mid-drag, carrying files. Marks the <c>cupri-drop</c> element
+    /// under the point with <c>data-drop-over</c> (matched by <c>:drop-over</c> in CSS) so it can light
+    /// up, exactly as <c>:hover</c> works. Returns true when something changed and a repaint is due.
+    ///
+    /// <para><b>Not every host can call this.</b> A browser reports drag-over continuously and so gets
+    /// the highlight for free; SDL brackets the drag with begin/complete events and can poll; GLFW —
+    /// our primary desktop window — reports the drop and nothing before it, so there the highlight
+    /// never appears. That is why it is a separate entry point rather than something
+    /// <see cref="DispatchFileDrop"/> implies: an app must look right when it is never called.</para>
+    /// </summary>
+    public bool DispatchDropOver(float x, float y)
+    {
+        EnsureLaidOut();
+        if (!AcceptsFileDrop) return false;
+        return Bump(SetDropTarget(DropTargetAt(Zc(x), Zc(y))));
+    }
+
+    /// <summary>The drag left the window, or was cancelled. Clears any <c>data-drop-over</c>.</summary>
+    public bool DispatchDropLeave() => Bump(SetDropTarget(null));
+
+    /// <summary>
+    /// Files were dropped at (<paramref name="x"/>, <paramref name="y"/>). Clears the drag highlight
+    /// and raises <see cref="OnFileDrop"/>.
+    ///
+    /// <para>The host supplies the point, because <b>no desktop platform puts one in the drop event</b>
+    /// — SDL's carries a filename and a window id, GLFW's carries paths alone — so each host pairs the
+    /// drop with a live cursor query. A host that genuinely cannot locate the pointer should pass the
+    /// window centre rather than invent an offset; <see cref="FileDropEvent.Target"/> being wrong is
+    /// worse than it being null.</para>
+    /// </summary>
+    public bool DispatchFileDrop(float x, float y, IReadOnlyList<DroppedFile> files)
+    {
+        ArgumentNullException.ThrowIfNull(files);
+        EnsureLaidOut();
+        float dx = Zc(x), dy = Zc(y);
+        var target = DropTargetAt(dx, dy);
+        var changed = SetDropTarget(null);
+        if (files.Count > 0 && _onFileDrop is { } handler)
+        {
+            handler(new FileDropEvent(target?.Element, dx, dy, files));
+            changed = true;   // a handler that changed the model needs the frame either way
+        }
+        return Bump(changed);
+    }
+
+    // The nearest ancestor of the hit node marked as a drop target. Null when nothing claimed the
+    // point — a drop on bare background is still a drop, it just has no element to name.
+    private RenderNode? DropTargetAt(float x, float y)
+    {
+        var n = HitTesting.HitTest(_root, x, y);
+        while (n is not null && n.Element?.ClassList.Contains("cupri-drop") != true) n = n.Parent;
+        return n;
+    }
+
+    // Move data-drop-over onto `node`'s element (or nowhere). Only the target itself is marked, not its
+    // ancestors the way :hover chains — a drop lands on ONE thing, and lighting up every enclosing panel
+    // as well would say otherwise.
+    private bool SetDropTarget(RenderNode? node)
+    {
+        var el = node?.Element;
+        if (ReferenceEquals(el, _dropTarget)) return false;
+        _dropTarget?.RemoveAttribute("data-drop-over");
+        _dropTarget = el;
+        el?.SetAttribute("data-drop-over", "");
+        ReStyle();
+        return true;
+    }
+
     // Right-click context menu (Cut/Copy/Paste/Select-all) over a text field. The engine owns
     // opening/positioning/rendering/dismissing it; the host performs the chosen clipboard action.
     private bool _ctxOpen;
@@ -855,6 +952,10 @@ public sealed partial class CupriDocument : IDisposable
         _hoverChain.Clear();
         _activeChain.Clear();   // same reason as hover: the fresh DOM carries no data-active, and a
                                 // stale chain would hand ClearActive() dead elements on pointer-up
+        _dropTarget = null;     // …and the same for the drag highlight: the element holding it belongs
+                                // to the old DOM. A drag over a document that rebuilds under it (a
+                                // polling dashboard) drops the highlight for a frame and the next
+                                // DispatchDropOver restores it, which is the same deal hover gets.
         var resolver = new StyleResolver(_rules, _viewportWidth, _viewportHeight);
         _root = resolver.BuildTree(dom);
         _hasViewportUnits |= resolver.SawViewportUnit;

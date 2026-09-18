@@ -308,6 +308,91 @@ public static class WebHostCore
     public static void PointerDown(double x, double y, int clicks)
     { if (_doc?.DispatchClick(L(x), L(y), clicks) == true) _dirty = true; UpdateCursor(x, y); }
 
+    // ---- files dropped onto the canvas -----------------------------------------------------------
+    //
+    // The browser is the host that can do this BEST, which is not what you would guess. A desktop
+    // window is told a drop happened and nothing before it; a page gets `dragover` continuously, with
+    // coordinates, so the :drop-over highlight costs nothing here and cannot exist there.
+    //
+    // What a page cannot do is hand over a path or synchronous bytes — a File is a blob, and reading
+    // one is a promise. So the metadata crosses immediately (name, size, type: all a File offers
+    // synchronously) and the bytes stay in JS behind a handle until something asks for them. That is
+    // exactly the shape DroppedFile.Deferred exists for, and it is why an app written against this
+    // API never has to ask which host it is running on.
+
+    private static readonly List<DroppedFile> _dropPending = [];
+    private static readonly Dictionary<int, TaskCompletionSource<byte[]>> _dropReads = [];
+    private static int _dropToken;
+    private static string _dropName = "", _dropType = "";
+
+    /// <summary>The name of the file whose metadata is being assembled. Sent separately because the
+    /// C ABI has no string type, so each one crosses through the shared buffer in its own call.</summary>
+    public static void DropName(string name) => _dropName = name;
+
+    /// <summary>The media type of the file being assembled — whatever the browser inferred.</summary>
+    public static void DropType(string mediaType) => _dropType = mediaType;
+
+    /// <summary>One file in the drop, identified by the handle JS kept for it. Gathered rather than
+    /// dispatched: a drop of three files is one gesture and must reach the app as one event.</summary>
+    public static void DropFile(int id, double size)
+    {
+        var name = _dropName; var type = _dropType;   // captured: the fields move on to the next file
+        _dropName = ""; _dropType = "";
+        _dropPending.Add(DroppedFile.Deferred(name, (long)size, type, _ => ReadDropAsync(id)));
+    }
+
+    /// <summary>Every file has crossed: raise the drop at the point the page reported.</summary>
+    public static void DropCommit(double x, double y)
+    {
+        var files = _dropPending.ToArray();
+        _dropPending.Clear();
+        if (files.Length == 0) return;
+        if (_doc?.DispatchFileDrop(L(x), L(y), files) == true) _dirty = true;
+    }
+
+    /// <summary>Dragging over the canvas — the highlight the desktop hosts cannot offer.</summary>
+    public static void DropOver(double x, double y)
+    { if (_doc?.DispatchDropOver(L(x), L(y)) == true) _dirty = true; }
+
+    /// <summary>The drag left, or was abandoned.</summary>
+    public static void DropLeave()
+    {
+        _dropPending.Clear();
+        if (_doc?.DispatchDropLeave() == true) _dirty = true;
+    }
+
+    /// <summary>Whether the document would do anything with a drop. The page asks before it tells the
+    /// browser it accepts the drag, so a document with no handler keeps the "no entry" cursor.</summary>
+    public static bool AcceptsFileDrop() => _doc?.AcceptsFileDrop == true;
+
+    // Ask the page for a file's bytes and wait. The round trip is a token rather than a promise
+    // because the C ABI carries neither — JS answers by calling DropBytes/DropFailed with the token
+    // it was given, the same shape the clipboard paste already uses.
+    private static Task<byte[]> ReadDropAsync(int id)
+    {
+        if (_js is null) return Task.FromException<byte[]>(
+            new InvalidOperationException("No browser bridge: a dropped file cannot be read."));
+        var token = ++_dropToken;
+        var tcs = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _dropReads[token] = tcs;
+        _js.DropRead(id, token);
+        return tcs.Task;
+    }
+
+    /// <summary>JS answering a <c>DropRead</c>: the bytes for that token.</summary>
+    public static void DropBytes(int token, byte[] bytes)
+    {
+        if (_dropReads.Remove(token, out var tcs)) tcs.TrySetResult(bytes);
+    }
+
+    /// <summary>JS answering a <c>DropRead</c> that failed — the file moved, or the read was refused.
+    /// Faulted rather than empty: an app must be able to tell "unreadable" from "zero bytes".</summary>
+    public static void DropFailed(int token, string message)
+    {
+        if (_dropReads.Remove(token, out var tcs))
+            tcs.TrySetException(new IOException($"The dropped file could not be read: {message}"));
+    }
+
     // ---- accessibility actions ------------------------------------------------------------------
     // What the ARIA overlay posts back: the page forwards a click on, or a focus arriving at, a
     // mirror node by its data-path. The same three entry points every native bridge uses, so an

@@ -277,6 +277,12 @@ public static class DesktopHost
                 }
                 else Mark(doc.DispatchWheel(x / scale, y / scale, -dy * 50f)); // wheel up → scroll up
             };
+            // A drop from the OS. The window already converted to logical client units and found
+            // the pointer; dividing out the app's own present scale is this host's usual last step,
+            // the same one every pointer event above takes.
+            window.FilesDropped += (x, y, paths) =>
+                Mark(doc.DispatchFileDrop(x / scale, y / scale,
+                    Array.ConvertAll(paths, DroppedFile.FromPath)));
             window.TextEntered += t => Mark(doc.DispatchKey(t, EditKey.None));
             window.EditKeyPressed += (k, mods) =>
             {
@@ -485,6 +491,12 @@ public static class DesktopHost
                 }
                 else Mark(doc.DispatchWheel(x / scale, y / scale, -dy * 50f)); // wheel up → scroll up
             };
+            // A drop from the OS. The window already converted to logical client units and found
+            // the pointer; dividing out the app's own present scale is this host's usual last step,
+            // the same one every pointer event above takes.
+            window.FilesDropped += (x, y, paths) =>
+                Mark(doc.DispatchFileDrop(x / scale, y / scale,
+                    Array.ConvertAll(paths, DroppedFile.FromPath)));
             window.TextEntered += t => Mark(doc.DispatchKey(t, EditKey.None));
             window.EditKeyPressed += (k, mods) =>
             {

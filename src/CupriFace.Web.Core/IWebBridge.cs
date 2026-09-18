@@ -38,6 +38,14 @@ public interface IWebBridge
     /// back later through the host's own paste entry point rather than as a return value.</summary>
     void ClipboardPaste();
 
+    /// <summary>Read a dropped file's bytes. Fire-and-forget, like <see cref="ClipboardPaste"/> and
+    /// for the same reason: a blob read is a promise, and neither the C ABI nor this interface can
+    /// carry one. The page answers by calling <c>WebHostCore.DropBytes</c> (or <c>DropFailed</c>)
+    /// with the <paramref name="token"/> it was handed.</summary>
+    /// <param name="fileId">The handle the page kept when the file was dropped.</param>
+    /// <param name="token">Correlates the answer with the caller waiting for it.</param>
+    void DropRead(int fileId, int token);
+
     /// <summary>Publish the semantics tree into the off-screen mirror a screen reader reads.</summary>
     void PublishAria(string html);
 

@@ -1237,6 +1237,87 @@ taken that on.
 If you want both, the usual approach is to keep the built-in control as the reachable path and
 treat the gesture as an accelerator on top of it, rather than as the only way in.
 
+## 8.1.1 Files dropped in from outside the window
+
+`<cupri-reorder>` drags things *inside* your window. This is its outward-facing twin: a file dragged
+in from Explorer, Finder, Nautilus — or, on the web, from the desktop onto the page.
+
+```csharp
+doc.OnFileDrop(async e =>
+{
+    // Metadata is already here. Nothing has been read yet.
+    foreach (var f in e.Files)
+    {
+        if (f.MediaType != "text/markdown" || f.Size > 1_000_000) continue;
+        var text = await f.ReadTextAsync();      // …now it is
+        _model.Open(f.Name, text);
+    }
+});
+```
+
+Mark the regions that accept a drop with **`cupri-drop`**, and `e.Target` is the nearest enclosing
+one — so "drop onto *this* column" is the hit test the engine already did, not one you repeat:
+
+```html
+<div class="column cupri-drop" data-col="inbox">…</div>
+```
+```css
+.cupri-drop:drop-over { border-color: #d9642a; background: #fdf0e8; }
+```
+
+`e.Target` is **null** when the drop landed on nothing marked, which is not a failure — an app that
+takes files anywhere on its window just ignores it. `e.X`/`e.Y` are document coordinates.
+
+### Metadata now, bytes later — and why
+
+`DroppedFile` splits deliberately, and the split is what lets one handler serve desktop *and*
+browser:
+
+| | Available | Why |
+|---|---|---|
+| `Name`, `Size`, `MediaType` | immediately | all a browser `File` exposes synchronously |
+| `ReadBytesAsync()` / `ReadTextAsync()` / `ToSourceAsync()` | awaited | a blob read is a promise; there is no synchronous form to offer |
+| `Path` | **desktop only — null in a browser** | the web withholds it deliberately |
+
+So filter on the cheap questions and await only what survives: dragging in a 4 GB video costs
+nothing until somebody wants its contents. `ToSourceAsync()` hands you a
+[`CupriSource`](#21-loading-markup-styles--assets) with `LocalFile` trust — the user pointed at the
+file, but your app never chose it, so treat it as the least trustworthy local input you have.
+
+Read `Path` only to *remember* a location. An app that reads it to get at the contents is an app
+that works everywhere except the browser.
+
+### The highlight is optional, and on desktop it never comes
+
+`:drop-over` is set while files are being dragged over a target — but **only the browser can report
+that.** GLFW (our primary desktop window) hands over the paths on release and says nothing
+beforehand; SDL2's `Dropbegin` arrives *with* the drop, not before it, and its drop event carries no
+coordinates at all. So:
+
+| Host | Drop lands on the right element | Highlight while dragging |
+|---|---|---|
+| Browser (both WASM hosts) | yes | **yes** |
+| Desktop (GLFW and SDL) | yes | no — the platform never says |
+
+Design the zone so it reads as a target when it is *idle*; treat the highlight as a bonus the web
+gets. Nothing else about the drop differs.
+
+### Testing it: `DropDriver`
+
+A gesture you cannot script is a gesture that rots, so drops script like touches do:
+
+```csharp
+var drop = new DropDriver(doc);
+drop.Over(x, y);                                   // the highlight, without letting go
+drop.DropText(x, y, "notes.md", "# hello");        // the whole gesture
+drop.Drop(x, y, DroppedFile.FromBytes("a.png", bytes));
+drop.DropNamed(x, y, "a.csv", "b.csv");            // when only the routing matters
+```
+
+This is not a simulation of the browser: a dropped file in a page really *is* bytes with a name,
+because that is all a blob offers. `tests/CupriFace.Tests/FileDropTests.cs` is a worked example, and
+the Showcase's **Diagnostics** page has a live zone to drag a real file onto.
+
 ## 8.2 Scrolling
 
 `overflow: scroll` scrolls on **both axes**, independently. A box whose content is wider than it is

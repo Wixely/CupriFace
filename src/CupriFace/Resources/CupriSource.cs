@@ -114,6 +114,21 @@ public sealed class CupriSource
             () => bytes, _ => Task.FromResult(bytes));
     }
 
+    /// <summary>
+    /// Bytes already in memory, labelled with where they came from. Trust =
+    /// <see cref="ResourceTrust.LocalFile"/>: these are as trustworthy as whoever handed them over,
+    /// which is the honest answer for the two callers that need this — a file the user dropped on the
+    /// window, and a browser blob that has no path to describe it by.
+    /// </summary>
+    /// <param name="origin">A short, non-secret label for diagnostics (a file name will do).</param>
+    public static CupriSource Bytes(string origin, byte[] content)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(origin);
+        ArgumentNullException.ThrowIfNull(content);
+        return new CupriSource(ResourceTrust.LocalFile, $"bytes:{origin}",
+            () => content, _ => Task.FromResult(content));
+    }
+
     // ---- reads -------------------------------------------------------------
 
     /// <summary>Read the resource as UTF-8 text. Blocks for a <see cref="Url"/> source.</summary>

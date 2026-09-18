@@ -131,6 +131,68 @@ public static unsafe partial class Interop
     [UnmanagedCallersOnly(EntryPoint = "PasteText")]
     public static void PasteText(int len) => Guard("PasteText", () => WebHostCore.KeyChar(In(len)));
 
+    // ---- files dropped on the canvas -----------------------------------------------------------
+    // Strings reuse the shared char buffer above (name, then type, then the file itself), so a drop
+    // of N files is DropName/DropType/DropFile x N followed by one DropCommit. Bytes coming BACK
+    // need their own buffer, because unlike every other input they are not consumed synchronously:
+    // JS asks for one sized to the file, fills it, and then says it is ready.
+
+    [UnmanagedCallersOnly(EntryPoint = "DropName")]
+    public static void DropName(int len) => Guard("DropName", () => WebHostCore.DropName(In(len)));
+
+    [UnmanagedCallersOnly(EntryPoint = "DropType")]
+    public static void DropType(int len) => Guard("DropType", () => WebHostCore.DropType(In(len)));
+
+    [UnmanagedCallersOnly(EntryPoint = "DropFile")]
+    public static void DropFile(int id, double size) => Guard("DropFile", () => WebHostCore.DropFile(id, size));
+
+    [UnmanagedCallersOnly(EntryPoint = "DropCommit")]
+    public static void DropCommit(double x, double y) => Guard("DropCommit", () => WebHostCore.DropCommit(x, y));
+
+    [UnmanagedCallersOnly(EntryPoint = "DropOver")]
+    public static void DropOver(double x, double y) => Guard("DropOver", () => WebHostCore.DropOver(x, y));
+
+    [UnmanagedCallersOnly(EntryPoint = "DropLeave")]
+    public static void DropLeave() => Guard("DropLeave", WebHostCore.DropLeave);
+
+    [UnmanagedCallersOnly(EntryPoint = "AcceptsFileDrop")]
+    public static int AcceptsFileDrop()
+    { try { return WebHostCore.AcceptsFileDrop() ? 1 : 0; } catch (Exception ex) { Crash("AcceptsFileDrop", ex); return 0; } }
+
+    // One buffer per outstanding read, because a read is the only input that spans turns: JS awaits
+    // the blob, and a second drop can be handled in between. Keyed by token and freed on delivery.
+    private static readonly Dictionary<int, nint> _dropBufs = [];
+
+    [UnmanagedCallersOnly(EntryPoint = "DropBuffer")]
+    public static byte* DropBuffer(int token, int byteLen)
+    {
+        try
+        {
+            if (_dropBufs.Remove(token, out var old)) NativeMemory.Free((void*)old);
+            var p = NativeMemory.Alloc((nuint)Math.Max(byteLen, 1));
+            _dropBufs[token] = (nint)p;
+            return (byte*)p;
+        }
+        catch (Exception ex) { Crash("DropBuffer", ex); return null; }
+    }
+
+    [UnmanagedCallersOnly(EntryPoint = "DropBytes")]
+    public static void DropBytes(int token, int byteLen) => Guard("DropBytes", () =>
+    {
+        if (!_dropBufs.Remove(token, out var buf)) return;
+        var bytes = new byte[byteLen];
+        new ReadOnlySpan<byte>((void*)buf, byteLen).CopyTo(bytes);
+        NativeMemory.Free((void*)buf);
+        WebHostCore.DropBytes(token, bytes);
+    });
+
+    [UnmanagedCallersOnly(EntryPoint = "DropFailed")]
+    public static void DropFailed(int len, int token) => Guard("DropFailed", () =>
+    {
+        if (_dropBufs.Remove(token, out var buf)) NativeMemory.Free((void*)buf);
+        WebHostCore.DropFailed(token, In(len));
+    });
+
     [UnmanagedCallersOnly(EntryPoint = "KeyChord")]
     public static int KeyChord(int len, int mods)
     {
@@ -218,6 +280,7 @@ public static unsafe partial class Interop
     [DllImport("js", EntryPoint = "js_favicon")] private static extern void JsFavicon(char* utf16, int len);
     [DllImport("js", EntryPoint = "js_clipboard_write")] private static extern void JsClipboardWrite(char* utf16, int len);
     [DllImport("js", EntryPoint = "js_clipboard_paste")] private static extern void JsClipboardPaste();
+    [DllImport("js", EntryPoint = "js_drop_read")] private static extern void JsDropRead(int fileId, int token);
     [DllImport("js", EntryPoint = "js_a11y")] private static extern void JsA11y(char* utf16, int len);
     [DllImport("js", EntryPoint = "js_text_input")]
     private static extern void JsTextInput(int focused, int numeric, int multiline, double x, double y);
@@ -265,6 +328,7 @@ public static unsafe partial class Interop
         public void SetFavicon(string dataUri) => SendFavicon(dataUri);
         public void ClipboardWrite(string text) => SendClipboardWrite(text);
         public void ClipboardPaste() => JsClipboardPaste();
+        public void DropRead(int fileId, int token) => JsDropRead(fileId, token);
         public void PublishAria(string html) => SendA11y(html);
         public void SetTextInput(bool focused, bool numeric, bool multiline, double x, double y) =>
             JsTextInput(focused ? 1 : 0, numeric ? 1 : 0, multiline ? 1 : 0, x, y);

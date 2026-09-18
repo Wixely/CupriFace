@@ -228,6 +228,13 @@ function showError(where, err) {
     msg.split('\n').slice(0, 24).forEach((line, i) => ctx.fillText(line.slice(0, 110), 16, 52 + i * 18));
 }
 
+// Dropped files, held as blob HANDLES rather than data: read only if the app asks for the bytes.
+// Declared out here because both halves need them — the drop listeners fill the map, and the
+// `dropRead` import drains it, and those live in different scopes below.
+const dropFiles = new Map();
+let dropSeq = 0;
+const hasFiles = e => Array.prototype.includes.call(e.dataTransfer?.types || [], 'Files');
+
 try {
     logBoot('create...');
     const { setModuleImports, getAssemblyExports, runMain } = await dotnet
@@ -283,6 +290,15 @@ try {
         // Context-menu clipboard (async browser clipboard). Paste reads then feeds the engine.
         clipboardWrite: text => navigator.clipboard.writeText(text).catch(() => {}),
         clipboardPaste: () => navigator.clipboard.readText().then(t => { if (t) I.KeyChar(t); }).catch(() => {}),
+        // A dropped file's bytes, fetched only when the engine asks. Mono marshals the Uint8Array
+        // itself, so unlike the NativeAOT host there is no buffer to arrange.
+        dropRead: (id, token) => {
+            const file = dropFiles.get(id);
+            if (!file) { I.DropFailed(token, 'the file is no longer available'); return; }
+            file.arrayBuffer()
+                .then(buf => I.DropBytes(token, new Uint8Array(buf)))
+                .catch(err => I.DropFailed(token, String(err && err.message || err)));
+        },
         // The ARIA overlay: the semantics tree, patched into the live DOM (see syncA11y above).
         a11y: syncA11y,
         // Move the hidden textarea to the caret so the IME's candidate window appears AT the
@@ -481,6 +497,43 @@ try {
     // become a click.
     canvas.addEventListener('pointercancel', e => { if (touch(e)) I.TouchCancel(e.pointerId, e.timeStamp); });
     canvas.addEventListener('wheel', e => { profile(false); const [x, y] = at(e); I.Wheel(x, y, e.deltaY); e.preventDefault(); }, { passive: false });
+
+    // ---- files dragged in from the desktop -----------------------------------------------------
+    // See the same block in CupriFace.Web.NativeAot's main.js. The page is the only host that hears
+    // about a drag before the drop, so it is the only one where a :drop-over highlight is possible;
+    // dragover must preventDefault every time or the browser navigates to the file instead. The
+    // File objects stay here as handles and are read only on request.
+    canvas.addEventListener('dragenter', e => {
+        if (!hasFiles(e) || !I.AcceptsFileDrop()) return;
+        e.preventDefault();
+    });
+    canvas.addEventListener('dragover', e => {
+        if (!hasFiles(e) || !I.AcceptsFileDrop()) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        const [x, y] = at(e);
+        I.DropOver(x, y);
+    });
+    canvas.addEventListener('dragleave', e => {
+        if (e.relatedTarget && canvas.contains(e.relatedTarget)) return;
+        I.DropLeave();
+    });
+    canvas.addEventListener('drop', e => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        if (!I.AcceptsFileDrop()) { I.DropLeave(); return; }
+        const files = Array.from(e.dataTransfer.files || []);
+        if (!files.length) { I.DropLeave(); return; }
+        for (const f of files) {
+            const id = ++dropSeq;
+            dropFiles.set(id, f);
+            I.DropName(f.name);
+            I.DropType(f.type || '');
+            I.DropFile(id, f.size);
+        }
+        const [x, y] = at(e);
+        I.DropCommit(x, y);
+    });
 
     // Keyboard, WINDOW-level (not kbd): named keys → EditKey codes (must match
     // CupriFace.Interaction.EditKey), Shift/Ctrl mods (KeyMods: Shift=1, Ctrl=2); printable chars →

@@ -58,6 +58,37 @@ public sealed class SkiaWindow : IDisposable
     /// is exactly the origin pointer coordinates are relative to).</summary>
     public (int X, int Y) ScreenPosition => _window is { } w ? (w.Position.X, w.Position.Y) : (0, 0);
 
+    /// <summary>
+    /// Where the cursor is <i>now</i>, in logical client units — asked of the platform rather than
+    /// remembered from the last event.
+    ///
+    /// <para>This exists for one reason: <b>a file-drop event carries no coordinates.</b> GLFW's drop
+    /// callback hands over paths and nothing else, so the only way to know what the user dropped the
+    /// files ON is to ask where the pointer is at that moment. The cached position Silk keeps from
+    /// pointer callbacks is no use — during an OS drag the window receives no pointer events at all,
+    /// so that value is from before the drag started and may predate the cursor ever entering the
+    /// window. <c>glfwGetCursorPos</c> queries the OS, which is what makes it correct here.</para>
+    /// </summary>
+    private (float X, float Y)? CursorInClient()
+    {
+        if (_window?.Native?.Glfw is not { } handle) return null;
+        try
+        {
+            unsafe
+            {
+                GlfwApi.GetCursorPos((Silk.NET.GLFW.WindowHandle*)handle, out var x, out var y);
+                return ToLogicalClient((float)x, (float)y);
+            }
+        }
+        catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException)
+        {
+            return null;   // no GLFW under us (a headless or SDL path); the caller falls back
+        }
+    }
+
+    private static Silk.NET.GLFW.Glfw? _glfwApi;
+    private static Silk.NET.GLFW.Glfw GlfwApi => _glfwApi ??= Silk.NET.GLFW.Glfw.GetApi();
+
     /// <summary>Nudge the window by a delta, for a frameless window being dragged by an element that
     /// stands in for its missing title bar. A delta rather than a destination because that is what the
     /// engine can report — it knows how far the pointer travelled, not where the window sits.</summary>
@@ -224,6 +255,12 @@ public sealed class SkiaWindow : IDisposable
     public event Action<float, float>? PointerMove;
     public event Action<float, float>? PointerUp;
     public event Action<float, float, float, KeyMods>? PointerWheel; // x, y, deltaY (notches), mods — Ctrl+wheel is zoom
+    /// <summary>Files dragged in from the OS and dropped: the point, in logical client units, and the
+    /// paths. See <see cref="CursorInClient"/> for where the point comes from — the platform does not
+    /// supply one — and note that GLFW gives <b>no warning before the drop</b>, so this host never
+    /// raises a drag-over and a <c>:drop-over</c> highlight never appears on it.</summary>
+    public event Action<float, float, string[]>? FilesDropped;
+
     public event Action<string>? TextEntered;
     public event Action<EditKey, KeyMods>? EditKeyPressed;  // key + Shift/Ctrl modifiers
     public event Action<char, KeyMods>? Shortcut;           // Ctrl/Cmd + letter (a/c/x/v …) or =/-/0 (zoom)
@@ -357,6 +394,16 @@ public sealed class SkiaWindow : IDisposable
         _window.Load += OnLoad;
         _window.FramebufferResize += OnFramebufferResize;
         _window.Render += OnRender;
+        // Files dragged in from the OS. Silk hands over paths alone, so the point is queried here
+        // (CursorInClient); when even that is unavailable we pass the window centre rather than
+        // invent an offset, because a drop reported at the wrong element is worse than one reported
+        // at no element.
+        _window.FileDrop += paths =>
+        {
+            if (paths is not { Length: > 0 }) return;
+            var (x, y) = CursorInClient() ?? (_logicalSize.X / 2f, _logicalSize.Y / 2f);
+            FilesDropped?.Invoke(x, y, paths);
+        };
         _window.Closing += DisposeGpu;
         _window.Run();
     }

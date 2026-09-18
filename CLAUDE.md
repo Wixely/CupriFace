@@ -146,6 +146,19 @@ Three things that bite if you drive `TouchInput` by hand instead:
 `new TouchDriver(doc, new TouchOptions { SlopPx = … })` moves the thresholds, for testing a gesture
 at its boundary. `tests/CupriFace.Tests/TouchDriverTests.cs` is a worked example of each verb.
 
+**A file dropped in from the OS has its own driver too**, for the same reason:
+
+```csharp
+var drop = new DropDriver(doc);               // CupriFace.Interaction
+drop.DropText(x, y, "notes.md", "# hello");   // drag in and release
+drop.Over(x, y);                              // the :drop-over highlight, without letting go
+```
+
+Two things that catch people out: **`DroppedFile` gives metadata synchronously and bytes only
+asynchronously** (a browser `File` is a blob — there is no synchronous read to offer, and `Path` is
+null there), and **the drag-over highlight exists only in a browser** — GLFW reports the drop with no
+warning beforehand, so a drop zone must read as a target while idle. See TOOLBOX.md §8.1.1.
+
 ### Gotchas
 
 - `doc.Refresh()` before the first render, and throw away one frame before capturing — layout and
