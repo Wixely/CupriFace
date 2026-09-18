@@ -524,12 +524,19 @@ try {
         if (!I.AcceptsFileDrop()) { I.DropLeave(); return; }
         const files = Array.from(e.dataTransfer.files || []);
         if (!files.length) { I.DropLeave(); return; }
-        for (const f of files) {
+        // Folders: see the same block in CupriFace.Web.NativeAot's main.js. webkitGetAsEntry has to
+        // be called synchronously, before this handler returns and the items list is emptied.
+        const items = Array.from(e.dataTransfer.items || []).filter(it => it.kind === 'file');
+        const isDir = i => {
+            try { return items[i]?.webkitGetAsEntry?.()?.isDirectory === true; } catch { return false; }
+        };
+        for (let i = 0; i < files.length; i++) {
+            const f = files[i];
             const id = ++dropSeq;
             dropFiles.set(id, f);
             I.DropName(f.name);
             I.DropType(f.type || '');
-            I.DropFile(id, f.size);
+            I.DropFile(id, f.size, isDir(i));
         }
         const [x, y] = at(e);
         I.DropCommit(x, y);

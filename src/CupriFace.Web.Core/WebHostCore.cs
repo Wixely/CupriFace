@@ -333,12 +333,17 @@ public static class WebHostCore
     public static void DropType(string mediaType) => _dropType = mediaType;
 
     /// <summary>One file in the drop, identified by the handle JS kept for it. Gathered rather than
-    /// dispatched: a drop of three files is one gesture and must reach the app as one event.</summary>
-    public static void DropFile(int id, double size)
+    /// dispatched: a drop of three files is one gesture and must reach the app as one event.
+    ///
+    /// <para><paramref name="isDirectory"/> comes from <c>webkitGetAsEntry</c>, which the page must
+    /// ask during the drop event itself. A browser presents a dropped folder as a zero-byte File that
+    /// simply fails to read, so without asking, a folder would be indistinguishable from an empty
+    /// file until someone tried to open it.</para></summary>
+    public static void DropFile(int id, double size, bool isDirectory)
     {
         var name = _dropName; var type = _dropType;   // captured: the fields move on to the next file
         _dropName = ""; _dropType = "";
-        _dropPending.Add(DroppedFile.Deferred(name, (long)size, type, _ => ReadDropAsync(id)));
+        _dropPending.Add(DroppedFile.Deferred(name, (long)size, type, _ => ReadDropAsync(id), isDirectory));
     }
 
     /// <summary>Every file has crossed: raise the drop at the point the page reported.</summary>

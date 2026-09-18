@@ -1275,7 +1275,7 @@ browser:
 
 | | Available | Why |
 |---|---|---|
-| `Name`, `Size`, `MediaType` | immediately | all a browser `File` exposes synchronously |
+| `Name`, `Size`, `MediaType`, `IsDirectory` | immediately | all a browser `File` exposes synchronously |
 | `ReadBytesAsync()` / `ReadTextAsync()` / `ToSourceAsync()` | awaited | a blob read is a promise; there is no synchronous form to offer |
 | `Path` | **desktop only — null in a browser** | the web withholds it deliberately |
 
@@ -1286,6 +1286,20 @@ file, but your app never chose it, so treat it as the least trustworthy local in
 
 Read `Path` only to *remember* a location. An app that reads it to get at the contents is an app
 that works everywhere except the browser.
+
+**Check `IsDirectory` before reading** — people drag folders onto windows all the time, a folder has
+no bytes, and reading one throws:
+
+```csharp
+foreach (var f in e.Files)
+{
+    if (f.IsDirectory) continue;      // ask, don't catch
+    …
+}
+```
+
+Every way a local read can fail — a folder, a locked file, one that vanished between the drop and
+the read — surfaces as `IOException`, the same type on every host, so one `catch` covers it.
 
 ### The highlight is optional, and on desktop it never comes
 

@@ -144,7 +144,8 @@ public static unsafe partial class Interop
     public static void DropType(int len) => Guard("DropType", () => WebHostCore.DropType(In(len)));
 
     [UnmanagedCallersOnly(EntryPoint = "DropFile")]
-    public static void DropFile(int id, double size) => Guard("DropFile", () => WebHostCore.DropFile(id, size));
+    public static void DropFile(int id, double size, int isDirectory) =>
+        Guard("DropFile", () => WebHostCore.DropFile(id, size, isDirectory != 0));
 
     [UnmanagedCallersOnly(EntryPoint = "DropCommit")]
     public static void DropCommit(double x, double y) => Guard("DropCommit", () => WebHostCore.DropCommit(x, y));

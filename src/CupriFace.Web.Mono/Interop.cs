@@ -55,7 +55,7 @@ internal partial class Interop
     // neither. A drop of N files is DropName/DropType/DropFile x N, then one DropCommit.
     [JSExport] internal static void DropName(string name) => WebHostCore.DropName(name);
     [JSExport] internal static void DropType(string mediaType) => WebHostCore.DropType(mediaType);
-    [JSExport] internal static void DropFile(int id, double size) => WebHostCore.DropFile(id, size);
+    [JSExport] internal static void DropFile(int id, double size, bool isDirectory) => WebHostCore.DropFile(id, size, isDirectory);
     [JSExport] internal static void DropCommit(double x, double y) => WebHostCore.DropCommit(x, y);
     [JSExport] internal static void DropOver(double x, double y) => WebHostCore.DropOver(x, y);
     [JSExport] internal static void DropLeave() => WebHostCore.DropLeave();

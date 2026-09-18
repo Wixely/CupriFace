@@ -329,12 +329,21 @@ try {
         if (!accepts()) { M._DropLeave(); return; }
         const files = Array.from(e.dataTransfer.files || []);
         if (!files.length) { M._DropLeave(); return; }
-        for (const f of files) {
+        // Is each one a FOLDER? A browser presents a dropped folder as a zero-byte File that simply
+        // fails to read, so without asking, a folder is indistinguishable from an empty file until
+        // something tries to open it. webkitGetAsEntry must be called synchronously here — the items
+        // list is emptied as soon as this handler returns.
+        const items = Array.from(e.dataTransfer.items || []).filter(it => it.kind === "file");
+        const isDir = i => {
+            try { return items[i]?.webkitGetAsEntry?.()?.isDirectory === true; } catch { return false; }
+        };
+        for (let i = 0; i < files.length; i++) {
+            const f = files[i];
             const id = ++dropSeq;
             dropFiles.set(id, f);
             globalThis.__cupri.sendText(f.name, "DropName");
             globalThis.__cupri.sendText(f.type || "", "DropType");
-            M._DropFile(id, f.size);
+            M._DropFile(id, f.size, isDir(i) ? 1 : 0);
         }
         const [x, y] = at(e);
         M._DropCommit(x, y);

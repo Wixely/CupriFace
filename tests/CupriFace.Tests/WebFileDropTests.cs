@@ -46,11 +46,11 @@ public class WebFileDropTests(ITestOutputHelper output)
     }
 
     // What main.js does for one file, in the order it does it.
-    private static void PushFile(int id, string name, string type, long size)
+    private static void PushFile(int id, string name, string type, long size, bool isDirectory = false)
     {
         WebHostCore.DropName(name);
         WebHostCore.DropType(type);
-        WebHostCore.DropFile(id, size);
+        WebHostCore.DropFile(id, size, isDirectory);
     }
 
     /// <summary>The page's sequence lands as one event with every file in it. Name and type cross in
@@ -269,6 +269,34 @@ public class WebFileDropTests(ITestOutputHelper output)
         public override string Html => "<body><div class='zone cupri-drop'>zone</div></body>";
         public override string Css => "body{margin:0;background:#fff}.zone{width:300px;height:200px}";
         public override PresentInfo Present(float w, float h) => new(w / 2f, h / 2f, 2f);
+    }
+
+    /// <summary>
+    /// A folder dropped on the PAGE is reported as one, exactly as it is on the desktop.
+    ///
+    /// <para>A browser presents a dropped folder as a zero-byte File that fails to read, so without
+    /// the page asking <c>webkitGetAsEntry</c> during the drop event, a folder and an empty file are
+    /// indistinguishable until something tries to open one. That asymmetry is what made a dropped
+    /// folder behave differently on each host.</para>
+    /// </summary>
+    [Fact]
+    public async Task A_folder_dropped_on_the_page_is_reported_as_a_folder()
+    {
+        var (js, app) = Boot();
+
+        PushFile(1, "project", "", 0, isDirectory: true);
+        PushFile(2, "notes.md", "text/markdown", 4);
+        WebHostCore.DropCommit(40, 50);
+
+        var files = Assert.Single(app.Drops).Files;
+        Assert.True(files[0].IsDirectory);
+        Assert.False(files[1].IsDirectory);
+
+        // …and reading it is refused here, without troubling the page at all.
+        var ex = await Assert.ThrowsAsync<IOException>(() => files[0].ReadBytesAsync());
+        output.WriteLine(ex.Message);
+        Assert.Contains("is a folder, not a file", ex.Message);
+        Assert.Empty(js.DropReads);
     }
 
     private static AngleSharp.Dom.IElement Zone()

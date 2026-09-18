@@ -41,6 +41,11 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   remember a location; read the bytes for anything else, or you have written an app that works
   everywhere except the browser.
 
+  **Check `IsDirectory` before reading.** Dragging a folder in is ordinary, a folder has no bytes,
+  and both hosts report it up front rather than leaving you to find out by exception — the desktop
+  asks the OS, the page asks `webkitGetAsEntry`. Every way a local read can fail then surfaces as
+  `IOException`, the same type on every host.
+
   **The `:drop-over` highlight only appears in a browser.** A page reports drag-over continuously;
   GLFW hands over the paths on release and says nothing beforehand, and SDL2's `Dropbegin` arrives
   *with* the drop rather than before it. Drops land on the right element on every host — only the

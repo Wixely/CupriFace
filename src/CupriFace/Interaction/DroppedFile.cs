@@ -39,13 +39,26 @@ public sealed class DroppedFile
     /// <see cref="ReadBytesAsync"/>, which works on every host.</summary>
     public string? Path { get; }
 
-    private DroppedFile(string name, long size, string mediaType, string? path,
+    /// <summary>
+    /// Whether this is a folder rather than a file. <b>Check it before reading</b> — a folder has no
+    /// bytes, and asking for them throws.
+    ///
+    /// <para>Worth a property rather than leaving it to the read: dragging a folder onto a window is
+    /// ordinary (drag a project in), and a caller that learns about it by catching an exception has
+    /// already been surprised. Both platforms report it — the OS says so directly, and a browser is
+    /// asked through <c>webkitGetAsEntry</c> — so a handler that skips folders behaves the same
+    /// everywhere instead of failing two different ways.</para>
+    /// </summary>
+    public bool IsDirectory { get; }
+
+    private DroppedFile(string name, long size, string mediaType, string? path, bool isDirectory,
         Func<CancellationToken, Task<byte[]>> read)
     {
         Name = name;
         Size = size;
         MediaType = mediaType;
         Path = path;
+        IsDirectory = isDirectory;
         _read = read;
     }
 
@@ -73,11 +86,39 @@ public sealed class DroppedFile
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
         var full = System.IO.Path.GetFullPath(path);
-        var name = System.IO.Path.GetFileName(full);
+        // A trailing separator would make GetFileName return "", and a dropped directory often has
+        // one — so the name is taken from the trimmed path.
+        var name = System.IO.Path.GetFileName(full.TrimEnd(
+            System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar));
+        if (name.Length == 0) name = full;                  // a drive root: "C:\\" has no file name
+
+        var isDir = Directory.Exists(full);
         long size = -1;
-        try { size = new FileInfo(full).Length; } catch (IOException) { } catch (UnauthorizedAccessException) { }
-        return new DroppedFile(name, size, MediaTypeFor(name), full,
-            ct => File.ReadAllBytesAsync(full, ct));
+        if (!isDir)
+            try { size = new FileInfo(full).Length; } catch (IOException) { } catch (UnauthorizedAccessException) { }
+
+        return new DroppedFile(name, size, MediaTypeFor(name), full, isDir,
+            ct => ReadFileAsync(full, name, isDir, ct));
+    }
+
+    // Every way a local read can fail, reported as ONE exception type.
+    //
+    // It did not used to be: reading a dropped folder threw UnauthorizedAccessException — which is
+    // not an IOException, so it slipped past the only catch the API documents — while the browser
+    // path faulted with IOException for the same gesture. An app that handled the drop correctly on
+    // one host crashed on the other, which is exactly the split this whole type exists to prevent.
+    private static async Task<byte[]> ReadFileAsync(string full, string name, bool isDir, CancellationToken ct)
+    {
+        if (isDir || Directory.Exists(full))
+            throw new IOException($"'{name}' is a folder, not a file — check IsDirectory before reading.");
+        try
+        {
+            return await File.ReadAllBytesAsync(full, ct).ConfigureAwait(false);
+        }
+        catch (UnauthorizedAccessException e)
+        {
+            throw new IOException($"'{name}' could not be read: {e.Message}", e);
+        }
     }
 
     /// <summary>Bytes already in hand. Used by tests and by <see cref="DropDriver"/>, and by any host
@@ -87,19 +128,26 @@ public sealed class DroppedFile
         ArgumentException.ThrowIfNullOrEmpty(name);
         ArgumentNullException.ThrowIfNull(bytes);
         return new DroppedFile(name, bytes.LongLength, mediaType ?? MediaTypeFor(name), path: null,
-            _ => Task.FromResult(bytes));
+            isDirectory: false, _ => Task.FromResult(bytes));
     }
 
     /// <summary>A file whose metadata is known but whose bytes are still on the other side of
     /// something asynchronous. The browser host's factory: the blob handle stays in JS and
     /// <paramref name="read"/> is the round trip that fetches it.</summary>
     public static DroppedFile Deferred(string name, long size, string? mediaType,
-        Func<CancellationToken, Task<byte[]>> read)
+        Func<CancellationToken, Task<byte[]>> read, bool isDirectory = false)
     {
         ArgumentException.ThrowIfNullOrEmpty(name);
         ArgumentNullException.ThrowIfNull(read);
         return new DroppedFile(name, size, mediaType is { Length: > 0 } m ? m : MediaTypeFor(name),
-            path: null, read);
+            path: null, isDirectory,
+            isDirectory
+                // The browser reports a folder as a zero-byte File whose read fails with a DOMException
+                // the page turns into an IOException. Refusing here instead keeps the message useful
+                // and identical to the desktop one, rather than whatever that turn of events produced.
+                ? _ => Task.FromException<byte[]>(new IOException(
+                    $"'{name}' is a folder, not a file — check IsDirectory before reading."))
+                : read);
     }
 
     // ---- media types -----------------------------------------------------------------------------

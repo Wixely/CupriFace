@@ -356,4 +356,120 @@ public class FileDropTests(ITestOutputHelper output)
         t.Doc.DispatchFileDrop(40, 50, []);
         Assert.False(fired);
     }
+
+    // ---- folders: the gesture that used to behave differently on each host -----------------------
+
+    /// <summary>
+    /// A dropped FOLDER is reported as one, on both platforms, rather than discovered by exception.
+    ///
+    /// <para>It used to be discovered by exception, and by a different one on each host: desktop threw
+    /// <see cref="UnauthorizedAccessException"/> — which is not an <see cref="IOException"/>, so it
+    /// slipped past the only catch the API documents — while the browser faulted with IOException for
+    /// the identical gesture. An app that handled a dropped folder correctly in a browser crashed on
+    /// the desktop. Dragging a folder onto a window is ordinary, so this is a thing people hit.</para>
+    /// </summary>
+    [Fact]
+    public void A_dropped_folder_says_so_rather_than_pretending_to_be_a_file()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"cupri-drop-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var f = DroppedFile.FromPath(dir);
+            output.WriteLine($"{f.Name}  IsDirectory={f.IsDirectory}  Size={f.Size}");
+            Assert.True(f.IsDirectory);
+            Assert.Equal(Path.GetFileName(dir), f.Name);   // not "" — a trailing separator used to eat it
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    /// <summary>A real file is not a folder, which is the other half of the same assertion.</summary>
+    [Fact]
+    public async Task A_dropped_file_is_not_reported_as_a_folder()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"cupri-drop-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(path, "x");
+        try { Assert.False(DroppedFile.FromPath(path).IsDirectory); }
+        finally { File.Delete(path); }
+    }
+
+    /// <summary>Reading one throws IOException — the SAME type on both hosts — with a message that
+    /// says what went wrong instead of "access denied", which is what a folder read used to report
+    /// and which reads like a permissions problem.</summary>
+    [Fact]
+    public async Task Reading_a_folder_fails_the_same_way_on_both_hosts()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"cupri-drop-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            // Desktop: a real folder on disk.
+            var desktop = await Assert.ThrowsAsync<IOException>(
+                () => DroppedFile.FromPath(dir).ReadBytesAsync());
+
+            // Browser: what the page reports for the same gesture.
+            var web = await Assert.ThrowsAsync<IOException>(
+                () => DroppedFile.Deferred("stuff", 0, "", _ => Task.FromResult<byte[]>([]), isDirectory: true)
+                                 .ReadBytesAsync());
+
+            output.WriteLine($"desktop: {desktop.Message}");
+            output.WriteLine($"web:     {web.Message}");
+            Assert.Contains("is a folder, not a file", desktop.Message);
+            Assert.Contains("is a folder, not a file", web.Message);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    /// <summary>The browser's folder never calls its read function at all — the page would have
+    /// answered with a DOMException turned into something less useful, so it is refused up front.</summary>
+    [Fact]
+    public async Task A_browser_folder_is_refused_without_a_round_trip()
+    {
+        var f = DroppedFile.Deferred("project", 0, "", 
+            _ => throw new InvalidOperationException("a folder must never reach the page's reader"),
+            isDirectory: true);
+        Assert.True(f.IsDirectory);
+        await Assert.ThrowsAsync<IOException>(() => f.ReadBytesAsync());
+    }
+
+    /// <summary>An unreadable FILE — locked, or permission denied — also surfaces as IOException,
+    /// so one catch covers every way a local read can fail.</summary>
+    [Fact]
+    public async Task An_unreadable_file_also_surfaces_as_an_io_exception()
+    {
+        var missing = Path.Combine(Path.GetTempPath(), $"cupri-drop-{Guid.NewGuid():N}.txt");
+        var f = DroppedFile.FromPath(missing);   // vanished between the drop and the read
+        await Assert.ThrowsAsync<FileNotFoundException>(() => f.ReadBytesAsync());
+        Assert.IsAssignableFrom<IOException>(
+            await Record.ExceptionAsync(() => f.ReadBytesAsync()));
+    }
+
+    /// <summary>The whole point, as an app would write it: skip folders by asking, not by catching.
+    /// This is the handler that used to work in a browser and crash on the desktop.</summary>
+    [Fact]
+    public void An_app_can_skip_folders_without_catching_anything()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"cupri-drop-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            using var t = Doc();
+            var taken = new List<string>();
+            t.Doc.OnFileDrop(e =>
+            {
+                foreach (var f in e.Files)
+                {
+                    if (f.IsDirectory) continue;          // no try/catch anywhere
+                    taken.Add(f.Name);
+                }
+            });
+
+            new DropDriver(t.Doc).Drop(40, 50,
+                DroppedFile.FromPath(dir),
+                DroppedFile.FromBytes("notes.md", "# hi"u8.ToArray()));
+
+            Assert.Equal(["notes.md"], taken);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
 }
