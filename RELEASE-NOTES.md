@@ -13,6 +13,25 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- **`CF0051` reported an unsupported CSS function that the document never used (#188).** It was a
+  substring search over the stylesheet and the markup, so it fired on a CSS comment explaining that
+  the feature is deliberately avoided, on an HTML comment, and even on body copy that merely
+  displayed the words. It could not be silenced except by not writing the name down — so a project
+  could not document why it avoided a gap without failing its own lint, and any composition whose
+  subject was CSS became unlintable.
+
+  It is now raised from the declarations the resolver applied, which is where `CF0050` has always
+  been raised from and why that check never had the problem: only a declaration can paint nothing.
+  A gap used by many elements reports once rather than once per element, and one reached through
+  `var()` is still found, because the hook reports resolved values.
+
+  Widened in 0.25.1 by the fix that made the doctor read a document's own `<style>` — that part was
+  right, but it fed the whole document to a matcher that only ever looked at text.
+
 ## v0.26.0
 
 One feature, and it reaches across every host: an app can now accept a file dragged in from outside
