@@ -314,6 +314,8 @@ public sealed class StyleResolver
             if (prop.StartsWith("--", StringComparison.Ordinal)) continue; // custom props: pass 1
             var v = SubstituteViewportUnits(ResolveVars(valueRaw.Trim(), s.CustomProps), vw, vh, out var usedVp);
             sawViewportUnit |= usedVp;
+            // After var substitution, so a gap reached through var(--x) is seen as what it resolves to.
+            DeclarationApplied?.Invoke(prop, v);
             switch (prop)
             {
                 case "display": s.Display = ParseDisplay(v); break;
@@ -578,6 +580,20 @@ public sealed class StyleResolver
     /// scope: a renderer on another thread has no hook set and announces nothing.</para>
     /// </summary>
     [ThreadStatic] internal static Action<string, string>? UnsupportedProperty;
+
+    /// <summary>
+    /// Every declaration this resolver applied, property and resolved value — announced to whoever
+    /// is currently checking the document, on the same per-thread terms as
+    /// <see cref="UnsupportedProperty"/> and for the same reason.
+    ///
+    /// <para>Exists because some gaps are in the VALUE while the property is perfectly supported:
+    /// <c>background: repeating-linear-gradient(…)</c> parses, is accepted, and then paints nothing,
+    /// so the default case above never fires for it. The doctor used to find those by searching the
+    /// document's TEXT, which meant it reported a comment explaining that the feature is avoided, and
+    /// even body copy that merely displayed the words (#188). A declaration is the only thing that
+    /// can actually paint nothing, so a declaration is what must be examined.</para>
+    /// </summary>
+    [ThreadStatic] internal static Action<string, string>? DeclarationApplied;
 
     private static string SubstituteViewportUnits(string value, float vw, float vh, out bool used)
     {
