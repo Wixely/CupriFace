@@ -13,7 +13,11 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
-## Unreleased
+## v0.26.0
+
+One feature, and it reaches across every host: an app can now accept a file dragged in from outside
+its window — desktop **and** browser, through a single handler. Nothing here changes what an existing
+app renders or breaks an existing call.
 
 ### Added
 
