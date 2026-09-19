@@ -123,12 +123,15 @@ public static partial class CupriDoctor
         IDocument? dom = null;
         var unsupportedCss = new List<string>();
         var missingGlyphs = new SortedSet<int>();
+        var declarations = new List<(string Prop, string Value)>();
         try
         {
             // The CSS hook goes on BEFORE the document is built. Styles resolve during the first
             // build and the result is cached, so a hook attached afterwards hears nothing at all —
             // which is exactly how the first version of this quietly reported no CSS problems ever.
             StyleResolver.UnsupportedProperty = (p, _) => unsupportedCss.Add(p);
+            // Value-level gaps need the declarations themselves — see UnsupportedCssFunctions.
+            StyleResolver.DeclarationApplied = (p, v) => declarations.Add((p, v));
             Text.FontService.GlyphMissing = cp => missingGlyphs.Add(cp);
             try
             {
@@ -146,7 +149,12 @@ public static partial class CupriDoctor
                 doc.Refresh();
                 using (doc.RenderToImage(width, height)) { }
             }
-            finally { StyleResolver.UnsupportedProperty = null; Text.FontService.GlyphMissing = null; }
+            finally
+            {
+                StyleResolver.UnsupportedProperty = null;
+                StyleResolver.DeclarationApplied = null;
+                Text.FontService.GlyphMissing = null;
+            }
         }
         catch (Exception ex)
         {
@@ -168,7 +176,7 @@ public static partial class CupriDoctor
 
         MissingGlyphs(missingGlyphs, findings);
         UnsupportedCssProperties(unsupportedCss, css, html, findings);
-        UnsupportedCssFunctions(css, html, findings);
+        UnsupportedCssFunctions(declarations, css, html, findings);
 
         findings.Sort((a, b) =>
         {
@@ -557,19 +565,40 @@ public static partial class CupriDoctor
         _ => "Check the spelling, or see TOOLBOX.md for what the engine styles.",
     };
 
-    /// <summary>Value-level gaps the property switch cannot see: the property is supported, the
-    /// FUNCTION inside it is not, so the declaration is accepted and then quietly paints nothing.
-    /// This is the one list here that IS hand-written, because there is no hook to derive it from —
-    /// so it is kept short and specific rather than trying to be complete.</summary>
-    private static void UnsupportedCssFunctions(string? css, string html, List<Finding> findings)
+    /// <summary>
+    /// Value-level gaps the property switch cannot see: the property is supported, the FUNCTION
+    /// inside it is not, so the declaration is accepted and then quietly paints nothing. The list of
+    /// gaps is hand-written, because there is no switch to derive it from — so it is kept short and
+    /// specific rather than trying to be complete.
+    ///
+    /// <para><b>Raised from the DECLARATIONS the resolver applied, not from the document's text.</b>
+    /// It used to be a substring search over the stylesheet and the markup, which meant it reported
+    /// a document that never used a repeating gradient: one whose CSS comment explained that it
+    /// deliberately avoids them, or whose body copy merely displayed the words (#188). A project
+    /// could not document why it avoided the feature without failing its own lint, and any
+    /// composition whose subject was CSS became unlintable. Only a declaration can paint nothing, so
+    /// only a declaration is examined — the same place CF0050 is raised from, which is why that one
+    /// never had this problem.</para>
+    ///
+    /// <para>The line number is still found by searching the text, since a declaration does not carry
+    /// one. That is a convenience on a finding that has already been established, and it is exactly
+    /// what CF0050 does.</para>
+    /// </summary>
+    private static void UnsupportedCssFunctions(IReadOnlyList<(string Prop, string Value)> declarations,
+                                                string? css, string html, List<Finding> findings)
     {
         var lines = CssLines(css, html);
-        for (var i = 0; i < lines.Length; i++)
-            foreach (var (needle, fix) in FunctionGaps)
-                if (lines[i].Contains(needle, StringComparison.OrdinalIgnoreCase))
-                    findings.Add(new Finding(Severity.Warning, "CF0051",
-                        $"{needle}) is not supported — the declaration parses but paints nothing.",
-                        fix, i + 1));
+        foreach (var (needle, fix) in FunctionGaps)
+        {
+            // One finding per gap, however many rules use it: the resolver announces a declaration
+            // once per element it applies to, so a gradient on a repeated row would otherwise be
+            // reported once per row.
+            if (!declarations.Any(d => d.Value.Contains(needle, StringComparison.OrdinalIgnoreCase)))
+                continue;
+            findings.Add(new Finding(Severity.Warning, "CF0051",
+                $"{needle}) is not supported — the declaration parses but paints nothing.",
+                fix, LineOf(lines, needle)));
+        }
     }
 
     private static readonly (string Needle, string Fix)[] FunctionGaps =
