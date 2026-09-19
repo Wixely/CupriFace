@@ -45,9 +45,21 @@ takes pointer and key events with no display attached. That also makes UI genuin
 
 - Requires **.NET 10**. Skia and HarfBuzz natives for Windows, Linux and macOS come in as
   dependencies, so one build runs on any desktop OS.
+- **On Android, put `<UseMonoRuntime>false</UseMonoRuntime>` in your app's `.csproj`.** The package
+  pins it too, but it cannot do so in time for *restore*, and restore is what downloads the runtime
+  packs. NuGet evaluates your project with `ExcludeRestorePackageImports=true` while restoring, so
+  the package's `.props` is not imported then: restore fetches **Mono's** packs, the build asks for
+  **CoreCLR's**, and on any machine that has not already cached them the build fails with
+  `NETSDK1112`. A forced restore does not help — it evaluates the project the same way. Set in the
+  project, the property is visible to both, and everything works.
+
+  A machine that has built a CoreCLR Android app before has the packs cached and never sees this,
+  which is why it tends to appear first on a clean machine or a CI runner. If it does, the build
+  reports **CUPRI0002** naming this fix.
+
 - On Android the runtime is **CoreCLR** — `CupriFace.Android` pins `UseMonoRuntime=false` for
-  every consumer from its `buildTransitive/CupriFace.Android.props`. This is a correctness
-  requirement, not a preference: Mono 10.0.11 miscompiles the engine on Android (forensics in the
+  every consumer from its `buildTransitive/CupriFace.Android.props` (see the note above about
+  restore). This is a correctness requirement, not a preference: Mono 10.0.11 miscompiles the engine on Android (forensics in the
   repo, `samples/AndroidProbe/MONO-CRASH.md`). An app that sets `UseMonoRuntime=true` anyway fails
   the build with **CUPRI0001** rather than shipping an APK that dies during startup; set
   `CupriFaceAllowMonoRuntime=true` to build it regardless.

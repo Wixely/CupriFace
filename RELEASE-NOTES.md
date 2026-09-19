@@ -13,6 +13,32 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- **An Android package consumer could not build on a clean machine (#191).** The CoreCLR pin lands
+  correctly at build time (#172), but the property that decides which runtime the build *asks for*
+  is not the one that decides which runtime packs restore *fetches* — NuGet evaluates your project
+  with `ExcludeRestorePackageImports=true` during restore, so the package's `.props` is not imported
+  then. Restore provisioned Mono's packs, the build asked for CoreCLR's, and the build failed with
+  `NETSDK1112`. Measured on the package consumer: the same project resolves `UseMonoRuntime=false`
+  at build time and `true` as restore sees it.
+
+  **If you consume `CupriFace.Android`, add `<UseMonoRuntime>false</UseMonoRuntime>` to your app's
+  `.csproj`.** A package cannot do this for you; a file that is not imported cannot contribute
+  anything, and a forced restore evaluates the project the same way. Nothing changes on a machine
+  that already has the packs cached — which is every machine that has built a CoreCLR Android app,
+  and why this stayed invisible for weeks.
+
+  What the package can do, and now does, is stop the failure being a mystery: when the pin came from
+  the package and a required runtime pack is missing, the build reports **CUPRI0002** naming the one
+  line to add, instead of an `NETSDK1112` that names a runtime pack and suggests a restore that will
+  not help. The CI guard meant to catch this now builds a consumer from a cold package cache and
+  checks both halves — that an unfixed consumer gets `CUPRI0002`, and that the fix it names actually
+  works. It previously only asked what the property resolved to, without ever building, which is why
+  it was green throughout.
+
 ## v0.26.0
 
 One feature, and it reaches across every host: an app can now accept a file dragged in from outside

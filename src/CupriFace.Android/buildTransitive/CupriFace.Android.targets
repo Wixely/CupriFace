@@ -55,4 +55,48 @@
     <Error Code="CUPRI0001"
            Text="CupriFace.Android requires the CoreCLR runtime, and this app is building against Mono (UseMonoRuntime=true, _AndroidRuntime=$(_AndroidRuntime)). This is not a preference: the Mono runtime pack in .NET 10 (10.0.11) has a code-generation defect that miscompiles the engine's string handling, and a CupriFace app built against it crashes during startup, in OnCreate, before the first frame. It reproduces on arm64 hardware and x64 emulators, under AOT and JIT alike, trimmed or not. CoreCLR runs the identical IL correctly and is the supported configuration — it is what this package defaults you to, and the XA1040 'experimental runtime' warning that comes with it is the known cost of the workaround. Remove UseMonoRuntime from this project to take that default, or set CupriFaceAllowMonoRuntime=true to build against Mono anyway and accept the startup crash. Forensics: samples/AndroidProbe/MONO-CRASH.md." />
   </Target>
+
+  <!--
+    And explain NETSDK1112, which the pin CAUSES and cannot prevent (#191).
+
+    The pin in the .props beside this file works: by build time UseMonoRuntime really is false. But
+    the property that decides which runtime the build ASKS FOR is not the property that decides which
+    runtime packs restore FETCHES, and a package cannot reach the second one at all:
+
+      NuGet evaluates the project with ExcludeRestorePackageImports=true during restore, precisely so
+      that a restore is not influenced by the packages it is restoring. Our buildTransitive .props is
+      therefore NOT IMPORTED while restore runs. Measured on the package consumer here:
+
+          normal build evaluation   UseMonoRuntime=false   CupriFacePinnedCoreClr=true
+          restore evaluation        UseMonoRuntime=true    CupriFacePinnedCoreClr=
+
+      So restore provisions the MONO runtime packs, the build then asks for the CORECLR ones, and
+      they were never downloaded. On a machine that happens to have them cached — every developer
+      machine that has ever built a CoreCLR Android app — nothing is wrong. On a clean one, or on a
+      CI runner, the build cannot proceed.
+
+    There is no fix available from inside the package: a file that is not imported cannot contribute
+    a PackageDownload, a RuntimeIdentifier, or anything else. The property has to be in the PROJECT,
+    where restore evaluates it. A forced restore does not help either, because it
+    evaluates the project the same way.
+
+    What a package CAN do is make the failure say so. NETSDK1112 names a runtime pack and suggests a
+    restore that will not help; a consumer has nothing to connect it to this package, and the fix is
+    one line they have no way to guess. So the condition is caught at the moment it would fail —
+    never on a warm machine, and never when the app chose its own runtime — and reported with the
+    line to add.
+  -->
+  <Target Name="CupriFaceCheckCoreClrRuntimePacks"
+          BeforeTargets="ResolveRuntimePackAssets"
+          DependsOnTargets="ResolveFrameworkReferences"
+          Condition="'$(CupriFacePinnedCoreClr)' == 'true' and '@(ResolvedRuntimePack)' != ''">
+    <ItemGroup>
+      <_CupriFaceMissingRuntimePack Include="@(ResolvedRuntimePack)"
+                                    Condition="'%(ResolvedRuntimePack.PackageDirectory)' == ''" />
+    </ItemGroup>
+    <Error Code="CUPRI0002"
+           Condition="'@(_CupriFaceMissingRuntimePack)' != ''"
+           Text="CupriFace.Android pins UseMonoRuntime=false (the Mono runtime pack in .NET 10 miscompiles the engine — see CUPRI0001), but the CoreCLR runtime pack(s) @(_CupriFaceMissingRuntimePack, ', ') were never downloaded, so this build cannot proceed and would otherwise fail with NETSDK1112. The package cannot fix this for you: NuGet evaluates your project with ExcludeRestorePackageImports=true during restore, so this package's .props is not imported while restore decides which runtime packs to fetch — restore provisions Mono's, the build then asks for CoreCLR's. ADD THIS LINE TO YOUR APP'S .csproj and restore again: &lt;UseMonoRuntime&gt;false&lt;/UseMonoRuntime&gt; — set in the project, restore can see it. (A machine that has built a CoreCLR Android app before has these packs cached and never hits this, which is why it tends to appear first on a clean machine or a CI runner.)" />
+  </Target>
+
 </Project>

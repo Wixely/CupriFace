@@ -630,6 +630,50 @@ jobs:
           print("the package defaults a consumer to CoreCLR")
           PY
 
+          # ---- and now the half that -getProperty cannot see (#191) ------------------------------
+          #
+          # Everything above asks what the PROPERTY resolves to, without running a target. That is
+          # the right question for "did the pin land", and it is why this guard was green while
+          # consumers could not build at all: the property that decides which runtime the build ASKS
+          # FOR is not the one that decides which runtime packs restore FETCHES. NuGet evaluates the
+          # project with ExcludeRestorePackageImports=true during restore, so our .props is not
+          # imported then — restore provisions Mono's packs, the build wants CoreCLR's, and the
+          # build fails with NETSDK1112 on any machine that has not cached them.
+          #
+          # A warm runner hides this completely, so the packages go somewhere empty. Two builds,
+          # because both halves matter: without the property the consumer must get OUR error rather
+          # than a bare NETSDK1112, and WITH it the consumer must actually build.
+          COLD="$RUNNER_TEMP/coldpkgs"
+          rm -rf "$COLD" && mkdir -p "$COLD"
+          rm -rf tests/PackageConsumer/obj tests/PackageConsumer/bin
+
+          dotnet restore tests/PackageConsumer/PackageConsumer.csproj             -p:CupriFacePackageVersion=$VER --packages "$COLD"
+
+          set +e
+          COLDLOG=$(dotnet build tests/PackageConsumer/PackageConsumer.csproj -c Release             -p:CupriFacePackageVersion=$VER --packages "$COLD" --no-restore 2>&1)
+          COLDRC=$?
+          set -e
+          echo "$COLDLOG" | grep -E "CUPRI0002|NETSDK1112" | head -4 || true
+
+          if [ $COLDRC -eq 0 ]; then
+            echo "::error::a cold-cache consumer build SUCCEEDED, which means this check no longer"                  "reproduces #191 — the runtime packs came from somewhere. Fix the isolation, or"                  "the guard is worthless again."
+            exit 1
+          fi
+          if ! echo "$COLDLOG" | grep -q "CUPRI0002"; then
+            echo "::error::a cold-cache consumer build failed WITHOUT CupriFace explaining why"                  "(no CUPRI0002). A consumer sees only NETSDK1112, which names a runtime pack and"                  "suggests a restore that does not help, with nothing connecting it to this package."
+            exit 1
+          fi
+          echo "cold consumer build fails with CUPRI0002, which names the one-line fix"
+
+          # …and that one-line fix genuinely works. Without this, the error above could be telling
+          # people to do something that does not help.
+          rm -rf tests/PackageConsumer/obj tests/PackageConsumer/bin "$COLD"
+          mkdir -p "$COLD"
+          dotnet restore tests/PackageConsumer/PackageConsumer.csproj             -p:CupriFacePackageVersion=$VER -p:UseMonoRuntime=false --packages "$COLD"
+          dotnet build tests/PackageConsumer/PackageConsumer.csproj -c Release             -p:CupriFacePackageVersion=$VER -p:UseMonoRuntime=false --packages "$COLD" --no-restore             || { echo "::error::the fix CUPRI0002 tells consumers to apply does not work"; exit 1; }
+          echo "a consumer that sets UseMonoRuntime=false in the project builds from a cold cache"
+          rm -rf "$COLD"
+
       - name: Build the APKs (and prove no desktop native rode along)
         run: |
           # On a v* tag the APK carries that version, so the app's About page names the build a
