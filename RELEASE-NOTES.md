@@ -13,7 +13,12 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
-## Unreleased
+## v0.26.1
+
+Two fixes, and **one of them asks something of you**: if you consume
+`CupriFace.Android`, add `<UseMonoRuntime>false</UseMonoRuntime>` to your app's `.csproj`. The
+package cannot set it in time for restore, and without it a build on a machine that has not already
+cached the CoreCLR runtime packs fails with `NETSDK1112`. Details below.
 
 ### Fixed
 
