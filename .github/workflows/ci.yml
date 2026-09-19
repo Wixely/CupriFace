@@ -650,11 +650,17 @@ jobs:
           # step over something unrelated.
           COLD="$RUNNER_TEMP/coldpkgs"
           COREPACK="microsoft.netcore.app.runtime.android-arm64"
+          # An explicit RID, because the runner's Android workload and a developer's resolve a
+          # RID-less build differently: the Linux one picked the HOST rid and failed with NETSDK1047
+          # for 'net10.0-android/linux-x64'. Naming the RID is what an Android build does anyway, and
+          # it takes the host out of the question entirely. The same RID is used on both sides below,
+          # so the only thing that differs between them is the property under test.
+          RID="-p:RuntimeIdentifier=android-arm64"
 
           coldrestore() {   # $1 = extra properties for restore
             rm -rf "$COLD" tests/PackageConsumer/obj tests/PackageConsumer/bin
             mkdir -p "$COLD"
-            NUGET_PACKAGES="$COLD" dotnet restore tests/PackageConsumer/PackageConsumer.csproj               -p:CupriFacePackageVersion=$VER $1 >/dev/null
+            NUGET_PACKAGES="$COLD" dotnet restore tests/PackageConsumer/PackageConsumer.csproj               -p:CupriFacePackageVersion=$VER $RID $1 >/dev/null
           }
 
           # 1. As a consumer takes the package: the pin comes from buildTransitive, which restore
@@ -669,7 +675,7 @@ jobs:
           # 2. …and a build in that state must say CUPRI0002 rather than only NETSDK1112, or the
           #    consumer has nothing connecting the failure to this package.
           set +e
-          COLDLOG=$(NUGET_PACKAGES="$COLD" dotnet build tests/PackageConsumer/PackageConsumer.csproj             -c Release -p:CupriFacePackageVersion=$VER --no-restore 2>&1)
+          COLDLOG=$(NUGET_PACKAGES="$COLD" dotnet build tests/PackageConsumer/PackageConsumer.csproj             -c Release -p:CupriFacePackageVersion=$VER $RID --no-restore 2>&1)
           COLDRC=$?
           set -e
           # Printed in full, always. An earlier version captured this and then only ever grepped it
