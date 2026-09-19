@@ -192,6 +192,36 @@ public sealed class ShowcaseApp : CupriApp
             from.RemoveAt(e.From);
             to.Insert(Math.Clamp(e.To, 0, to.Count), card);
         });
+        // Files dragged in from the OS — OnReorder's outward-facing twin. Metadata is in hand
+        // immediately, so the line can be written before any byte is read; the read is awaited only
+        // for something small enough to be worth showing, which is the whole point of the split.
+        doc.OnFileDrop(e =>
+        {
+            var names = string.Join(", ", e.Files.Select(f => $"{f.Name} ({Kb(f.Size)})"));
+            var where = e.Target is null ? "the window" : "the drop zone";
+            _model.DropStatus = $"{e.Files.Count} file(s) on {where} at {e.X:0},{e.Y:0} — {names}";
+
+            var first = e.Files[0];
+            if (first.MediaType.StartsWith("text/", StringComparison.Ordinal) && first.Size is > 0 and < 4096)
+                _ = ShowHead(first);
+        });
+
+        async Task ShowHead(CupriFace.Interaction.DroppedFile f)
+        {
+            try
+            {
+                var text = await f.ReadTextAsync();
+                var head = text.ReplaceLineEndings(" ⏎ ");
+                _model.DropStatus = $"{f.Name}: {(head.Length <= 90 ? head : head[..90] + "…")}";
+            }
+            catch (IOException ex) { _model.DropStatus = $"{f.Name}: could not be read — {ex.Message}"; }
+        }
+
+        static string Kb(long bytes) => bytes < 0 ? "size unknown"
+            : bytes < 1024 ? $"{bytes} B"
+            : bytes < 1024 * 1024 ? $"{bytes / 1024.0:0.#} KB"
+            : $"{bytes / (1024.0 * 1024):0.#} MB";
+
         doc.OnClick(".act-dialog", _ => _model.DialogOpen = true);
         doc.OnClick(".act-drawer", _ => _model.DrawerOpen = true);
         doc.OnClick(".act-shelf", _ => _model.ShelfOpen = true);
@@ -622,4 +652,8 @@ public sealed partial class ShowcaseModel
         }
     }
     public string VideoDiag => _doc?.VideoDiagnostics ?? "no open players";
+
+    /// <summary>What the last file drop was. Starts as the instruction, because an empty zone with a
+    /// dashed border says "put something here" to a developer and nothing at all to anyone else.</summary>
+    public string DropStatus { get; set; } = "Drag a file here from Explorer, Finder or your file manager.";
 }

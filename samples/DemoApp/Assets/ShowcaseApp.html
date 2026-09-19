@@ -778,6 +778,12 @@ wants a space after the hashes.</cupri-markdown></div>
           <cupri-card style="width:574px"><cupri-stat label="Video playback" value="{{VideoDiag}}"></cupri-stat></cupri-card>
         </div>
         <cupri-button variant="ghost" class="act-gc">Force GC</cupri-button>
+
+        <div class="mlabel">File drop — drag a file in from your file manager</div>
+        <p class="sub">The one gesture that cannot be tested without a real window. On the web the
+          zone lights up while the file is still in the air; on a desktop window it cannot, because
+          neither GLFW nor SDL reports a drag before the drop lands.</p>
+        <div class="dropzone cupri-drop">{{DropStatus}}</div>
       </div>
     </div>
   </div>

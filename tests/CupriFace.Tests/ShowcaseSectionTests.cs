@@ -116,4 +116,39 @@ public class ShowcaseSectionTests(ITestOutputHelper output)
         var app = new ShowcaseApp(id);
         Assert.Equal("controls", ((ShowcaseModel)app.Model).Section);
     }
+
+    /// <summary>
+    /// The live file-drop target on the Diagnostics page actually lays out, and is actually a drop
+    /// target. It exists because a drag from Explorer is the one gesture no headless test can
+    /// perform — so the demo is the only way to try it, and a demo that renders an empty box would
+    /// look exactly like a feature that does not work.
+    /// </summary>
+    [Fact]
+    public void The_diagnostics_page_has_a_working_drop_target()
+    {
+        var app = new ShowcaseApp("diag");     // hidden sections build no nodes: open it first
+        using var doc = app.CreateDocument();
+        app.Configure(doc);
+        doc.Refresh();
+        // Tall enough that the zone is on screen — it sits well below a 720px fold, and the same
+        // note on the link test applies: a node outside the viewport is not the thing under test.
+        using (doc.RenderToImage(940, 3000)) { }
+
+        RenderNode? zone = null;
+        void Walk(RenderNode n)
+        {
+            if (zone is null && n.Element?.ClassList.Contains("dropzone") == true) zone = n;
+            foreach (var c in n.Children) Walk(c);
+        }
+        Walk(doc.Root);
+
+        Assert.NotNull(zone);
+        output.WriteLine($"dropzone {zone!.X:0},{zone.Y:0} {zone.Width:0}x{zone.Height:0}");
+        Assert.True(zone.Width > 100 && zone.Height > 20,
+            $"the drop zone laid out with no area: {zone.Width:0}x{zone.Height:0}");
+        Assert.Contains("cupri-drop", zone.Element!.ClassList);
+
+        // …and the document is wired to receive one, which is what Configure is for.
+        Assert.True(doc.AcceptsFileDrop, "the Showcase registered no OnFileDrop handler");
+    }
 }

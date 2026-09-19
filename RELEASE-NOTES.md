@@ -13,6 +13,73 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Added
+
+- **An app can accept a file dragged in from outside its window (#182)** — on the desktop *and* in a
+  browser, through one handler:
+
+  ```csharp
+  doc.OnFileDrop(async e => {
+      foreach (var f in e.Files)
+          if (f.MediaType == "text/markdown") _model.Open(f.Name, await f.ReadTextAsync());
+  });
+  ```
+
+  Mark the regions that take a drop with `cupri-drop` and `e.Target` is the nearest enclosing one, so
+  "drop onto *this* column" is the hit test the engine already did. `e.Target` is null when the drop
+  landed on nothing marked — an app that takes files anywhere just ignores it.
+
+  **`DroppedFile` gives you metadata synchronously and bytes asynchronously**, and that split is the
+  whole reason it travels. `Name`, `Size` and `MediaType` are all a browser `File` exposes without a
+  round trip, so they are in hand and you can refuse something before reading it; the contents come
+  from `ReadBytesAsync`/`ReadTextAsync`/`ToSourceAsync`, because a blob read is a promise and there is
+  no synchronous form to offer. Dragging in a 4GB video costs nothing until someone wants it.
+
+  `Path` is **desktop-only and null in a browser** — the web withholds it deliberately. Read it to
+  remember a location; read the bytes for anything else, or you have written an app that works
+  everywhere except the browser.
+
+  **Check `IsDirectory` before reading.** Dragging a folder in is ordinary, a folder has no bytes,
+  and both hosts report it up front rather than leaving you to find out by exception — the desktop
+  asks the OS, the page asks `webkitGetAsEntry`. Every way a local read can fail then surfaces as
+  `IOException`, the same type on every host.
+
+  **The `:drop-over` highlight only appears in a browser.** A page reports drag-over continuously;
+  GLFW hands over the paths on release and says nothing beforehand, and SDL2's `Dropbegin` arrives
+  *with* the drop rather than before it. Drops land on the right element on every host — only the
+  in-flight highlight differs, so design the zone to read as a target when idle. (Neither desktop
+  platform puts coordinates in the drop event either; each host queries the live cursor instead.)
+
+  `DropDriver` scripts the gesture — `Over`, `Leave`, `Drop`, `DropText`, `DropNamed` — for the same
+  reason `TouchDriver` exists. It is not a simulation of the browser: a dropped file in a page really
+  is bytes with a name. The Showcase's **Diagnostics** page has a live zone to drag a real file onto,
+  which is the only way to exercise the half no headless test can reach.
+
+  **Large files are streamed, not held.** `ReadBytesAsync` materialises everything and is capped at
+  `DroppedFile.MaxReadBytes` (128 MiB by default, raisable), because on wasm32 the whole process
+  shares one 4 GiB address space and an unbounded read of whatever was dragged in does not throw — it
+  ends the tab. Over the cap you get an `IOException` pointing at the alternative:
+
+  ```csharp
+  await using var stream = await f.OpenReadAsync();
+  var hash = await SHA256.HashDataAsync(stream);      // a 4 GiB file, a 64 KiB buffer
+  ```
+
+  `OpenReadAsync` is a `FileStream` on desktop and `blob.slice()` chunks in a browser, seekable on
+  both, so a header-and-trailer read costs two chunks rather than the file. It is **async-only** —
+  a synchronous `Read` throws rather than deadlocking the page's single thread against the promise
+  that would feed it. Past ~2 GiB `ReadBytesAsync` refuses whatever the cap, since no `byte[]` can
+  hold that on any platform; streaming has no ceiling.
+
+  Dragging *out* of the window is not included: that needs a platform drag source and a data promise,
+  and is a much larger thing than accepting a drop.
+
+- `CupriSource.Bytes(origin, content)` — in-memory bytes labelled with where they came from, carrying
+  `LocalFile` trust. What a dropped file becomes, and what a browser blob needs since it has no path
+  to describe it by.
+
 ## v0.25.1
 
 Five silent ones. **Two of these change what an existing app renders**, because both were producing

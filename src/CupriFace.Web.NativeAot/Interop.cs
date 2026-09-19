@@ -131,6 +131,83 @@ public static unsafe partial class Interop
     [UnmanagedCallersOnly(EntryPoint = "PasteText")]
     public static void PasteText(int len) => Guard("PasteText", () => WebHostCore.KeyChar(In(len)));
 
+    // ---- files dropped on the canvas -----------------------------------------------------------
+    // Strings reuse the shared char buffer above (name, then type, then the file itself), so a drop
+    // of N files is DropName/DropType/DropFile x N followed by one DropCommit. Bytes coming BACK
+    // need their own buffer, because unlike every other input they are not consumed synchronously:
+    // JS asks for one sized to the file, fills it, and then says it is ready.
+
+    [UnmanagedCallersOnly(EntryPoint = "DropName")]
+    public static void DropName(int len) => Guard("DropName", () => WebHostCore.DropName(In(len)));
+
+    [UnmanagedCallersOnly(EntryPoint = "DropType")]
+    public static void DropType(int len) => Guard("DropType", () => WebHostCore.DropType(In(len)));
+
+    [UnmanagedCallersOnly(EntryPoint = "DropFile")]
+    public static void DropFile(int id, double size, int isDirectory) =>
+        Guard("DropFile", () => WebHostCore.DropFile(id, size, isDirectory != 0));
+
+    [UnmanagedCallersOnly(EntryPoint = "DropCommit")]
+    public static void DropCommit(double x, double y) => Guard("DropCommit", () => WebHostCore.DropCommit(x, y));
+
+    [UnmanagedCallersOnly(EntryPoint = "DropOver")]
+    public static void DropOver(double x, double y) => Guard("DropOver", () => WebHostCore.DropOver(x, y));
+
+    [UnmanagedCallersOnly(EntryPoint = "DropLeave")]
+    public static void DropLeave() => Guard("DropLeave", WebHostCore.DropLeave);
+
+    [UnmanagedCallersOnly(EntryPoint = "AcceptsFileDrop")]
+    public static int AcceptsFileDrop()
+    { try { return WebHostCore.AcceptsFileDrop() ? 1 : 0; } catch (Exception ex) { Crash("AcceptsFileDrop", ex); return 0; } }
+
+    // One buffer per outstanding read, because a read is the only input that spans turns: JS awaits
+    // the blob, and a second drop can be handled in between. Keyed by token, released on delivery.
+    //
+    // The buffer is the MANAGED array itself, pinned, rather than native memory copied out of
+    // afterwards. That used to cost two copies inside wasm's 4GB address space — the staging
+    // allocation and the array — so the NativeAOT host hit the ceiling at half the file size the
+    // Mono host did, for no reason: JS can write straight into the array it is going to become.
+    private static readonly Dictionary<int, (byte[] Bytes, GCHandle Pin)> _dropBufs = [];
+
+    private static void ReleaseDropBuf(int token, out byte[]? bytes)
+    {
+        bytes = null;
+        if (!_dropBufs.Remove(token, out var held)) return;
+        held.Pin.Free();
+        bytes = held.Bytes;
+    }
+
+    [UnmanagedCallersOnly(EntryPoint = "DropBuffer")]
+    public static byte* DropBuffer(int token, int byteLen)
+    {
+        try
+        {
+            ReleaseDropBuf(token, out _);                       // a retried read replaces its buffer
+            if (byteLen < 0) return null;
+            var bytes = new byte[byteLen];
+            var pin = GCHandle.Alloc(bytes, GCHandleType.Pinned);
+            _dropBufs[token] = (bytes, pin);
+            return (byte*)pin.AddrOfPinnedObject();
+        }
+        catch (Exception ex) { Crash("DropBuffer", ex); return null; }
+    }
+
+    [UnmanagedCallersOnly(EntryPoint = "DropBytes")]
+    public static void DropBytes(int token, int byteLen) => Guard("DropBytes", () =>
+    {
+        ReleaseDropBuf(token, out var bytes);
+        if (bytes is null) return;
+        // A short answer is legal (the file shrank); hand over exactly what arrived.
+        WebHostCore.DropBytes(token, byteLen == bytes.Length ? bytes : bytes[..Math.Max(byteLen, 0)]);
+    });
+
+    [UnmanagedCallersOnly(EntryPoint = "DropFailed")]
+    public static void DropFailed(int len, int token) => Guard("DropFailed", () =>
+    {
+        ReleaseDropBuf(token, out _);
+        WebHostCore.DropFailed(token, In(len));
+    });
+
     [UnmanagedCallersOnly(EntryPoint = "KeyChord")]
     public static int KeyChord(int len, int mods)
     {
@@ -218,6 +295,8 @@ public static unsafe partial class Interop
     [DllImport("js", EntryPoint = "js_favicon")] private static extern void JsFavicon(char* utf16, int len);
     [DllImport("js", EntryPoint = "js_clipboard_write")] private static extern void JsClipboardWrite(char* utf16, int len);
     [DllImport("js", EntryPoint = "js_clipboard_paste")] private static extern void JsClipboardPaste();
+    [DllImport("js", EntryPoint = "js_drop_read_range")]
+    private static extern void JsDropReadRange(int fileId, int token, double offset, int length);
     [DllImport("js", EntryPoint = "js_a11y")] private static extern void JsA11y(char* utf16, int len);
     [DllImport("js", EntryPoint = "js_text_input")]
     private static extern void JsTextInput(int focused, int numeric, int multiline, double x, double y);
@@ -265,6 +344,8 @@ public static unsafe partial class Interop
         public void SetFavicon(string dataUri) => SendFavicon(dataUri);
         public void ClipboardWrite(string text) => SendClipboardWrite(text);
         public void ClipboardPaste() => JsClipboardPaste();
+        public void DropReadRange(int fileId, int token, double offset, int length) =>
+            JsDropReadRange(fileId, token, offset, length);
         public void PublishAria(string html) => SendA11y(html);
         public void SetTextInput(bool focused, bool numeric, bool multiline, double x, double y) =>
             JsTextInput(focused ? 1 : 0, numeric ? 1 : 0, multiline ? 1 : 0, x, y);

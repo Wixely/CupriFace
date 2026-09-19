@@ -50,6 +50,19 @@ internal partial class Interop
     [JSExport] internal static void TouchCancel(int id, double tMs) => WebHostCore.TouchCancel(id, tMs);
     [JSExport] internal static void SetCoarsePointer(bool coarse) => WebHostCore.SetCoarsePointer(coarse);
 
+    // Files dropped on the canvas. Mono marshals string and byte[] itself, so these are the plain
+    // shapes; the NativeAOT host pushes the same sequence through pointers because its ABI has
+    // neither. A drop of N files is DropName/DropType/DropFile x N, then one DropCommit.
+    [JSExport] internal static void DropName(string name) => WebHostCore.DropName(name);
+    [JSExport] internal static void DropType(string mediaType) => WebHostCore.DropType(mediaType);
+    [JSExport] internal static void DropFile(int id, double size, bool isDirectory) => WebHostCore.DropFile(id, size, isDirectory);
+    [JSExport] internal static void DropCommit(double x, double y) => WebHostCore.DropCommit(x, y);
+    [JSExport] internal static void DropOver(double x, double y) => WebHostCore.DropOver(x, y);
+    [JSExport] internal static void DropLeave() => WebHostCore.DropLeave();
+    [JSExport] internal static bool AcceptsFileDrop() => WebHostCore.AcceptsFileDrop();
+    [JSExport] internal static void DropBytes(int token, byte[] bytes) => WebHostCore.DropBytes(token, bytes);
+    [JSExport] internal static void DropFailed(int token, string message) => WebHostCore.DropFailed(token, message);
+
     [JSExport] internal static void KeyChar(string text) => WebHostCore.KeyChar(text);
     [JSExport] internal static void EditKeyPress(int code, int mods) => WebHostCore.EditKeyPress(code, mods);
     [JSExport] internal static bool KeyChord(string text, int mods) => WebHostCore.KeyChord(text, mods);
@@ -98,6 +111,7 @@ internal partial class Interop
     [JSImport("favicon", "cupri")] internal static partial void SetFavicon(string dataUri);
     [JSImport("clipboardWrite", "cupri")] internal static partial void ClipboardWrite(string text);
     [JSImport("clipboardPaste", "cupri")] internal static partial void ClipboardPaste();
+    [JSImport("dropReadRange", "cupri")] internal static partial void DropReadRange(int fileId, int token, double offset, int length);
     [JSImport("a11y", "cupri")] internal static partial void A11y(string html);
     [JSImport("textInput", "cupri")] internal static partial void TextInputJs(
         bool focused, bool numeric, bool multiline, double x, double y);
@@ -137,6 +151,8 @@ internal sealed unsafe class MonoBridge : IWebBridge
     public void SetFavicon(string dataUri) => Interop.SetFavicon(dataUri);
     public void ClipboardWrite(string text) => Interop.ClipboardWrite(text);
     public void ClipboardPaste() => Interop.ClipboardPaste();
+    public void DropReadRange(int fileId, int token, double offset, int length) =>
+        Interop.DropReadRange(fileId, token, offset, length);
     public void PublishAria(string html) => Interop.A11y(html);
     public void SetTextInput(bool focused, bool numeric, bool multiline, double x, double y) =>
         Interop.TextInputJs(focused, numeric, multiline, x, y);

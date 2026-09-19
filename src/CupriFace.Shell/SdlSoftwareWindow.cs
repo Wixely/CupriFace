@@ -90,6 +90,13 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     /// same as a mouse dragged out of the window. Hit testing simply finds nothing out there.</para>
     /// </summary>
     public event Action<int, PointerPhase, float, float>? TouchPointer;
+    /// <summary>Files dragged in from the OS and dropped: the point, in logical client units, and the
+    /// paths. SDL2's drop event carries a filename and a window id and <b>no coordinates</b> (contrast
+    /// its mouse events, which have X and Y), so the point comes from a live cursor query at drop
+    /// time. SDL2 has no drag-over event at all — <c>Dropbegin</c> arrives with the drop, not before
+    /// it — so like the GLFW host this one never raises a drag-over.</summary>
+    public event Action<float, float, string[]>? FilesDropped;
+
     public event Action<string>? TextEntered;               // printable text (IME-aware)
     public event Action<EditKey, KeyMods>? EditKeyPressed;  // key + Shift/Ctrl modifiers
     public event Action<char, KeyMods>? Shortcut;           // Ctrl/Cmd + letter (a/c/x/v …) or =/-/0 (zoom)
@@ -365,6 +372,31 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     /// <summary>SDL's pointer coordinates → logical client units. SDL reports the cursor in window
     /// coordinates, and this window's surface is exactly its window size, so the ratio is simply
     /// 1/D — the conversion done once, here, for the same reason the GL window does it.</summary>
+    // Files gathered between Dropbegin and Dropcomplete (see the event loop).
+    private readonly List<string> _dropBatch = [];
+    private bool _dropBatching;
+
+    // Raise the gathered drop at wherever the cursor actually is.
+    //
+    // SDL_GetGlobalMouseState asks the OS rather than replaying the event queue, which is the only
+    // thing that works here: during a drag the window receives no motion events, so any remembered
+    // position is from before the drag began. Converting global -> client needs the window's own
+    // position, which SDL reports for the client area — the same origin mouse events use.
+    private void FlushDrop()
+    {
+        if (_dropBatch.Count == 0) return;
+        var paths = _dropBatch.ToArray();
+        _dropBatch.Clear();
+
+        int gx = 0, gy = 0;
+        _sdl.GetGlobalMouseState(ref gx, ref gy);
+        int wx = 0, wy = 0;
+        if (_window is not null) _sdl.GetWindowPosition(_window, ref wx, ref wy);
+        var (x, y) = ToLogicalClient(gx - wx, gy - wy);
+
+        FilesDropped?.Invoke(x, y, paths);
+    }
+
     private (float X, float Y) ToLogicalClient(float x, float y) =>
         _deviceScale == 1f ? (x, y) : (x / _deviceScale, y / _deviceScale);
 
@@ -541,6 +573,31 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                         else PointerDown?.Invoke(x, y, e.Button.Clicks); // SDL tracks click count
                         break;
                     }
+                    // ---- files dropped in from the OS ------------------------------------------
+                    // SDL delivers a multi-file drop as Dropbegin, one Dropfile per file, then
+                    // Dropcomplete — so they are gathered and raised ONCE, because dropping a
+                    // selection is one gesture and an app should not see three. Dropfile without a
+                    // preceding Dropbegin (older SDL, and some backends) is flushed on its own.
+                    case EventType.Dropbegin:
+                        _dropBatch.Clear();
+                        _dropBatching = true;
+                        break;
+                    case EventType.Dropfile:
+                    {
+                        // e.Drop.File is UTF-8 allocated by SDL; the receiver frees it.
+                        var path = Marshal.PtrToStringUTF8((IntPtr)e.Drop.File);
+                        _sdl.Free(e.Drop.File);
+                        if (path is { Length: > 0 }) _dropBatch.Add(path);
+                        if (!_dropBatching) FlushDrop();
+                        break;
+                    }
+                    case EventType.Dropcomplete:
+                        _dropBatching = false;
+                        FlushDrop();
+                        break;
+                    case EventType.Droptext:
+                        _sdl.Free(e.Drop.File);   // dropped text, not a file — freed, not delivered
+                        break;
                     case EventType.Mousebuttonup:
                     {
                         var (x, y) = ToLogicalClient(e.Button.X, e.Button.Y);

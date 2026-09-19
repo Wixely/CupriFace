@@ -305,3 +305,13 @@ body.dark .pill { color:#8fb8e0; border-color:#345069; }
 /* Keep the demo image a sensible size for the panel; <cupri-image> fits inside the box it is given
    rather than sizing itself to the picture. */
 .md-out cupri-image { height: 150px; }
+
+/* The file-drop target on the Diagnostics page. :drop-over is set by the engine while files are
+   being dragged over it — a browser reports that continuously, a desktop window never does. */
+.dropzone{
+  width:574px; padding:22px 18px; margin-top:6px;
+  border:2px dashed #b9c2cc; border-radius:10px;
+  color:#5b6673; font-size:13px; text-align:center;
+  transition:background 120ms ease-out, border-color 120ms ease-out, color 120ms ease-out;
+}
+.dropzone:drop-over{ border-color:#d9642a; background:#fdf0e8; color:#8a3d12; }

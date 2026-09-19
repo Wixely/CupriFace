@@ -23,6 +23,7 @@ mergeInto(LibraryManager.library, {
         link.href = UTF16ToString(p);
     },
     js_clipboard_write: (p, len) => { navigator.clipboard.writeText(UTF16ToString(p)).catch(() => {}); },
+    js_drop_read_range: (id, token, offset, length) => { globalThis.__cupri.dropReadRange(id, token, offset, length); },
     js_clipboard_paste: () => {
         navigator.clipboard.readText()
             .then(t => { if (t) globalThis.__cupri.sendText(t, "PasteText"); })

@@ -91,6 +91,12 @@ public class WebHostParityTests(ITestOutputHelper output)
         // strings through a shared buffer (TextBuffer/PasteText) because the C ABI has no string.
         a.Remove(Key("TextBuffer"));
         a.Remove(Key("PasteText"));
+        // …and DropBuffer for the same reason one dimension over: the C ABI has no byte[] either, so
+        // a dropped file's contents arrive by the page asking for a buffer, filling it, and then
+        // saying it is ready. Mono marshals the Uint8Array itself and has nothing to expose. Both
+        // hosts still export DropBytes — the call that MEANS something to the engine is shared, and
+        // only the mechanics of getting the bytes there differ.
+        a.Remove(Key("DropBuffer"));
         AssertSame(m, a, "Exports (page -> engine)");
     }
 
