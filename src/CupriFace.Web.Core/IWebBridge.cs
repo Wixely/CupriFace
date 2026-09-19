@@ -38,13 +38,20 @@ public interface IWebBridge
     /// back later through the host's own paste entry point rather than as a return value.</summary>
     void ClipboardPaste();
 
-    /// <summary>Read a dropped file's bytes. Fire-and-forget, like <see cref="ClipboardPaste"/> and
+    /// <summary>Read part of a dropped file. Fire-and-forget, like <see cref="ClipboardPaste"/> and
     /// for the same reason: a blob read is a promise, and neither the C ABI nor this interface can
     /// carry one. The page answers by calling <c>WebHostCore.DropBytes</c> (or <c>DropFailed</c>)
-    /// with the <paramref name="token"/> it was handed.</summary>
+    /// with the <paramref name="token"/> it was handed.
+    ///
+    /// <para>A RANGE rather than the whole file, because that is what makes a large file survivable:
+    /// the page slices the blob, so an app can stream a 4GB video through a buffer instead of asking
+    /// wasm's 4GB address space to hold it. Reading everything is just the range that covers it.</para>
+    /// </summary>
     /// <param name="fileId">The handle the page kept when the file was dropped.</param>
     /// <param name="token">Correlates the answer with the caller waiting for it.</param>
-    void DropRead(int fileId, int token);
+    /// <param name="offset">First byte wanted.</param>
+    /// <param name="length">How many bytes from <paramref name="offset"/>.</param>
+    void DropReadRange(int fileId, int token, double offset, int length);
 
     /// <summary>Publish the semantics tree into the off-screen mirror a screen reader reads.</summary>
     void PublishAria(string html);

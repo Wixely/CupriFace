@@ -272,15 +272,16 @@ public class FileDropTests(ITestOutputHelper output)
 
     /// <summary>The browser's shape: metadata now, bytes over a round trip that has not happened yet.
     /// Nothing is read until someone asks — which is the point, because a drop of a 4GB video should
-    /// not cost 4GB to decline.</summary>
+    /// not cost 4GB to decline. (That a 4GB read is then REFUSED rather than attempted is
+    /// <see cref="DroppedFileSizeTests"/>'s business; here the file is small enough to read.)</summary>
     [Fact]
     public async Task A_deferred_file_reads_nothing_until_asked()
     {
         var reads = 0;
-        var f = DroppedFile.Deferred("clip.mp4", size: 4_000_000_000, "video/mp4",
+        var f = DroppedFile.Deferred("clip.mp4", size: 3, "video/mp4",
             _ => { reads++; return Task.FromResult(new byte[] { 1, 2, 3 }); });
 
-        Assert.Equal(4_000_000_000, f.Size);      // enough to refuse it
+        Assert.Equal(3, f.Size);
         Assert.Equal("video/mp4", f.MediaType);
         Assert.Equal(0, reads);                   // …without having touched it
 

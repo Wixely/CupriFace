@@ -1276,7 +1276,8 @@ browser:
 | | Available | Why |
 |---|---|---|
 | `Name`, `Size`, `MediaType`, `IsDirectory` | immediately | all a browser `File` exposes synchronously |
-| `ReadBytesAsync()` / `ReadTextAsync()` / `ToSourceAsync()` | awaited | a blob read is a promise; there is no synchronous form to offer |
+| `ReadBytesAsync()` / `ReadTextAsync()` / `ToSourceAsync()` | awaited, **capped** | a blob read is a promise; there is no synchronous form to offer |
+| `OpenReadAsync()` | awaited, **uncapped** | streams in chunks — nothing is held, so the size stops mattering |
 | `Path` | **desktop only — null in a browser** | the web withholds it deliberately |
 
 So filter on the cheap questions and await only what survives: dragging in a 4 GB video costs
@@ -1300,6 +1301,31 @@ foreach (var f in e.Files)
 
 Every way a local read can fail — a folder, a locked file, one that vanished between the drop and
 the read — surfaces as `IOException`, the same type on every host, so one `catch` covers it.
+
+### Large files: stream them, don't hold them
+
+`ReadBytesAsync` materialises the whole file and is **capped at `DroppedFile.MaxReadBytes`
+(128 MiB by default)**. That cap exists because of the browser: wasm32 gives the entire process one
+4 GiB address space, and an unbounded read of whatever someone happened to drag in doesn't throw —
+it takes the tab with it. Over the cap you get an `IOException` telling you to stream instead.
+
+For anything larger, don't raise the cap — stream it:
+
+```csharp
+await using var stream = await f.OpenReadAsync();
+var hash = await SHA256.HashDataAsync(stream);        // a 4 GiB file, a 64 KiB buffer
+```
+
+`OpenReadAsync` is a `FileStream` on desktop and `blob.slice()` chunks in a browser, so a file far
+bigger than memory can be hashed, parsed or uploaded on either. It's **seekable** — read a header,
+seek to the end, read a trailer, and only those two chunks are ever fetched.
+
+**It is async-only: call `ReadAsync`, never `Read`.** A synchronous read throws, deliberately. The
+page has one thread, so blocking it on the promise that would deliver the bytes stops that promise
+ever resolving — the tab hangs with no error at all. Throwing at the call is the kinder failure.
+
+Past roughly 2 GiB, `ReadBytesAsync` refuses no matter how high you set the cap: a `byte[]` can't
+hold that on any platform, wasm or not. Streaming has no such ceiling.
 
 ### The highlight is optional, and on desktop it never comes
 

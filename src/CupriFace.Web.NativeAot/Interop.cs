@@ -161,18 +161,33 @@ public static unsafe partial class Interop
     { try { return WebHostCore.AcceptsFileDrop() ? 1 : 0; } catch (Exception ex) { Crash("AcceptsFileDrop", ex); return 0; } }
 
     // One buffer per outstanding read, because a read is the only input that spans turns: JS awaits
-    // the blob, and a second drop can be handled in between. Keyed by token and freed on delivery.
-    private static readonly Dictionary<int, nint> _dropBufs = [];
+    // the blob, and a second drop can be handled in between. Keyed by token, released on delivery.
+    //
+    // The buffer is the MANAGED array itself, pinned, rather than native memory copied out of
+    // afterwards. That used to cost two copies inside wasm's 4GB address space — the staging
+    // allocation and the array — so the NativeAOT host hit the ceiling at half the file size the
+    // Mono host did, for no reason: JS can write straight into the array it is going to become.
+    private static readonly Dictionary<int, (byte[] Bytes, GCHandle Pin)> _dropBufs = [];
+
+    private static void ReleaseDropBuf(int token, out byte[]? bytes)
+    {
+        bytes = null;
+        if (!_dropBufs.Remove(token, out var held)) return;
+        held.Pin.Free();
+        bytes = held.Bytes;
+    }
 
     [UnmanagedCallersOnly(EntryPoint = "DropBuffer")]
     public static byte* DropBuffer(int token, int byteLen)
     {
         try
         {
-            if (_dropBufs.Remove(token, out var old)) NativeMemory.Free((void*)old);
-            var p = NativeMemory.Alloc((nuint)Math.Max(byteLen, 1));
-            _dropBufs[token] = (nint)p;
-            return (byte*)p;
+            ReleaseDropBuf(token, out _);                       // a retried read replaces its buffer
+            if (byteLen < 0) return null;
+            var bytes = new byte[byteLen];
+            var pin = GCHandle.Alloc(bytes, GCHandleType.Pinned);
+            _dropBufs[token] = (bytes, pin);
+            return (byte*)pin.AddrOfPinnedObject();
         }
         catch (Exception ex) { Crash("DropBuffer", ex); return null; }
     }
@@ -180,17 +195,16 @@ public static unsafe partial class Interop
     [UnmanagedCallersOnly(EntryPoint = "DropBytes")]
     public static void DropBytes(int token, int byteLen) => Guard("DropBytes", () =>
     {
-        if (!_dropBufs.Remove(token, out var buf)) return;
-        var bytes = new byte[byteLen];
-        new ReadOnlySpan<byte>((void*)buf, byteLen).CopyTo(bytes);
-        NativeMemory.Free((void*)buf);
-        WebHostCore.DropBytes(token, bytes);
+        ReleaseDropBuf(token, out var bytes);
+        if (bytes is null) return;
+        // A short answer is legal (the file shrank); hand over exactly what arrived.
+        WebHostCore.DropBytes(token, byteLen == bytes.Length ? bytes : bytes[..Math.Max(byteLen, 0)]);
     });
 
     [UnmanagedCallersOnly(EntryPoint = "DropFailed")]
     public static void DropFailed(int len, int token) => Guard("DropFailed", () =>
     {
-        if (_dropBufs.Remove(token, out var buf)) NativeMemory.Free((void*)buf);
+        ReleaseDropBuf(token, out _);
         WebHostCore.DropFailed(token, In(len));
     });
 
@@ -281,7 +295,8 @@ public static unsafe partial class Interop
     [DllImport("js", EntryPoint = "js_favicon")] private static extern void JsFavicon(char* utf16, int len);
     [DllImport("js", EntryPoint = "js_clipboard_write")] private static extern void JsClipboardWrite(char* utf16, int len);
     [DllImport("js", EntryPoint = "js_clipboard_paste")] private static extern void JsClipboardPaste();
-    [DllImport("js", EntryPoint = "js_drop_read")] private static extern void JsDropRead(int fileId, int token);
+    [DllImport("js", EntryPoint = "js_drop_read_range")]
+    private static extern void JsDropReadRange(int fileId, int token, double offset, int length);
     [DllImport("js", EntryPoint = "js_a11y")] private static extern void JsA11y(char* utf16, int len);
     [DllImport("js", EntryPoint = "js_text_input")]
     private static extern void JsTextInput(int focused, int numeric, int multiline, double x, double y);
@@ -329,7 +344,8 @@ public static unsafe partial class Interop
         public void SetFavicon(string dataUri) => SendFavicon(dataUri);
         public void ClipboardWrite(string text) => SendClipboardWrite(text);
         public void ClipboardPaste() => JsClipboardPaste();
-        public void DropRead(int fileId, int token) => JsDropRead(fileId, token);
+        public void DropReadRange(int fileId, int token, double offset, int length) =>
+            JsDropReadRange(fileId, token, offset, length);
         public void PublishAria(string html) => SendA11y(html);
         public void SetTextInput(bool focused, bool numeric, bool multiline, double x, double y) =>
             JsTextInput(focused ? 1 : 0, numeric ? 1 : 0, multiline ? 1 : 0, x, y);

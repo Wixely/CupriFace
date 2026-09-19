@@ -16,10 +16,32 @@ namespace CupriFace.Interaction;
 /// because it is genuinely useful there — an app that wants to reopen the same project next launch
 /// needs the location, not the bytes — but an app that reads it without a null check is an app that
 /// works everywhere except the browser.</para>
+///
+/// <para><b>Large files.</b> <see cref="ReadBytesAsync()"/> materialises the whole file and is capped
+/// at <see cref="MaxReadBytes"/> — in a browser the bytes land in a 4GB address space shared with
+/// everything else, and an uncapped read of a file the user happened to drag in is how a tab dies.
+/// For anything bigger, <see cref="OpenReadAsync"/> streams it in chunks and never holds more than a
+/// buffer, on every host.</para>
 /// </summary>
 public sealed class DroppedFile
 {
-    private readonly Func<CancellationToken, Task<byte[]>> _read;
+    private readonly Func<CancellationToken, Task<byte[]>> _readAll;
+    private readonly Func<CancellationToken, Task<Stream>>? _openStream;
+
+    /// <summary>
+    /// The ceiling for <see cref="ReadBytesAsync()"/>, in bytes. Default <b>128 MiB</b>.
+    ///
+    /// <para>Strict by default and raised deliberately, the same bargain
+    /// <see cref="Resources.CupriSourceOptions.MaxBytes"/> makes for a network fetch. A dropped file
+    /// deserves a bigger number than a URL does — the user chose it — but not an unbounded one: on
+    /// wasm32 the whole process lives in 4GB, and the failure mode for exceeding it is not an
+    /// exception you can catch, it is the tab going away.</para>
+    ///
+    /// <para>Raise it if your app genuinely wants large files in memory. If you want them
+    /// <i>handled</i> rather than held, use <see cref="OpenReadAsync"/> instead and leave this
+    /// alone.</para>
+    /// </summary>
+    public static long MaxReadBytes { get; set; } = 128L * 1024 * 1024;
 
     /// <summary>The file's name with no directory part — <c>"budget.csv"</c>. Always present: it is
     /// the one thing every platform supplies, and usually the thing an app dispatches on.</summary>
@@ -36,7 +58,7 @@ public sealed class DroppedFile
 
     /// <summary>The absolute path, or <b>null in the browser</b>, where no path exists and asking for
     /// one is meaningless. Read it only to remember a location; read the bytes with
-    /// <see cref="ReadBytesAsync"/>, which works on every host.</summary>
+    /// <see cref="ReadBytesAsync()"/>, which works on every host.</summary>
     public string? Path { get; }
 
     /// <summary>
@@ -52,31 +74,102 @@ public sealed class DroppedFile
     public bool IsDirectory { get; }
 
     private DroppedFile(string name, long size, string mediaType, string? path, bool isDirectory,
-        Func<CancellationToken, Task<byte[]>> read)
+        Func<CancellationToken, Task<byte[]>> readAll,
+        Func<CancellationToken, Task<Stream>>? openStream)
     {
         Name = name;
         Size = size;
         MediaType = mediaType;
         Path = path;
         IsDirectory = isDirectory;
-        _read = read;
+        _readAll = readAll;
+        _openStream = openStream;
     }
 
-    /// <summary>The contents. Asynchronous because a browser cannot be anything else — awaiting it on
-    /// desktop costs a thread-pool hop over a file read that was going to happen anyway.</summary>
-    public Task<byte[]> ReadBytesAsync(CancellationToken ct = default) => _read(ct);
+    // ---- reading -----------------------------------------------------------------------------
+
+    /// <summary>The whole file, capped at <see cref="MaxReadBytes"/>.</summary>
+    public Task<byte[]> ReadBytesAsync(CancellationToken ct = default) => ReadBytesAsync(MaxReadBytes, ct);
+
+    /// <summary>
+    /// The whole file, capped at <paramref name="maxBytes"/> for this call only.
+    ///
+    /// <para>The cap is checked against <see cref="Size"/> <b>before</b> anything is transferred, so
+    /// refusing a file costs nothing — and then again against what actually arrived, because a size
+    /// the platform reported is not a promise. Exceeding it is an <see cref="IOException"/> naming
+    /// <see cref="OpenReadAsync"/>, which is what the caller should do instead.</para>
+    /// </summary>
+    public async Task<byte[]> ReadBytesAsync(long maxBytes, CancellationToken ct = default)
+    {
+        if (IsDirectory)
+            throw new IOException($"'{Name}' is a folder, not a file — check IsDirectory before reading.");
+
+        // A byte[] cannot hold more than this on ANY host, wasm or not, so it is a separate refusal
+        // with its own advice: no cap can be raised far enough to make it work.
+        if (Size > Array.MaxLength)
+            throw new IOException(
+                $"'{Name}' is {Describe(Size)}, which cannot fit in a single array on any platform " +
+                $"({Describe(Array.MaxLength)} maximum). Use OpenReadAsync to stream it.");
+
+        if (Size > maxBytes) throw TooBig(Size, maxBytes);
+
+        var bytes = await _readAll(ct).ConfigureAwait(false);
+
+        // Size was -1 (unknown), or the platform was wrong, or the file grew between the drop and
+        // the read. Whichever — it is in memory now, so the check is about refusing to HAND IT ON,
+        // and about the caller learning that its limit did not hold.
+        if (bytes.LongLength > maxBytes) throw TooBig(bytes.LongLength, maxBytes);
+        return bytes;
+    }
+
+    private IOException TooBig(long actual, long limit) => new(
+        $"'{Name}' is {Describe(actual)}, over the {Describe(limit)} read limit. " +
+        "Use OpenReadAsync to stream it, or raise DroppedFile.MaxReadBytes if you mean to hold it in memory.");
 
     /// <summary>The contents as text, decoded like every other <see cref="Resources.CupriSource"/>:
-    /// a BOM wins, otherwise UTF-8.</summary>
+    /// a BOM wins, otherwise UTF-8. Capped like <see cref="ReadBytesAsync()"/>.</summary>
     public async Task<string> ReadTextAsync(CancellationToken ct = default) =>
-        Resources.CupriSource.Bytes(Name, await _read(ct).ConfigureAwait(false)).ReadText();
+        Resources.CupriSource.Bytes(Name, await ReadBytesAsync(ct).ConfigureAwait(false)).ReadText();
 
     /// <summary>This file as a <see cref="Resources.CupriSource"/>, so a drop can feed anything that
     /// already takes one. Trust is <see cref="Resources.ResourceTrust.LocalFile"/> — the user pointed
     /// at it, but the app never chose it, which makes it the least trustworthy local input there
     /// is.</summary>
     public async Task<Resources.CupriSource> ToSourceAsync(CancellationToken ct = default) =>
-        Resources.CupriSource.Bytes(Name, await _read(ct).ConfigureAwait(false));
+        Resources.CupriSource.Bytes(Name, await ReadBytesAsync(ct).ConfigureAwait(false));
+
+    /// <summary>
+    /// The file as a stream, without holding it. <b>No cap applies</b> — nothing is being
+    /// materialised, so a 4GB video can be hashed, parsed or uploaded with a buffer.
+    ///
+    /// <para>On desktop this is a <c>FileStream</c>. In a browser it pulls <c>blob.slice()</c> ranges
+    /// a chunk at a time, so it is seekable but <b>asynchronous only</b>: call <c>ReadAsync</c>, never
+    /// <c>Read</c>. A synchronous read cannot work there at all — the page is single-threaded, so
+    /// blocking on the promise that would deliver the bytes prevents it from ever resolving, and the
+    /// stream throws rather than hanging the tab.</para>
+    ///
+    /// <para>Dispose it. In a browser it holds nothing of its own, but on desktop it is an open file
+    /// handle like any other.</para>
+    /// </summary>
+    public async Task<Stream> OpenReadAsync(CancellationToken ct = default)
+    {
+        if (IsDirectory)
+            throw new IOException($"'{Name}' is a folder, not a file — check IsDirectory before reading.");
+        if (_openStream is { } open) return await open(ct).ConfigureAwait(false);
+
+        // No streaming source: buffer it. Only reachable for a host that supplied a whole-file
+        // reader and nothing else, and the cap still applies because this really is in memory.
+        return new MemoryStream(await ReadBytesAsync(ct).ConfigureAwait(false), writable: false);
+    }
+
+    private static string Describe(long bytes) => bytes switch
+    {
+        < 0 => "of unknown size",
+        < 1024 => $"{bytes} bytes",
+        < 1024 * 1024 => $"{bytes / 1024.0:0.#} KiB",
+        < 1024L * 1024 * 1024 => $"{bytes / (1024.0 * 1024):0.#} MiB",
+        _ => $"{bytes / (1024.0 * 1024 * 1024):0.##} GiB",
+    };
 
     // ---- factories -------------------------------------------------------------------------------
 
@@ -98,7 +191,23 @@ public sealed class DroppedFile
             try { size = new FileInfo(full).Length; } catch (IOException) { } catch (UnauthorizedAccessException) { }
 
         return new DroppedFile(name, size, MediaTypeFor(name), full, isDir,
-            ct => ReadFileAsync(full, name, isDir, ct));
+            ct => ReadFileAsync(full, name, isDir, ct),
+            _ => Task.FromResult<Stream>(OpenFile(full, name, isDir)));
+    }
+
+    private static Stream OpenFile(string full, string name, bool isDir)
+    {
+        if (isDir || Directory.Exists(full))
+            throw new IOException($"'{name}' is a folder, not a file — check IsDirectory before reading.");
+        try
+        {
+            return new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.ReadWrite,
+                bufferSize: 64 * 1024, useAsync: true);
+        }
+        catch (UnauthorizedAccessException e)
+        {
+            throw new IOException($"'{name}' could not be read: {e.Message}", e);
+        }
     }
 
     // Every way a local read can fail, reported as ONE exception type.
@@ -128,26 +237,41 @@ public sealed class DroppedFile
         ArgumentException.ThrowIfNullOrEmpty(name);
         ArgumentNullException.ThrowIfNull(bytes);
         return new DroppedFile(name, bytes.LongLength, mediaType ?? MediaTypeFor(name), path: null,
-            isDirectory: false, _ => Task.FromResult(bytes));
+            isDirectory: false, _ => Task.FromResult(bytes),
+            _ => Task.FromResult<Stream>(new MemoryStream(bytes, writable: false)));
     }
 
-    /// <summary>A file whose metadata is known but whose bytes are still on the other side of
-    /// something asynchronous. The browser host's factory: the blob handle stays in JS and
-    /// <paramref name="read"/> is the round trip that fetches it.</summary>
+    /// <summary>
+    /// A file whose metadata is known but whose bytes are still on the other side of something
+    /// asynchronous. The browser host's factory: the blob handle stays in JS and
+    /// <paramref name="read"/> is the round trip that fetches it.
+    /// </summary>
+    /// <param name="readRange">
+    /// Fetches one range — offset, length — so <see cref="OpenReadAsync"/> can stream rather than
+    /// buffer. A host that supplies it lets an app handle a file far larger than memory; one that
+    /// does not still works, by buffering, subject to the cap.
+    /// </param>
     public static DroppedFile Deferred(string name, long size, string? mediaType,
-        Func<CancellationToken, Task<byte[]>> read, bool isDirectory = false)
+        Func<CancellationToken, Task<byte[]>> read, bool isDirectory = false,
+        Func<long, int, CancellationToken, Task<byte[]>>? readRange = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(name);
         ArgumentNullException.ThrowIfNull(read);
+
+        var readAll = isDirectory
+            // The browser reports a folder as a zero-byte File whose read fails with a DOMException
+            // the page turns into an IOException. Refusing here instead keeps the message useful
+            // and identical to the desktop one, rather than whatever that turn of events produced.
+            ? _ => Task.FromException<byte[]>(new IOException(
+                $"'{name}' is a folder, not a file — check IsDirectory before reading."))
+            : read;
+
+        Func<CancellationToken, Task<Stream>>? open = null;
+        if (!isDirectory && readRange is not null)
+            open = _ => Task.FromResult<Stream>(new DroppedFileStream(name, size, readRange));
+
         return new DroppedFile(name, size, mediaType is { Length: > 0 } m ? m : MediaTypeFor(name),
-            path: null, isDirectory,
-            isDirectory
-                // The browser reports a folder as a zero-byte File whose read fails with a DOMException
-                // the page turns into an IOException. Refusing here instead keeps the message useful
-                // and identical to the desktop one, rather than whatever that turn of events produced.
-                ? _ => Task.FromException<byte[]>(new IOException(
-                    $"'{name}' is a folder, not a file — check IsDirectory before reading."))
-                : read);
+            path: null, isDirectory, readAll, open);
     }
 
     // ---- media types -----------------------------------------------------------------------------

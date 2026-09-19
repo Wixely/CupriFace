@@ -290,12 +290,14 @@ try {
         // Context-menu clipboard (async browser clipboard). Paste reads then feeds the engine.
         clipboardWrite: text => navigator.clipboard.writeText(text).catch(() => {}),
         clipboardPaste: () => navigator.clipboard.readText().then(t => { if (t) I.KeyChar(t); }).catch(() => {}),
-        // A dropped file's bytes, fetched only when the engine asks. Mono marshals the Uint8Array
-        // itself, so unlike the NativeAOT host there is no buffer to arrange.
-        dropRead: (id, token) => {
+        // A RANGE of a dropped file, fetched only when the engine asks — slice() reads nothing, so
+        // only the chunk wanted is ever materialised and a file larger than memory can be streamed.
+        // Mono marshals the Uint8Array itself, so unlike the NativeAOT host there is no buffer to
+        // arrange.
+        dropReadRange: (id, token, offset, length) => {
             const file = dropFiles.get(id);
             if (!file) { I.DropFailed(token, 'the file is no longer available'); return; }
-            file.arrayBuffer()
+            file.slice(offset, offset + length).arrayBuffer()
                 .then(buf => I.DropBytes(token, new Uint8Array(buf)))
                 .catch(err => I.DropFailed(token, String(err && err.message || err)));
         },

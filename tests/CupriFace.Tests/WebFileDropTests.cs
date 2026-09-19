@@ -95,15 +95,34 @@ public class WebFileDropTests(ITestOutputHelper output)
     {
         var (js, app) = Boot();
 
-        PushFile(7, "huge.mp4", "video/mp4", 4_000_000_000);
+        PushFile(7, "clip.mp4", "video/mp4", 2048);
         WebHostCore.DropCommit(40, 50);
 
-        Assert.Empty(js.DropReads);
+        Assert.Empty(js.DropReads);                        // the drop alone transferred nothing
         var file = Assert.Single(Assert.Single(app.Drops).Files);
-        Assert.Equal(4_000_000_000, file.Size);   // enough to refuse it, with nothing transferred
+        Assert.Equal(2048, file.Size);
 
         _ = file.ReadBytesAsync();
         Assert.Equal(7, Assert.Single(js.DropReads).FileId);
+    }
+
+    /// <summary>…and a file too large to hold is refused without asking the page for ANYTHING, which
+    /// is the point of checking the metadata first. A 4GB read reaching the page is a dead tab, and
+    /// a dead tab cannot report what happened.</summary>
+    [Fact]
+    public async Task A_file_too_large_to_hold_is_refused_before_the_page_is_asked()
+    {
+        var (js, app) = Boot();
+        PushFile(7, "huge.mp4", "video/mp4", 4_000_000_000);
+        WebHostCore.DropCommit(40, 50);
+
+        var file = Assert.Single(Assert.Single(app.Drops).Files);
+        Assert.Equal(4_000_000_000, file.Size);            // enough to refuse it on
+
+        var ex = await Assert.ThrowsAsync<IOException>(() => file.ReadBytesAsync());
+        output.WriteLine(ex.Message);
+        Assert.Empty(js.DropReads);                        // nothing was ever requested
+        Assert.Contains("OpenReadAsync", ex.Message);
     }
 
     /// <summary>The round trip: the host asks by token, the page answers later, the awaiting read
@@ -120,7 +139,7 @@ public class WebFileDropTests(ITestOutputHelper output)
         var pending = file.ReadTextAsync();
         Assert.False(pending.IsCompleted, "a blob read cannot complete synchronously");
 
-        var (fileId, token) = Assert.Single(js.DropReads);
+        var (fileId, token, _, _) = Assert.Single(js.DropReads);
         Assert.Equal(3, fileId);
         WebHostCore.DropBytes(token, "hello"u8.ToArray());
 
@@ -299,6 +318,90 @@ public class WebFileDropTests(ITestOutputHelper output)
         Assert.Empty(js.DropReads);
     }
 
+    // ---- large files: the reason the browser path has a range reader at all ---------------------
+
+    /// <summary>
+    /// A whole-file read asks the page for exactly one range covering the file. The page-facing call
+    /// is a RANGE rather than "give me everything" so that the streaming case below can exist at all;
+    /// this pins that the simple case still costs one round trip rather than N.
+    /// </summary>
+    [Fact]
+    public async Task A_whole_file_read_asks_for_one_range_covering_it()
+    {
+        var (js, app) = Boot();
+        PushFile(1, "notes.txt", "text/plain", 5);
+        WebHostCore.DropCommit(40, 50);
+
+        var pending = Assert.Single(Assert.Single(app.Drops).Files).ReadTextAsync();
+        var (fileId, token, offset, length) = Assert.Single(js.DropReads);
+        output.WriteLine($"one fetch: file {fileId} bytes {offset}..{offset + length}");
+        Assert.Equal(0, offset);
+        Assert.Equal(5, length);
+
+        WebHostCore.DropBytes(token, "hello"u8.ToArray());
+        Assert.Equal("hello", await pending);
+    }
+
+    /// <summary>
+    /// <b>The tab-saver.</b> A 3 GiB file dropped on a page is streamed in chunks — the host asks for
+    /// ranges, never for the whole thing, so nothing larger than a chunk is ever in wasm memory. The
+    /// same file read whole would be refused outright; here the size simply stops mattering.
+    /// </summary>
+    [Fact]
+    public async Task A_huge_file_streams_in_chunks_instead_of_killing_the_tab()
+    {
+        const long size = 3L * 1024 * 1024 * 1024;
+        var (js, app) = Boot();
+        PushFile(9, "movie.mp4", "video/mp4", size);
+        WebHostCore.DropCommit(40, 50);
+
+        var file = Assert.Single(Assert.Single(app.Drops).Files);
+        Assert.Equal(size, file.Size);
+
+        // Reading it whole is refused — it cannot fit in an array on any platform.
+        var refused = await Assert.ThrowsAsync<IOException>(() => file.ReadBytesAsync());
+        Assert.Contains("OpenReadAsync", refused.Message);
+
+        // Streaming it is fine. The page answers each range as it is asked for; we read a few
+        // chunks' worth and stop, which is what a real parser or uploader does.
+        await using var stream = await file.OpenReadAsync();
+        var buffer = new byte[256 * 1024];
+        long total = 0;
+        for (var i = 0; i < 8; i++)
+        {
+            var read = stream.ReadAsync(buffer);
+            // Answer whatever the page was just asked for.
+            var (_, token, _, length) = js.DropReads[^1];
+            WebHostCore.DropBytes(token, new byte[length]);
+            total += await read;
+        }
+
+        var biggest = js.DropReads.Max(r => r.Length);
+        output.WriteLine($"{js.DropReads.Count} ranges, largest {biggest:N0} bytes, {total:N0} delivered");
+        Assert.True(biggest <= 1024 * 1024, $"a range was {biggest:N0} bytes — that is not streaming");
+        Assert.Equal(8 * 256 * 1024, total);
+    }
+
+    /// <summary>A cancelled read stops waiting and stops being remembered, so an abandoned stream
+    /// does not pin its buffer and its completion source for the life of the page.</summary>
+    [Fact]
+    public async Task A_cancelled_read_does_not_wait_for_the_page()
+    {
+        var (js, app) = Boot();
+        PushFile(1, "slow.bin", "application/octet-stream", 1024);
+        WebHostCore.DropCommit(40, 50);
+
+        using var cts = new CancellationTokenSource();
+        var pending = Assert.Single(Assert.Single(app.Drops).Files).ReadBytesAsync(1024, cts.Token);
+        Assert.Single(js.DropReads);
+
+        await cts.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending);
+
+        // …and the late answer lands on nothing rather than throwing.
+        WebHostCore.DropBytes(js.DropReads[0].Token, new byte[1024]);
+    }
+
     private static AngleSharp.Dom.IElement Zone()
     {
         var n = WebHostCore.Document.Root;
@@ -317,8 +420,9 @@ public class WebFileDropTests(ITestOutputHelper output)
 /// <c>WebHostCoreTests.RecordingBridge</c> only because that one is private to its class.</summary>
 internal sealed class WebHostCoreDropFixture : IWebBridge
 {
-    public readonly List<(int FileId, int Token)> DropReads = [];
-    public void DropRead(int fileId, int token) => DropReads.Add((fileId, token));
+    public readonly List<(int FileId, int Token, long Offset, int Length)> DropReads = [];
+    public void DropReadRange(int fileId, int token, double offset, int length) =>
+        DropReads.Add((fileId, token, (long)offset, length));
 
     public void Present(nint pixels, int byteCount, int w, int h, int dx, int dy, int dw, int dh) { }
     public void SetCursor(string cssCursor) { }

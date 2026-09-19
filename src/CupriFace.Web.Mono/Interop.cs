@@ -111,7 +111,7 @@ internal partial class Interop
     [JSImport("favicon", "cupri")] internal static partial void SetFavicon(string dataUri);
     [JSImport("clipboardWrite", "cupri")] internal static partial void ClipboardWrite(string text);
     [JSImport("clipboardPaste", "cupri")] internal static partial void ClipboardPaste();
-    [JSImport("dropRead", "cupri")] internal static partial void DropRead(int fileId, int token);
+    [JSImport("dropReadRange", "cupri")] internal static partial void DropReadRange(int fileId, int token, double offset, int length);
     [JSImport("a11y", "cupri")] internal static partial void A11y(string html);
     [JSImport("textInput", "cupri")] internal static partial void TextInputJs(
         bool focused, bool numeric, bool multiline, double x, double y);
@@ -151,7 +151,8 @@ internal sealed unsafe class MonoBridge : IWebBridge
     public void SetFavicon(string dataUri) => Interop.SetFavicon(dataUri);
     public void ClipboardWrite(string text) => Interop.ClipboardWrite(text);
     public void ClipboardPaste() => Interop.ClipboardPaste();
-    public void DropRead(int fileId, int token) => Interop.DropRead(fileId, token);
+    public void DropReadRange(int fileId, int token, double offset, int length) =>
+        Interop.DropReadRange(fileId, token, offset, length);
     public void PublishAria(string html) => Interop.A11y(html);
     public void SetTextInput(bool focused, bool numeric, bool multiline, double x, double y) =>
         Interop.TextInputJs(focused, numeric, multiline, x, y);

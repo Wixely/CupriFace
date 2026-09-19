@@ -57,6 +57,22 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   is bytes with a name. The Showcase's **Diagnostics** page has a live zone to drag a real file onto,
   which is the only way to exercise the half no headless test can reach.
 
+  **Large files are streamed, not held.** `ReadBytesAsync` materialises everything and is capped at
+  `DroppedFile.MaxReadBytes` (128 MiB by default, raisable), because on wasm32 the whole process
+  shares one 4 GiB address space and an unbounded read of whatever was dragged in does not throw — it
+  ends the tab. Over the cap you get an `IOException` pointing at the alternative:
+
+  ```csharp
+  await using var stream = await f.OpenReadAsync();
+  var hash = await SHA256.HashDataAsync(stream);      // a 4 GiB file, a 64 KiB buffer
+  ```
+
+  `OpenReadAsync` is a `FileStream` on desktop and `blob.slice()` chunks in a browser, seekable on
+  both, so a header-and-trailer read costs two chunks rather than the file. It is **async-only** —
+  a synchronous `Read` throws rather than deadlocking the page's single thread against the promise
+  that would feed it. Past ~2 GiB `ReadBytesAsync` refuses whatever the cap, since no `byte[]` can
+  hold that on any platform; streaming has no ceiling.
+
   Dragging *out* of the window is not included: that needs a platform drag source and a data promise,
   and is a much larger thing than accepting a drop.
 

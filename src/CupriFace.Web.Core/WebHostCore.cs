@@ -343,7 +343,13 @@ public static class WebHostCore
     {
         var name = _dropName; var type = _dropType;   // captured: the fields move on to the next file
         _dropName = ""; _dropType = "";
-        _dropPending.Add(DroppedFile.Deferred(name, (long)size, type, _ => ReadDropAsync(id), isDirectory));
+        var length = (long)size;
+        _dropPending.Add(DroppedFile.Deferred(name, length, type,
+            ct => ReadDropRangeAsync(id, 0, length, ct),
+            isDirectory,
+            // The range reader is what lets OpenReadAsync stream rather than buffer. Supplying it is
+            // the difference between "a 4GB drop ends the tab" and "a 4GB drop is a Stream".
+            (offset, len, ct) => ReadDropRangeAsync(id, offset, len, ct)));
     }
 
     /// <summary>Every file has crossed: raise the drop at the point the page reported.</summary>
@@ -370,18 +376,28 @@ public static class WebHostCore
     /// browser it accepts the drag, so a document with no handler keeps the "no entry" cursor.</summary>
     public static bool AcceptsFileDrop() => _doc?.AcceptsFileDrop == true;
 
-    // Ask the page for a file's bytes and wait. The round trip is a token rather than a promise
+    // Ask the page for part of a file and wait. The round trip is a token rather than a promise
     // because the C ABI carries neither — JS answers by calling DropBytes/DropFailed with the token
     // it was given, the same shape the clipboard paste already uses.
-    private static Task<byte[]> ReadDropAsync(int id)
+    //
+    // Cancellation unregisters the waiter rather than telling the page to stop: a blob read already
+    // in flight cannot be recalled, and leaving a cancelled TaskCompletionSource in the table would
+    // keep both it and the answer's buffer alive for a read nobody wants.
+    private static async Task<byte[]> ReadDropRangeAsync(int id, long offset, long length, CancellationToken ct)
     {
-        if (_js is null) return Task.FromException<byte[]>(
-            new InvalidOperationException("No browser bridge: a dropped file cannot be read."));
+        if (_js is null) throw new InvalidOperationException(
+            "No browser bridge: a dropped file cannot be read.");
+        if (length <= 0) return [];
+        if (length > Array.MaxLength) throw new IOException(
+            $"A single read of {length} bytes cannot fit in an array; stream it instead.");
+
         var token = ++_dropToken;
         var tcs = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
         _dropReads[token] = tcs;
-        _js.DropRead(id, token);
-        return tcs.Task;
+        _js.DropReadRange(id, token, offset, (int)length);
+
+        using var reg = ct.Register(() => { _dropReads.Remove(token); tcs.TrySetCanceled(ct); });
+        return await tcs.Task.ConfigureAwait(false);
     }
 
     /// <summary>JS answering a <c>DropRead</c>: the bytes for that token.</summary>

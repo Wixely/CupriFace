@@ -351,11 +351,17 @@ try {
 
     // Answer a read the engine asked for: fill a buffer it owns, then say it is ready. Errors come
     // back as DropFailed so the app can tell "unreadable" from "empty".
-    globalThis.__cupri.dropRead = (id, token) => {
+    // A RANGE, never the whole blob unless the range covers it. This is what lets the engine stream
+    // a file far larger than wasm's 4GB address space: slice() does not read anything, so only the
+    // chunk asked for is ever materialised.
+    globalThis.__cupri.dropReadRange = (id, token, offset, length) => {
         const file = dropFiles.get(id);
         if (!file) { globalThis.__cupri.dropFail(token, "the file is no longer available"); return; }
-        file.arrayBuffer().then(buf => {
+        const blob = file.slice(offset, offset + length);
+        blob.arrayBuffer().then(buf => {
             const bytes = new Uint8Array(buf);
+            // The buffer IS the managed array, pinned — writing here writes into it directly, with
+            // no second copy inside wasm memory.
             const ptr = M._DropBuffer(token, bytes.length);
             if (!ptr) { globalThis.__cupri.dropFail(token, "out of memory"); return; }
             M.HEAPU8.set(bytes, ptr);

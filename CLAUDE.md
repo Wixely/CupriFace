@@ -154,10 +154,12 @@ drop.DropText(x, y, "notes.md", "# hello");   // drag in and release
 drop.Over(x, y);                              // the :drop-over highlight, without letting go
 ```
 
-Two things that catch people out: **`DroppedFile` gives metadata synchronously and bytes only
+Three things that catch people out: **`DroppedFile` gives metadata synchronously and bytes only
 asynchronously** (a browser `File` is a blob — there is no synchronous read to offer, and `Path` is
-null there), and **the drag-over highlight exists only in a browser** — GLFW reports the drop with no
-warning beforehand, so a drop zone must read as a target while idle. See TOOLBOX.md §8.1.1.
+null there); **the drag-over highlight exists only in a browser** — GLFW reports the drop with no
+warning beforehand, so a drop zone must read as a target while idle; and **`ReadBytesAsync` is capped
+at 128 MiB** because an unbounded read on wasm ends the tab rather than throwing — use
+`OpenReadAsync` to stream anything larger. See TOOLBOX.md §8.1.1.
 
 ### Gotchas
 

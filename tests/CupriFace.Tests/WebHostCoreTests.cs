@@ -47,9 +47,9 @@ public class WebHostCoreTests(ITestOutputHelper output)
         /// <summary>What a page does with a read request: remember it. A test answers it by hand,
         /// which is the point — the answer is asynchronous in a browser and the engine must cope with
         /// it arriving later, or not at all.</summary>
-        public readonly List<(int FileId, int Token)> DropReads = [];
-        public void DropRead(int fileId, int token)
-        { DropReads.Add((fileId, token)); Calls.Add($"dropRead {fileId} {token}"); }
+        public readonly List<(int FileId, int Token, long Offset, int Length)> DropReads = [];
+        public void DropReadRange(int fileId, int token, double offset, int length)
+        { DropReads.Add((fileId, token, (long)offset, length)); Calls.Add($"dropRead {fileId} {token} @{offset}+{length}"); }
         public void PublishAria(string html) { Aria = html; Calls.Add("aria"); }
         public void SetTextInput(bool f, bool n, bool m, double x, double y)
         { TextInput = (f, n, m, x, y); Calls.Add($"textInput {f} {x},{y}"); }
