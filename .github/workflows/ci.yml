@@ -630,6 +630,81 @@ jobs:
           print("the package defaults a consumer to CoreCLR")
           PY
 
+          # ---- and now the half that -getProperty cannot see (#191) ------------------------------
+          #
+          # Everything above asks what the PROPERTY resolves to, without running a target. That is
+          # the right question for "did the pin land", and it is why this guard was green while
+          # consumers could not build at all: the property that decides which runtime the build ASKS
+          # FOR is not the one that decides which runtime packs restore FETCHES. NuGet evaluates the
+          # project with ExcludeRestorePackageImports=true during restore, so our .props is not
+          # imported then — restore provisions Mono's packs, the build wants CoreCLR's, and the
+          # build fails with NETSDK1112 on any machine that has not cached them.
+          #
+          # So the question is asked of RESTORE, by looking at what it actually downloaded. That is
+          # the mechanism itself rather than a symptom of it: no emulator, no APK, and nothing that
+          # depends on which SDK the runner happens to have.
+          #
+          # NUGET_PACKAGES, not --packages: the env var is honoured identically by restore and by
+          # build on every SDK, while passing --packages to `dotnet build` resolved the HOST rid into
+          # the build on the Linux runner (NETSDK1047 for 'net10.0-android/linux-x64') and failed the
+          # step over something unrelated.
+          COLD="$RUNNER_TEMP/coldpkgs"
+          COREPACK="microsoft.netcore.app.runtime.android-arm64"
+          # An explicit RID, because the runner's Android workload and a developer's resolve a
+          # RID-less build differently: the Linux one picked the HOST rid and failed with NETSDK1047
+          # for 'net10.0-android/linux-x64'. Naming the RID is what an Android build does anyway, and
+          # it takes the host out of the question entirely. The same RID is used on both sides below,
+          # so the only thing that differs between them is the property under test.
+          RID="-p:RuntimeIdentifier=android-arm64"
+
+          coldrestore() {   # $1 = extra properties for restore
+            rm -rf "$COLD" tests/PackageConsumer/obj tests/PackageConsumer/bin
+            mkdir -p "$COLD"
+            NUGET_PACKAGES="$COLD" dotnet restore tests/PackageConsumer/PackageConsumer.csproj               -p:CupriFacePackageVersion=$VER $RID $1 >/dev/null
+          }
+
+          # 1. As a consumer takes the package: the pin comes from buildTransitive, which restore
+          #    cannot see. The CoreCLR pack must therefore be MISSING — that is the bug.
+          coldrestore ""
+          if [ -d "$COLD/$COREPACK" ]; then
+            echo "::error::restore fetched the CoreCLR runtime pack without the app setting"                  "UseMonoRuntime — #191 may be fixed upstream, in which case PACKAGE.md's"                  "instruction to set it in the project is now wrong and should be revisited."
+            exit 1
+          fi
+          echo "confirmed: restore alone does not provision the CoreCLR runtime packs (#191)"
+
+          # 2. …and a build in that state must say CUPRI0002 rather than only NETSDK1112, or the
+          #    consumer has nothing connecting the failure to this package.
+          set +e
+          COLDLOG=$(NUGET_PACKAGES="$COLD" dotnet build tests/PackageConsumer/PackageConsumer.csproj             -c Release -p:CupriFacePackageVersion=$VER $RID --no-restore 2>&1)
+          COLDRC=$?
+          set -e
+          # Printed in full, always. An earlier version captured this and then only ever grepped it
+          # for the codes it expected, so a failure for a third reason was reported as "no CUPRI0002"
+          # — an accusation about the package — with the actual message discarded.
+          echo "----- cold consumer build (exit $COLDRC) -----"
+          echo "$COLDLOG"
+          echo "----- end cold consumer build -----"
+
+          if [ $COLDRC -eq 0 ]; then
+            echo "::error::a consumer build with no CoreCLR runtime pack SUCCEEDED, so this step is"                  "no longer reproducing #191."
+            exit 1
+          fi
+          if ! echo "$COLDLOG" | grep -q "CUPRI0002"; then
+            echo "::error::the consumer build failed without CupriFace explaining why (no CUPRI0002)."                  "A consumer sees NETSDK1112, which names a runtime pack and suggests a restore that"                  "does not help, with nothing connecting it to this package. Full output above."
+            exit 1
+          fi
+          echo "confirmed: the failure names the one-line fix (CUPRI0002)"
+
+          # 3. And that one-line fix genuinely changes what restore fetches. Without this the error
+          #    above could be telling people to do something that does not help.
+          coldrestore "-p:UseMonoRuntime=false"
+          if [ ! -d "$COLD/$COREPACK" ]; then
+            echo "::error::setting UseMonoRuntime=false for restore did NOT provision the CoreCLR"                  "runtime pack, so the fix CUPRI0002 and PACKAGE.md tell consumers to apply does"                  "not work."
+            exit 1
+          fi
+          echo "confirmed: the fix provisions the CoreCLR runtime packs"
+          rm -rf "$COLD" tests/PackageConsumer/obj tests/PackageConsumer/bin
+
       - name: Build the APKs (and prove no desktop native rode along)
         run: |
           # On a v* tag the APK carries that version, so the app's About page names the build a
