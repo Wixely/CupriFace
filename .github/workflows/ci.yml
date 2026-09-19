@@ -653,10 +653,20 @@ jobs:
           COLDLOG=$(dotnet build tests/PackageConsumer/PackageConsumer.csproj -c Release             -p:CupriFacePackageVersion=$VER --packages "$COLD" --no-restore 2>&1)
           COLDRC=$?
           set -e
-          echo "$COLDLOG" | grep -E "CUPRI0002|NETSDK1112" | head -4 || true
+          # PRINTED IN FULL, always. The first version of this captured the log and then only ever
+          # grepped it for the two codes it expected, so when the build failed for a third reason the
+          # step reported "no CUPRI0002" — an accusation about the package — and threw away the
+          # message that said what had actually gone wrong.
+          echo "----- cold consumer build (exit $COLDRC) -----"
+          echo "$COLDLOG"
+          echo "----- end cold consumer build -----"
 
           if [ $COLDRC -eq 0 ]; then
             echo "::error::a cold-cache consumer build SUCCEEDED, which means this check no longer"                  "reproduces #191 — the runtime packs came from somewhere. Fix the isolation, or"                  "the guard is worthless again."
+            exit 1
+          fi
+          if ! echo "$COLDLOG" | grep -q "NETSDK1112\|CUPRI0002"; then
+            echo "::error::the cold consumer build failed for some reason OTHER than a missing"                  "runtime pack, so this step is no longer testing #191 at all. The full build"                  "output is above."
             exit 1
           fi
           if ! echo "$COLDLOG" | grep -q "CUPRI0002"; then
