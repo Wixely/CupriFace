@@ -13,6 +13,34 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- **`border: 2px solid rgb(1, 2, 3)` stopped the whole document building (#196).** Two defects
+  stacked. The `border` shorthand split on spaces, tearing `rgb(1, 2, 3)` into `rgb(1,` + `2,` +
+  `3)`; the colour parser then met that unterminated paren, computed a substring of length −5, and
+  threw — so nothing rendered and nothing else about the composition could be inspected. It is what
+  every CSS formatter emits, and it made 19% of one downstream corpus unrenderable.
+
+  Both halves are fixed: the shorthand splits on top-level tokens (as `border-color` beside it
+  already did, which is why the longhand worked), and `Colors.TryParse` now honours its contract and
+  returns false instead of throwing — for `#gggggg` as well, which threw `FormatException` by the
+  same reasoning and had not been reported.
+
+  **The same negative-length bug was in two more places**, both reachable by forgetting a bracket in
+  hand-written CSS, which is likelier than the reported shape: `calc(100% - 40px` and
+  `minmax(10px, 1fr` also took the document down. A malformed value now costs that declaration, never
+  the composition.
+
+  Also fixed while here, because the report offered them as workarounds and neither worked as
+  advertised: **`hsl()`/`hsla()` are now supported** (every form returned false, so a border took the
+  advice and came out colourless — the quieter failure and the harder to find), and the modern
+  space-separated `rgb(1 2 3)` / `rgb(1 2 3 / 0.5)` spellings parse.
+
+  `CF0001` now names the declaration the resolver was applying when a build fails, and reports its
+  line, rather than relaying a raw exception at line 0 that mentions neither CSS nor a colour.
+
 ## v0.26.1
 
 Two fixes, and **one of them asks something of you**: if you consume

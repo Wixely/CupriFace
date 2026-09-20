@@ -158,9 +158,28 @@ public static partial class CupriDoctor
         }
         catch (Exception ex)
         {
+            // Name the declaration, when the failure came from the style pass.
+            //
+            // The raw exception on its own is unactionable — "length ('-5') must be a non-negative
+            // value" says nothing about a colour, a border, or even CSS (#196). But the resolver
+            // announces every declaration as it applies it, so the LAST one announced is the one it
+            // was working on when it threw. The stack is checked before claiming that: an exception
+            // from layout or paint has a last declaration too, and it means nothing there.
+            var culprit = declarations.Count > 0 && ex.StackTrace is { } st
+                          && (st.Contains("StyleResolver") || st.Contains("Colors") || st.Contains("CupriFace.Style"))
+                ? declarations[^1]
+                : default((string Prop, string Value)?);
+
+            var where = culprit is { } d ? $" while applying `{d.Prop}: {d.Value}`" : "";
+            var line = culprit is { } c ? LineOf(lines, c.Prop + ":") : 0;
+            var fix = culprit is { } f
+                ? $"Look at `{f.Prop}: {f.Value}` — the engine was applying it when the build failed. "
+                  + "Fix this first: the other checks ran on an incomplete document, or not at all."
+                : "Fix this first — the other checks ran on an incomplete document, or not at all.";
+
             findings.Add(new Finding(Severity.Error, "CF0001",
-                $"The document could not be built: {ex.GetType().Name}: {ex.Message}",
-                "Fix this first — the other checks ran on an incomplete document, or not at all."));
+                $"The document could not be built{where}: {ex.GetType().Name}: {ex.Message}",
+                fix, line));
         }
 
         if (doc is not null)

@@ -657,10 +657,32 @@ public sealed class StyleResolver
         return TryParsePx(v, out var px) ? new Length(LengthUnit.Px, px) : Length.Auto;
     }
 
+    /// <summary>
+    /// The text inside a function call's parentheses, tolerating a missing close.
+    ///
+    /// <para>Three places computed this as <c>v[(IndexOf('(') + 1)..LastIndexOf(')')]</c>, which on
+    /// an unclosed call is <c>start..-1</c> — a negative length, and an
+    /// <c>ArgumentOutOfRangeException</c> that takes the WHOLE DOCUMENT down rather than dropping one
+    /// declaration (#196 reported the colour one; <c>calc(100% - 40px</c> and
+    /// <c>minmax(10px, 1fr</c> did the same, and a missing bracket in hand-written CSS is a good deal
+    /// more likely than the shape that was reported).</para>
+    ///
+    /// <para>An unclosed call is read to the end of the value rather than refused. The engine is
+    /// forgiving by design, the author's intent is not in doubt, and the alternative — a silent zero
+    /// — collapses the box instead of drawing it slightly wrong.</para>
+    /// </summary>
+    private static string InnerOf(string v)
+    {
+        var open = v.IndexOf('(');
+        if (open < 0) return v;
+        var close = v.LastIndexOf(')');
+        return close > open ? v[(open + 1)..close] : v[(open + 1)..];
+    }
+
     // Simple calc(): sum of signed px and % terms, e.g. calc(100% - 40px), calc(50% + 8px).
     private static Length ParseCalc(string v)
     {
-        var inner = v[(v.IndexOf('(') + 1)..v.LastIndexOf(')')];
+        var inner = InnerOf(v);
         inner = inner.Replace("+", " + ").Replace("-", " - ");
         var tokens = inner.Split(' ', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
 
@@ -905,7 +927,7 @@ public sealed class StyleResolver
         if (v == "auto") return TrackSize.Auto;
         if (v.StartsWith("minmax("))
         {
-            var inner = v[7..v.LastIndexOf(')')].Split(',', StringSplitOptions.TrimEntries);
+            var inner = InnerOf(v).Split(',', StringSplitOptions.TrimEntries);
             var min = inner.Length > 0 ? ParsePx(inner[0]) : 0f;
             var max = inner.Length > 1 ? ParseTrack(inner[1]) : new TrackSize(TrackKind.Fraction, 1);
             return new TrackSize(max.Kind, max.Value, minPx: min);
@@ -1303,9 +1325,21 @@ public sealed class StyleResolver
     /// treats the dash pattern as a property of the whole stroked box, and a border differing by
     /// style per edge is rare enough not to earn a second representation - but it is a real limit,
     /// so it is stated here and in TOOLBOX rather than discovered.</para></summary>
+    /// <summary>
+    /// <c>border</c> and its per-side forms: a width, a style and a colour in any order.
+    ///
+    /// <para>Split with <see cref="SplitTopLevel"/>, NOT on spaces. A space split tears
+    /// <c>rgb(1, 2, 3)</c> into <c>rgb(1,</c> + <c>2,</c> + <c>3)</c>, and the first of those used to
+    /// reach an unterminated-paren bug in the colour parser and throw — so
+    /// <c>border: 2px solid rgb(…)</c>, which is what every CSS formatter emits, meant the whole
+    /// DOCUMENT failed to build (#196). The colour parser no longer throws either, but on its own
+    /// that would only downgrade the crash to a border with no colour: the value has to arrive
+    /// whole. <see cref="ParseBorderColors"/> twelve lines down was already doing this correctly,
+    /// which is exactly why the longhand worked while the shorthand did not.</para>
+    /// </summary>
     private static void ParseBorderShorthand(ComputedStyle s, string v, Side side = Side.All)
     {
-        foreach (var token in v.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        foreach (var token in SplitTopLevel(v))
         {
             if (token.EndsWith("px", StringComparison.OrdinalIgnoreCase) || CssNumber.TryParse(token, out _))
                 SetBorderWidth(s, side, ParsePx(token));
