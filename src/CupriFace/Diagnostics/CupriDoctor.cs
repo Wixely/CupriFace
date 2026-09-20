@@ -189,12 +189,22 @@ public static partial class CupriDoctor
             UnrenderedElements(doc, dom, registry, lines, findings);
             ScriptingHabits(dom, lines, findings);
             BoxesThatDoNotFit(doc, width, lines, findings);
+            BackdropFilterOutsideTopLayer(doc, lines, findings);
             if (model is not null) UnresolvedBindings(html, model, lines, findings);
             doc.Dispose();
         }
 
         MissingGlyphs(missingGlyphs, findings);
         UnsupportedCssProperties(unsupportedCss, css, html, findings);
+        // Keyframe declarations too: they never reach the resolver's loop, so the hook above never
+        // sees them — and an animated transform was exactly the case worth catching, since the
+        // timing, easing and stops all work while the element never moves.
+        if (doc is not null)
+            foreach (var frames in doc.ParsedKeyframes.Values)
+                foreach (var frame in frames)
+                    foreach (var (prop, value) in frame.Declarations)
+                        declarations.Add((prop, value));
+
         UnsupportedCssFunctions(declarations, css, html, findings);
 
         findings.Sort((a, b) =>
@@ -607,7 +617,7 @@ public static partial class CupriDoctor
                                                 string? css, string html, List<Finding> findings)
     {
         var lines = CssLines(css, html);
-        foreach (var (needle, fix) in FunctionGaps)
+        foreach (var (needle, display, fix) in FunctionGaps)
         {
             // One finding per gap, however many rules use it: the resolver announces a declaration
             // once per element it applies to, so a gradient on a repeated row would otherwise be
@@ -615,19 +625,68 @@ public static partial class CupriDoctor
             if (!declarations.Any(d => d.Value.Contains(needle, StringComparison.OrdinalIgnoreCase)))
                 continue;
             findings.Add(new Finding(Severity.Warning, "CF0051",
-                $"{needle}) is not supported — the declaration parses but paints nothing.",
+                $"{display}() is not supported — the declaration parses but paints nothing.",
                 fix, LineOf(lines, needle)));
         }
     }
 
-    private static readonly (string Needle, string Fix)[] FunctionGaps =
+    private static readonly (string Needle, string Display, string Fix)[] FunctionGaps =
     [
-        ("repeating-linear-gradient(",
+        ("repeating-linear-gradient(", "repeating-linear-gradient",
             "Only linear-gradient() and radial-gradient() exist. Repeat it with elements instead."),
-        ("repeating-radial-gradient(", "Only linear-gradient() and radial-gradient() exist."),
-        ("conic-gradient(", "Not supported; a radial-gradient() or an ISurfaceSource can stand in."),
-        ("image-set(", "Not supported — give one source."),
+        ("repeating-radial-gradient(", "repeating-radial-gradient", "Only linear-gradient() and radial-gradient() exist."),
+        ("conic-gradient(", "conic-gradient", "Not supported; a radial-gradient() or an ISurfaceSource can stand in."),
+        ("image-set(", "image-set", "Not supported — give one source."),
+
+        // The transform functions the resolver's switch has no case for. They were the worst kind of
+        // silent: `transform` is one of the few properties that ANIMATES, so a composition could run
+        // a rotateY through a whole keyframe sequence with the timing, easing and stops all working
+        // while the element never moved (#201). This is a 2D engine and these are the 3D ones, plus
+        // the 2D forms it never implemented.
+        ("rotate3d(", "rotate3d", "This is a 2D engine. Use rotate() for a turn in the plane."),
+        ("rotatex(", "rotateX", "This is a 2D engine — an X-axis turn has no effect. rotate() turns in the plane."),
+        ("rotatey(", "rotateY", "This is a 2D engine — a Y-axis turn has no effect. rotate() turns in the plane."),
+        ("rotatez(", "rotateZ", "Use rotate(), which is the same turn in the plane."),
+        ("translate3d(", "translate3d", "Use translate(x, y) — the Z term cannot be drawn."),
+        ("translatez(", "translateZ", "This is a 2D engine; a Z translation has no effect."),
+        ("scale3d(", "scale3d", "Use scale(x, y) — the Z term cannot be drawn."),
+        ("scalez(", "scaleZ", "This is a 2D engine; a Z scale has no effect."),
+        ("matrix3d(", "matrix3d", "This is a 2D engine. matrix() is not implemented either — use translate/scale/rotate."),
+        ("matrix(", "matrix", "Not implemented — compose the effect from translate(), scale() and rotate()."),
+        ("skew(", "skew", "Not implemented — there is no shear in the transform pipeline."),
+        ("skewx(", "skewX", "Not implemented — there is no shear in the transform pipeline."),
+        ("skewy(", "skewY", "Not implemented — there is no shear in the transform pipeline."),
     ];
+
+    /// <summary>
+    /// <c>backdrop-filter</c> outside the top layer, where it parses and then paints nothing.
+    ///
+    /// <para>It is NOT unsupported — a dialog or drawer really does frost what is behind it — which
+    /// is why it cannot be a line in the table above and why it was silent: the property resolves,
+    /// the painter reads it, and the painter only reads it for a top-layer node. On an ordinary
+    /// element it is accepted and has no effect, and nothing said so (#201).</para>
+    ///
+    /// <para>Reported per element rather than per property, because the same declaration is correct
+    /// in one place and inert in another.</para>
+    /// </summary>
+    private static void BackdropFilterOutsideTopLayer(CupriDocument doc, string[] lines, List<Finding> findings)
+    {
+        var reported = false;
+        void Walk(Dom.RenderNode n)
+        {
+            if (!reported && n.Style.BackdropFilter is { Count: > 0 } && !n.IsTopLayer && n.Element is not null)
+            {
+                reported = true;   // one line; the cause is the same for every element that does it
+                findings.Add(new Finding(Severity.Warning, "CF0051",
+                    "backdrop-filter only frosts what is behind a TOP-LAYER element (a dialog, drawer "
+                    + "or sheet). On an ordinary element it parses and paints nothing.",
+                    "Put the element in the top layer, or fake it with a semi-transparent background.",
+                    LineOf(lines, "backdrop-filter")));
+            }
+            foreach (var c in n.Children) Walk(c);
+        }
+        Walk(doc.Root);
+    }
 
     // ---- shared helpers ------------------------------------------------------------------------
 
