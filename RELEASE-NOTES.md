@@ -13,7 +13,15 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
-## Unreleased
+## v0.27.0
+
+Three gaps that a designed composition falls into closed, and one silence ended.
+
+A full-bleed overlay written the way everyone writes it now has a size; `letter-spacing` does
+something; and inline `<svg>` draws, through a new optional **`CupriFace.Svg`** package. Nothing here
+changes what a correct app already rendered — but **`letter-spacing` was being ignored, so any
+composition that set it will now look as it was designed** rather than as it came out. Worth a glance
+at anything with tracked headings or all-caps labels.
 
 ### Added
 
