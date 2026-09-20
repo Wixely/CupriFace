@@ -37,6 +37,12 @@ public sealed partial class CupriDocument : IDisposable
     private RenderNode _root = null!;
     private List<CssRule> _rules = new();   // reused by ReStyle (hover/active without a full rebuild)
     private Dictionary<string, List<Keyframe>> _keyframes = new();
+
+    /// <summary>The parsed <c>@keyframes</c>, for the checker. A keyframe's declarations never pass
+    /// through the resolver's normal loop, so nothing else announces them — and <c>transform</c> is
+    /// one of the few properties that animates, which makes a keyframes block the most likely place
+    /// to find a value the engine cannot draw (#201).</summary>
+    internal IReadOnlyDictionary<string, List<Keyframe>> ParsedKeyframes => _keyframes;
     private List<CssRule>? _cachedRules;    // parsed once (CSS is immutable) and reused every rebuild
     private Dictionary<string, List<Keyframe>>? _cachedKeyframes;
     private float _viewportWidth = 1024f;
