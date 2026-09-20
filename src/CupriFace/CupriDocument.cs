@@ -3372,15 +3372,47 @@ public sealed partial class CupriDocument : IDisposable
     private bool IsFocusable(IElement el) =>
         IsFocusableRole(el) || _clickHandlers.Exists(h => Matches(el, h.Compiled));
 
+    /// <summary>
+    /// A subtree the keyboard must not enter, because nothing in it can be seen.
+    ///
+    /// <para>The focus walk used to assert that "display:none subtrees are already absent from the
+    /// render tree". <b>They are not</b> — <see cref="Diagnostics.CupriDoctor"/> depends on exactly
+    /// the opposite, walking the tree for <c>display:none</c> nodes to tell "hidden on purpose" from
+    /// "never drawn". So one half of the engine assumed what the other half relies on being false,
+    /// and a hidden control was a Tab stop that ran its click handler on Enter (#195).</para>
+    ///
+    /// <para>The failure is quiet in the worst way: nothing is drawn, so someone tabbing through a
+    /// form sees the focus ring vanish for one press and come back, with no way to know what holds
+    /// it — and if they press Enter there, an invisible control runs.</para>
+    ///
+    /// <para><c>aria-hidden</c> is the sharpest of the three: the element is announced as absent to
+    /// assistive technology and simultaneously operable from the keyboard, which is a contradiction
+    /// rather than a gap.</para>
+    ///
+    /// <para><b>Not here: <c>visibility: hidden</c>.</b> That property is not implemented at all —
+    /// it is reported by CF0050 and ignored — so an element carrying it is fully PAINTED. Skipping
+    /// it here would make a control that is plainly on screen unreachable by keyboard, which is a
+    /// worse bug than the one being fixed. It belongs with an implementation of the property, where
+    /// paint and focus can agree.</para>
+    /// </summary>
+    private static bool IsHiddenFromFocus(RenderNode n)
+    {
+        if (n.Style.Display == DisplayType.None) return true;
+        if (n.Element is not { } el) return false;
+        return el.HasAttribute("hidden")
+            || string.Equals(el.GetAttribute("aria-hidden"), "true", StringComparison.OrdinalIgnoreCase);
+    }
+
     // Focusable render nodes in DOM (pre-order) order; skips a matched node's subtree so a
-    // control counts once. display:none subtrees are already absent from the render tree. When
-    // an overlay is open its panel is a focus scope — Tab is trapped within it (a11y).
+    // control counts once, and skips a hidden one entirely (see IsHiddenFromFocus). When an
+    // overlay is open its panel is a focus scope — Tab is trapped within it (a11y).
     private List<RenderNode> Focusables()
     {
         var scope = FocusScope() ?? _root;
         var list = new List<RenderNode>();
         void Walk(RenderNode n)
         {
+            if (IsHiddenFromFocus(n)) return;                 // the whole subtree, not just this node
             if (n.Element is { } el && IsFocusable(el)) { list.Add(n); return; }
             foreach (var c in n.Children) Walk(c);
         }
@@ -3421,6 +3453,10 @@ public sealed partial class CupriDocument : IDisposable
     {
         // The focusable ancestor of the hit node (or itself), matched against the current list.
         List<RenderNode>? f = null;
+        // A hit inside a hidden subtree has no Tab index at all — the same predicate Focusables
+        // uses, or a click-through on something invisible would set _kbIndex to a stop that the
+        // list does not contain.
+        for (var h = hit; h is not null; h = h.Parent) if (IsHiddenFromFocus(h)) return -1;
         for (var n = hit; n is not null; n = n.Parent)
             if (n.Element is { } el && IsFocusable(el))
             {

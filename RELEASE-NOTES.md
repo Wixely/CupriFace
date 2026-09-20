@@ -41,6 +41,23 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   `CF0001` now names the declaration the resolver was applying when a build fails, and reports its
   line, rather than relaying a raw exception at line 0 that mentions neither CSS nor a colour.
 
+- **A hidden control was a Tab stop, and Enter operated it (#195).** The focus walk collected
+  focusable nodes without asking whether any could be seen, on the strength of a comment claiming
+  `display:none` subtrees are absent from the render tree. They are not — `CupriDoctor` depends on
+  exactly the opposite. So an element hidden by `display:none` (from a class or inline), by the
+  `hidden` attribute, or by `aria-hidden="true"` still took a Tab stop and ran its click handler.
+
+  Quiet in the worst way: nothing is drawn, so a person tabbing through a form sees the focus ring
+  vanish for one press and come back, with no way to know what holds it. `aria-hidden` was the
+  sharpest — announced as absent to assistive technology and simultaneously operable by keyboard.
+  Hidden subtrees are skipped whole, so a hidden panel donates none of its buttons.
+
+  **`visibility: hidden` deliberately still takes a stop.** That property is not implemented at all
+  (CF0050 reports it and it is ignored), so such an element is fully painted — skipping it would make
+  a control that is plainly on screen unreachable by keyboard, which is worse than the bug being
+  fixed. It belongs with an implementation of the property, where paint and focus can agree, and
+  there is a test pinning the reasoning so it is not rediscovered.
+
 ## v0.26.1
 
 Two fixes, and **one of them asks something of you**: if you consume
