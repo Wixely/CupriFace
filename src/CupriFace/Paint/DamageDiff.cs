@@ -211,6 +211,7 @@ public static class DamageDiff
             c.Spread + c.Blur * 2 + MathF.Max(MathF.Abs(c.Dx), MathF.Abs(c.Dy))),
         // The exact glyph span (alignment resolved), not the whole container — container-wide
         // bounds pulled every nearby paragraph into surface-fast-path replays and fattened damage.
+        VectorPath v => SKRect.Create(v.X, v.Y, v.Width, v.Height),
         TextRun c => SKRect.Create(
             c.Align switch
             {

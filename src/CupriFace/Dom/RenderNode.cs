@@ -49,6 +49,11 @@ public sealed class RenderNode
     // For icon nodes: an SVG path (24×24 viewBox) filled with the computed color.
     public string? IconPath;
 
+    /// <summary>Key into the document's <see cref="Paint.VectorRegistry"/> — a drawing an optional
+    /// package prepared for this element (set from <c>data-cupri-vector</c>). Null for almost every
+    /// node; the engine knows how to draw the shapes and nothing about where they came from.</summary>
+    public string? VectorKey;
+
     // For image nodes (<cupri-image>): the source to decode + paint (resolved by ImageStore).
     public string? ImageSrc;
 

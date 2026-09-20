@@ -52,6 +52,36 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   **The Showcase's own section labels already set it**, so five of the twelve reference screenshots
   (and the README images that embed them) change here: those labels are now drawn as the design asked.
 
+- **Inline `<svg>` is drawn, through the new optional `CupriFace.Svg` package (#203).** It used to lay
+  out and stay empty — 32% of one surveyed corpus, and unlike the other gaps a whole sub-language
+  rather than one declaration.
+
+  ```csharp
+  public override void Configure(CupriDocument doc) => doc.UseSvg();
+  ```
+
+  Shapes become **real vector paths**, sharp at any size and composing with the engine's transform,
+  clip and opacity stack rather than being rasterised at layout size. An `<svg>` sizes like a
+  replaced element: its own `width`/`height`, else its `viewBox`, with a stylesheet rule winning over
+  both — the package writes nothing to the element's `style`.
+
+  Supported: `<g>`, `<path>`, `<rect>`/`<circle>`/`<ellipse>`/`<line>`/`<polygon>`/`<polyline>`;
+  `fill`, `stroke`, `stroke-width`, `fill-rule`, `opacity`, `fill-opacity`, `stroke-linecap`,
+  `stroke-linejoin`, `stroke-dasharray`, `stroke-dashoffset`; `transform` composed down the tree;
+  presentation attributes and inline `style` alike. That covers what the corpus used SVG for — logos,
+  icons, a progress ring, diagram lines.
+
+  Not supported, and listed with what each would cost in `src/CupriFace.Svg/SVG-SUPPORT.md`:
+  gradients and other paint servers, `<use>`/`<defs>`, `<clipPath>`, `<mask>`, `<text>`, filters, and
+  SMIL. **`fill="url(#…)"` draws nothing rather than guessing at black.**
+
+  `CupriDoctor.Check` takes a **`configure:`** callback now, for this and any other optional package:
+  without it the checker builds a document with none of them and reports their markup as undrawable.
+  `CF0030` for `<svg>` names the package instead of saying SVG does not exist.
+
+  No new dependency: the engine's own HTML parser already keeps the `<svg>` subtree, and Skia already
+  parses the `d` grammar. Managed code only, no native assets.
+
 ### Fixed
 
 - **Three kinds of declaration were accepted in silence and then painted nothing (#201).** A property
@@ -73,6 +103,7 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
   One row of the report needed no change: `repeating-linear-gradient` was already reported, because
   the #188 fix made `CF0051` raise from the parsed declaration.
+
 ## v0.26.2
 
 Two fixes, both of which made something disappear. A `border` with an `rgb()` colour stopped the

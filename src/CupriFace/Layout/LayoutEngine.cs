@@ -22,8 +22,10 @@ public sealed class LayoutEngine
     private readonly FontService _fonts;
     private readonly Paint.ImageStore? _images;
     private readonly Paint.SurfaceRegistry? _surfaces;
-    public LayoutEngine(FontService fonts, Paint.ImageStore? images = null, Paint.SurfaceRegistry? surfaces = null)
-    { _fonts = fonts; _images = images; _surfaces = surfaces; }
+    private readonly Paint.VectorRegistry? _vectors;
+    public LayoutEngine(FontService fonts, Paint.ImageStore? images = null,
+                        Paint.SurfaceRegistry? surfaces = null, Paint.VectorRegistry? vectors = null)
+    { _fonts = fonts; _images = images; _surfaces = surfaces; _vectors = vectors; }
 
     public void Layout(RenderNode root, float viewportWidth, float viewportHeight)
     {
@@ -174,6 +176,17 @@ public sealed class LayoutEngine
         // leaf with no flow children would otherwise be height 0). Resolves before the block/flex/
         // grid path. A live surface's natural size wins over its poster image once it is known.
         var intrinsic = node.SurfaceKey is { Length: > 0 } sk ? _surfaces?.Get(sk)?.NaturalSize : null;
+        // A vector drawing sizes like an image: its own width/height if it states them, otherwise its
+        // viewBox — so an <svg> has an intrinsic size and an aspect ratio, CSS width/height still win,
+        // and a drawing with neither does not collapse to nothing. Treating it as a replaced element
+        // is what lets an author size it from a stylesheet instead of the package writing an inline
+        // style over the top of their rule.
+        if (intrinsic is null && node.VectorKey is { Length: > 0 } vk && _vectors?.Get(vk) is { } vd)
+            intrinsic = vd.NaturalSize is { W: > 0, H: > 0 } vn
+                ? ((int)MathF.Round(vn.W), (int)MathF.Round(vn.H))
+                : vd.ViewBox is { Width: > 0, Height: > 0 } vb
+                    ? ((int)MathF.Round(vb.Width), (int)MathF.Round(vb.Height))
+                    : null;
         if (intrinsic is null && node.ImageSrc is { Length: > 0 } imgSrc) intrinsic = _images?.Size(imgSrc);
         if (intrinsic is { W: > 0, H: > 0 } px)
         {

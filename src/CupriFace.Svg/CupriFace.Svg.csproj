@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The optional SVG package: inline <svg> drawn as real paths.
+
+       Optional for the same reason CupriFace.Lottie is, and at a similar price: managed code only,
+       no native assets, nothing to sign. It adds no dependency the engine does not already have —
+       AngleSharp parses the markup (the engine's own HTML parser already keeps the <svg> subtree
+       namespaced and intact) and SkiaSharp parses the `d` grammar, arcs and all.
+
+       Why a package rather than the engine: most apps never draw an inline <svg>, and the engine's
+       promise is that you pay for what you use. The engine knows how to paint a list of paths
+       (Paint/VectorRegistry.cs) and nothing about the SVG language; this is the half that reads it.
+
+       Why not Svg.Skia, which exists and is more complete: its dependency tree is not MIT. Svg.Skia
+       itself is, and so is Svg.Model, but Svg.Custom — the adapted fork of vvvv/SVG it is built on —
+       is MS-PL. That is permissive and OSI-approved, but it is not MIT, its source-distribution
+       clause is file-level copyleft, and it is GPL-incompatible, which lands on consumers of this
+       library rather than on us. It would also pin the engine's SkiaSharp version to someone else's
+       release cadence: 5.1.1 wants SkiaSharp 3.119.2 against our 3.116.1, and 5.2 has already moved
+       to SkiaSharp 4. -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Description>Inline SVG rendering for CupriFace: shapes, paths, groups and transforms drawn as resolution-independent vector paths. Managed only, no additional native assets.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../CupriFace/CupriFace.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="CupriFace.Tests" />
+  </ItemGroup>
+
+</Project>
