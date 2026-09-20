@@ -403,8 +403,8 @@ public sealed partial class CupriDocument : IDisposable
         _css = css;
         _fonts = new FontService();
         _images = new Paint.ImageStore();
-        _layout = new LayoutEngine(_fonts, _images, Surfaces);
-        _painter = new Painter(_images, Surfaces);
+        _layout = new LayoutEngine(_fonts, _images, Surfaces, Vectors);
+        _painter = new Painter(_images, Surfaces, Vectors);
         _rasterizer = new SkiaRasterizer(_fonts);
     }
 
@@ -412,6 +412,11 @@ public sealed partial class CupriDocument : IDisposable
     /// attribute <c>data-cupri-surface</c>. Backends register their sources here; a playing
     /// surface keeps the render loop live via <see cref="HasActiveAnimations"/>.</summary>
     public Paint.SurfaceRegistry Surfaces { get; } = new();
+
+    /// <summary>Vector drawings by key — what <c>CupriFace.Svg</c> registers for an inline
+    /// <c>&lt;svg&gt;</c>. Empty in an app that never draws one, and the engine links no SVG code
+    /// either way: it knows how to paint a list of paths and nothing about the language.</summary>
+    public Paint.VectorRegistry Vectors { get; } = new();
 
     /// <summary>Register the assembly used to resolve embedded media sources (a bare
     /// <c>src="Assets/logo.png"</c> on a <c>&lt;cupri-image&gt;</c> — and equally a

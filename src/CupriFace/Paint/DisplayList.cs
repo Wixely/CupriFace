@@ -90,6 +90,18 @@ public sealed record PopFilter : PaintCommand;
 public sealed record FillPath(
     float X, float Y, float Width, float Height, float ViewBox, string PathData, SKColor Color) : PaintCommand;
 
+/// <summary>
+/// One shape of a vector drawing, mapped from its viewBox into the box on screen.
+///
+/// <para>The general form of <see cref="FillPath"/>, which fills a square viewBox in one colour and
+/// is all <c>&lt;cupri-icon&gt;</c> ever needed. This carries what an SVG shape actually has: a real
+/// viewBox rectangle, a fill AND a stroke, a dash pattern (a progress ring is a dashed circle whose
+/// offset animates), a fill rule, and the shape's own transform.</para>
+/// </summary>
+public sealed record VectorPath(
+    float X, float Y, float Width, float Height,
+    SKRect ViewBox, VectorShape Shape) : PaintCommand;
+
 /// <summary>A chart line: an optional filled area (down to <paramref name="BaseY"/>) under a stroked
 /// polyline. <paramref name="Points"/> is absolute [x0,y0,x1,y1,…]. Width 0 skips the stroke; a
 /// transparent <paramref name="Fill"/> skips the area. <paramref name="Curved"/> smooths the path

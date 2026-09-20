@@ -106,10 +106,15 @@ public static partial class CupriDoctor
     /// checks that cannot be done without it: whether every <c>{{path}}</c> names something real,
     /// and whether the boxes still fit once actual content is in them. Without it those are skipped
     /// rather than guessed.</param>
+    /// <param name="configure">Wires the optional packages an app uses, exactly as
+    /// <c>CupriApp.Configure</c> does — <c>doc =&gt; doc.UseSvg()</c>, and the same for Lottie or
+    /// video. Without it the checker sees a document with none of them, and reports the markup they
+    /// would have drawn as undrawable. Supply it whenever the real app supplies one.</param>
     public static DoctorReport Check(string html, string? css = null,
                                      ComponentRegistry? components = null,
                                      int width = 1024, int height = 768,
-                                     object? model = null)
+                                     object? model = null,
+                                     Action<CupriDocument>? configure = null)
     {
         var findings = new List<Finding>();
         var registry = components ?? ComponentRegistry.Default();
@@ -137,6 +142,7 @@ public static partial class CupriDoctor
             {
                 doc = CupriDocument.Load(html, css ?? "");
                 doc.UseComponents(registry);
+                configure?.Invoke(doc);   // the app's optional packages, before anything is measured
                 // Bound BEFORE the layout below, so the boxes measured are the ones real content
                 // produces. Checking an unbound template would measure empty strings and miss
                 // precisely the overflow that appears once the data arrives.
@@ -448,6 +454,11 @@ public static partial class CupriDoctor
             // does NOT catch them: the engine happily builds a box for an <img>, lays it out, and
             // then has no primitive to draw anything into it. It is present, sized, and empty —
             // which is worse than absent, because every automatic check says it is fine.
+            // An <svg> the SVG package has claimed is drawn, so it is not a gap. The marker is put
+            // there by UseSvg during the rebuild, which is why `configure:` matters above.
+            if (tag.Equals("svg", StringComparison.OrdinalIgnoreCase)
+                && el.HasAttribute("data-cupri-vector")) continue;
+
             if (Replacements.TryGetValue(tag, out var better))
             {
                 if (!reported.Add(tag)) continue;
@@ -520,7 +531,9 @@ public static partial class CupriDoctor
         ["video"] = "Use <cupri-video src=\"...\"> (desktop WebM needs the CupriFace.Media package).",
         ["audio"] = "Use <cupri-video> without a visible frame, or drive playback from your model.",
         ["canvas"] = "Supply pixels through ISurfaceSource, or use CupriFace.Gl for a GL viewport.",
-        ["svg"] = "There is no SVG. Use <cupri-icon> for icons, or draw with CSS boxes and borders.",
+        ["svg"] = "Inline SVG needs the CupriFace.Svg package: add it and call doc.UseSvg() "
+                + "(pass `configure:` to CupriDoctor.Check so this check sees it too). "
+                + "Without it, use <cupri-icon> for icons or draw with CSS boxes and borders.",
         ["iframe"] = "There is no embedded browser; render the content as part of this document.",
         ["object"] = "There is no plugin surface; render the content as part of this document.",
         ["embed"] = "There is no plugin surface; render the content as part of this document.",

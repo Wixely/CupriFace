@@ -14,8 +14,10 @@ public sealed class Painter
 {
     private readonly ImageStore? _images;
     private readonly SurfaceRegistry? _surfaces;
-    public Painter(ImageStore? images = null, SurfaceRegistry? surfaces = null)
-    { _images = images; _surfaces = surfaces; }
+    private readonly VectorRegistry? _vectors;
+    public Painter(ImageStore? images = null, SurfaceRegistry? surfaces = null,
+                   VectorRegistry? vectors = null)
+    { _images = images; _surfaces = surfaces; _vectors = vectors; }
 
     /// <summary>Dev overlay: outline every element's border box (scrollers in a second colour) on top
     /// of the normal paint. Toggled via <c>CupriDocument.DebugOverlay</c>.</summary>
@@ -267,6 +269,20 @@ public sealed class Painter
             var iw = node.Width - node.HorizontalInsets;
             var ih = node.Height - node.VerticalInsets;
             list.Add(new FillPath(absX + node.ContentLeftInset, absY + node.ContentTopInset, iw, ih, 24f, iconPath, s.Color));
+        }
+
+        // A vector drawing an optional package prepared for this element (CupriFace.Svg). One
+        // command per shape, in paint order, each mapped from the drawing's viewBox into the content
+        // box — so it rasterises at the resolution the frame is drawn at rather than at layout size,
+        // and composes with the transform/clip/opacity already on the stack.
+        if (_vectors?.Get(node.VectorKey) is { } drawing)
+        {
+            var vw = node.Width - node.HorizontalInsets;
+            var vh = node.Height - node.VerticalInsets;
+            var vx = absX + node.ContentLeftInset;
+            var vy = absY + node.ContentTopInset;
+            foreach (var shape in drawing.Shapes)
+                list.Add(new VectorPath(vx, vy, vw, vh, drawing.ViewBox, shape));
         }
 
         // Live surface (video, future 3D viewports): the current frame, if one exists. Falls

@@ -44,6 +44,7 @@
     <Project Path="src/CupriFace.Binding.Gen/CupriFace.Binding.Gen.csproj" />
     <Project Path="src/CupriFace.Gl/CupriFace.Gl.csproj" />
     <Project Path="src/CupriFace.Lottie/CupriFace.Lottie.csproj" />
+    <Project Path="src/CupriFace.Svg/CupriFace.Svg.csproj" />
     <Project Path="src/CupriFace.Media/CupriFace.Media.csproj" />
     <Project Path="src/CupriFace.Resources.Gen/CupriFace.Resources.Gen.csproj" />
     <Project Path="src/CupriFace.Shell/CupriFace.Shell.csproj" />

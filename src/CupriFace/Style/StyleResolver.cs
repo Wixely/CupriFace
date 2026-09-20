@@ -149,6 +149,7 @@ public sealed class StyleResolver
                     parentNode.AddChild(node);
                     ResolveStyle(node, parentNode.Style);
                     node.IconPath = el.GetAttribute("data-cupri-icon"); // set by icon-bearing components
+                    node.VectorKey = el.GetAttribute("data-cupri-vector"); // set by CupriFace.Svg
                     node.ImageSrc = el.GetAttribute("data-cupri-image"); // set by <cupri-image> (and video posters)
                     node.SurfaceKey = el.GetAttribute("data-cupri-surface"); // set by <cupri-video> (live frames)
                     node.ChartLine = el.GetAttribute("data-cupri-line"); // set by <cupri-line-chart>/<cupri-sparkline>

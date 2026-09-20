@@ -309,8 +309,74 @@ public sealed class SkiaRasterizer
                         canvas.Restore();
                     }
                     break;
+
+                case VectorPath v:
+                    DrawVectorPath(canvas, v);
+                    break;
             }
         }
+    }
+
+    /// <summary>
+    /// One shape of a vector drawing, mapped from its viewBox into the box on screen.
+    ///
+    /// <para>The viewBox is fitted with <b>one uniform scale</b> and centred, which is SVG's default
+    /// <c>preserveAspectRatio</c> (<c>xMidYMid meet</c>) — scaling the axes independently is what
+    /// makes a squashed logo, and it is the thing most naive SVG drawing gets wrong.</para>
+    ///
+    /// <para>Stroke width is scaled with the drawing rather than kept in screen pixels, because it is
+    /// authored in viewBox units: a 2-unit stroke on a 24-unit icon has to stay a twelfth of it at
+    /// any size.</para>
+    /// </summary>
+    private static void DrawVectorPath(SKCanvas canvas, VectorPath v)
+    {
+        if (v.ViewBox.Width <= 0 || v.ViewBox.Height <= 0 || v.Width <= 0 || v.Height <= 0) return;
+        using var path = SKPath.ParseSvgPathData(v.Shape.PathData);
+        if (path is null) return;
+        path.FillType = v.Shape.EvenOdd ? SKPathFillType.EvenOdd : SKPathFillType.Winding;
+
+        var scale = MathF.Min(v.Width / v.ViewBox.Width, v.Height / v.ViewBox.Height);
+        var dx = (v.Width - v.ViewBox.Width * scale) / 2f;
+        var dy = (v.Height - v.ViewBox.Height * scale) / 2f;
+
+        canvas.Save();
+        canvas.Translate(v.X + dx, v.Y + dy);
+        canvas.Scale(scale);
+        canvas.Translate(-v.ViewBox.Left, -v.ViewBox.Top);
+        if (!v.Shape.Transform.IsIdentity) canvas.Concat(v.Shape.Transform);
+
+        var o = Math.Clamp(v.Shape.Opacity, 0f, 1f);
+        if (v.Shape.Fill.Alpha > 0)
+        {
+            using var fillPaint = new SKPaint
+            {
+                IsAntialias = true,
+                Style = SKPaintStyle.Fill,
+                Color = v.Shape.Fill.WithAlpha((byte)(v.Shape.Fill.Alpha * o)),
+            };
+            canvas.DrawPath(path, fillPaint);
+        }
+
+        if (v.Shape.Stroke.Alpha > 0 && v.Shape.StrokeWidth > 0)
+        {
+            using var strokePaint = new SKPaint
+            {
+                IsAntialias = true,
+                Style = SKPaintStyle.Stroke,
+                StrokeWidth = v.Shape.StrokeWidth,
+                Color = v.Shape.Stroke.WithAlpha((byte)(v.Shape.Stroke.Alpha * o)),
+                StrokeCap = v.Shape.Cap,
+                StrokeJoin = v.Shape.Join,
+            };
+            // A progress ring is a dashed circle whose offset animates, so the dash pattern is worth
+            // carrying even in a first slice.
+            if (v.Shape.DashArray is { Length: > 0 } dashes)
+                strokePaint.PathEffect = SKPathEffect.CreateDash(dashes, v.Shape.DashOffset);
+            canvas.DrawPath(path, strokePaint);
+            strokePaint.PathEffect?.Dispose();
+        }
+
+        canvas.Restore();
     }
 
     private static void DrawRect(SKCanvas canvas, SKPaint paint, float x, float y, float w, float h, CornerRadii radius)

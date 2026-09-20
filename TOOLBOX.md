@@ -1358,6 +1358,48 @@ This is not a simulation of the browser: a dropped file in a page really *is* by
 because that is all a blob offers. `tests/CupriFace.Tests/FileDropTests.cs` is a worked example, and
 the Showcase's **Diagnostics** page has a live zone to drag a real file onto.
 
+## 8.1.2 Inline SVG — the `CupriFace.Svg` package
+
+Inline `<svg>` lays out and stays empty unless the optional package is installed. With it, the
+shapes are drawn as **real vector paths** — sharp at any size, composing with the engine's transform,
+clip and opacity stack, not rasterised at layout size.
+
+```csharp
+public override void Configure(CupriDocument doc) => doc.UseSvg();
+```
+
+```html
+<svg viewBox="0 0 24 24" class="icon">
+  <circle cx="12" cy="12" r="10" fill="#d9642a"/>
+  <path d="M7 12 L11 16 L17 8" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/>
+</svg>
+```
+
+**Size it with CSS.** An `<svg>` is a replaced element like `<cupri-image>`: its own `width`/`height`
+are the intrinsic size, its `viewBox` the fallback, and a stylesheet rule wins over both. The package
+writes nothing to the element's `style`, so `.icon { width: 32px; height: 32px }` does what you mean.
+The viewBox is fitted with one uniform scale and centred (`xMidYMid meet`), so nothing is squashed.
+
+Supported: `<g>`, `<path>`, `<rect>` (with `rx`/`ry`), `<circle>`, `<ellipse>`, `<line>`, `<polygon>`,
+`<polyline>`; `fill`, `stroke`, `stroke-width`, `fill-rule`, `opacity`, `fill-opacity`,
+`stroke-linecap`, `stroke-linejoin`, `stroke-dasharray`, `stroke-dashoffset`; `transform`
+(`translate`/`scale`/`rotate`/`skewX`/`skewY`/`matrix`, composed down the tree); presentation
+attributes and inline `style` alike. A progress ring — a dashed circle whose `stroke-dashoffset`
+animates — works, and so does a `<g>` that carries the stroke for everything inside it.
+
+Not supported: gradients and other paint servers, `<use>`/`<defs>` instancing, `<clipPath>`,
+`<mask>`, `<text>`, filters, and SMIL animation. **`fill="url(#…)"` draws nothing rather than
+guessing at black.** `src/CupriFace.Svg/SVG-SUPPORT.md` lists each of these with what it would take.
+
+**Checking a document that uses it** needs the checker to know:
+
+```csharp
+CupriDoctor.Check(html, css, configure: doc => doc.UseSvg());
+```
+
+Without `configure:`, `CF0030` reports every `<svg>` as undrawable — correctly, because the document
+the checker built has no SVG support in it.
+
 ## 8.2 Scrolling
 
 `overflow: scroll` scrolls on **both axes**, independently. A box whose content is wider than it is
