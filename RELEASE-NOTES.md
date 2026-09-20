@@ -32,6 +32,28 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   A declared `width`/`height` still wins over an opposite offset, as in CSS, and a single offset
   still positions without sizing — so nothing that was already laid out correctly moves.
 
+### Fixed
+
+- **Three kinds of declaration were accepted in silence and then painted nothing (#201).** A property
+  the engine does not support says so with `CF0050`; these said nothing, which is the worst of the
+  three outcomes — a document that reports nothing is indistinguishable from one that worked.
+
+  - **3D transforms** (`rotateY`, `rotateX`, `rotate3d`, `translate3d`, `translateZ`, `scale3d`,
+    `matrix3d`) and the 2D forms that were never implemented (`matrix`, `skew`, `skewX`, `skewY`) now
+    report `CF0051`. This was the sharpest case: `transform` is one of the few properties that
+    *animates*, so a composition could run a `rotateY` through a whole keyframe sequence with the
+    timing, easing and stops all working while the element never turned. **Declarations inside
+    `@keyframes` are checked too** — they never pass through the resolver's normal loop, so nothing
+    had ever announced them.
+  - **`backdrop-filter` outside the top layer.** It is not unsupported — a dialog or drawer really
+    does frost what is behind it — so the report names the condition rather than the property, and
+    stays quiet on the elements where it works.
+
+  The 2D transforms that do work stay quiet, as does plain `filter`.
+
+  One row of the report needed no change: `repeating-linear-gradient` was already reported, because
+  the #188 fix made `CF0051` raise from the parsed declaration.
+
 ## v0.26.2
 
 Two fixes, both of which made something disappear. A `border` with an `rgb()` colour stopped the
