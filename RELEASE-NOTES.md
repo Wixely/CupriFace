@@ -13,6 +13,25 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Added
+
+- **An absolutely positioned box pinned on opposite edges now takes the size between them (#200).**
+  `position:absolute; top:0; right:0; bottom:0; left:0` — the canonical spelling of "fill your
+  parent", twenty years older than `inset` — was accepted with no diagnostic and sized to nothing, so
+  the full-bleed overlay, backdrop or end card it describes covered nothing at all. The composition
+  still rendered, which left nothing to notice: in one reported case a closing card drew its text
+  over the scene with no card behind it, and fixing that one declaration took the final frame from
+  5.4% to 97.3% matching a browser.
+
+  **`inset` is supported too**, mirroring one to four values the way every box shorthand does, and is
+  no longer reported as an unknown property. It was 61% of one surveyed corpus, 273 of its 292 uses
+  being exactly `inset: 0`.
+
+  A declared `width`/`height` still wins over an opposite offset, as in CSS, and a single offset
+  still positions without sizing — so nothing that was already laid out correctly moves.
+
 ## v0.26.2
 
 Two fixes, both of which made something disappear. A `border` with an `rgb()` colour stopped the
