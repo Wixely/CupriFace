@@ -32,6 +32,26 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   A declared `width`/`height` still wins over an opposite offset, as in CSS, and a single offset
   still positions without sizing — so nothing that was already laid out correctly moves.
 
+
+- **`letter-spacing` is implemented (#202).** Tracking — negative on a large display heading so the
+  letters close up, positive and wide on a small all-caps label. It was reported by `CF0050` and
+  ignored, and it was **150 of 187 blocks** in one surveyed corpus: the most-used property the engine
+  did not implement, ahead of inline SVG and 3D transforms.
+
+  Unlike most gaps this one could not be worked around from outside — `word-spacing` is the wrong
+  quantity, and per-character spans need measurement a caller does not have and would break shaping.
+
+  Applied per grapheme **cluster**, so a ligature is spaced once and a combining mark is not pushed
+  off the letter it belongs to; the run is shaped first and then re-positioned, so HarfBuzz's kerning
+  survives. It inherits, like the other text properties, and it widens the box as well as the paint,
+  so a tracked label reserves the room it needs. `normal` is zero.
+
+  Text with no tracking takes the same code path it always did, pixel for pixel — that is pinned by a
+  test, since the alternative was shifting every word in every document by a subpixel.
+
+  **The Showcase's own section labels already set it**, so five of the twelve reference screenshots
+  (and the README images that embed them) change here: those labels are now drawn as the design asked.
+
 ### Fixed
 
 - **Three kinds of declaration were accepted in silence and then painted nothing (#201).** A property
@@ -53,7 +73,6 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
   One row of the report needed no change: `repeating-linear-gradient` was already reported, because
   the #188 fix made `CF0051` raise from the parsed declaration.
-
 ## v0.26.2
 
 Two fixes, both of which made something disappear. A `border` with an `rgb()` colour stopped the

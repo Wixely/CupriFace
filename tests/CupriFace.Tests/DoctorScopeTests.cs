@@ -15,7 +15,7 @@ public class DoctorScopeTests(ITestOutputHelper output)
     // its CSS, and the case that used to be skipped entirely.
     private const string Noisy = """
         <div class="a">x</div>
-        <style>.a { float: left; letter-spacing: 2px; width:10px; height:10px; }</style>
+        <style>.a { float: left; mix-blend-mode: multiply; width:10px; height:10px; }</style>
         """;
     private const string Clean = """
         <div class="b">x</div>

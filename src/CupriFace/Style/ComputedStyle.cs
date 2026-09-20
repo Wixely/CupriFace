@@ -16,6 +16,13 @@ public sealed class ComputedStyle
     public ResizeMode Resize = ResizeMode.None;
     public int ZIndex;
 
+    /// <summary>Tracking, in px: extra advance added after every grapheme CLUSTER, negative to close
+    /// letters up. <c>normal</c> is 0. Inherited, like the other text properties.
+    ///
+    /// <para>Per cluster rather than per glyph or per char, so a ligature is spaced once and a
+    /// combining mark is not pushed off the letter it belongs to.</para></summary>
+    public float LetterSpacing;
+
     public Length Width = Length.Auto, Height = Length.Auto;
     public Length MinWidth = Length.Auto, MinHeight = Length.Auto;
     public Length MaxWidth = Length.Auto, MaxHeight = Length.Auto;
@@ -209,6 +216,7 @@ public sealed class ComputedStyle
         Cursor = parent.Cursor;
         FontStyle = parent.FontStyle;
         Decorations = parent.Decorations;
+        LetterSpacing = parent.LetterSpacing;
     }
 
     public bool IsFlexContainer => Display == DisplayType.Flex;

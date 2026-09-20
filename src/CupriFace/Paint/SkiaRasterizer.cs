@@ -481,15 +481,15 @@ public sealed class SkiaRasterizer
         var runs = Bidi.Reorder(t.Text);
         if (runs.Count == 1 && !runs[0].Rtl)
         {
-            DrawRun(canvas, paint, font, t.Family, t.Weight, t.Slant, t.Text, x, baseline);
+            DrawRun(canvas, paint, font, t.Family, t.Weight, t.Slant, t.Text, x, baseline, t.LetterSpacing);
         }
         else
         {
             var cursor = x;
             foreach (var run in runs)
             {
-                DrawRun(canvas, paint, font, t.Family, t.Weight, t.Slant, run.Text, cursor, baseline);
-                cursor += _fonts.MeasureText(t.Family, t.Weight, t.Size, run.Text, t.Slant);
+                DrawRun(canvas, paint, font, t.Family, t.Weight, t.Slant, run.Text, cursor, baseline, t.LetterSpacing);
+                cursor += _fonts.MeasureText(t.Family, t.Weight, t.Size, run.Text, t.Slant, t.LetterSpacing);
             }
         }
 
@@ -522,7 +522,8 @@ public sealed class SkiaRasterizer
         paint.Style = wasStroke;
     }
 
-    private void DrawRun(SKCanvas canvas, SKPaint paint, SKFont primaryFont, string family, int weight, FontSlant slant, string text, float x, float baseline)
+    private void DrawRun(SKCanvas canvas, SKPaint paint, SKFont primaryFont, string family, int weight,
+                         FontSlant slant, string text, float x, float baseline, float letterSpacing = 0f)
     {
         // Split into fallback-face runs so glyphs the primary lacks (emoji/CJK/symbols) draw in a
         // face that has them instead of tofu. Each sub-run is HarfBuzz-shaped in its own typeface.
@@ -534,14 +535,62 @@ public sealed class SkiaRasterizer
             var (segment, tf) = runs[i];
             var font = _fonts.GetFont(tf, primaryFont.Size);
             var shaper = _fonts.GetShaper(tf);
-            try { canvas.DrawShapedText(shaper, segment, x, baseline, font, paint); }
-            catch { canvas.DrawText(segment, x, baseline, font, paint); }
+            // The untracked path is left exactly as it was — every document that sets no
+            // letter-spacing takes the same single DrawShapedText call it always has, and none of
+            // the positioning below can affect it.
+            if (letterSpacing == 0f)
+            {
+                try { canvas.DrawShapedText(shaper, segment, x, baseline, font, paint); }
+                catch { canvas.DrawText(segment, x, baseline, font, paint); }
+            }
+            else if (!DrawTracked(canvas, paint, shaper, font, segment, x, baseline, letterSpacing))
+            {
+                canvas.DrawText(segment, x, baseline, font, paint);   // shaping unavailable
+            }
+
             if (i < runs.Count - 1) // advance to the next run only when one follows
             {
                 try { x += shaper.Shape(segment, font).Width; }
                 catch { x += font.MeasureText(segment); }
+                x += letterSpacing * FontService.ClusterCount(segment);
             }
         }
+    }
+
+    /// <summary>
+    /// One shaped run, redrawn with tracking between clusters. Returns false when the run could not
+    /// be shaped, so the caller can fall back.
+    ///
+    /// <para>Shaped once and then re-positioned, rather than drawn a letter at a time: drawing each
+    /// cluster separately would lose the kerning and ligatures HarfBuzz just worked out. The spacing
+    /// is applied per CLUSTER, so a ligature moves as one and a combining mark stays on its
+    /// letter — which is why the shaper's own cluster map is what drives it.</para>
+    /// </summary>
+    private static bool DrawTracked(SKCanvas canvas, SKPaint paint, SKShaper shaper, SKFont font,
+                                    string segment, float x, float baseline, float letterSpacing)
+    {
+        SKShaper.Result shaped;
+        try { shaped = shaper.Shape(segment, font); }
+        catch { return false; }
+        if (shaped.Codepoints.Length == 0) return true;   // nothing to draw, but not a failure
+
+        var glyphs = new ushort[shaped.Codepoints.Length];
+        var positions = new SKPoint[shaped.Codepoints.Length];
+        var lastCluster = uint.MaxValue;
+        var ordinal = -1;
+        for (var g = 0; g < glyphs.Length; g++)
+        {
+            if (shaped.Clusters[g] != lastCluster) { ordinal++; lastCluster = shaped.Clusters[g]; }
+            glyphs[g] = (ushort)shaped.Codepoints[g];
+            positions[g] = new SKPoint(x + shaped.Points[g].X + letterSpacing * ordinal,
+                                       baseline + shaped.Points[g].Y);
+        }
+
+        using var builder = new SKTextBlobBuilder();
+        builder.AddPositionedRun(glyphs, font, positions);
+        using var blob = builder.Build();
+        if (blob is not null) canvas.DrawText(blob, 0, 0, paint);
+        return true;
     }
 
     private static bool Approximately(float a, float b) => MathF.Abs(a - b) < 0.01f;

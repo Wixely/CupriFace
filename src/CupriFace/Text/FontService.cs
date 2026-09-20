@@ -324,9 +324,15 @@ public sealed class FontService : IDisposable
     /// fallback-face runs, falling back to Skia's simple measurement if the native shaper is
     /// unavailable.
     /// </summary>
-    public float MeasureText(string family, int weight, float size, string text, FontSlant slant = FontSlant.Normal)
+    public float MeasureText(string family, int weight, float size, string text,
+                            FontSlant slant = FontSlant.Normal, float letterSpacing = 0f)
     {
         if (string.IsNullOrEmpty(text)) return 0f;
+        // Tracking is added after every cluster, INCLUDING the last, which is what browsers do and
+        // what makes a trailing space of tracking part of the box. Measured separately from the
+        // shaped width so the shaping cache stays keyed on the font and the text alone.
+        if (letterSpacing != 0f)
+            return MeasureText(family, weight, size, text, slant) + letterSpacing * ClusterCount(text);
 
         // Cache by (font, text): during animation the same words are re-measured every frame, and each
         // miss runs run-splitting + HarfBuzz shaping (the layout pass's dominant cost + allocation).
@@ -345,7 +351,21 @@ public sealed class FontService : IDisposable
         return total;
     }
 
-    public float MeasureText(ComputedStyle s, string text) => MeasureText(s.FontFamily, s.FontWeight, s.FontSize, text, s.FontStyle);
+    public float MeasureText(ComputedStyle s, string text) =>
+        MeasureText(s.FontFamily, s.FontWeight, s.FontSize, text, s.FontStyle, s.LetterSpacing);
+
+    /// <summary>Grapheme clusters in <paramref name="text"/> — what tracking is added after.
+    ///
+    /// <para>Clusters rather than chars: a surrogate pair is one letter, and a combining mark is part
+    /// of the letter before it. Counting UTF-16 units would space an emoji twice and push an accent
+    /// off the vowel it sits on.</para></summary>
+    internal static int ClusterCount(string text)
+    {
+        var n = 0;
+        var e = System.Globalization.StringInfo.GetTextElementEnumerator(text);
+        while (e.MoveNext()) n++;
+        return n;
+    }
 
     /// <summary>Line height in px for a style (font-size × line-height multiple).</summary>
     /// <summary>The line box, in px: an absolute <c>line-height</c> as given, otherwise the ratio
