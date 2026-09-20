@@ -334,6 +334,16 @@ public sealed class StyleResolver
                 case "max-width": s.MaxWidth = ParseLen(v); break;
                 case "max-height": s.MaxHeight = ParseLen(v); break;
 
+                // `inset` is the four offsets, mirrored the way every CSS box shorthand mirrors.
+                // 273 of 292 uses in one surveyed corpus were exactly `inset: 0` — the modern
+                // spelling of "fill your parent" — and it was reported as unsupported and dropped,
+                // so the full-bleed overlay it describes covered nothing (#200).
+                case "inset":
+                {
+                    var e = ParseEdges(v);
+                    s.Top = e.Top; s.Right = e.Right; s.Bottom = e.Bottom; s.Left = e.Left;
+                    break;
+                }
                 case "margin": s.Margin = ParseEdges(v); break;
                 case "margin-top": s.Margin.Top = ParseLen(v); break;
                 case "margin-right": s.Margin.Right = ParseLen(v); break;

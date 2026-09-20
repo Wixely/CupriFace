@@ -494,6 +494,31 @@ public sealed class LayoutEngine
             if (child.Style.Display == DisplayType.None || child.Style.Position != PositionType.Absolute) continue;
             LayoutNode(child, contentW, contentH);
 
+            // OPPOSITE OFFSETS SIZE THE BOX. With both edges pinned and the size auto, the box
+            // stretches between them — which is what `top:0; right:0; bottom:0; left:0` means, and
+            // what `inset: 0` desugars to. Both were accepted and then sized to nothing, so the
+            // full-bleed overlay, backdrop or end card they describe covered nothing at all and the
+            // composition still rendered, leaving nothing to notice (#200).
+            //
+            // Laid out a SECOND time rather than computed up front: the margins, padding and border
+            // that go into the arithmetic are resolved by the first pass, and duplicating that
+            // resolution here is how the two would drift.
+            var cs = child.Style;
+            var stretchW = !cs.Width.IsDefinite && cs.Left.IsDefinite && cs.Right.IsDefinite;
+            var stretchH = !cs.Height.IsDefinite && cs.Top.IsDefinite && cs.Bottom.IsDefinite;
+            if (stretchW || stretchH)
+            {
+                float? fw = stretchW
+                    ? MathF.Max(0, contentW - cs.Left.Resolve(contentW) - cs.Right.Resolve(contentW)
+                                 - child.MarginLeft - child.MarginRight - child.HorizontalInsets)
+                    : null;
+                float? fh = stretchH
+                    ? MathF.Max(0, contentH - cs.Top.Resolve(contentH) - cs.Bottom.Resolve(contentH)
+                                 - child.MarginTop - child.MarginBottom - child.VerticalInsets)
+                    : null;
+                LayoutNode(child, contentW, contentH, fw, fh);
+            }
+
             float x = child.Style.Left.IsDefinite ? child.Style.Left.Resolve(contentW)
                 : child.Style.Right.IsDefinite ? contentW - child.Style.Right.Resolve(contentW) - child.Width
                 : 0f;
