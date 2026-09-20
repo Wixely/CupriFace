@@ -428,6 +428,14 @@ public sealed class StyleResolver
                     if (Easing.FromKeyword(v.Trim().ToLowerInvariant()) is { } ease) s.AnimationEasing = ease;
                     else UnsupportedProperty?.Invoke("animation-timing-function", v);
                     break;
+                // Tracking. 150 of 187 blocks in one surveyed corpus set it — the single most-used
+                // property the engine did not implement — and there is no way to fake it from
+                // outside: word-spacing is the wrong quantity, and per-character spans would need
+                // measurement the caller does not have and would break shaping (#202).
+                case "letter-spacing":
+                    s.LetterSpacing = v.Trim().Equals("normal", StringComparison.OrdinalIgnoreCase)
+                        ? 0f : ParsePx(v);
+                    break;
                 case "transition": ParseTransition(s, v); break;
                 case "filter": ParseFilter(s, v); break;
                 case "backdrop-filter" or "-webkit-backdrop-filter": s.BackdropFilter = ParseFilterOps(v); break;

@@ -157,16 +157,18 @@ public class DoctorFunctionGapTests(ITestOutputHelper output)
         Assert.True(f.Line > 0, "a finding with no line at all is a regression in usability");
     }
 
-    /// <summary>The contrast the report drew: CF0050 was always right about this, and still is.</summary>
+    /// <summary>The contrast the report drew: CF0050 was always right about this, and still is.
+    /// (The example was letter-spacing until it was implemented in #202 — a test whose subject is
+    /// "an unsupported property" has to keep choosing one that still is.)</summary>
     [Fact]
     public void The_property_check_still_ignores_a_name_in_a_comment()
     {
         var clean = CupriDoctor.Check(
-            "<div class='a'>x</div><style>/* we avoid letter-spacing here */ .a{width:10px;height:10px;}</style>", "");
+            "<div class='a'>x</div><style>/* we avoid mix-blend-mode here */ .a{width:10px;height:10px;}</style>", "");
         Assert.DoesNotContain(clean.Findings, f => f.Code == "CF0050");
 
         var real = CupriDoctor.Check(
-            "<div class='a'>x</div><style>.a{width:10px;height:10px;letter-spacing:2px;}</style>", "");
+            "<div class='a'>x</div><style>.a{width:10px;height:10px;mix-blend-mode:multiply;}</style>", "");
         Assert.Single(real.Findings, f => f.Code == "CF0050");
     }
 }
