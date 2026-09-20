@@ -164,54 +164,150 @@ public static class Colors
         ["copper"] = new SKColor(0xB8, 0x73, 0x33),
     };
 
+    /// <summary>
+    /// A CSS colour, or <c>false</c>.
+    ///
+    /// <para><b>It never throws.</b> That is the contract of a <c>TryParse</c> and it was not being
+    /// kept: <c>rgb(1,</c> reached <c>text[(IndexOf('(') + 1)..IndexOf(')')]</c> with no close paren,
+    /// so the range was <c>4..-1</c> and the substring length came out at −5
+    /// (<c>ArgumentOutOfRangeException</c>); <c>#gggggg</c> reached <c>Convert.ToByte</c> and raised
+    /// <c>FormatException</c>. Neither is reachable through well-formed CSS, but both were reachable
+    /// through a caller that split a value badly — and one was: the <c>border</c> shorthand split on
+    /// spaces, handed this <c>rgb(1,</c>, and the whole DOCUMENT failed to build (#196). A parser
+    /// that throws on malformed input turns a dropped declaration into a blank window.</para>
+    /// </summary>
     public static bool TryParse(string? text, out SKColor color)
     {
         color = SKColors.Transparent;
         if (string.IsNullOrWhiteSpace(text)) return false;
         text = text.Trim();
 
-        if (text[0] == '#')
-        {
-            var hex = text[1..];
-            if (hex.Length == 3)
-            {
-                byte r = (byte)(Convert.ToInt32($"{hex[0]}{hex[0]}", 16));
-                byte g = (byte)(Convert.ToInt32($"{hex[1]}{hex[1]}", 16));
-                byte b = (byte)(Convert.ToInt32($"{hex[2]}{hex[2]}", 16));
-                color = new SKColor(r, g, b);
-                return true;
-            }
-            if (hex.Length == 6 || hex.Length == 8)
-            {
-                byte r = Convert.ToByte(hex.Substring(0, 2), 16);
-                byte g = Convert.ToByte(hex.Substring(2, 2), 16);
-                byte b = Convert.ToByte(hex.Substring(4, 2), 16);
-                byte a = hex.Length == 8 ? Convert.ToByte(hex.Substring(6, 2), 16) : (byte)255;
-                color = new SKColor(r, g, b, a);
-                return true;
-            }
-            return false;
-        }
+        if (text[0] == '#') return TryParseHex(text[1..], out color);
 
-        if (text.StartsWith("rgb", StringComparison.OrdinalIgnoreCase))
+        // Functional notation. Both parens are required: an unterminated call is not a colour, and
+        // deciding that here is what keeps the arithmetic below safe.
+        var open = text.IndexOf('(');
+        if (open > 0 && text[^1] == ')')
         {
-            var inner = text[(text.IndexOf('(') + 1)..text.IndexOf(')')];
-            var parts = inner.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length >= 3
-                && byte.TryParse(parts[0], out var r)
-                && byte.TryParse(parts[1], out var g)
-                && byte.TryParse(parts[2], out var b))
-            {
-                byte a = 255;
-                if (parts.Length >= 4 && CssNumber.TryParse(parts[3], out var af)) a = (byte)Math.Clamp(af * 255f, 0, 255);
-                color = new SKColor(r, g, b, a);
-                return true;
-            }
+            var fn = text[..open].TrimEnd();
+            var inner = text[(open + 1)..^1];
+            if (fn.Equals("rgb", StringComparison.OrdinalIgnoreCase)
+                || fn.Equals("rgba", StringComparison.OrdinalIgnoreCase))
+                return TryParseRgb(inner, out color);
+            if (fn.Equals("hsl", StringComparison.OrdinalIgnoreCase)
+                || fn.Equals("hsla", StringComparison.OrdinalIgnoreCase))
+                return TryParseHsl(inner, out color);
             return false;
         }
 
         return Named.TryGetValue(text, out color);
     }
+
+    /// <summary>The digits after a <c>#</c>. Validated before conversion rather than after: the old
+    /// code handed anything six characters long to <c>Convert.ToByte</c>, which throws on the ones
+    /// that are not hex.</summary>
+    private static bool TryParseHex(string hex, out SKColor color)
+    {
+        color = SKColors.Transparent;
+        if (hex.Length is not (3 or 6 or 8)) return false;
+        foreach (var ch in hex) if (!Uri.IsHexDigit(ch)) return false;
+
+        if (hex.Length == 3)
+        {
+            color = new SKColor(Nyb(hex[0]), Nyb(hex[1]), Nyb(hex[2]));
+            return true;
+        }
+        color = new SKColor(Hex(hex, 0), Hex(hex, 2), Hex(hex, 4),
+                            hex.Length == 8 ? Hex(hex, 6) : (byte)255);
+        return true;
+
+        // #abc means #aabbcc: the digit is doubled, not shifted.
+        static byte Nyb(char c) => (byte)(Convert.ToInt32(c.ToString(), 16) * 17);
+        static byte Hex(string h, int i) => Convert.ToByte(h.Substring(i, 2), 16);
+    }
+
+    /// <summary>
+    /// The inside of <c>rgb()</c>/<c>rgba()</c>.
+    ///
+    /// <para>Commas and spaces both separate, and <c>/</c> introduces alpha, because CSS accepts all
+    /// three spellings and authors write all three: <c>rgb(1, 2, 3)</c>, <c>rgb(1 2 3)</c> and
+    /// <c>rgb(1 2 3 / 0.5)</c>. Only the comma form used to parse, so the modern one was silently
+    /// dropped — which in this engine means an element that renders perfectly with no colour.</para>
+    /// </summary>
+    private static bool TryParseRgb(string inner, out SKColor color)
+    {
+        color = SKColors.Transparent;
+        var parts = Components(inner);
+        if (parts.Length < 3
+            || !byte.TryParse(parts[0], out var r)
+            || !byte.TryParse(parts[1], out var g)
+            || !byte.TryParse(parts[2], out var b)) return false;
+
+        byte a = 255;
+        if (parts.Length >= 4 && CssNumber.TryParse(parts[3], out var af))
+            a = (byte)Math.Clamp(af * 255f, 0, 255);
+        color = new SKColor(r, g, b, a);
+        return true;
+    }
+
+    /// <summary>
+    /// The inside of <c>hsl()</c>/<c>hsla()</c>.
+    ///
+    /// <para>New, and worth having because it was reported as the WORKAROUND for #196 — every form
+    /// of it returned false, so an author who took that advice got a border with no colour rather
+    /// than a crash, which is the quieter of the two failures and the harder to find.</para>
+    /// </summary>
+    private static bool TryParseHsl(string inner, out SKColor color)
+    {
+        color = SKColors.Transparent;
+        var parts = Components(inner);
+        if (parts.Length < 3
+            || !CssNumber.TryParse(parts[0].TrimEnd("deg".ToCharArray()), out var h)
+            || !TryPercent(parts[1], out var sat)
+            || !TryPercent(parts[2], out var light)) return false;
+
+        var a = 255f;
+        if (parts.Length >= 4 && CssNumber.TryParse(parts[3], out var af)) a = Math.Clamp(af, 0f, 1f) * 255f;
+
+        // Hue wraps; saturation and lightness clamp.
+        h = ((h % 360f) + 360f) % 360f;
+        sat = Math.Clamp(sat, 0f, 1f);
+        light = Math.Clamp(light, 0f, 1f);
+
+        var c = (1f - Math.Abs(2f * light - 1f)) * sat;
+        var x = c * (1f - Math.Abs(h / 60f % 2f - 1f));
+        var m = light - c / 2f;
+        var (rp, gp, bp) = h switch
+        {
+            < 60f => (c, x, 0f),
+            < 120f => (x, c, 0f),
+            < 180f => (0f, c, x),
+            < 240f => (0f, x, c),
+            < 300f => (x, 0f, c),
+            _ => (c, 0f, x),
+        };
+        color = new SKColor(Chan(rp + m), Chan(gp + m), Chan(bp + m), (byte)Math.Clamp(a, 0f, 255f));
+        return true;
+
+        static byte Chan(float v) => (byte)Math.Clamp(MathF.Round(v * 255f), 0f, 255f);
+    }
+
+    /// <summary>A percentage as 0..1, or a bare number treated the same way CSS does inside
+    /// <c>hsl()</c> — where the unit is required, so a missing one is a refusal.</summary>
+    private static bool TryPercent(string token, out float value)
+    {
+        value = 0f;
+        if (!token.EndsWith('%')) return false;
+        if (!CssNumber.TryParse(token[..^1], out var n)) return false;
+        value = n / 100f;
+        return true;
+    }
+
+    /// <summary>The arguments of a colour function. Commas, spaces and the alpha <c>/</c> all
+    /// separate, so every spelling CSS allows lands as the same list.</summary>
+    private static string[] Components(string inner) =>
+        inner.Replace('/', ' ').Split([',', ' '],
+            StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
 }
 
 /// <summary>
