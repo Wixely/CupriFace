@@ -13,7 +13,11 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
-## Unreleased
+## v0.26.2
+
+Two fixes, both of which made something disappear. A `border` with an `rgb()` colour stopped the
+whole document building — so nothing rendered at all — and a hidden control was still a Tab stop that
+ran its handler on Enter. Neither asks anything of you; upgrade and both stop happening.
 
 ### Fixed
 
