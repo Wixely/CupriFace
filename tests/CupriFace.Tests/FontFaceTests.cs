@@ -4,6 +4,7 @@ using System.IO.Compression;
 using CupriFace.Resources;
 using CupriFace.Style;
 using CupriFace.Text;
+using CupriFace.Woff2;
 using Xunit;
 
 namespace CupriFace.Tests;
@@ -218,13 +219,15 @@ public class FontFaceTests
     }
 
     [Fact]
-    public void Woff2_is_refused_by_name()
+    public void Woff2_without_a_decoder_is_refused_by_name()
     {
         var bytes = new byte[48];
         "wOF2"u8.CopyTo(bytes);
         using var fonts = new FontService();
+        using var _ = NoWoff2Decoder();
         var ex = Assert.Throws<NotSupportedException>(() => fonts.RegisterFont(bytes));
         Assert.Contains("WOFF 2", ex.Message);
+        Assert.Contains("CupriFace.Woff2", ex.Message);   // it must say what to DO about it
     }
 
     [Fact]
@@ -240,12 +243,120 @@ public class FontFaceTests
             File.WriteAllText(Path.Combine(dir, "readme.txt"), "not a font");
 
             using var doc = CupriDocument.Load("<p>x</p>");
+            using var _ = NoWoff2Decoder();
             doc.LoadFonts(dir);
             Assert.Contains("noto sans", doc.FontReport.RegisteredFamilies);
             var p = Assert.Single(doc.FontReport.Problems);
             Assert.Equal("b.woff2", p.Family);
         }
         finally { Directory.Delete(dir, true); }
+    }
+
+    // ---- WOFF 2 --------------------------------------------------------------------------------------
+    //
+    // The fixture is the SAME Noto Sans that sits beside it as TTF, converted with fonttools. That
+    // pairing is the whole test design: a WOFF 2 decoder can produce something Skia loads happily
+    // and still have mangled outlines, so the assertion that matters is that the decoded face
+    // MEASURES like the TTF it was made from. Text width is what a layout engine consumes.
+
+    private static string RegularWoff2 =>
+        Path.Combine(AppContext.BaseDirectory, "fixtures", "NotoSans-Regular.woff2");
+
+    /// <summary>Installs the WOFF 2 decoder for one test and puts back whatever was there. The hook
+    /// is static because font registration is, so a test that leaves it set changes its
+    /// neighbours.</summary>
+    private static IDisposable WithWoff2Decoder()
+    {
+        var previous = FontService.Woff2Decoder;
+        Woff2Extensions.UseWoff2();
+        return new Restore(() => FontService.Woff2Decoder = previous);
+    }
+
+    private static IDisposable NoWoff2Decoder()
+    {
+        var previous = FontService.Woff2Decoder;
+        FontService.Woff2Decoder = null;
+        return new Restore(() => FontService.Woff2Decoder = previous);
+    }
+
+    private sealed class Restore(Action undo) : IDisposable
+    {
+        public void Dispose() => undo();
+    }
+
+    [Fact]
+    public void Woff2_decodes_to_the_same_face_as_the_ttf_it_came_from()
+    {
+        using var _ = WithWoff2Decoder();
+
+        using var a = new FontService(); a.RegisterFont(File.ReadAllBytes(Regular), "probe-ttf", null, null, null);
+        using var b = new FontService(); b.RegisterFont(File.ReadAllBytes(RegularWoff2), "probe-woff2", null, null, null);
+
+        Assert.Equal("Noto Sans", b.GetTypeface("probe-woff2", 400).FamilyName);
+
+        // Several strings, because one width matching could be luck: a wrong glyf transform tends to
+        // break some glyphs and not others, and "iiiiiiiiii" catches a mangled advance the way a
+        // pangram does not.
+        foreach (var text in new[] { "Hamburgefonstiv", "The quick brown fox jumps over the lazy dog",
+                                     "WAVE Ti fi 123", "iiiiiiiiii", "@#$%&*()" })
+            Assert.Equal(a.MeasureText("probe-ttf", 400, 24, text),
+                         b.MeasureText("probe-woff2", 400, 24, text), 3);
+    }
+
+    [Fact]
+    public void Woff2_reconstructs_every_table_the_ttf_has()
+    {
+        using var _ = WithWoff2Decoder();
+        var sfnt = Woff2Reader.ToSfnt(File.ReadAllBytes(RegularWoff2));
+
+        var fromWoff2 = TableLengths(sfnt);
+        var fromTtf = TableLengths(File.ReadAllBytes(Regular));
+
+        // Same tables, and the same lengths — except glyf, which this decoder writes in the SFNT's
+        // uncompressed coordinate form (a flag byte per point, every delta a full int16). Legal and
+        // metrically identical; larger than an encoder would manage. loca follows glyf's length.
+        Assert.Equal(fromTtf.Keys.OrderBy(k => k, StringComparer.Ordinal),
+                     fromWoff2.Keys.OrderBy(k => k, StringComparer.Ordinal));
+        foreach (var (tag, len) in fromTtf)
+        {
+            if (tag is "glyf") { Assert.True(fromWoff2[tag] > 0); continue; }
+            Assert.Equal(len, fromWoff2[tag]);
+        }
+    }
+
+    [Fact]
+    public void Woff2_that_is_truncated_is_reported_rather_than_read_past()
+    {
+        using var _ = WithWoff2Decoder();
+        var full = File.ReadAllBytes(RegularWoff2);
+
+        // Every prefix, not just one: the decoder walks a directory, a Brotli stream and seven
+        // glyph streams, and "reports rather than reads past" has to hold wherever the bytes stop.
+        // Cuts that land INSIDE the header, the directory or the Brotli stream. Not the very last
+        // byte: this file carries a byte of padding after its compressed data, so removing it leaves
+        // a complete font — measured, not assumed, and a reminder that "shorter" is not "truncated".
+        foreach (var cut in new[] { 4, 47, 48, 60, 101, 200, 5000, full.Length / 2, full.Length - 100 })
+        {
+            var truncated = full[..cut];
+            var ex = Record.Exception(() => Woff2Reader.ToSfnt(truncated));
+            Assert.NotNull(ex);
+            Assert.True(ex is ArgumentException, $"cut at {cut} threw {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    [Fact]
+    public void Woff2_reaches_the_font_face_path_too()
+    {
+        using var _ = WithWoff2Decoder();
+
+        // Not just RegisterFont: an @font-face rule naming a .woff2 is how a real document asks, and
+        // it is the path that used to render a substitute face without saying so.
+        var css = $"@font-face {{ font-family: Brand; src: url(\"{new Uri(RegularWoff2).AbsoluteUri}\"); }} p {{ font-family: Brand; }}";
+        using var doc = CupriDocument.Load("<p>Brand</p>", css);
+        doc.Refresh();
+
+        Assert.Empty(doc.FontReport.Problems);
+        Assert.Contains("brand", doc.FontReport.RegisteredFamilies);
     }
 
     // A WOFF 1 writer for the round-trip: the inverse of the decoder, written from the spec rather
@@ -298,5 +409,19 @@ public class FontFaceTests
         dir.CopyTo(result, 44);
         BinaryPrimitives.WriteUInt32BigEndian(result.AsSpan(8), (uint)result.Length);
         return result;
+    }
+
+    /// <summary>Tag -> length from an SFNT's own table directory.</summary>
+    private static Dictionary<string, int> TableLengths(byte[] sfnt)
+    {
+        var n = BinaryPrimitives.ReadUInt16BigEndian(sfnt.AsSpan(4));
+        var map = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (var i = 0; i < n; i++)
+        {
+            var rec = sfnt.AsSpan(12 + i * 16);
+            var tag = new string([(char)rec[0], (char)rec[1], (char)rec[2], (char)rec[3]]);
+            map[tag] = (int)BinaryPrimitives.ReadUInt32BigEndian(rec[12..]);
+        }
+        return map;
     }
 }

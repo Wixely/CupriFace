@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\src\CupriFace.Gl\CupriFace.Gl.csproj" />
     <ProjectReference Include="..\..\src\CupriFace.Lottie\CupriFace.Lottie.csproj" />
     <ProjectReference Include="..\..\src\CupriFace.Svg\CupriFace.Svg.csproj" />
+    <ProjectReference Include="..\..\src\CupriFace.Woff2\CupriFace.Woff2.csproj" />
     <ProjectReference Include="..\..\src\CupriFace.Media\CupriFace.Media.csproj" />
     <!-- The shipped sample apps: their documents are built headlessly here, so a markup or
          binding typo fails in seconds on any OS instead of on a device gate. -->
@@ -47,6 +48,15 @@
          both web hosts, which is what needs them at runtime — the wasm Skia build embeds only Noto Mono, so without
          a real sans face every web app renders monospaced. -->
     <None Include="..\..\src\WebFonts\*.ttf" LinkBase="fonts"
+          CopyToOutputDirectory="PreserveNewest" />
+    <!-- The same Noto Sans, as WOFF 2: the fixture the WOFF 2 decoder is measured against. It sits
+         beside the TTF deliberately — the decoded face is compared to that exact TTF, and the OFL
+         that licenses both is already in that folder, so the fixture adds no new licence surface.
+         src/WebFonts.props embeds only *.ttf, so neither web host carries this.
+         Copied to fixtures/ rather than fonts/ on purpose: LoadFonts() scans a DIRECTORY, and other
+         tests point it at fonts/ and assert the report is clean. A font it cannot decode without the
+         optional package would fail those tests for a reason that has nothing to do with them. -->
+    <None Include="..\..\src\WebFonts\*.woff2" LinkBase="fixtures"
           CopyToOutputDirectory="PreserveNewest" />
     <!-- The demo clip (browser-recorded VP9 WebM) doubles as the demuxer's fixture — copied for
          file-path tests AND embedded for the embedded-source resolution test. -->
