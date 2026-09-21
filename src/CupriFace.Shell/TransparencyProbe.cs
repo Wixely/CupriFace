@@ -72,6 +72,20 @@ internal static partial class TransparencyProbe
             return;
         }
 
+        // ONLY A WINDOW SOMEONE CAN SEE. Under the layered-GPU bypass this GL window still exists as
+        // an off-screen context while a different window is what reaches the screen — so measuring
+        // it would report whatever happens to lie at its coordinates and call that a compositor
+        // fault. A false alarm on the path that WORKS is worse than staying quiet, because it tells
+        // someone to abandon the thing that is fixing their problem.
+        if (!IsWindowVisible(hwnd))
+        {
+            if (verbose)
+                Say($"[CupriFace] transparency probe: skipped — hwnd 0x{hwnd:X} is not visible, so it "
+                    + "is not what reaches the screen (this is normal under layered-GPU presentation, "
+                    + "where the GL window is an off-screen context).");
+            return;
+        }
+
         var measured = Measure(hwnd);
         if (measured is not { } share)
         {
@@ -80,10 +94,15 @@ internal static partial class TransparencyProbe
             return;
         }
 
-        if (verbose)
-            Say(
-                $"[CupriFace] transparency probe: {share:P2} of the window's screen area is exactly "
-                + $"black (report threshold {BlackShareToReport:P0}).");
+        // The window it actually looked at, named. Without this a reader cannot tell a run of the
+        // default GL path from a run of the layered bypass — the two leave their output in the same
+        // console, and a line that says only a percentage is indistinguishable between them. That
+        // ambiguity cost a round trip the first time this was used in anger.
+        GetWindowRect(hwnd, out var box);
+        Say($"[CupriFace] transparency probe: {share:P2} of hwnd 0x{hwnd:X} "
+            + $"({box.Right - box.Left}x{box.Bottom - box.Top} at {box.Left},{box.Top}, "
+            + $"visible={IsWindowVisible(hwnd)}) is exactly black. Presentation: GL/GLFW window. "
+            + $"Report threshold {BlackShareToReport:P0}.");
 
         if (share < BlackShareToReport) return;
 
@@ -161,14 +180,38 @@ internal static partial class TransparencyProbe
     /// <c>CUPRIFACE_ALPHA_PROBE=&lt;path&gt;</c> writes the same lines somewhere they can be read
     /// afterwards and attached to an issue.</para>
     /// </summary>
+    private static bool _saidWhere;
+
     private static void Say(string message)
     {
         Console.WriteLine(message);
         Console.Out.Flush();
-        var path = Environment.GetEnvironmentVariable("CUPRIFACE_ALPHA_PROBE");
-        if (path is null or "1" or "true" or "TRUE" or "") return;
-        try { File.AppendAllText(path, message + Environment.NewLine); }
-        catch (IOException) { } catch (UnauthorizedAccessException) { }
+
+        var path = LogPath();
+        if (path is null) return;
+        try
+        {
+            // Where it is writing, once, on the console — so "nothing was appended" can never be a
+            // mystery. The first version silently wrote nowhere when the variable was set to `1`,
+            // which is the obvious thing to set, and the missing file looked like a failure of the
+            // probe rather than of its own plumbing.
+            if (!_saidWhere) { _saidWhere = true; Console.WriteLine($"[CupriFace] probe log: {path}"); }
+            File.AppendAllText(path, message + Environment.NewLine);
+        }
+        catch (IOException e) { Console.WriteLine($"[CupriFace] probe log unavailable ({e.Message})."); }
+        catch (UnauthorizedAccessException e) { Console.WriteLine($"[CupriFace] probe log unavailable ({e.Message})."); }
+        catch (ArgumentException e) { Console.WriteLine($"[CupriFace] probe log path rejected ({e.Message})."); }
+    }
+
+    /// <summary>Where the probe writes its lines, or null when it was not asked to. <c>=1</c> means
+    /// "yes please" rather than a path, so it gets a sensible default instead of nowhere.</summary>
+    private static string? LogPath()
+    {
+        var v = Environment.GetEnvironmentVariable("CUPRIFACE_ALPHA_PROBE");
+        if (string.IsNullOrEmpty(v)) return null;
+        return v is "1" or "true" or "TRUE"
+            ? Path.Combine(Path.GetTempPath(), "cupriface-alpha-probe.txt")
+            : v;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -177,6 +220,10 @@ internal static partial class TransparencyProbe
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool GetWindowRect(nint hwnd, out Rect rect);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool IsWindowVisible(nint hwnd);
 
     [LibraryImport("user32.dll")]
     private static partial nint GetDC(nint hwnd);
