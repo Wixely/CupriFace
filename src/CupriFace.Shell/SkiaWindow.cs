@@ -134,6 +134,9 @@ public sealed class SkiaWindow : IDisposable
 
     private readonly bool _dpiAware;
     private readonly bool _trackMonitorDpi;
+    private readonly bool _transparent;   // asked for, not necessarily achieved — see TransparencyProbe
+    private readonly System.Diagnostics.Stopwatch _upTime = System.Diagnostics.Stopwatch.StartNew();
+    private long? _firstPresentMs;        // when anything first reached the screen
     private float _deviceScale = 1f;
     private Vector2D<int> _logicalSize;                 // seeds the tracker once the window exists
     private WindowScaleTracker? _scale;                 // owns the logical size after that
@@ -365,6 +368,7 @@ public sealed class SkiaWindow : IDisposable
         bool darkWindowChrome = false, SKColor? windowChromeColor = null,
         bool dpiAware = true, bool trackMonitorDpi = true)
     {
+        _transparent = transparent;
         _darkWindowChrome = darkWindowChrome;
         _windowChromeColor = windowChromeColor ?? new SKColor(0x20, 0x20, 0x20);
         _dpiAware = dpiAware && WindowsDpiEnabled;
@@ -864,6 +868,12 @@ public sealed class SkiaWindow : IDisposable
 
             _stats.EndFrame();
             _window!.SwapBuffers(); // manual swap: only drawn frames reach the screen
+
+            // Once, after the compositor has had a few frames to actually show something: ask what
+            // it did with our alpha. Silent unless it looks like #139, and it costs one screen read
+            // in the life of the process. Earlier than this would measure the desktop rather than
+            // the window.
+            _firstPresentMs ??= _upTime.ElapsedMilliseconds;   // the transparency probe waits from here
         }
         else
         {
@@ -871,6 +881,12 @@ public sealed class SkiaWindow : IDisposable
             // which we skipped — sleep briefly so an idle window doesn't spin the render loop.
             System.Threading.Thread.Sleep(8);
         }
+
+        // The transparency probe, once, a beat after the first frame reached the screen. Out here
+        // rather than beside SwapBuffers because a static window — which a HUD is — presents a few
+        // frames and then idles: anything counted per-present would never come due.
+        if (OperatingSystem.IsWindows() && _upTime.ElapsedMilliseconds > 1200)
+            TransparencyProbe.CheckOnce(Win32Hwnd ?? 0, _transparent, _firstPresentMs is not null);
 
         if (ShouldClose?.Invoke(_stats) == true)
             _window!.Close();
