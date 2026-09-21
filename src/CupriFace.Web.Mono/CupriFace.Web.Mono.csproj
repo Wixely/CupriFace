@@ -57,9 +57,9 @@
     <RootNamespace>CupriFace.Web</RootNamespace>
     <Description>Run a CupriApp in the browser, on a canvas — no Blazor, no WebView, no JavaScript to write. Your whole Program.cs is WebHost.Run(new MyApp()); the package brings the frame loop, pointer/touch/wheel/keyboard input, the touch gesture recognizer, an ARIA mirror so screen readers can read the canvas, IME composition, the clipboard and browser-decoded video.
 
-This is the MONO runtime host — the compatible one. It builds with the wasm runtime that ships in the .NET SDK, so it works wherever `dotnet publish` does. The trade-off is speed: a Mono AOT codegen defect forces the engine to run interpreted, roughly 8x slower than native, so heavy interaction is noticeably less smooth.
+This is the MONO runtime host — the compatible one. It builds with the wasm runtime that ships in the .NET SDK, so it works wherever `dotnet publish` does, on any build machine, with no preview feed. The trade-off is speed: a Mono AOT codegen defect forces the engine to run interpreted, roughly 8x slower than native, so heavy interaction is noticeably less smooth.
 
-If you want the fast one, CupriFace.Web.NativeAot compiles the engine properly, at the cost of an experimental (dotnet/runtimelab) toolchain. Both packages expose exactly the same WebHost.Run API, so choosing between them — or falling back — is a PackageReference change and no app code.</Description>
+CupriFace.Web.NativeAot is the RECOMMENDED host and the faster one, for the same download size. Prefer this package when its build requirements do not fit — it needs the experimental dotnet/runtimelab feed, and that compiler ships for x64 Windows and x64/arm64 Linux only, so a macOS or Windows-ARM build machine needs this host or a CI/container build. Both packages expose exactly the same WebHost.Run API, so choosing between them — or falling back — is a PackageReference change and no app code.</Description>
     <PackageTags>cupriface;ui;webassembly;wasm;browser;canvas;skia;html;css;mono</PackageTags>
   </PropertyGroup>
 

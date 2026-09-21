@@ -333,9 +333,14 @@ Reuse Layers 1–6; swap Layer 0 (Shell) and the a11y bridge:
 - Because binding/layout/paint are platform-neutral, ~80% of the code is shared.
 
 ### 9.0 Two web hosts (both supported)
-The same `CupriApp` runs in the browser via either host — the engine is identical; only
-the canvas/runtime bridge differs:
-- **Raw .NET-WASM (`samples/WebWasm`, default)** — `Microsoft.NET.Sdk.WebAssembly` + a
+The same `CupriApp` runs in the browser via any of these — the engine is identical; only
+the canvas/runtime bridge differs. **`CupriFace.Web.NativeAot` (`samples/WebLlvm`) is the
+recommended host**: the same thin-JS-glue model as the first bullet below, with the exports
+reached over a C ABI instead of `[JSExport]` because there is no Mono runtime to marshal for,
+and the engine compiled ahead of time rather than interpreted. README states the trade — same
+download size, ~8x the interaction speed, an experimental compiler published for x64 Windows
+and x64/arm64 Linux only.
+- **Raw .NET-WASM (`samples/WebWasm`, the compatible host)** — `Microsoft.NET.Sdk.WebAssembly` + a
   ~50-line `main.js`: boot `dotnet.js`, `[JSExport]` `RenderFrame`/`PointerDown/Move/Up`/
   `Wheel`/`KeyChar`/`EditKeyPress`, `[JSImport]` a `present(rgba,w,h)` that `putImageData`s
   the engine's pixels onto a `<canvas>`. A `requestAnimationFrame` loop drives `@keyframes`

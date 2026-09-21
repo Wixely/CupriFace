@@ -57,7 +57,10 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
   `<cupri-badge>` with `role`/`aria-*` baked in.
 - **Installable fonts** — `@font-face` with `url()` sources (embedded resource, file, `https:`,
   `data:`), `doc.LoadFont`/`LoadFonts`, or `override Fonts` on the app. `FontPolicy.RegisteredOnly`
-  makes output that cannot depend on what the machine happens to have installed.
+  makes output that cannot depend on what the machine happens to have installed. TTF, OTF, TTC and
+  WOFF 1 are built in; **WOFF 2** — what every font pipeline emits and Google Fonts serves — needs
+  the optional `CupriFace.Woff2` package and `UseWoff2()`, which decodes it at load time so a face
+  can still be fetched dynamically. That package is not available on the NativeAOT-LLVM web host.
 - **One layout, desktop to phone** — `@media` and viewport units against the size the document was
   actually laid out in (`doc.ViewportWidth`), and a scaling strategy per app: `PresentInfo.Adaptive`
   spends a big monitor's surplus without ever crushing a small screen, which is what lets a
@@ -113,11 +116,12 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 | `src/CupriFace` | The engine (DOM, CSS, layout, text, paint, binding, components) |
 | `src/CupriFace.Shell` | Desktop windows: GL (GLFW) by default, or SDL — software present, or its own GL context with `CUPRIFACE_SDL_GL=1` — with multi-touch, per-monitor DPI, layered alpha on Windows, and the profiler HUD |
 | `src/CupriFace.Android` | Android host: `CupriActivity` + GL surface + touch/IME + TalkBack bridge (needs `dotnet workload install android`) |
-| `src/CupriFace.Web.Mono` | Browser host on the Mono wasm runtime: `WebHost.Run` + canvas blit + touch/IME + ARIA mirror + browser-decoded video (no Blazor) |
-| `src/CupriFace.Web.NativeAot` | Browser host compiled AOT (NativeAOT-LLVM): same `WebHost.Run`, faster, experimental toolchain |
+| `src/CupriFace.Web.NativeAot` | **Recommended browser host**, compiled AOT (NativeAOT-LLVM): `WebHost.Run` + canvas blit + touch/IME + ARIA mirror + browser-decoded video (no Blazor). Experimental toolchain, builds on x64 Windows and x64/arm64 Linux |
+| `src/CupriFace.Web.Mono` | The same browser host on the Mono wasm runtime — identical `WebHost.Run`, builds anywhere, engine runs interpreted. The fallback when the preview feed is not an option |
 | `src/CupriFace.Media` | Optional: WebM (VP9 + Opus) video for `<cupri-video>` on desktop |
 | `src/CupriFace.Gl` | Optional: an OpenGL viewport bound to an element — the `IGpuSurfaceSource` seam packaged, on all three hosts |
 | `src/CupriFace.Lottie` | Optional: Lottie (After Effects JSON) playback via `<cupri-lottie>`, through Skia's own Skottie — managed only |
+| `src/CupriFace.Woff2` | Optional: WOFF 2 web fonts decoded to SFNT at runtime — managed only, no new dependency. Not on the NativeAOT-LLVM web host (no brotli archive there) |
 | `src/CupriFace.Binding.Gen` | Roslyn source generator for AOT-clean binding accessors |
 | `src/CupriFace.Resources.Gen` | Roslyn source generator turning `Assets/*.html\|.css` into typed members |
 | `samples/HelloBox` | M0 shell smoke (window / CPU-raster) |
@@ -134,10 +138,10 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 | `samples/DemoApp` | **Portable apps** (`ShowcaseApp` — the screenshots above — plus `SettingsApp`/`ControlsApp`), one definition each, no platform code |
 | `samples/Viewer` | Desktop host running `ShowcaseApp` (GPU → SDL fallback, live animation); `--app mobile` runs the phone sample |
 | `samples/AndroidViewer` | The phone-first `MobileApp` on Android (the Showcase reachable from its About page) |
-| `samples/WebWasm` | The Showcase in the browser: three lines of app over `CupriFace.Web.Mono` |
+| `samples/WebWasm` | The Showcase in the browser over `CupriFace.Web.Mono` — three lines of app, builds with the stock SDK |
 | `samples/Web` | Web host (alt): a **minimal** Blazor `<SKCanvasView>` embedding example — clicks only, see below |
 | `samples/Demo3d` | The Showcase's **3D** page: a small glTF/PBR renderer behind `ISurfaceSource`, composited two different ways depending on the host |
-| `samples/WebLlvm` | The Showcase in the browser compiled AOT (NativeAOT-LLVM) — same app, faster, experimental toolchain |
+| `samples/WebLlvm` | The Showcase in the browser compiled AOT (NativeAOT-LLVM) — **the recommended web route**: same app, ~8x quicker to interact with |
 | `samples/Scaling` | The four `PresentInfo` strategies side by side (headless PNGs) |
 | `samples/DpiProbe` | Live display-scaling readout: monitor scale, app scale, effective scale, and the callbacks behind them |
 | `samples/TouchProbe` | Raw SDL touch instrument: which touch devices exist, every finger and mouse event with raw and converted coordinates, and whether a tap reached an element — how #143 was diagnosed |
@@ -189,15 +193,21 @@ dotnet run --project samples/ControlsGallery    # -> m5-controls.png
 # Live, clickable window — tries GPU, falls back to a CPU (no-GPU/RDP) window:
 dotnet run --project samples/Viewer
 
-# Web (WASM) — engine rendered to <canvas> in the browser. Two interchangeable hosts:
-dotnet run --project samples/WebWasm -c Release   # raw .NET-WASM (no Blazor, default)
+# Web (WASM) — engine rendered to <canvas> in the browser. These two run straight from source:
+dotnet run --project samples/WebWasm -c Release   # raw .NET-WASM (no Blazor)
 dotnet run --project samples/Web                  # Blazor host (alternative)
 # ...then open the printed localhost URL.
+
+# The RECOMMENDED web host is compiled AOT, so it publishes rather than runs:
+dotnet publish samples/WebLlvm -c Release
+dotnet run --project tools/Serve -- samples/WebLlvm/bin/Release/net10.0/browser-wasm/publish
 ```
 
-Both web hosts render the **same** `SettingsApp` — pick raw-WASM for minimal deps, or
+Both runnable hosts render the **same** `SettingsApp` — pick raw-WASM for minimal deps, or
 Blazor to embed CupriFace inside an existing Blazor app. First build does a native
-WebAssembly relink of Skia (slow once, cached after).
+WebAssembly relink of Skia (slow once, cached after). For which of the two *real* web hosts to
+ship, see [Two ways to reach a browser](#two-ways-to-reach-a-browser) — `samples/WebLlvm` is the
+recommended one and needs a preview feed plus an x64-Windows or x64/arm64-Linux build machine.
 
 **The Blazor host is a starting point, not a finished host.** It is ~30 lines showing how to put
 the engine inside a `<SKCanvasView>`, and it wires **clicks only** — no scrolling, no keyboard, no
@@ -278,14 +288,27 @@ the feature working and then quietly stopping, which is the hardest kind to trac
 
 ### Two ways to reach a browser
 
-| | Where the engine runs | Download | Needs a WASM build? |
-|---|---|---|---|
-| `samples/WebWasm` | In the browser (.NET WASM → `<canvas>`), Mono-interpreted | the whole engine | yes |
-| `samples/WebLlvm` | In the browser, NativeAOT-LLVM — same engine, ~7x faster than interpreted | 16.9 MB (6.9 MB gzipped, measured 2026-09) | yes |
+**`CupriFace.Web.NativeAot` is the recommended host.** `CupriFace.Web.Mono` is the fallback for a
+build machine or pipeline that cannot take a preview feed.
 
-Both compile the *same* `ShowcaseApp`; only the compiler differs. `WebLlvm` is where this is
-heading — it removes the interpreter tax (a hover restyle measured at 2.1 ms against 16.2 ms) — and
-`WebWasm` remains the one that builds with nothing but the stock SDK and the wasm workload.
+| | `CupriFace.Web.NativeAot` — **recommended** | `CupriFace.Web.Mono` |
+|---|---|---|
+| Sample | `samples/WebLlvm` | `samples/WebWasm` |
+| Engine code | compiled ahead of time (NativeAOT-LLVM) | Mono-**interpreted** — forced by an upstream Mono wasm-AOT codegen defect |
+| Hover restyle, 940x720 showcase | **2.1 ms** | 16.2 ms (~8x) |
+| Download | 16.9 MB raw / 6.9 MB gzipped | 16.9 MB raw / 7.0 MB gzipped |
+| Toolchain | ILCompiler.LLVM from the `dotnet-experimental` feed, which **your app declares itself** | stock SDK + the `wasm-tools` workload |
+| Build machines | win-x64, linux-x64, linux-arm64 | anywhere `dotnet publish` runs |
+
+Both compile the *same* `ShowcaseApp`, expose the same `WebHost.Run` API and carry the same
+features, so moving between them — or falling back — is a `PackageReference` change and no app code.
+
+**The download is the same size either way**, so the choice is about latency, not payload. AOT buys
+the ~8x and costs two things worth knowing up front. The ILC backend is experimental (pinned, so it
+cannot drift under you). And it is published for **x64 Windows and x64/arm64 Linux only** — macOS
+and Windows-ARM either stop at a .NET 9 alpha or were never published — so on those machines you
+build the web app in CI or a container and use the Mono host locally. Either host cross-compiles to
+the browser; this is about the machine doing the build, not the one running the result.
 
 ## License note
 
