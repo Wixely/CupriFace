@@ -13,6 +13,90 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## v0.28.0
+
+The web font format everything actually emits now loads, and the two browser hosts are ranked
+honestly.
+
+**Nothing here changes what a correct app already rendered, and nothing asks anything of you.** If a
+composition brings its own `.woff2` — which is what a font pipeline produces and what Google Fonts
+serves — it has until now rendered in a *substitute face*, at different widths, with only the font
+report saying so. Add **`CupriFace.Woff2`** and call `UseWoff2()` and it renders as designed. The
+other half is documentation: `CupriFace.Web.NativeAot` is the recommended browser host, the Mono
+host is its peer rather than the default, and the size difference everyone assumed exists does not.
+
+### Added
+
+- **A transparent window now says when the compositor painted it black** (#139, #210). On some
+  Windows display paths a transparent framebuffer composites with every alpha-zero pixel opaque
+  black: the app draws the right pixels, the GPU readback holds the right alpha, and the desktop
+  shows a black rectangle with nothing in the process noticing. A transparent window now reads back
+  its own screen rectangle once, shortly after the first frame, and reports if more than 15% of it is
+  exactly black — naming the issue and pointing at `RunWithLayeredGpu`. Measured 28.22% on the
+  reporting machine and 0.00% on a healthy one. **If your design really is a large field of pure
+  black this is a false alarm:** set `CUPRIFACE_QUIET_TRANSPARENCY=1`. `CUPRIFACE_ALPHA_PROBE=1`
+  prints the measurement whatever the verdict and logs it under `%TEMP%`. It is a detector, not a
+  fix, and silence is not proof the compositor is healthy.
+
+- **`CupriFace.Woff2` — WOFF 2 web fonts, as an optional package.** The format every font pipeline
+  emits and Google Fonts serves. Reference the package and call `UseWoff2()`; after that a `.woff2`
+  registers like a TTF, through `RegisterFont`, `LoadFont`/`LoadFonts`, an `@font-face` rule, or a
+  face fetched at run time. Decoding happens at load, deliberately, so a font can arrive
+  dynamically rather than being converted at build time.
+
+  **Until now a WOFF 2 was refused and the text rendered in a substitute face** — different metrics,
+  so different widths and wrapping, with only the font report saying why. The refusal message now
+  names the package instead of naming the problem.
+
+  **No new dependency, on any platform, and no native asset of ours.** The container and the
+  `glyf`/`loca` transform are written from the W3C Recommendation (royalty-free commitments from
+  Google for Brotli and Monotype for WOFF 2), so nothing third-party enters the tree. Brotli comes
+  from `BrotliStream` in the BCL off the browser, and on the Mono wasm host from the runtime pack's
+  own brotli archives, reached under dotnet/runtime's own module name — which needs no
+  `NativeFileReference` and no build-file change, because `DeflateStream` already registers that
+  module there.
+
+  **Cost:** nothing unless you reference it. The published assembly is **24,341 bytes**, plus about
+  1.2 KB of brotli linkage on wasm. Verified decoding in real Chromium on the Mono wasm host, and
+  against the TTF it was made from on desktop: identical measured text width across five strings.
+
+  **Not available on the NativeAOT-LLVM web host.** Its compiler pack ships zlib and no brotli
+  archive at all, so there is nothing to reach. That host reports the limitation by name rather than
+  substituting a face. Two other limits worth knowing: font **collections** (`ttcf`) are refused, and
+  so is the optional `hmtx` transform, which some encoders emit — both by name, with what to do
+  about it.
+
+  The root cause is upstream and now has a proven fix: `System.IO.Compression.Brotli` has no
+  `-browser` target framework, so browser-wasm gets a generated throw-everything assembly, and
+  `dotnet.native` never linked the brotli archives it ships. Both halves are fixed and building on a
+  fork; if that lands, this package's browser path becomes `BrotliStream` like everywhere else.
+
+### Changed
+
+- **`CupriFace.Web.NativeAot` is now the recommended browser host**, and `CupriFace.Web.Mono` is
+  documented as the peer you fall back to rather than the default. **Nothing about either package
+  changed** — no API, no behaviour, no build files — so no app needs to do anything. This is the
+  positioning catching up with what was already true, plus two facts that were missing from it.
+
+  **The download is the same size either way.** A clean publish of each measures **16.9 MB raw**;
+  gzipped, 6.9 MB AOT against 7.0 MB interpreted. The old README printed a size for the AOT host
+  and only "the whole engine" for the Mono one, which read as though compiling ahead of time cost
+  payload. It does not. The case for AOT is latency alone — hover restyle **2.1 ms against
+  16.2 ms** on the 940x720 showcase.
+
+  **The AOT host does not build on every machine, and that is now stated where you choose.**
+  `runtime.<rid>.Microsoft.DotNet.ILCompiler.LLVM` carries the pinned `10.0.0-rc.1.26357.1` for
+  `win-x64`, `linux-x64` and `linux-arm64`; `osx-x64` and `win-arm64` stop at a March 2024 .NET 9
+  alpha, and `osx-arm64` has never been published. On those machines the failure is at **restore**,
+  before any CupriFace build file is read, so the error names a missing package rather than this
+  choice. Both hosts cross-compile to `browser-wasm` — this constrains the build machine only, never
+  the browsers or operating systems your published app reaches. If you are on a Mac or Windows-ARM:
+  build the web app in CI or a container, or develop against `CupriFace.Web.Mono` and publish the
+  recommended host from your pipeline. The API is identical, so the app is unchanged either way.
+
+  Two places also still described the NativeAOT-LLVM host as a sibling "planned for speed" —
+  `PACKAGE.md` and the release table CI generates. It has shipped since v0.22.0.
+
 ## v0.27.0
 
 Three gaps that a designed composition falls into closed, and one silence ended.
