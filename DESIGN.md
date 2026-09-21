@@ -620,7 +620,7 @@ The stack is layered so OS-specific code is isolated and opt-in:
   macOS accessibility bridge binds AppKit the same way; measured, the shell assembly carries a
   few dozen such imports, all platform-gated, none in the engine. The engine has **no** windowing
   dependency at all. (An earlier Win32 GDI backend was removed in favour of SDL to keep our
-  code fully managed.)
+  code fully managed.) *Which* SDL, and what SDL3 would cost, is below.
 - **Accessibility** — the semantics tree is portable; the bridges are not, and they are the
   only place OS-specific accessibility code is allowed to live. All four ship — **UIA**
   (Windows), **AT-SPI** (Linux), **NSAccessibility** (macOS), **TalkBack** (Android) — each
@@ -649,6 +649,69 @@ Net: to add a platform you implement (at most) a windowing/input host + an a11y 
 engine, layout, paint, text, binding, and components are shared unchanged. Android is the
 worked example: the host package plus one gesture recognizer and one IME seam in the engine,
 both of which desktop and web share.
+
+### Which SDL, and what SDL3 would take
+
+We run **SDL 2.30.8**, bound by **`Silk.NET.SDL` 2.22.0** (the binding's version is its own and is
+not SDL's — the runtime version above is what `SDL_GetVersion` actually reports).
+
+**SDL2 rather than SDL3 is not a feature decision — it is what the binding stack offers.**
+`Silk.NET.SDL` publishes `2.0.0-preview2 … 2.23.0`, and the whole line binds SDL2; there is no
+`Silk.NET.SDL3` package. SDL3 bindings exist only on Silk.NET's unreleased `develop/3.0` branch
+(`sources/SDL`, its SDL submodule pinned at 3.4.4). Nothing from Silk.NET 3.0 has shipped to NuGet
+(checked 2026-09). So the real constraint is the one the portability model above already states: the
+shells reach native code through *managed* bindings, we removed a Win32 GDI backend to keep that
+property, and today exactly one vendor supplies SDL bindings that satisfy it.
+
+The choice is not free. SDL2's `SDL_DropEvent` carries **no coordinates**, so a file drop has no
+position — `SdlSoftwareWindow.FlushDrop` asks the OS where the cursor is with
+`SDL_GetGlobalMouseState` and converts to client space, because during a drag the window receives no
+motion events and any remembered position predates the drag. SDL3 adds `SDL_EVENT_DROP_POSITION`
+and that workaround disappears. It is currently the only concrete thing we are giving up.
+
+#### Before moving to SDL3
+
+Roughly in the order that would gate the decision:
+
+1. **A published, stable Silk.NET SDL3 binding.** This is the one that actually blocks. The
+   alternative is accepting a second binding vendor — `SDL3-CS` (zlib) or `Hexa.NET.SDL3` (MIT)
+   are the live candidates — which is a licence review *and* the loss of the single-binding-stack
+   property, so it needs to be a deliberate decision rather than a consequence.
+2. **The native-runtime story intact.** Silk.NET ships SDL natives per-RID and finds them through
+   `Assembly.Location`. Any replacement must keep single-file publish, trimming and NativeAOT
+   working on every RID we ship — all three have broken here before, and trimming breaks
+   *silently*.
+3. **A reason.** Drop position alone does not pay for the migration below. Window events split into
+   top-level `SDL_EVENT_WINDOW_*`, mouse coordinates become float, and SDL2 is maintained but closed
+   to new features — worth having, not worth forcing.
+4. **Hardware re-verification, not CI.** CI build-verifies the SDL window; it does not run one. An
+   SDL3 swap needs a manual pass over the Windows layered-alpha path, touch, IME and audio.
+
+#### What it would touch
+
+Everything below is a breaking change in SDL3 that lands on a call we actually make. The surface is
+three files — `SdlSoftwareWindow.cs`, `SdlGlPresenter.cs`, `SdlAudioSink.cs` — and it is mostly
+mechanical, with one genuine rewrite.
+
+| What we call | SDL3 |
+|---|---|
+| `SDL_GetWindowWMInfo` — the single call that yields our HWND *and* our NSWindow | Removed. Both become **window property** lookups |
+| `SDL_OpenAudioDevice` + `QueueAudio`/`GetQueuedAudioSize`/`ClearQueuedAudio` | All removed. `SdlAudioSink` is **rewritten onto `SDL_AudioStream`** — the one real rewrite |
+| `SDL_CreateRGBSurfaceWithFormatFrom` — the software present path | `SDL_CreateSurfaceFrom`, with a different parameter order |
+| `SDL_RenderCopy`, `SDL_RenderReadPixels` | `SDL_RenderTexture`; read-pixels **returns** a surface instead of filling one you own |
+| `SDL_GL_GetDrawableSize` | Removed — `SDL_GetWindowSizeInPixels` |
+| `EventType.Windowevent` | Gone; each `SDL_EVENT_WINDOW_*` is a top-level event |
+| `e.Key.Keysym.Sym` | `e.Key.Key` — the keysym indirection was removed |
+| `SDL_free(e.Drop.File)` | **Must not free.** SDL owns event memory now, and the field is `data` |
+| `SDL_StartTextInput()` | Takes a window — text input state is per-window |
+| `SDL_FreeSurface`, `SDL_FreeCursor` | `SDL_DestroySurface`, `SDL_DestroyCursor` |
+| Integer mouse coordinates | Float, with sub-pixel motion |
+| Negative-on-error returns | `bool`. In C# the type change makes these compile errors rather than quietly inverted checks — the one place this migration is friendlier than it is in C |
+
+The two worth planning around are the audio rewrite and `SDL_GetWindowWMInfo`. The latter is the
+narrowest and most load-bearing call in the shell: layered-alpha presentation, the tray icon,
+per-monitor DPI and dark window chrome all hang off the HWND it returns, and the NSAccessibility
+bridge off the NSWindow. Everything platform-specific in the SDL window reaches the OS through it.
 
 ### Input model
 The engine takes **one pointer** and a keyboard. Everything richer is built above that, and the
