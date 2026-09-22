@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The optional WOFF 2 package: the web font format every pipeline actually emits.
+
+       Optional for the same reason CupriFace.Svg and CupriFace.Lottie are, and the engine's promise
+       is the same — you pay for what you use. An app that ships TTF, or registers fonts through the
+       host, references none of this and carries none of it.
+
+       WHY IT IS NOT IN THE ENGINE. Two costs the engine should not impose on every consumer. The
+       format needs a real decoder, not a decompression call: Brotli, plus a glyf/loca transform to
+       run backwards (seven parallel streams and a 128-case coordinate encoding). And in a browser it
+       needs a native Brotli decoder that the .NET managed wrapper does not expose there — see
+       Brotli.cs, which explains why and what it costs.
+
+       WHAT IT DOES NOT NEED. No new dependency, on any platform: Brotli off the browser is
+       System.IO.Compression's BrotliStream from the BCL, and in a browser it is the runtime pack's
+       own brotli archives reached under dotnet/runtime's own module name. So no NuGet package, no
+       NativeFileReference, no native asset of ours, nothing to sign, and no third-party licence
+       entering this repository. The decoder is written from the W3C Recommendation, which carries
+       royalty-free patent commitments from Google (Brotli) and Monotype (WOFF 2).
+
+       REACH. Desktop, Android and the Mono wasm host decode WOFF 2. The NativeAOT-LLVM host cannot:
+       its compiler pack ships zlib and no brotli archive at all. That host reports the limitation by
+       name instead of rendering a substitute face, which is the failure this package exists to end -
+       a binding typo and a refused font look identical once a face silently changes. -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- The coordinate decoder and the Brotli entry point both take pointers: the glyph streams are
+         walked as spans, and the native call hands out fixed buffers. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Description>WOFF 2 web font support for CupriFace — the format Google Fonts serves and every font pipeline emits. Decodes to SFNT at runtime, so a font can be loaded dynamically rather than converted at build time. Brotli comes from the BCL off the browser and from the runtime's own archives on the Mono wasm host; no new dependency and no native asset of its own. Not available on the NativeAOT-LLVM web host, which ships no brotli archive.</Description>
+    <PackageTags>cupriface;font;woff;woff2;webfont;brotli;opentype;truetype</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../CupriFace/CupriFace.csproj" />
+  </ItemGroup>
+
+</Project>

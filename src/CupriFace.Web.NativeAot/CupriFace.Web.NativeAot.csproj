@@ -28,9 +28,11 @@
     <RootNamespace>CupriFace.Web</RootNamespace>
     <Description>Run a CupriApp in the browser, on a canvas — no Blazor, no WebView, no JavaScript to write. Your whole Program.cs is WebHost.Run(new MyApp()); the package brings the frame loop, pointer/touch/wheel/keyboard input, the touch gesture recognizer, an ARIA mirror so screen readers can read the canvas, IME composition and placement, the clipboard and browser-decoded video.
 
-This is the NATIVEAOT-LLVM host — the fast one. The engine is compiled ahead of time rather than interpreted, which is several times quicker than the Mono host for interaction-heavy UI.
+This is the NATIVEAOT-LLVM host, and the RECOMMENDED one. The engine is compiled ahead of time rather than interpreted — roughly 8x quicker to interact with than the Mono host (hover restyle 2.1 ms against 16.2 ms), for the same download size.
 
-The cost is toolchain maturity: it builds with the ILCompiler.LLVM backend from dotnet/runtimelab, which is experimental and is not on nuget.org, so your app must add the dotnet-experimental feed itself (a package cannot add a restore source to its consumer — see the package notes). If you would rather have something that builds wherever `dotnet publish` does, CupriFace.Web.Mono is the compatible sibling. Both expose exactly the same WebHost.Run API, so choosing between them — or falling back — is a PackageReference change and no app code.</Description>
+The cost is toolchain maturity, in two parts. It builds with the ILCompiler.LLVM backend from dotnet/runtimelab, which is experimental and is not on nuget.org, so your app must add the dotnet-experimental feed itself (a package cannot add a restore source to its consumer — see the package notes). And that compiler is a native executable matching the machine that builds: it is published for x64 Windows and x64/arm64 Linux, while macOS and Windows-ARM either stop at a .NET 9 alpha or were never published, so restore fails on those rather than the link. Both hosts cross-compile to browser-wasm, so this constrains your build machine and not the browsers your app reaches.
+
+If either cost does not fit, CupriFace.Web.Mono builds wherever `dotnet publish` does and needs no preview feed. Both expose exactly the same WebHost.Run API, so choosing between them — or falling back — is a PackageReference change and no app code.</Description>
     <PackageTags>cupriface;ui;webassembly;wasm;browser;canvas;skia;html;css;nativeaot;aot</PackageTags>
   </PropertyGroup>
 

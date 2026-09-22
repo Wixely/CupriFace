@@ -95,10 +95,24 @@ public sealed class FontService : IDisposable
         set { if (_policy != value) { _policy = value; InvalidateResolution(); } }
     }
 
+    /// <summary>
+    /// Unwraps WOFF 2 to SFNT, when something has supplied a decoder. Null by default, because the
+    /// decoder is the optional <c>CupriFace.Woff2</c> package: WOFF 2 needs Brotli plus a
+    /// <c>glyf</c>/<c>loca</c> transform to undo, which is a page of format code and, in a browser,
+    /// a native archive to link. Most apps ship TTF and should not pay for either.
+    ///
+    /// <para>Static, and deliberately: every path that registers a font funnels through
+    /// <see cref="RegisterFont(byte[], string?, int?, int?, FontSlant?)"/> — <c>LoadFont</c>,
+    /// <c>LoadFonts</c>, an <c>@font-face</c> rule, and anything that fetches a face at runtime —
+    /// and they do not share a <see cref="FontService"/> instance. Installing once covers all of
+    /// them. Call <c>UseWoff2()</c> from the package rather than setting this by hand.</para>
+    /// </summary>
+    public static Func<byte[], byte[]>? Woff2Decoder { get; set; }
+
     /// <summary>Register a font from raw TTF/OTF/TTC or WOFF 1 bytes (e.g. an embedded resource).
     /// Family, weight and slant are read from the font itself; register each style you need
-    /// (Regular, Bold, …). WOFF 2 is recognised and refused by name — it needs a decoder this engine
-    /// does not yet carry.</summary>
+    /// (Regular, Bold, …). WOFF 2 needs <see cref="Woff2Decoder"/> installed — see the optional
+    /// <c>CupriFace.Woff2</c> package.</summary>
     public void RegisterFont(byte[] data) => RegisterFont(data, null, null, null, null);
 
     /// <summary>Register a font under DECLARED metadata, the way an <c>@font-face</c> rule does: the
@@ -106,9 +120,13 @@ public sealed class FontService : IDisposable
     /// to what the font says about itself.</summary>
     public SKTypeface RegisterFont(byte[] data, string? family, int? weightMin, int? weightMax, FontSlant? slant)
     {
+        byte[] sfnt;
         if (Woff.IsWoff2(data))
-            throw new NotSupportedException("WOFF 2 fonts are not supported yet (Brotli plus a glyf/loca transform to undo). Convert to TTF/OTF or WOFF 1.");
-        var sfnt = Woff.IsWoff1(data) ? Woff.ToSfnt(data) : data;
+            sfnt = (Woff2Decoder ?? throw new NotSupportedException(
+                "WOFF 2 needs a decoder: reference the optional CupriFace.Woff2 package and call " +
+                "UseWoff2(). Or convert the font to TTF/OTF or WOFF 1."))(data);
+        else
+            sfnt = Woff.IsWoff1(data) ? Woff.ToSfnt(data) : data;
 
         using var skData = SKData.CreateCopy(sfnt);
         var tf = SKTypeface.FromData(skData)

@@ -34,8 +34,8 @@ variables, `@media`, `@keyframes`, transitions.
 | `CupriFace` | The engine — parse, style, layout, shape text, paint, bind, components. Renders into any Skia canvas or RGBA buffer, so it works headless too. |
 | `CupriFace.Shell` | The desktop host — a window (GPU with a software fallback), input, and cursors. `DesktopHost.Run(new SettingsApp())`. |
 | `CupriFace.Android` | The Android host — subclass `CupriActivity`, return your `CupriApp`. GL surface, touch gestures (tap/fling/long-press), soft keyboard with real IME composition, and the TalkBack accessibility bridge. Needs the `android` workload. |
-| `CupriFace.Web.Mono` | The browser host — `WebHost.Run(new SettingsApp())` on a canvas. Frame loop, pointer/touch/wheel/keyboard, the ARIA overlay screen readers read and operate (with a real `<input>` per text field, so the browser's own editor, IME and password manager work on it), IME composition, clipboard, and browser-decoded video. No Blazor and no JS to write. Named for its runtime: it uses the wasm runtime in the .NET SDK, so it builds anywhere, but the engine runs interpreted (~8x slower than native). A faster NativeAOT-LLVM sibling with the identical `WebHost.Run` API is planned, so the choice is a `PackageReference`. |
-| `CupriFace.Web.NativeAot` | The same browser host **compiled ahead of time** — several times faster for interaction-heavy UI, because the engine is not interpreted. Identical `WebHost.Run` API, so the choice is a `PackageReference`. Costs toolchain maturity: it needs the experimental dotnet/runtimelab ILC feed, which your app must add itself. |
+| `CupriFace.Web.NativeAot` | **The recommended browser host** — `WebHost.Run(new SettingsApp())` on a canvas, **compiled ahead of time**. Frame loop, pointer/touch/wheel/keyboard, the ARIA overlay screen readers read and operate (with a real `<input>` per text field, so the browser's own editor, IME and password manager work on it), IME composition, clipboard, and browser-decoded video. No Blazor and no JS to write. Roughly 8x quicker to interact with than the interpreted Mono host, for the same download size. Costs toolchain maturity: it needs the experimental dotnet/runtimelab ILC feed, which **your app must add itself**, and that compiler is published for x64 Windows and x64/arm64 Linux only — see the note below. |
+| `CupriFace.Web.Mono` | The same browser host on the Mono wasm runtime — identical `WebHost.Run` API and the same features, so the choice between the two is a `PackageReference` and no app code. Named for its runtime: it uses the wasm runtime that ships in the .NET SDK, so it builds anywhere `dotnet publish` runs and needs no preview feed, but the engine runs interpreted (~8x slower than native, forced by an upstream Mono wasm-AOT defect). Use it when the recommended host's build requirements do not fit your machine or pipeline. |
 
 The engine has no windowing dependency at all, which is what makes it embeddable: `RenderToPixels`
 fills any RGBA buffer — a game texture, an HTML canvas, a server-side image — and the same document
@@ -77,6 +77,19 @@ takes pointer and key events with no display attached. That also makes UI genuin
   - Nothing needs doing about it. The build prints a note next to the warning explaining the above;
     `CupriFaceQuietRuntimeNote=true` silences the note (not the warning), and `<NoWarn>XA1040</NoWarn>`
     silences the warning if you would rather not see it every build.
+- **The recommended web host builds on x64 Windows and x64/arm64 Linux.** `CupriFace.Web.NativeAot`
+  reaches the browser through the ILCompiler.LLVM backend on the `dotnet-experimental` feed, and that
+  compiler is a native executable that must match the machine doing the build. It is published for
+  `win-x64`, `linux-x64` and `linux-arm64`; **macOS and Windows-ARM either stop at a .NET 9 alpha or
+  were never published**, so restore fails there rather than the link. This is about the build
+  machine only — both hosts cross-compile to `browser-wasm`, and the published app runs in any
+  browser on any OS.
+
+  Two ways round it, both ordinary: build the web app in CI or a container (the repo's own `webllvm`
+  job does exactly this on Linux and Windows), or develop against `CupriFace.Web.Mono` locally and
+  publish the recommended host from your pipeline. The API is identical, so nothing in the app
+  changes either way.
+
 - **App icons come in two kinds, and CupriFace only owns one of them.** Override `CupriApp.Icon`
   with PNG/JPEG bytes and every host adapts it to its own *runtime* icon: the desktop window and
   taskbar, the browser tab's favicon, the Android recents card. The **launcher** icon is not
