@@ -13,6 +13,27 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## v0.28.1
+
+**`CupriFace.Woff2` was announced in v0.28.0 and not published.** If you went looking for it on
+NuGet after reading those notes, it was not there. It is here.
+
+### Fixed
+
+- **`CupriFace.Woff2` is now actually packed and published.** The release job packs a hand-written
+  list of project files, and the new package was never added to it. Everything else passed: the
+  project was in the solution, built on three operating systems, tested by 1,507 tests, and packed by
+  nothing. v0.28.0 therefore shipped nine packages and release notes describing ten.
+
+  Nothing in v0.28.0 is wrong except the omission — the engine change that lets a host install a WOFF 2
+  decoder shipped correctly in `CupriFace`. If you are on v0.28.0 and want WOFF 2, take
+  `CupriFace.Woff2` 0.28.1; the rest of the family can stay where it is.
+
+- **The release job now refuses to publish an incomplete set.** Anything under `src/` that does not opt
+  out with `IsPackable=false` must produce a nupkg, or the job fails naming the project. The list stays
+  hand-written — it controls order and is the right place to make packaging deliberate — but falling
+  behind the solution is now a build error instead of a quiet gap in a release.
+
 ## v0.28.0
 
 The web font format everything actually emits now loads, and the two browser hosts are ranked

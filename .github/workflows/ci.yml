@@ -1719,8 +1719,22 @@ jobs:
                       src/CupriFace.Gl/CupriFace.Gl.csproj \
                       src/CupriFace.Android/CupriFace.Android.csproj \
                       src/CupriFace.Web.Mono/CupriFace.Web.Mono.csproj \
+                      src/CupriFace.Woff2/CupriFace.Woff2.csproj \
                       src/CupriFace.Web.NativeAot/CupriFace.Web.NativeAot.csproj; do
             dotnet pack "$proj" -c Release -p:Version="$VERSION" -o dist
+          done
+          # The list above is hand-written, and nothing until now noticed when it fell behind the
+          # solution. v0.28.0 shipped release notes announcing CupriFace.Woff2 and no such package:
+          # the project was in the solution, built by CI and tested by CI, and simply never packed.
+          # Every check in this job passed. So: anything under src/ that does not opt out with
+          # IsPackable=false must have produced a nupkg.
+          for proj in src/*/*.csproj; do
+            grep -q '<IsPackable>false</IsPackable>' "$proj" && continue
+            name=$(basename "$proj" .csproj)
+            [ -f "dist/$name.$VERSION.nupkg" ] || {
+              echo "::error::$name is packable but produced no nupkg. Add it to the pack list in this job."
+              exit 1
+            }
           done
           # The media package must actually CARRY the decoders it promises — a nupkg without
           # runtimes/ would install fine and then never play anything.
