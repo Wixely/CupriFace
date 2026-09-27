@@ -1,4 +1,21 @@
 <Project>
+  <!-- THE STATIC WEB ASSETS THIS PACKAGE CARRIES REACH A CONSUMER THROUGH HERE, AND ONLY HERE.
+       The SDK normally generates this file to make this one import; we suppress that generation in
+       the csproj so that this file survives packing at all (#216), which makes the import ours to
+       make. Delete it and the package's wwwroot — main.js, imports.js, the fonts — stops flowing,
+       with no error to say so. The chain continues into files the SDK still generates:
+       buildMultiTargeting\ imports build\, which imports the two Microsoft.AspNetCore props.
+
+       GUARDED BECAUSE THIS FILE HAS TWO READERS. buildMultiTargeting\ is generated at PACK time and
+       does not exist in this tree, while samples/WebLlvm imports this file straight from source —
+       deliberately, so that a sample exercises what a consumer receives. Unconditional, the import
+       is MSB4019 for every such sample. Exists() against $(MSBuildThisFileDirectory) rather than a
+       bare relative path: a bare one would be resolved against the CONSUMING project's directory,
+       so it would be false in the package too, and this would silently become the empty import the
+       issue was about. -->
+  <Import Project="$(MSBuildThisFileDirectory)..\buildMultiTargeting\CupriFace.Web.NativeAot.props"
+          Condition="Exists('$(MSBuildThisFileDirectory)..\buildMultiTargeting\CupriFace.Web.NativeAot.props')" />
+
   <!--
     Flows into apps that consume the CupriFace.Web.NativeAot NUPKG.
 

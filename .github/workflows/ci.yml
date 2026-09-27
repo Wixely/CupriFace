@@ -1747,9 +1747,29 @@ jobs:
           # DirectPInvoke line on wasm, and a nupkg that dropped buildTransitive would restore
           # cleanly and then throw PlatformNotSupportedException inside a browser frame loop —
           # several steps from the missing file. Cheap to assert, expensive to diagnose.
-          unzip -l dist/CupriFace.Gl."$VERSION".nupkg > glpkg.txt
-          grep -q 'buildTransitive/CupriFace.Gl.props' glpkg.txt \
-            || { echo "::error::CupriFace.Gl packed without its buildTransitive props"; cat glpkg.txt; exit 1; }
+          #
+          # ASSERT CONTENT, NOT EXISTENCE. This check used to be `unzip -l | grep the path`, and
+          # #216 walked straight through it: both web hosts shipped a buildTransitive props that
+          # EXISTED and was a 101-byte import shim, because the StaticWebAssets SDK generates a file
+          # at that same path and NuGet keeps whichever it saw first. A listing cannot tell those
+          # apart. So unpack the file and grep for the property that is the whole point of it.
+          for spec in \
+            "CupriFace.Gl:buildTransitive/CupriFace.Gl.props:DirectPInvoke" \
+            "CupriFace.Web.NativeAot:buildTransitive/CupriFace.Web.NativeAot.props:RuntimeIdentifier" \
+            "CupriFace.Web.Mono:buildTransitive/CupriFace.Web.Mono.props:WasmBuildNative" \
+          ; do
+            pkg=${spec%%:*}; rest=${spec#*:}; path=${rest%%:*}; needle=${rest#*:}
+            unzip -p dist/"$pkg"."$VERSION".nupkg "$path" > packed.props 2>/dev/null || {
+              echo "::error::$pkg packed without $path"
+              unzip -l dist/"$pkg"."$VERSION".nupkg; exit 1
+            }
+            grep -q "$needle" packed.props || {
+              echo "::error::$pkg shipped a $path that does not set $needle — it is not the file in"
+              echo "::error::the tree. Something else claimed that path at pack time; check for NU5118."
+              cat packed.props; exit 1
+            }
+            echo "$pkg: $path carries $needle"
+          done
           ls -l dist
 
       # Attaching nupkgs to a release makes them downloadable; it does not make them INSTALLABLE.

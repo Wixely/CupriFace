@@ -52,6 +52,12 @@
          (The two Microsoft.AspNetCore.StaticWebAssets*.props files inside the nupkg are build-time
          item metadata for main.js — a path, a base path and cache headers. Nothing runs.) -->
     <StaticWebAssetBasePath>_content/CupriFace.Web.Mono</StaticWebAssetBasePath>
+    <!-- See the same property in CupriFace.Web.NativeAot for the whole story (#216): the
+         StaticWebAssets SDK generates buildTransitive\$(PackageId).props itself, and the
+         hand-authored file loses the collision. It bit quieter here — the WebAssembly SDK supplies
+         the RID this package's props was setting anyway — which is exactly why it went unnoticed
+         in both packages for as long as it did. -->
+    <StaticWebAssetsDisableProjectBuildTransitivePropsFileGeneration>true</StaticWebAssetsDisableProjectBuildTransitivePropsFileGeneration>
     <!-- The namespace stays CupriFace.Web even though the assembly is CupriFace.Web.Mono: an app
          writes the same `WebHost.Run(new MyApp())` against either host. -->
     <RootNamespace>CupriFace.Web</RootNamespace>

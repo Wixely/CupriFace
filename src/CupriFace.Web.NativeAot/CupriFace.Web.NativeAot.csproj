@@ -23,6 +23,19 @@
          buffer by address, and the present path hands JS a view over wasm memory. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <StaticWebAssetBasePath>_content/CupriFace.Web.NativeAot</StaticWebAssetBasePath>
+    <!-- WITHOUT THIS, buildTransitive\CupriFace.Web.NativeAot.props IS NOT THE FILE IN THIS TREE.
+         The StaticWebAssets SDK generates its own props at that exact path, NuGet refuses the
+         second file at a path it already has, and the hand-authored one loses — silently but for
+         one NU5118 warning in a packing log nobody reads. The package then looks wired up (the
+         .targets half is untouched) while a consumer gets no RuntimeIdentifier and fails three
+         hops away, inside ILC: "The PrivateSdkAssemblies ItemGroup is required" (#216).
+
+         The SDK expects exactly this: it generates the file only so authors who do not need it get
+         one for free, and its own comment says authors shipping custom build files should disable
+         the generation and do the importing themselves. So we take over that one file, and the
+         props keeps the import the generated file would have made. Only the buildTransitive link
+         is ours — build\ and buildMultiTargeting\ are still the SDK's, untouched. -->
+    <StaticWebAssetsDisableProjectBuildTransitivePropsFileGeneration>true</StaticWebAssetsDisableProjectBuildTransitivePropsFileGeneration>
     <!-- The namespace stays CupriFace.Web, as in the Mono package: an app writes the same
          `WebHost.Run(new MyApp())` against either, so switching runtimes touches no app code. -->
     <RootNamespace>CupriFace.Web</RootNamespace>

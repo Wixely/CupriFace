@@ -17,6 +17,29 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **Both web hosts shipped a `buildTransitive` props with nothing in it, so a package consumer got
+  none of the properties the host sets for them** (#216). The StaticWebAssets SDK generates its own
+  props at `buildTransitive/<PackageId>.props`, NuGet keeps whichever file it saw first, and the
+  hand-authored one lost — with a single `NU5118` warning in the packing log as the only sign. The
+  `.targets` half was untouched, so the package looked wired up.
+
+  For `CupriFace.Web.NativeAot` this cost a consumer `RuntimeIdentifier=browser-wasm`, and publishing
+  then failed in the ILC targets with `The PrivateSdkAssemblies ItemGroup is required for
+  _ComputeAssembliesToCompileToNative` — a message three hops from the cause, in someone else's
+  targets. It also cost `-sMAX_WEBGL_VERSION=2`, whose absence silently downgrades a WebGL2 context
+  request to WebGL1 and surfaces as a shader error on a line you did not write.
+  `CupriFace.Web.Mono` lost `WasmBuildNative` and `NoWarn`, quieter only because the WebAssembly SDK
+  supplies the RID anyway.
+
+  **If you pinned these properties in your own csproj to work around this, you can delete them**
+  from this version on. Setting them yourself still works and still wins — the package only
+  defaults them.
+
+- **The packaged-build-file check now reads the file instead of listing it.** The existing guard for
+  `CupriFace.Gl` grepped `unzip -l` output for the path, which #216 walked straight through: the file
+  existed and was a 101-byte import shim. CI now unpacks the props for `CupriFace.Gl` and both web
+  hosts and asserts each one still sets the property that is the point of it.
+
 - **`CupriDoctor` no longer reads angle brackets inside `<style>`, `<script>`, `<textarea>` or
   `<title>` as HTML tags** (#215). A stylesheet with a comment like `/* the runtime injects --<id> */`
   was reported as two unclosed-tag **errors** on a document that renders perfectly, so a tool
