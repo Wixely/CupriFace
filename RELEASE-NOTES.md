@@ -13,6 +13,68 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- **`CupriFace.Woff2` refused fonts it should have read, because it rebuilt `glyf` about 75% larger
+  than the table it came from** (#214). The decoder wrote the uncompressed coordinate form — a flag
+  byte per point, every delta a full `int16`, no `REPEAT` runs. That is valid SFNT and renders
+  identically, so nothing failed until a font arrived whose real `glyf` sat within that margin of
+  the 131,070 bytes a short `loca` can address. Then the rebuilt table overflowed a ceiling the font
+  itself was nowhere near, and the decoder reported the font as inconsistent.
+
+  Caveat 700's latin subset is the example: it declares 87,532 bytes of `glyf`, the old decoder
+  produced 152,828, and `@font-face "Caveat" could not be loaded` followed. Under
+  `FontPolicy.RegisteredOnly` that is not a substituted face but a composition that will not render
+  at all. **Any font whose `glyf` exceeds roughly 75 KB was at risk**, which is an ordinary size for
+  a detailed display face.
+
+  `glyf` is now written in the compact form the format intends, and comes back byte-for-byte
+  identical to the TTF the WOFF 2 was built from. Fonts that already worked are unaffected — the
+  outlines were always correct, only the encoding was wasteful — so this is purely fonts that used
+  to fail and now load. If you pinned a substitute family to work around a refusal, you can drop it.
+
+  The decoder's short-`loca` path now has a test for the first time. Every WOFF 2 fixture the repo
+  had used the long form, so the branch this was reported on had never been executed by a test at
+  all; Caveat is checked in under `tests/CupriFace.Tests/Assets/` (OFL, with its licence and
+  provenance beside it) precisely because it takes that path.
+
+- **The sizes a WOFF 2 declares for its own tables are now checked rather than discarded.**
+  `glyf`/`loca` `origLength` and `totalSfntSize` all travelled in the file for this purpose and were
+  parsed and thrown away, which is why a 75% overshoot went unnoticed for as long as it did. A
+  reconstruction that does not match what the font says it should be is now an error that says so.
+
+- **Both web hosts shipped a `buildTransitive` props with nothing in it, so a package consumer got
+  none of the properties the host sets for them** (#216). The StaticWebAssets SDK generates its own
+  props at `buildTransitive/<PackageId>.props`, NuGet keeps whichever file it saw first, and the
+  hand-authored one lost — with a single `NU5118` warning in the packing log as the only sign. The
+  `.targets` half was untouched, so the package looked wired up.
+
+  For `CupriFace.Web.NativeAot` this cost a consumer `RuntimeIdentifier=browser-wasm`, and publishing
+  then failed in the ILC targets with `The PrivateSdkAssemblies ItemGroup is required for
+  _ComputeAssembliesToCompileToNative` — a message three hops from the cause, in someone else's
+  targets. It also cost `-sMAX_WEBGL_VERSION=2`, whose absence silently downgrades a WebGL2 context
+  request to WebGL1 and surfaces as a shader error on a line you did not write.
+  `CupriFace.Web.Mono` lost `WasmBuildNative` and `NoWarn`, quieter only because the WebAssembly SDK
+  supplies the RID anyway.
+
+  **If you pinned these properties in your own csproj to work around this, you can delete them**
+  from this version on. Setting them yourself still works and still wins — the package only
+  defaults them.
+
+- **The packaged-build-file check now reads the file instead of listing it.** The existing guard for
+  `CupriFace.Gl` grepped `unzip -l` output for the path, which #216 walked straight through: the file
+  existed and was a 101-byte import shim. CI now unpacks the props for `CupriFace.Gl` and both web
+  hosts and asserts each one still sets the property that is the point of it.
+
+- **`CupriDoctor` no longer reads angle brackets inside `<style>`, `<script>`, `<textarea>` or
+  `<title>` as HTML tags** (#215). A stylesheet with a comment like `/* the runtime injects --<id> */`
+  was reported as two unclosed-tag **errors** on a document that renders perfectly, so a tool
+  treating the lint as a gate rejected it. Those elements' children are text and never markup, so the
+  scanner now jumps the whole element. A `<style>` that genuinely never closes is still reported, at
+  the line it opened on.
+
 ## v0.28.1
 
 **`CupriFace.Woff2` was announced in v0.28.0 and not published.** If you went looking for it on

@@ -135,10 +135,17 @@ internal static class Woff2Glyf
                 var (so, sl) = TakeInstructions(glyphStream, ref glyphAt, instructions.Length, ref instrAt, g, arg);
                 var instr = instructions.Slice(so, sl);
 
-                WriteSimpleGlyph(glyf, hasExplicitBbox, bboxValues, ref bboxAt, endPts, flags, xs, ys, instr);
+                WriteSimpleGlyph(glyf, hasExplicitBbox, bboxValues, ref bboxAt, endPts, flags, xs, ys, instr, g, arg);
             }
 
-            Pad4(glyf);
+            // FOUR, WHATEVER indexFormat SAYS — measured, not assumed. A short 'loca' only needs
+            // offsets even, so padding to 2 looks like a free saving and #214 proposed it as one. It
+            // is not: real fonts pad glyphs to 4 regardless, so padding to 2 makes the rebuilt table
+            // SMALLER than the one it came from and no longer byte-comparable to it. Caveat 700
+            // declares 87,532 bytes of 'glyf'; padding to 2 produces 87,120, and padding to 4
+            // produces 87,532 exactly. NotoSans (long 'loca') matches exactly either way. Exact is
+            // worth more than 412 bytes, because it is what lets the size check below mean anything.
+            PadTo(glyf, 4);
         }
         offsets[numGlyphs] = (uint)glyf.Length;
 
@@ -149,7 +156,7 @@ internal static class Woff2Glyf
 
     private static void WriteSimpleGlyph(System.IO.MemoryStream glyf, bool hasExplicitBbox,
         ReadOnlySpan<byte> bboxValues, ref int bboxAt, ushort[] endPts, byte[] flags,
-        short[] xs, short[] ys, ReadOnlySpan<byte> instr)
+        short[] xs, short[] ys, ReadOnlySpan<byte> instr, int g, byte[] arg)
     {
         // A simple glyph's box is the extent of its points unless one was transmitted. Computing it
         // is not an optimisation — the transform DROPS the box precisely because it is derivable.
@@ -188,16 +195,101 @@ internal static class Woff2Glyf
         BinaryPrimitives.WriteUInt16BigEndian(two, (ushort)instr.Length); glyf.Write(two);
         glyf.Write(instr);
 
-        // Flags and coordinates go out in the SFNT's own shape: one flag byte per point (no run
-        // compression — legal, and a byte or two larger than an encoder would manage), then the x
-        // deltas, then the y deltas, each as an int16 with its SHORT/SAME bits left clear.
-        for (var i = 0; i < flags.Length; i++)
-            glyf.WriteByte((byte)(flags[i] & ~0x02 & ~0x04 & ~0x10 & ~0x20));
+        // ---- flags and coordinates, in the SFNT's COMPACT shape ----------------------------------
+        //
+        // THIS IS NOT AN OPTIMISATION, AND THE LONG FORM IS NOT A SAFE SIMPLIFICATION. Writing a
+        // flag byte per point and a full int16 per axis is valid SFNT that renders identically,
+        // which is exactly what made it dangerous: it inflated `glyf` by ~75% on a detailed face
+        // with nothing to show for it. Nothing failed until a font arrived whose REAL table was
+        // within that margin of the 131,070 bytes a short `loca` can address — then the
+        // reconstruction overflowed a ceiling the font itself sat 43 KB below, and the decoder blamed
+        // the font (#214). Caveat 700's latin subset declares 87,532 bytes of `glyf`; the long form
+        // produced 152,828 and refused to load a file every browser reads.
+        //
+        // The encoding is forced rather than chosen, which is the useful part: a zero delta costs no
+        // bytes, |d| <= 255 costs one, anything else two, and equal consecutive flags collapse into
+        // a REPEAT. There is no freedom left for us to be bigger than the encoder was, so the
+        // rebuilt table matches the size the font declares — and that declared size is now checked
+        // rather than discarded (see Woff2Reader.ReconstructTransforms).
+        var n = flags.Length;
+        var coded = new byte[n];
+        var dxs = new int[n];
+        var dys = new int[n];
+        int px = 0, py = 0;
+        for (var i = 0; i < n; i++)
+        {
+            var dx = xs[i] - px;
+            var dy = ys[i] - py;
+            px = xs[i];
+            py = ys[i];
 
-        short prev = 0;
-        for (var i = 0; i < xs.Length; i++) { BinaryPrimitives.WriteInt16BigEndian(two, (short)(xs[i] - prev)); glyf.Write(two); prev = xs[i]; }
-        prev = 0;
-        for (var i = 0; i < ys.Length; i++) { BinaryPrimitives.WriteInt16BigEndian(two, (short)(ys[i] - prev)); glyf.Write(two); prev = ys[i]; }
+            // Both coordinates are int16, so a delta between two of them need not be — and the old
+            // code cast it to short regardless, which would have moved the point rather than said so.
+            if (dx is < short.MinValue or > short.MaxValue || dy is < short.MinValue or > short.MaxValue)
+                throw new ArgumentException(
+                    $"Transformed 'glyf' glyph {g} point {i} is more than 32,767 units from the point "
+                    + "before it, which a simple glyph has no way to encode.", nameof(arg));
+
+            dxs[i] = dx;
+            dys[i] = dy;
+
+            // ON_CURVE and OVERLAP_SIMPLE are the font's to state; every other bit describes how we
+            // are about to write the delta, so it is ours to derive. When SHORT is set, the SAME bit
+            // stops meaning "same" and becomes the SIGN.
+            var f = (byte)(flags[i] & (0x01 | 0x40));
+            if (dx == 0) f |= 0x10;                                       // X_SAME, and no byte follows
+            else if (dx is >= -255 and <= 255) f |= (byte)(0x02 | (dx > 0 ? 0x10 : 0));
+            if (dy == 0) f |= 0x20;
+            else if (dy is >= -255 and <= 255) f |= (byte)(0x04 | (dy > 0 ? 0x20 : 0));
+            coded[i] = f;
+        }
+
+        // REPEAT carries a uint8 count of ADDITIONAL points, so one run covers at most 256 of them.
+        // Used only from THREE, because at two it saves nothing — `flag|REPEAT, 1` and `flag, flag`
+        // are both two bytes — and declining to compress where there is nothing to compress is also
+        // what the fonts themselves do: with this rule the rebuilt table comes out byte-for-byte
+        // identical to the TTF the WOFF 2 was made from, which is a far better thing to be able to
+        // assert in a test than "the same size".
+        for (var i = 0; i < n;)
+        {
+            var f = coded[i];
+            var run = 1;
+            while (i + run < n && coded[i + run] == f && run < 256) run++;
+            if (run > 2)
+            {
+                glyf.WriteByte((byte)(f | 0x08));
+                glyf.WriteByte((byte)(run - 1));
+            }
+            else
+            {
+                for (var k = 0; k < run; k++) glyf.WriteByte(f);   // run is 1 or 2, written out
+            }
+            i += run;
+        }
+
+        WriteDeltas(glyf, dxs);
+        WriteDeltas(glyf, dys);
+    }
+
+    /// <summary>Writes one axis of point deltas, in the shape the flag bytes already promised: a
+    /// zero was folded into its SAME bit and takes no space, a small one is a single unsigned byte
+    /// whose sign the flag carries, and only the rest cost an int16.</summary>
+    private static void WriteDeltas(System.IO.MemoryStream glyf, int[] deltas)
+    {
+        Span<byte> two = stackalloc byte[2];
+        foreach (var d in deltas)
+        {
+            if (d == 0) continue;
+            if (d is >= -255 and <= 255)
+            {
+                glyf.WriteByte((byte)(d < 0 ? -d : d));
+            }
+            else
+            {
+                BinaryPrimitives.WriteInt16BigEndian(two, (short)d);
+                glyf.Write(two);
+            }
+        }
     }
 
     private static void WriteBboxAndBody(System.IO.MemoryStream glyf, short numberOfContours,
@@ -375,8 +467,16 @@ internal static class Woff2Glyf
     }
 
     /// <summary>Rebuilds <c>loca</c> from the offsets the glyphs produced. The short format stores
-    /// offset/2, so it can only be used when every offset is even — which the 4-byte padding
-    /// guarantees.</summary>
+    /// offset/2, so it can only be used when every offset is even — which the padding guarantees.
+    ///
+    /// <para>Reaching the throw below should now mean a genuinely malformed font rather than a
+    /// reconstruction that grew. It used to mean the latter, and said the former (#214): the
+    /// long-form glyph writer inflated <c>glyf</c> past what a short <c>loca</c> can address and this
+    /// is where it surfaced, blaming a font whose own numbers were consistent. Do NOT answer a
+    /// recurrence by widening <c>loca</c> and patching <c>head.indexToLocFormat</c> — that would
+    /// make the font load while leaving the table oversized, and destroy the signal. Compare the
+    /// rebuilt size against the <c>glyf</c> origLength the font declares first.</para>
+    /// </summary>
     private static byte[] BuildLoca(uint[] offsets, ushort indexFormat, byte[] arg)
     {
         if (indexFormat == 0)
@@ -386,8 +486,10 @@ internal static class Woff2Glyf
             {
                 if ((offsets[i] & 1) != 0 || offsets[i] / 2 > 0xFFFF)
                     throw new ArgumentException(
-                        "Transformed 'glyf' asks for the short 'loca' format but the glyphs do not " +
-                        "fit it. The font's indexFormat and its glyph data disagree.", nameof(arg));
+                        $"Transformed 'glyf' asks for the short 'loca' format, but glyph {i} lands at "
+                        + $"offset {offsets[i]} and that format cannot address past {0xFFFF * 2}. "
+                        + "Either the font is malformed or the rebuilt 'glyf' is larger than the one "
+                        + "it was made from.", nameof(arg));
                 BinaryPrimitives.WriteUInt16BigEndian(loca.AsSpan(i * 2), (ushort)(offsets[i] / 2));
             }
             return loca;
@@ -399,9 +501,9 @@ internal static class Woff2Glyf
         return wide;
     }
 
-    private static void Pad4(System.IO.MemoryStream s)
+    private static void PadTo(System.IO.MemoryStream s, int align)
     {
-        while ((s.Length & 3) != 0) s.WriteByte(0);
+        while ((s.Length & (align - 1)) != 0) s.WriteByte(0);
     }
 
     // `scoped ref` on the cursor: without it the returned slice inherits the cursor local's

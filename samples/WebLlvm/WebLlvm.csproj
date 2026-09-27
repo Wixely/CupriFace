@@ -3,7 +3,14 @@
   <!-- buildTransitive does not cross ProjectReference edges, so this sample imports by hand what a
        nupkg consumer gets automatically — props FIRST, as NuGet injects them, because the RID has
        to be set before the ILC/Emscripten targets evaluate it. Importing rather than copying is
-       what makes this sample the test of the files a consumer actually receives. -->
+       what makes this sample the test of the files a consumer actually receives.
+
+       THE LIMIT OF THAT CLAIM, which #216 found the hard way: this reads the files in the TREE, and
+       for an entire release those were not the files in the nupkg — the StaticWebAssets SDK
+       generated its own props over the top at pack time and this sample could not have noticed.
+       What is packed is now asserted in CI, by unpacking the nupkg and grepping the props for
+       RuntimeIdentifier. Keep both: this one proves the files work, that one proves they ship. -->
+
   <Import Project="..\..\src\CupriFace.Web.NativeAot\buildTransitive\CupriFace.Web.NativeAot.props" />
 
   <!--

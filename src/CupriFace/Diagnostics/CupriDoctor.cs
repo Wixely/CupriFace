@@ -271,6 +271,21 @@ public static partial class CupriDoctor
             line += CountNewlines(html, i, gt);
 
             if (VoidElements.Contains(tag) || selfClosing) { i = gt; continue; }
+
+            // Inside a raw-text element there is no markup, so skip to its close tag rather than
+            // reading its contents. A stylesheet that writes `--<id>` in a CSS comment is the case
+            // that found this (#215) — it was reported as two unclosed tags, an ERROR, on a
+            // document that renders perfectly. The same went for anything angle-bracketed in a
+            // <textarea>'s text or in a `content: "<x>"` declaration.
+            if (!isClose && RawTextElements.Contains(tag))
+            {
+                var closeGt = IndexOfRawTextClose(html, gt + 1, tag);
+                if (closeGt < 0) { open.Push((tag, tagLine)); break; }   // unclosed: the sweep below names it
+                line += CountNewlines(html, gt, closeGt);
+                i = closeGt;
+                continue;
+            }
+
             if (!isClose) { open.Push((tag, tagLine)); i = gt; continue; }
 
             if (open.Count == 0)
@@ -325,6 +340,37 @@ public static partial class CupriDoctor
         "area", "base", "br", "col", "embed", "hr", "img", "input", "link",
         "meta", "param", "source", "track", "wbr",
     };
+
+    /// <summary>The elements whose children are text and never markup — raw text (<c>style</c>,
+    /// <c>script</c>) and escapable raw text (<c>textarea</c>, <c>title</c>). A <c>&lt;</c> in
+    /// there is a less-than sign, so a tag scanner has to jump the whole element.</summary>
+    private static readonly HashSet<string> RawTextElements = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "style", "script", "textarea", "title",
+    };
+
+    /// <summary>Finds the <c>&gt;</c> of the <c>&lt;/tag&gt;</c> that ends a raw-text element, or
+    /// -1 if it never closes. Only that exact close tag ends one — which is why
+    /// <c>&lt;/styles&gt;</c> must not match <c>style</c>, and why trailing space inside the tag
+    /// must.</summary>
+    private static int IndexOfRawTextClose(string html, int from, string tag)
+    {
+        for (var at = from; at < html.Length; at++)
+        {
+            at = html.IndexOf("</", at, StringComparison.Ordinal);
+            if (at < 0) return -1;
+
+            var name = at + 2;
+            if (name + tag.Length > html.Length) return -1;
+            if (string.Compare(html, name, tag, 0, tag.Length, StringComparison.OrdinalIgnoreCase) != 0)
+                continue;
+
+            var k = name + tag.Length;
+            while (k < html.Length && char.IsWhiteSpace(html[k])) k++;
+            if (k < html.Length && html[k] == '>') return k;
+        }
+        return -1;
+    }
 
     // ---- 2. a cupri-* tag nobody registered ----------------------------------------------------
 

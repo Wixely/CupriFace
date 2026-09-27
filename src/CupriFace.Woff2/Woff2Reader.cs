@@ -156,7 +156,46 @@ public static class Woff2Reader
                     "WOFF 2 has a transformed 'glyf' with an untransformed 'loca'. The transform " +
                     "rebuilds both together, so this combination cannot be decoded.", nameof(woff2));
 
+            // numGlyphs sits at offset 4 of the transformed glyf header, and is read here while
+            // glyf.Data is still the transformed table — Reconstruct replaces it below.
+            if (glyf.Data.Length < 8)
+                throw new ArgumentException("Transformed 'glyf' is shorter than its own header.", nameof(woff2));
+            var numGlyphs = BinaryPrimitives.ReadUInt16BigEndian(glyf.Data.AsSpan(4));
+
             var (glyfBytes, locaBytes) = Woff2Glyf.Reconstruct(glyf.Data, woff2);
+
+            // THE FONT TOLD US HOW BIG BOTH OF THESE SHOULD BE, AND WE USED TO IGNORE IT (#214).
+            // origLength travelled in the directory for exactly this purpose and was parsed and
+            // dropped, so a reconstruction that came out 74% too large went unnoticed until the one
+            // font whose real table sat close enough to the short-'loca' ceiling for the inflation
+            // alone to push it over. The decoder then blamed the font. These two lines are what turn
+            // that class of bug back into an immediate, honest error.
+            //
+            // loca first: its length is (numGlyphs + 1) x 2 or x 4 and nothing else, so it pins the
+            // offset size independently of what the glyf header claims. When the two disagree the
+            // font really is inconsistent — the case #214 believed it had, and did not.
+            //
+            // COMPARED WITH PADDING SLACK, DELIBERATELY. An encoder may record origLength 4-aligned
+            // — the NotoSans fixture's glyf declares 428,800 where the TTF's own directory says
+            // 428,798 — and a short loca for an odd glyph count is not a multiple of 4. Demanding
+            // exact equality would therefore refuse a perfectly good font, which is the very failure
+            // this whole issue is about. The two offset sizes differ by a factor of two, so slack of
+            // three bytes cannot blur them: the check keeps all of its power and none of its bite.
+            if (Align4(locaBytes.Length) != Align4(loca.OrigLength))
+                throw new ArgumentException(
+                    $"WOFF 2 rebuilt a 'loca' of {locaBytes.Length} bytes but the font declares "
+                    + $"{loca.OrigLength}. The transformed 'glyf' header's indexFormat and the font's "
+                    + "own 'loca' length disagree about the offset size.", nameof(woff2));
+
+            // glyf is allowed to differ only by per-glyph padding, which is at most 3 bytes a glyph.
+            // Anything past that is not a padding convention, it is us rebuilding the table wrong —
+            // and going OVER is the direction that breaks fonts, so that is the one worth refusing.
+            if (glyfBytes.Length > glyf.OrigLength + 3 * numGlyphs)
+                throw new ArgumentException(
+                    $"WOFF 2 rebuilt a 'glyf' of {glyfBytes.Length} bytes from one the font declares "
+                    + $"as {glyf.OrigLength} — too much to be padding. This is a decoder fault rather "
+                    + "than a bad font; do not work around it by widening 'loca'.", nameof(woff2));
+
             glyf.Data = glyfBytes;
             loca.Data = locaBytes;
             glyf.Transformed = loca.Transformed = false;

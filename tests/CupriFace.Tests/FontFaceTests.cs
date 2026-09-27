@@ -5,6 +5,7 @@ using CupriFace.Resources;
 using CupriFace.Style;
 using CupriFace.Text;
 using CupriFace.Woff2;
+using SkiaSharp;
 using Xunit;
 
 namespace CupriFace.Tests;
@@ -262,6 +263,10 @@ public class FontFaceTests
     private static string RegularWoff2 =>
         Path.Combine(AppContext.BaseDirectory, "fixtures", "NotoSans-Regular.woff2");
 
+    /// <summary>The short-<c>loca</c> fixture; see tests/CupriFace.Tests/Assets/README.md.</summary>
+    private static string CaveatWoff2 =>
+        Path.Combine(AppContext.BaseDirectory, "fixtures", "Caveat-700-latin.woff2");
+
     /// <summary>Installs the WOFF 2 decoder for one test and puts back whatever was there. The hook
     /// is static because font registration is, so a test that leaves it set changes its
     /// neighbours.</summary>
@@ -312,16 +317,119 @@ public class FontFaceTests
         var fromWoff2 = TableLengths(sfnt);
         var fromTtf = TableLengths(File.ReadAllBytes(Regular));
 
-        // Same tables, and the same lengths — except glyf, which this decoder writes in the SFNT's
-        // uncompressed coordinate form (a flag byte per point, every delta a full int16). Legal and
-        // metrically identical; larger than an encoder would manage. loca follows glyf's length.
+        // Same tables, and the same lengths. glyf USED TO BE EXEMPTED HERE — the decoder wrote the
+        // uncompressed coordinate form (a flag byte per point, every delta a full int16), which is
+        // legal and metrically identical and about 75% too big, and this assertion was relaxed to
+        // `> 0` to let it pass. That hole is #214: the inflation went unnoticed until a font whose
+        // real glyf sat near the short-loca ceiling overflowed it and the decoder blamed the font.
+        // The exemption is gone; glyf is held to its length like every other table.
         Assert.Equal(fromTtf.Keys.OrderBy(k => k, StringComparer.Ordinal),
                      fromWoff2.Keys.OrderBy(k => k, StringComparer.Ordinal));
         foreach (var (tag, len) in fromTtf)
         {
-            if (tag is "glyf") { Assert.True(fromWoff2[tag] > 0); continue; }
-            Assert.Equal(len, fromWoff2[tag]);
+            // glyf is the one table we pad: every glyph is aligned to 4, the last one included, so
+            // a table the TTF ends unpadded comes back up to 3 bytes longer. That padded length is
+            // what the WOFF 2 declares as glyf's origLength, so it is the right length to produce.
+            var expected = tag is "glyf" ? (len + 3) & ~3 : len;
+            Assert.Equal(expected, fromWoff2[tag]);
         }
+    }
+
+    /// <summary>The outlines, byte for byte — the assertion the size checks exist to make possible.
+    ///
+    /// <para>A table can be exactly the right length and entirely the wrong shape, so length alone
+    /// proves little. This decodes the WOFF 2 and compares its <c>glyf</c> against the very TTF the
+    /// font was built from: every flag byte, every REPEAT run, every one- and two-byte delta, in
+    /// order. It is the strongest statement available about the transform being run backwards
+    /// correctly, and it is only possible because the rebuilt table is canonical rather than merely
+    /// valid.</para>
+    /// </summary>
+    [Fact]
+    public void Woff2_rebuilds_glyf_byte_for_byte_from_the_ttf()
+    {
+        using var _ = WithWoff2Decoder();
+        var sfnt = Woff2Reader.ToSfnt(File.ReadAllBytes(RegularWoff2));
+        var ttf = File.ReadAllBytes(Regular);
+
+        var (ours, oursLen) = TableSpan(sfnt, "glyf");
+        var (theirs, theirsLen) = TableSpan(ttf, "glyf");
+
+        Assert.Equal((theirsLen + 3) & ~3, oursLen);
+        Assert.True(sfnt.AsSpan(ours, theirsLen).SequenceEqual(ttf.AsSpan(theirs, theirsLen)),
+            "the rebuilt glyf differs from the TTF's within the TTF's own length");
+        for (var i = theirsLen; i < oursLen; i++)
+            Assert.Equal(0, sfnt[ours + i]);          // only zero padding may follow
+    }
+
+    /// <summary>The whole file, against the one number that covers it. <c>totalSfntSize</c> sits at a
+    /// fixed offset in every WOFF 2 header and says how big the font it carries unpacks to; the
+    /// decoder used to read it and discard it as advisory. Any table coming back the wrong size
+    /// lands here, which is the cheapest possible guard against another #214.</summary>
+    [Fact]
+    public void Woff2_unpacks_to_the_size_its_header_declares()
+    {
+        using var _ = WithWoff2Decoder();
+        var woff2 = File.ReadAllBytes(RegularWoff2);
+        var declared = (int)BinaryPrimitives.ReadUInt32BigEndian(woff2.AsSpan(16));
+
+        Assert.Equal(declared, Woff2Reader.ToSfnt(woff2).Length);
+    }
+
+    /// <summary>The font from #214, which is here because it is the only one that takes the SHORT
+    /// <c>loca</c> path — Noto's is long, so that branch had never been executed by a test at all.
+    ///
+    /// <para>It used to be refused outright. Not for anything wrong with it: its <c>indexFormat</c>,
+    /// its <c>loca</c> length and its <c>glyf</c> length all agree, and it fits the short form with
+    /// 43 KB to spare. The decoder rebuilt <c>glyf</c> at 152,828 bytes instead of the declared
+    /// 87,532, overflowed at glyph 287, and reported the font as inconsistent. Under
+    /// <c>FontPolicy.RegisteredOnly</c> that is not a substituted face but a render that does not
+    /// happen.</para>
+    /// </summary>
+    [Fact]
+    public void Woff2_with_a_short_loca_is_read_rather_than_refused()
+    {
+        using var _ = WithWoff2Decoder();
+        var woff2 = File.ReadAllBytes(CaveatWoff2);
+
+        var sfnt = Woff2Reader.ToSfnt(woff2);
+
+        // The file's own header says how big the font it carries unpacks to. Exactly, not roughly:
+        // being the declared size is what the compact glyf writer buys, and what keeps this font
+        // inside the short form its own tables ask for.
+        Assert.Equal((int)BinaryPrimitives.ReadUInt32BigEndian(woff2.AsSpan(16)), sfnt.Length);
+
+        // Short loca, and STILL short after the rebuild — the whole point. 352 glyphs + 1 offset,
+        // two bytes each. If glyf ever inflates again this is 1,412 and the assertion says so
+        // before anything reaches the overflow.
+        var (_, locaLen) = TableSpan(sfnt, "loca");
+        Assert.Equal((352 + 1) * 2, locaLen);
+
+        // And the outlines survive, at the glyph that used to overflow.
+        using var data = SKData.CreateCopy(sfnt);
+        using var face = SKTypeface.FromData(data);
+        Assert.NotNull(face);
+        Assert.Equal("Caveat", face.FamilyName);
+        Assert.Equal(352, face.GlyphCount);
+
+        using var font = new SKFont(face, 64f);
+        using var glyph287 = font.GetGlyphPath(287);
+        Assert.NotNull(glyph287);
+        Assert.False(glyph287.Bounds.IsEmpty, "glyph 287 rebuilt with no outline");
+    }
+
+    /// <summary>Offset and length of one table in an SFNT.</summary>
+    private static (int Offset, int Length) TableSpan(byte[] sfnt, string want)
+    {
+        var n = BinaryPrimitives.ReadUInt16BigEndian(sfnt.AsSpan(4));
+        for (var i = 0; i < n; i++)
+        {
+            var rec = sfnt.AsSpan(12 + i * 16);
+            var tag = new string([(char)rec[0], (char)rec[1], (char)rec[2], (char)rec[3]]);
+            if (tag == want)
+                return ((int)BinaryPrimitives.ReadUInt32BigEndian(rec[8..]),
+                        (int)BinaryPrimitives.ReadUInt32BigEndian(rec[12..]));
+        }
+        throw new InvalidOperationException($"no '{want}' table");
     }
 
     [Fact]
