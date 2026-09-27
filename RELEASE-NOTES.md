@@ -35,6 +35,11 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   outlines were always correct, only the encoding was wasteful — so this is purely fonts that used
   to fail and now load. If you pinned a substitute family to work around a refusal, you can drop it.
 
+  The decoder's short-`loca` path now has a test for the first time. Every WOFF 2 fixture the repo
+  had used the long form, so the branch this was reported on had never been executed by a test at
+  all; Caveat is checked in under `tests/CupriFace.Tests/Assets/` (OFL, with its licence and
+  provenance beside it) precisely because it takes that path.
+
 - **The sizes a WOFF 2 declares for its own tables are now checked rather than discarded.**
   `glyf`/`loca` `origLength` and `totalSfntSize` all travelled in the file for this purpose and were
   parsed and thrown away, which is why a 75% overshoot went unnoticed for as long as it did. A

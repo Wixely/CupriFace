@@ -58,6 +58,16 @@
          optional package would fail those tests for a reason that has nothing to do with them. -->
     <None Include="..\..\src\WebFonts\*.woff2" LinkBase="fixtures"
           CopyToOutputDirectory="PreserveNewest" />
+    <!-- Caveat, the font from #214, and the ONLY thing here with a short 'loca' — Noto's is long, so
+         that branch of the decoder had never been executed by a test. It is test-owned rather than
+         shared: no shipped code has any use for it, and unlike the Noto fixture it brings a licence
+         of its own (OFL, beside it). Assets\README.md records where it came from and which of its
+         properties matter. Copied to the same fixtures/ folder, so tests find both in one place.
+
+         Link rather than LinkBase: LinkBase only reshapes items from OUTSIDE the project cone (the
+         ones above), and this file is inside it, so LinkBase is ignored and it lands in Assets\. -->
+    <None Include="Assets\Caveat-700-latin.woff2" Link="fixtures\Caveat-700-latin.woff2"
+          CopyToOutputDirectory="PreserveNewest" />
     <!-- The demo clip (browser-recorded VP9 WebM) doubles as the demuxer's fixture — copied for
          file-path tests AND embedded for the embedded-source resolution test. -->
     <None Include="..\..\samples\DemoApp\Assets\demo.webm" LinkBase="fixtures"

@@ -5,6 +5,7 @@ using CupriFace.Resources;
 using CupriFace.Style;
 using CupriFace.Text;
 using CupriFace.Woff2;
+using SkiaSharp;
 using Xunit;
 
 namespace CupriFace.Tests;
@@ -262,6 +263,10 @@ public class FontFaceTests
     private static string RegularWoff2 =>
         Path.Combine(AppContext.BaseDirectory, "fixtures", "NotoSans-Regular.woff2");
 
+    /// <summary>The short-<c>loca</c> fixture; see tests/CupriFace.Tests/Assets/README.md.</summary>
+    private static string CaveatWoff2 =>
+        Path.Combine(AppContext.BaseDirectory, "fixtures", "Caveat-700-latin.woff2");
+
     /// <summary>Installs the WOFF 2 decoder for one test and puts back whatever was there. The hook
     /// is static because font registration is, so a test that leaves it set changes its
     /// neighbours.</summary>
@@ -368,6 +373,48 @@ public class FontFaceTests
         var declared = (int)BinaryPrimitives.ReadUInt32BigEndian(woff2.AsSpan(16));
 
         Assert.Equal(declared, Woff2Reader.ToSfnt(woff2).Length);
+    }
+
+    /// <summary>The font from #214, which is here because it is the only one that takes the SHORT
+    /// <c>loca</c> path — Noto's is long, so that branch had never been executed by a test at all.
+    ///
+    /// <para>It used to be refused outright. Not for anything wrong with it: its <c>indexFormat</c>,
+    /// its <c>loca</c> length and its <c>glyf</c> length all agree, and it fits the short form with
+    /// 43 KB to spare. The decoder rebuilt <c>glyf</c> at 152,828 bytes instead of the declared
+    /// 87,532, overflowed at glyph 287, and reported the font as inconsistent. Under
+    /// <c>FontPolicy.RegisteredOnly</c> that is not a substituted face but a render that does not
+    /// happen.</para>
+    /// </summary>
+    [Fact]
+    public void Woff2_with_a_short_loca_is_read_rather_than_refused()
+    {
+        using var _ = WithWoff2Decoder();
+        var woff2 = File.ReadAllBytes(CaveatWoff2);
+
+        var sfnt = Woff2Reader.ToSfnt(woff2);
+
+        // The file's own header says how big the font it carries unpacks to. Exactly, not roughly:
+        // being the declared size is what the compact glyf writer buys, and what keeps this font
+        // inside the short form its own tables ask for.
+        Assert.Equal((int)BinaryPrimitives.ReadUInt32BigEndian(woff2.AsSpan(16)), sfnt.Length);
+
+        // Short loca, and STILL short after the rebuild — the whole point. 352 glyphs + 1 offset,
+        // two bytes each. If glyf ever inflates again this is 1,412 and the assertion says so
+        // before anything reaches the overflow.
+        var (_, locaLen) = TableSpan(sfnt, "loca");
+        Assert.Equal((352 + 1) * 2, locaLen);
+
+        // And the outlines survive, at the glyph that used to overflow.
+        using var data = SKData.CreateCopy(sfnt);
+        using var face = SKTypeface.FromData(data);
+        Assert.NotNull(face);
+        Assert.Equal("Caveat", face.FamilyName);
+        Assert.Equal(352, face.GlyphCount);
+
+        using var font = new SKFont(face, 64f);
+        using var glyph287 = font.GetGlyphPath(287);
+        Assert.NotNull(glyph287);
+        Assert.False(glyph287.Bounds.IsEmpty, "glyph 287 rebuilt with no outline");
     }
 
     /// <summary>Offset and length of one table in an SFNT.</summary>
