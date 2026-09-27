@@ -17,6 +17,29 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **`CupriFace.Woff2` refused fonts it should have read, because it rebuilt `glyf` about 75% larger
+  than the table it came from** (#214). The decoder wrote the uncompressed coordinate form — a flag
+  byte per point, every delta a full `int16`, no `REPEAT` runs. That is valid SFNT and renders
+  identically, so nothing failed until a font arrived whose real `glyf` sat within that margin of
+  the 131,070 bytes a short `loca` can address. Then the rebuilt table overflowed a ceiling the font
+  itself was nowhere near, and the decoder reported the font as inconsistent.
+
+  Caveat 700's latin subset is the example: it declares 87,532 bytes of `glyf`, the old decoder
+  produced 152,828, and `@font-face "Caveat" could not be loaded` followed. Under
+  `FontPolicy.RegisteredOnly` that is not a substituted face but a composition that will not render
+  at all. **Any font whose `glyf` exceeds roughly 75 KB was at risk**, which is an ordinary size for
+  a detailed display face.
+
+  `glyf` is now written in the compact form the format intends, and comes back byte-for-byte
+  identical to the TTF the WOFF 2 was built from. Fonts that already worked are unaffected — the
+  outlines were always correct, only the encoding was wasteful — so this is purely fonts that used
+  to fail and now load. If you pinned a substitute family to work around a refusal, you can drop it.
+
+- **The sizes a WOFF 2 declares for its own tables are now checked rather than discarded.**
+  `glyf`/`loca` `origLength` and `totalSfntSize` all travelled in the file for this purpose and were
+  parsed and thrown away, which is why a 75% overshoot went unnoticed for as long as it did. A
+  reconstruction that does not match what the font says it should be is now an error that says so.
+
 - **Both web hosts shipped a `buildTransitive` props with nothing in it, so a package consumer got
   none of the properties the host sets for them** (#216). The StaticWebAssets SDK generates its own
   props at `buildTransitive/<PackageId>.props`, NuGet keeps whichever file it saw first, and the
