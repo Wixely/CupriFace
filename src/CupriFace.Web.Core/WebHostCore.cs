@@ -489,8 +489,40 @@ public static class WebHostCore
     public static void ContextMenu(double x, double y)
     { if (_doc?.DispatchContextMenu(L(x), L(y)) == true) _dirty = true; }
 
-    public static void Wheel(double x, double y, double dy)
-    { if (_doc?.DispatchWheel(L(x), L(y), (float)dy) == true) _dirty = true; }
+    /// <summary>A wheel notch. <paramref name="ctrl"/> is the zoom chord, split HERE rather than in
+    /// the page for the same reason the desktop host splits it in the host: the engine never learns
+    /// chord conventions, it is told to zoom or to scroll.
+    ///
+    /// <para>Returns whether the host consumed it, which the page needs in order to decide about
+    /// preventDefault. Cancelling unconditionally is what made #219 unfixable from a page: Ctrl+wheel
+    /// neither zoomed the app (the engine was handed a plain wheel and scrolled) nor zoomed the
+    /// browser (preventDefault on a non-passive listener cancels page zoom), and a page listener
+    /// cannot un-cancel afterwards.</para>
+    ///
+    /// <para>Anchored at the pointer, because a wheel zoom HAS a pointer — the user is pointing at
+    /// the thing they want to look at more closely. Better than browser zoom here too: doc.Zoom lays
+    /// out at viewport/zoom and paints to match, so it re-rasterises and @media sees the narrower
+    /// width, where browser zoom on a canvas can only resample.</para>
+    /// </summary>
+    public static bool Wheel(double x, double y, double dy, bool ctrl)
+    {
+        if (_doc is null) return false;
+
+        if (ctrl)
+        {
+            // An app that has turned page zoom off is not asking for this chord either; say so, so
+            // the page can hand it back to the browser rather than swallowing it on our behalf.
+            if (!_doc.PageZoomEnabled) return false;
+            if (dy < 0) _doc.ZoomIn(L(x), L(y));
+            else if (dy > 0) _doc.ZoomOut(L(x), L(y));
+            else return false;                       // a zero-delta notch is not a zoom step
+            _dirty = true;
+            return true;
+        }
+
+        if (_doc.DispatchWheel(L(x), L(y), (float)dy) == true) _dirty = true;
+        return true;                                 // a plain wheel is ours whether or not it moved
+    }
 
     /// <summary>Push the cursor for the current position — only when it changes, because assigning
     /// it on every mouse-move is needless DOM churn.</summary>

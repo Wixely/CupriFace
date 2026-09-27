@@ -13,6 +13,35 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- **Both web hosts presented at CSS pixels, so text was soft on every HiDPI display** (#218). The
+  canvas backing store was sized at `clientWidth`/`clientHeight` and blitted 1:1, so the engine
+  rasterised one pixel per CSS pixel and the compositor stretched the result. It got **worse the
+  more the page was zoomed**, because browser zoom raises `devicePixelRatio` while `clientWidth`
+  stays put — the reported trigger was Chrome at 150%.
+
+  The host now paints at `devicePixelRatio` and still lays out in CSS pixels, which are two
+  different scales and have to stay that way: the app is asked to present into the CSS size of its
+  canvas, and only the canvas, damage rects and surface allocations see `P x dpr`. Pointer
+  coordinates, ARIA boxes, the IME caret and DOM underlays stay in CSS space, because the browser
+  already applies the ratio to those itself.
+
+  `PresentInfo.Adaptive` was never the fix and still is not — it decides layout scale in CSS space,
+  where this is about how many device pixels a CSS pixel is worth.
+
+- **Ctrl+wheel did nothing in either web host** (#219). The page passed every wheel notch on as a
+  plain scroll and called `preventDefault()` unconditionally, so the chord neither zoomed the app
+  (the engine was handed a plain wheel) nor zoomed the browser (`preventDefault` on a non-passive
+  listener cancels page zoom) — it scrolled, which is the one thing nobody asked for.
+
+  Ctrl+wheel now zooms the document, anchored at the pointer, as the desktop host has since #137.
+  An app with page zoom disabled refuses the chord, and the host now tells the page what it took so
+  **only handled gestures are cancelled** — anything the host does not want is left to the browser
+  instead of being swallowed.
+
 ## v0.29.0
 
 Three things that failed silently, and the checks that would have caught them. A font every browser

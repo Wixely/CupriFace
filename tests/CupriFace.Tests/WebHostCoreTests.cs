@@ -228,6 +228,58 @@ public class WebHostCoreTests(ITestOutputHelper output)
         Assert.Equal(600, js.LastWidth);
     }
 
+    /// <summary>Ctrl+wheel is the zoom chord in every browser, and both web hosts swallowed it: the
+    /// page called preventDefault unconditionally and passed the notch on as a plain wheel, so it
+    /// neither zoomed the app nor zoomed the browser — it scrolled (#219). The host answers whether
+    /// it took the event, which is the only way the page can decide about preventDefault; a page
+    /// listener cannot un-cancel after the fact.</summary>
+    [Fact]
+    public void Ctrl_wheel_zooms_the_document_rather_than_scrolling_it()
+    {
+        var js = Boot(new ProbeApp());
+        WebHostCore.Tick(300, 200, 1f, 16);
+        var doc = WebHostCore.Document;
+        doc.PageZoomEnabled = true;
+        var before = doc.Zoom;
+
+        Assert.True(WebHostCore.Wheel(10, 10, -120, ctrl: true), "the host must claim the chord");
+        Assert.True(doc.Zoom > before, "Ctrl+wheel up must zoom in");
+
+        var zoomedIn = doc.Zoom;
+        Assert.True(WebHostCore.Wheel(10, 10, 120, ctrl: true));
+        Assert.True(doc.Zoom < zoomedIn, "Ctrl+wheel down must zoom out");
+    }
+
+    /// <summary>A plain wheel still scrolls, and is still ours — the page must keep cancelling it, or
+    /// the browser scrolls the document out from under a canvas that just handled the gesture.</summary>
+    [Fact]
+    public void A_plain_wheel_is_still_claimed_and_does_not_zoom()
+    {
+        var js = Boot(new ProbeApp());
+        WebHostCore.Tick(300, 200, 1f, 16);
+        var doc = WebHostCore.Document;
+        doc.PageZoomEnabled = true;
+        var before = doc.Zoom;
+
+        Assert.True(WebHostCore.Wheel(10, 10, -120, ctrl: false), "a plain wheel is the host's");
+        Assert.Equal(before, doc.Zoom);
+    }
+
+    /// <summary>An app that has turned page zoom off is not asking for the chord either. Refusing it
+    /// hands the gesture back to the browser, which then zooms the page — the behaviour a user gets
+    /// everywhere else — instead of the host eating it and doing nothing.</summary>
+    [Fact]
+    public void An_app_without_page_zoom_hands_the_chord_back_to_the_browser()
+    {
+        var js = Boot(new ProbeApp());
+        WebHostCore.Tick(300, 200, 1f, 16);
+        var doc = WebHostCore.Document;
+        doc.PageZoomEnabled = false;
+
+        Assert.False(WebHostCore.Wheel(10, 10, -120, ctrl: true),
+            "an unhandled chord must not be claimed, or the page cancels it for nothing");
+    }
+
     private static RecordingBridge Boot(CupriApp app)
     {
         var bridge = new RecordingBridge();

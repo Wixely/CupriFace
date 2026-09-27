@@ -319,7 +319,18 @@ try {
         else M._PointerUp(x, y);
     });
     canvas.addEventListener("pointercancel", e => { if (touch(e)) M._TouchCancel(e.pointerId, e.timeStamp); });
-    canvas.addEventListener("wheel", e => { profile(false); const [x, y] = at(e); M._Wheel(x, y, e.deltaY); e.preventDefault(); }, { passive: false });
+    canvas.addEventListener("wheel", e => {
+        profile(false);
+        const [x, y] = at(e);
+        // Ctrl+wheel is the zoom chord, as every browser has it — and the host decides, because an
+        // app may have page zoom turned off. Only cancel what we actually took: cancelling
+        // unconditionally is what left Ctrl+wheel doing NOTHING (#219) — it did not zoom the app,
+        // because the engine was handed a plain wheel and scrolled, and it did not zoom the browser
+        // either, because preventDefault on a non-passive listener cancels page zoom. A page
+        // listener cannot un-cancel afterwards, so anything we do not handle is left to the browser.
+        const handled = M._Wheel(x, y, e.deltaY, (e.ctrlKey || e.metaKey) ? 1 : 0) !== 0;
+        if (handled) e.preventDefault();
+    }, { passive: false });
 
     // ---- files dragged in from the desktop -----------------------------------------------------
     // The page is the only host that learns about a drag BEFORE the drop, so it is the only one that

@@ -72,7 +72,13 @@ public static unsafe partial class Interop
     public static void ContextMenu(double x, double y) => Guard("ContextMenu", () => WebHostCore.ContextMenu(x, y));
 
     [UnmanagedCallersOnly(EntryPoint = "Wheel")]
-    public static void Wheel(double x, double y, double dy) => Guard("Wheel", () => WebHostCore.Wheel(x, y, dy));
+    public static int Wheel(double x, double y, double dy, int ctrl)
+    {
+        // Returns whether the host consumed it, so the page knows whether to preventDefault (#219).
+        // Not Guard(): that swallows the answer, and swallowing it here means swallowing the chord.
+        try { return WebHostCore.Wheel(x, y, dy, ctrl != 0) ? 1 : 0; }
+        catch (Exception ex) { Crash("Wheel", ex); return 0; }
+    }
 
     [UnmanagedCallersOnly(EntryPoint = "TouchDown")]
     public static void TouchDown(int id, double x, double y, double tMs) => Guard("TouchDown", () => WebHostCore.TouchDown(id, x, y, tMs));
