@@ -100,6 +100,82 @@ public class CupriDoctorTests(ITestOutputHelper output)
         Assert.DoesNotContain(report.Findings, f => f.Code is "CF0010" or "CF0011");
     }
 
+    /// <summary>A <c>&lt;style&gt;</c> element's children are raw text, so nothing angle-bracketed
+    /// in there is markup. This was reported as two unclosed-tag ERRORS on a document that renders
+    /// perfectly (#215), and the only way to keep the lint clean was to stop writing the comment.
+    /// </summary>
+    [Fact]
+    public void AngleBracketsInsideAStyleBlockAreNotTags()
+    {
+        var report = CupriDoctor.Check(
+            "<div class='a'>Handgloves</div>\n<style>\n"
+            + "  body, html { font-family: \"Noto Sans\"; }\n"
+            + "  /* The runtime injects --<id> while the compiler injects --<slugify(id)>. */\n"
+            + "  .a { font-size: 40px; }\n"
+            + "</style>\n");
+
+        Assert.DoesNotContain(report.Findings, f => f.Code is "CF0010" or "CF0011");
+    }
+
+    /// <summary>Not only comments, and not only CSS: the rule is the ELEMENT, so a declaration and
+    /// a textarea's text get the same treatment. Fixing only the CSS-comment case would have left
+    /// these two reported.</summary>
+    [Theory]
+    [InlineData("<body><style>.a::after { content: \"<x>\"; }</style></body>")]
+    [InlineData("<body>\n<textarea>a < b, and <notatag></textarea>\n</body>")]
+    [InlineData("<body><title>Comparing <a> and <b></title></body>")]
+    public void RawTextElementContentsAreNeverMarkup(string html)
+    {
+        var report = CupriDoctor.Check(html);
+
+        Assert.DoesNotContain(report.Findings, f => f.Code is "CF0010" or "CF0011");
+    }
+
+    /// <summary>Skipping the element must not swallow the rest of the document — a real unclosed tag
+    /// AFTER a style block still has to be found, or the fix for #215 would have cost more than it
+    /// bought.</summary>
+    [Fact]
+    public void AnUnclosedTagAfterAStyleBlockIsStillFound()
+    {
+        var report = CupriDoctor.Check(
+            "<body>\n<style>\n  /* <id> */\n</style>\n<div class='a'>\n<span>t</span>\n</body>");
+
+        var f = Assert.Single(report.Findings, x => x.Code == "CF0010");
+        Assert.Contains("div", f.Message);
+        Assert.Equal(5, f.Line);           // the line count must survive the jump, too
+    }
+
+    /// <summary>A <c>&lt;style&gt;</c> that never closes is itself the bug, and must still be
+    /// reported at the line it opened on rather than silently ending the scan.
+    ///
+    /// <para>Its enclosing <c>&lt;body&gt;</c> is reported unclosed as well, and that is right
+    /// rather than noise: with no <c>&lt;/style&gt;</c> every byte that follows is stylesheet text,
+    /// so the <c>&lt;/body&gt;</c> further down is not a tag at all. Fixing the style tag fixes
+    /// both findings at once.</para>
+    /// </summary>
+    [Fact]
+    public void AnUnclosedStyleBlockIsReported()
+    {
+        var report = CupriDoctor.Check("<body>\n<div>a</div>\n<style>\n  .a { color: red; }\n</body>");
+
+        var f = Assert.Single(report.Findings, x => x.Code == "CF0010" && x.Message.Contains("style"));
+        Assert.Equal(3, f.Line);
+        Assert.Contains(report.Findings, x => x.Code == "CF0010" && x.Message.Contains("body"));
+    }
+
+    /// <summary><c>&lt;/styles&gt;</c> is not a close tag for <c>style</c>, and
+    /// <c>&lt;/style &gt;</c> is.</summary>
+    [Fact]
+    public void OnlyTheExactCloseTagEndsARawTextElement()
+    {
+        var spaced = CupriDoctor.Check("<body><style>.a{color:red}</style ></body>");
+        Assert.DoesNotContain(spaced.Findings, f => f.Code is "CF0010" or "CF0011");
+
+        // </styles> must NOT close it, so the <style> is genuinely unclosed and gets reported.
+        var wrong = CupriDoctor.Check("<body><style>.a{color:red}</styles></body>");
+        Assert.Contains(wrong.Findings, f => f.Code == "CF0010" && f.Message.Contains("style"));
+    }
+
     // ---- browser habits --------------------------------------------------------------------------
 
     /// <summary>The one that started this: <c>&lt;img&gt;</c> renders as nothing, silently.</summary>

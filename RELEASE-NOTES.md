@@ -13,6 +13,17 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- **`CupriDoctor` no longer reads angle brackets inside `<style>`, `<script>`, `<textarea>` or
+  `<title>` as HTML tags** (#215). A stylesheet with a comment like `/* the runtime injects --<id> */`
+  was reported as two unclosed-tag **errors** on a document that renders perfectly, so a tool
+  treating the lint as a gate rejected it. Those elements' children are text and never markup, so the
+  scanner now jumps the whole element. A `<style>` that genuinely never closes is still reported, at
+  the line it opened on.
+
 ## v0.28.1
 
 **`CupriFace.Woff2` was announced in v0.28.0 and not published.** If you went looking for it on
