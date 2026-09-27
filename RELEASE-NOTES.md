@@ -13,7 +13,11 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
-## Unreleased
+## v0.29.0
+
+Three things that failed silently, and the checks that would have caught them. A font every browser
+reads now loads, a package consumer now receives the properties the host sets for them, and a
+stylesheet can describe its own naming convention without failing the lint.
 
 ### Fixed
 
