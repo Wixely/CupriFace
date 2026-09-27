@@ -34,7 +34,7 @@ internal partial class Interop
         WebHostCore.Init(app, Configure, Bridge);
     }
 
-    [JSExport] internal static bool Tick(int width, int height, double nowMs) => WebHostCore.Tick(width, height, nowMs);
+    [JSExport] internal static bool Tick(int width, int height, float deviceScale, double nowMs) => WebHostCore.Tick(width, height, deviceScale, nowMs);
 
     // ---- input ---------------------------------------------------------------------------------
 

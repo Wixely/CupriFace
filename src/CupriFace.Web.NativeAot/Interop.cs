@@ -51,9 +51,9 @@ public static unsafe partial class Interop
     });
 
     [UnmanagedCallersOnly(EntryPoint = "Tick")]
-    public static int Tick(int width, int height, double nowMs)
+    public static int Tick(int width, int height, float deviceScale, double nowMs)
     {
-        try { return WebHostCore.Tick(width, height, nowMs) ? 1 : 0; }
+        try { return WebHostCore.Tick(width, height, deviceScale, nowMs) ? 1 : 0; }
         catch (Exception ex) { Crash("Tick", ex); return 0; }
     }
 

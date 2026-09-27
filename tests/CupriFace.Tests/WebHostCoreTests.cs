@@ -141,6 +141,93 @@ public class WebHostCoreTests(ITestOutputHelper output)
         public override PresentInfo Present(float w, float h) => new(w / scale, h / scale, scale);
     }
 
+    /// <summary>Records the size it was asked to present into, so a test can assert what SPACE the
+    /// app was addressed in — the whole question in #218.</summary>
+    private sealed class ProbeApp(float scale = 1f) : CupriApp
+    {
+        public float LastW, LastH;
+        public override string Html => "<body style=\"margin:0\"><p style=\"padding:8px\">text</p></body>";
+        public override string Css => "body{background:#fff}";
+        public override PresentInfo Present(float w, float h)
+        {
+            LastW = w; LastH = h;
+            return new(w / scale, h / scale, scale);
+        }
+    }
+
+    /// <summary>The canvas is sized in DEVICE pixels; the app is asked in CSS pixels. Before #218 the
+    /// buffer was sized in CSS pixels and the compositor stretched it, so text was soft on every
+    /// HiDPI display and softer the more the page was zoomed — browser zoom raises
+    /// <c>devicePixelRatio</c> while <c>clientWidth</c> stays put.
+    ///
+    /// <para>The assertion that matters is the pair: the app must still be addressed at 300x200 (or
+    /// its layout changes under it, and <c>@media</c> sees the wrong width), while the buffer that
+    /// reaches the page is the full 600x400.</para>
+    /// </summary>
+    [Fact]
+    public void A_HiDPI_canvas_is_painted_at_device_pixels_and_laid_out_at_CSS_pixels()
+    {
+        var app = new ProbeApp();
+        var js = Boot(app);
+
+        Assert.True(WebHostCore.Tick(600, 400, 2f, 16), "the first tick must paint");
+
+        Assert.Equal(300f, app.LastW);          // CSS pixels — the app's space, unchanged by the panel
+        Assert.Equal(200f, app.LastH);
+        Assert.Equal(600, js.LastWidth);        // device pixels — the buffer the page gets
+        Assert.Equal(400, js.LastHeight);
+        Assert.Equal(600 * 400 * 4, js.LastByteCount);
+    }
+
+    /// <summary>D and P compose to T, and are not applied twice. An app that zooms itself 2x on a 2x
+    /// panel paints at 4x — and is still asked to present into the CSS size of its canvas, because
+    /// its own zoom changes the viewport it lays out at, not the size of the window.</summary>
+    [Fact]
+    public void The_app_scale_and_the_device_ratio_compose_rather_than_collide()
+    {
+        var app = new ProbeApp(2f);
+        var js = Boot(app);
+
+        Assert.True(WebHostCore.Tick(600, 400, 2f, 16));
+
+        Assert.Equal(300f, app.LastW);          // still the CSS client size, NOT divided by its own scale
+        Assert.Equal(600, js.LastWidth);        // still the device buffer
+    }
+
+    /// <summary>A window dragged to a monitor with a different scale factor changes
+    /// <c>devicePixelRatio</c> without changing the canvas's CSS box — and, if the page keeps its
+    /// backing store in step, without changing the pixel count either. A host that only watched the
+    /// pixel count would keep painting at the old ratio until something else dirtied it.</summary>
+    [Fact]
+    public void A_changed_device_ratio_repaints_even_when_the_pixel_size_does_not()
+    {
+        var app = new ProbeApp();
+        var js = Boot(app);
+
+        Assert.True(WebHostCore.Tick(600, 400, 2f, 16));
+        Assert.False(WebHostCore.Tick(600, 400, 2f, 32), "nothing changed, so nothing should repaint");
+
+        Assert.True(WebHostCore.Tick(600, 400, 1f, 48), "the ratio changed, so it must repaint");
+        Assert.Equal(600f, app.LastW);          // same buffer, half the ratio → twice the CSS size
+    }
+
+    /// <summary>A nonsense ratio is a bad reading, not a display. Zero would divide the client size
+    /// to infinity and lay the document out at nothing.</summary>
+    [Theory]
+    [InlineData(0f)]
+    [InlineData(-1f)]
+    [InlineData(float.NaN)]
+    public void A_nonsense_device_ratio_falls_back_to_one(float dpr)
+    {
+        var app = new ProbeApp();
+        var js = Boot(app);
+
+        Assert.True(WebHostCore.Tick(600, 400, dpr, 16));
+
+        Assert.Equal(600f, app.LastW);
+        Assert.Equal(600, js.LastWidth);
+    }
+
     private static RecordingBridge Boot(CupriApp app)
     {
         var bridge = new RecordingBridge();
@@ -152,7 +239,7 @@ public class WebHostCoreTests(ITestOutputHelper output)
     public void The_host_paints_a_frame_and_mirrors_it_for_screen_readers()
     {
         var js = Boot(new PlainApp());
-        Assert.True(WebHostCore.Tick(300, 200, 16), "the first tick must paint");
+        Assert.True(WebHostCore.Tick(300, 200, 1f, 16), "the first tick must paint");
 
         Assert.Equal(1, js.Presents);
         Assert.Equal(300, js.LastWidth);
@@ -163,7 +250,7 @@ public class WebHostCoreTests(ITestOutputHelper output)
         Assert.False(string.IsNullOrEmpty(js.Aria), "the ARIA mirror must be published on an input-driven frame");
 
         // Render-on-demand: an unchanged frame paints nothing at all.
-        Assert.False(WebHostCore.Tick(300, 200, 32), "an idle tick must not paint");
+        Assert.False(WebHostCore.Tick(300, 200, 1f, 32), "an idle tick must not paint");
         Assert.Equal(1, js.Presents);
     }
 
@@ -177,11 +264,11 @@ public class WebHostCoreTests(ITestOutputHelper output)
     public void An_identical_frame_still_republishes_the_mirror()
     {
         var js = Boot(new PlainApp());
-        Assert.True(WebHostCore.Tick(300, 200, 16));
+        Assert.True(WebHostCore.Tick(300, 200, 1f, 16));
         var arias = js.Calls.Count(c => c == "aria");
 
         WebHostCore.MarkDirty();
-        Assert.False(WebHostCore.Tick(300, 200, 32), "nothing changed, so nothing should be presented");
+        Assert.False(WebHostCore.Tick(300, 200, 1f, 32), "nothing changed, so nothing should be presented");
         Assert.Equal(1, js.Presents);
         Assert.Equal(arias + 1, js.Calls.Count(c => c == "aria"));
     }
@@ -194,7 +281,7 @@ public class WebHostCoreTests(ITestOutputHelper output)
     {
         var app = new ToggleApp();
         var js = Boot(app);
-        WebHostCore.Tick(300, 200, 16);
+        WebHostCore.Tick(300, 200, 1f, 16);
         var path = System.Text.RegularExpressions.Regex.Match(js.Aria!, "role=\"switch\"[^>]*data-path=\"([^\"]+)\"").Groups[1].Value;
         Assert.NotEmpty(path);
         Assert.Contains("aria-checked=\"false\"", js.Aria);
@@ -202,7 +289,7 @@ public class WebHostCoreTests(ITestOutputHelper output)
         WebHostCore.AccessibilityActivate(path);
         Assert.True(app.M.Dark, "the switch should have toggled through the model");
         // Run the frame loop through the knob's transition and past it, on the host's own clock.
-        for (var t = 32; t < 3000; t += 16) WebHostCore.Tick(300, 200, t);
+        for (var t = 32; t < 3000; t += 16) WebHostCore.Tick(300, 200, 1f, t);
         output.WriteLine(js.Aria);
         Assert.Contains("aria-checked=\"true\"", js.Aria);
         Assert.Contains("data-focused=\"true\"", js.Aria);   // and focus followed the activation
@@ -214,7 +301,7 @@ public class WebHostCoreTests(ITestOutputHelper output)
     public void A_video_element_is_opened_and_kept_glued_to_its_box()
     {
         var js = Boot(new VideoApp());
-        WebHostCore.Tick(320, 240, 16);
+        WebHostCore.Tick(320, 240, 1f, 16);
 
         Assert.True(js.Opened.Count > 0,
             "no video was opened — the backend never reached the bridge. Calls: " + string.Join(", ", js.Calls));
@@ -236,7 +323,7 @@ public class WebHostCoreTests(ITestOutputHelper output)
     public void A_canvas_underlay_is_created_and_kept_glued_to_its_box()
     {
         var js = Boot(new CanvasUnderlayApp());
-        WebHostCore.Tick(320, 240, 16);
+        WebHostCore.Tick(320, 240, 1f, 16);
 
         Assert.Contains(js.Calls, c => c.StartsWith("underlayOpenCanvas"));
         Assert.True(js.Rects.Count > 0,
@@ -247,8 +334,8 @@ public class WebHostCoreTests(ITestOutputHelper output)
 
         // Created ONCE, however many frames are painted — a canvas recreated per frame would flicker
         // and leak elements.
-        WebHostCore.Tick(320, 240, 32);
-        WebHostCore.Tick(320, 240, 48);
+        WebHostCore.Tick(320, 240, 1f, 32);
+        WebHostCore.Tick(320, 240, 1f, 48);
         Assert.Equal(1, js.Calls.Count(c => c.StartsWith("underlayOpenCanvas")));
     }
 
@@ -278,7 +365,7 @@ public class WebHostCoreTests(ITestOutputHelper output)
     public void Video_transport_reaches_the_page()
     {
         var js = Boot(new VideoApp());
-        WebHostCore.Tick(320, 240, 16);
+        WebHostCore.Tick(320, 240, 1f, 16);
         var id = js.Opened[0].Id;
 
         // The browser reports the element is ready, which is what flips the engine's hole on.
@@ -290,7 +377,7 @@ public class WebHostCoreTests(ITestOutputHelper output)
         // With a player ready the present path switches to straight alpha — a whole branch of Paint
         // that nothing else turns on. It must still paint.
         var before = js.Presents;
-        Assert.True(WebHostCore.Tick(320, 240, 200), "a frame with a ready video must paint");
+        Assert.True(WebHostCore.Tick(320, 240, 1f, 200), "a frame with a ready video must paint");
         Assert.True(js.Presents > before, "the straight-alpha path produced no present");
         Assert.Equal(320 * 240 * 4, js.LastByteCount);
     }
@@ -302,7 +389,7 @@ public class WebHostCoreTests(ITestOutputHelper output)
     {
         Assert.True(File.Exists(EmbeddedVideoApp.FixturePath), "the demo clip fixture is missing");
         var js = Boot(new EmbeddedVideoApp());
-        WebHostCore.Tick(320, 240, 16);
+        WebHostCore.Tick(320, 240, 1f, 16);
 
         var opened = js.Opened.FirstOrDefault();
         output.WriteLine("opened: " + string.Join(", ", js.Opened.Select(o => $"{o.Id}:{o.Src}")));
@@ -321,7 +408,7 @@ public class WebHostCoreTests(ITestOutputHelper output)
     public void The_context_menu_carries_clipboard_commands_to_the_page()
     {
         var js = Boot(new FieldApp());
-        WebHostCore.Tick(300, 200, 16);
+        WebHostCore.Tick(300, 200, 1f, 16);
 
         WebHostCore.Document.RequestContextCommand(CupriFace.Interaction.ContextCommand.Paste);
         Assert.Contains("clipboardPaste", js.Calls);
@@ -343,7 +430,7 @@ public class WebHostCoreTests(ITestOutputHelper output)
     public void Pointer_input_reaches_the_document_and_pushes_a_cursor()
     {
         var js = Boot(new PlainApp());
-        WebHostCore.Tick(300, 200, 16);
+        WebHostCore.Tick(300, 200, 1f, 16);
         WebHostCore.PointerMove(30, 30);
         // The cursor is pushed only when it CHANGES, so the first move over content sets it.
         Assert.NotNull(js.Cursor);
@@ -380,11 +467,11 @@ public class WebHostCoreTests(ITestOutputHelper output)
     {
         const int W = 400, H = 300;
         var js = Boot(new ScaledApp(scale));
-        Assert.True(WebHostCore.Tick(W, H, 16), "the first tick must paint");
+        Assert.True(WebHostCore.Tick(W, H, 1f, 16), "the first tick must paint");
         var full = js.Calls[^1];
 
         WebHostCore.PointerMove(60 * scale, 80 * scale);
-        Assert.True(WebHostCore.Tick(W, H, 32), "the hover must repaint");
+        Assert.True(WebHostCore.Tick(W, H, 1f, 32), "the hover must repaint");
 
         var d = (js.LastDamageW, js.LastDamageH);
         output.WriteLine($"scale {scale}: first={full} hover damage={d.Item1}x{d.Item2} of {W}x{H}");
