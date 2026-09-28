@@ -431,7 +431,12 @@ try {
     // stretches the result, so text is soft on every HiDPI display and gets softer the more the
     // page is zoomed — browser zoom raises devicePixelRatio while clientWidth stays put. The dpr
     // travels to Tick, where the host splits it back out from the app's own present scale.
-    const dprOf = () => window.devicePixelRatio || 1;
+    // The app's ceiling on devicePixelRatio (#218). A ratio of 2 is sharp on every current
+    // display; the cost above it is quadratic and the benefit is not. Starts at the same default
+    // the engine uses, because sizeCanvas runs before the runtime is resident and cannot ask yet —
+    // adoptDprCap() below re-reads it once Init has run and re-sizes if the app said otherwise.
+    let dprCap = 2;
+    const dprOf = () => Math.min(window.devicePixelRatio || 1, dprCap);
     const sizeCanvas = () => {
         const dpr = dprOf();
         const w = Math.max(1, Math.round((canvas.clientWidth || 940) * dpr));
@@ -685,6 +690,9 @@ try {
     // composites over the page. Pass pointer events THROUGH wherever nothing is drawn — a
     // window-level move listener (fires even when the canvas has pointer-events:none) samples the
     // rendered alpha under the cursor and flips the canvas between catching and passing events.
+    // The app may want a different ceiling than the default; it can only say so once it exists.
+    try { const c = I.MaxDevicePixelRatio(); if (c > 0) { dprCap = c; sizeCanvas(); } } catch {}
+
     if (I.IsTransparent()) {
         canvas.style.background = 'transparent';
         window.addEventListener('pointermove', e => {

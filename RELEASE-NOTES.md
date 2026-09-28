@@ -48,6 +48,13 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   `PresentInfo.Adaptive` was never the fix and still is not — it decides layout scale in CSS space,
   where this is about how many device pixels a CSS pixel is worth.
 
+  **Capped at 2 by default, and `CupriApp.MaxDevicePixelRatio` moves it.** The cost of a ratio is
+  quadratic and the benefit is not: a phone reporting 2.625 asks for 6.9x the pixels of a 1x
+  buffer, against 4x at the cap, and nobody can tell the two apart at arm's length. Uncapped, the
+  browser gate caught the Mono host — which runs the engine interpreted — failing to paint a
+  phone-scale canvas fast enough for fling momentum to run at all. Raise it for a poster or a
+  screenshot tool; lower it for a heavy document on a slow runtime.
+
 - **Ctrl+wheel did nothing in either web host** (#219). The page passed every wheel notch on as a
   plain scroll and called `preventDefault()` unconditionally, so the chord neither zoomed the app
   (the engine was handed a plain wheel) nor zoomed the browser (`preventDefault` on a non-passive

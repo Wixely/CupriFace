@@ -146,6 +146,8 @@ public class WebHostCoreTests(ITestOutputHelper output)
     private sealed class ProbeApp(float scale = 1f) : CupriApp
     {
         public float LastW, LastH;
+        public float? Cap;
+        public override float MaxDevicePixelRatio => Cap ?? base.MaxDevicePixelRatio;
         public override string Html => "<body style=\"margin:0\"><p style=\"padding:8px\">text</p></body>";
         public override string Css => "body{background:#fff}";
         public override PresentInfo Present(float w, float h)
@@ -278,6 +280,64 @@ public class WebHostCoreTests(ITestOutputHelper output)
 
         Assert.False(WebHostCore.Wheel(10, 10, -120, ctrl: true),
             "an unhandled chord must not be claimed, or the page cancels it for nothing");
+    }
+
+    /// <summary>The ratio is capped, and 2 is the default. Uncapped, a phone reporting 2.625 asks
+    /// for 6.9x the pixels of a 1x buffer — which the browser gate measured as the Mono host's fling
+    /// stopping dead, because an interpreted engine could not paint a phone-scale canvas fast enough
+    /// for momentum to run. Nobody can see the difference between 2x and 2.625x at arm's length;
+    /// everybody can see the animation not happening.</summary>
+    [Fact]
+    public void The_device_ratio_is_capped_so_a_dense_phone_does_not_cost_seven_times_the_pixels()
+    {
+        var app = new ProbeApp();
+        var js = Boot(app);
+
+        Assert.Equal(2f, WebHostCore.MaxDevicePixelRatio);
+
+        // The page sizes the backing store with the same cap, so this is what it would send.
+        Assert.True(WebHostCore.Tick(824, 1678, 2.625f, 16));
+        Assert.Equal(412f, app.LastW);          // still the CSS size the app lays out at
+        Assert.Equal(839f, app.LastH);
+    }
+
+    /// <summary>An app that wants more can have it — a poster or a screenshot tool is not spending
+    /// its frame budget on momentum.</summary>
+    [Fact]
+    public void An_app_can_raise_or_lower_the_ceiling()
+    {
+        var app = new ProbeApp { Cap = 3f };
+        var js = Boot(app);
+        Assert.Equal(3f, WebHostCore.MaxDevicePixelRatio);
+
+        var low = new ProbeApp { Cap = 1f };
+        Boot(low);
+        Assert.Equal(1f, WebHostCore.MaxDevicePixelRatio);
+    }
+
+    /// <summary>A nonsense ceiling is a bad value, not an instruction: 0 would size the canvas to
+    /// nothing. Clamped the same way a nonsense ratio is.</summary>
+    [Fact]
+    public void A_nonsense_ceiling_is_clamped_rather_than_obeyed()
+    {
+        Boot(new ProbeApp { Cap = 0f });
+        Assert.Equal(1f, WebHostCore.MaxDevicePixelRatio);
+    }
+
+    /// <summary>The cap is applied on the way in as well as in the page, so a stale or hand-written
+    /// page cannot ask for a scale the app refused.</summary>
+    [Fact]
+    public void A_page_asking_for_more_than_the_ceiling_is_clamped_by_the_host()
+    {
+        var app = new ProbeApp();
+        var js = Boot(app);
+
+        // A page that ignored the cap: full-ratio buffer, full-ratio claim.
+        Assert.True(WebHostCore.Tick(1082, 2202, 2.625f, 16));
+
+        // The host paints at 2, so it addresses the app as though the buffer were a 2x one.
+        Assert.Equal(1082f / 2f, app.LastW);
+        Assert.Equal(2202f / 2f, app.LastH);
     }
 
     private static RecordingBridge Boot(CupriApp app)

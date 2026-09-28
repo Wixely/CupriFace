@@ -56,6 +56,17 @@ public static class WebHostCore
     private static string _cursor = "";
     private static (bool, bool, bool, float, float) _lastTextInput;
 
+    /// <summary>The ceiling the app puts on devicePixelRatio, for the PAGE to size the canvas with.
+    ///
+    /// <para>The page has to be the one that applies it. It owns the backing store, and if it sized
+    /// at the raw ratio while this capped the paint scale, the engine would draw a smaller image
+    /// into a larger buffer and the compositor would stretch it — the original bug with extra steps.
+    /// So the page asks, and <see cref="Tick"/> clamps again on the way in rather than trusting what
+    /// it is told.</para>
+    /// </summary>
+    public static float MaxDevicePixelRatio =>
+        _app is null ? 2f : HostScale.Sanitize(_app.MaxDevicePixelRatio);
+
     /// <summary>The live document — for a host's own queued work.</summary>
     public static CupriDocument Document => _doc;
 
@@ -159,7 +170,10 @@ public static class WebHostCore
     {
         if (_doc is null || width <= 0 || height <= 0) return false;
 
-        var dpr = HostScale.Sanitize(deviceScale);
+        // Clamped here as well as in the page. The page applies the cap when it sizes the backing
+        // store and this is the same number coming back, so re-clamping costs nothing — and it means
+        // a stale or hand-written page cannot ask for a scale the app refused.
+        var dpr = Math.Min(HostScale.Sanitize(deviceScale), MaxDevicePixelRatio);
 
         // Canvas resized → repaint so scaling reflows to the new viewport. The dpr belongs in this
         // comparison too: dragging a window to a monitor with a different scale factor changes the

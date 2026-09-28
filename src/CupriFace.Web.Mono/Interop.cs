@@ -86,6 +86,10 @@ internal partial class Interop
 
     [JSExport] internal static bool IsTransparent() => WebHostCore.IsTransparent();
 
+    /// <summary>The app's ceiling on devicePixelRatio. The PAGE sizes the canvas, so the page is
+    /// what has to know (#218).</summary>
+    [JSExport] internal static double MaxDevicePixelRatio() => WebHostCore.MaxDevicePixelRatio;
+
     // ---- accessibility: what the ARIA overlay posts back (main.js forwards a click on, or focus
     // arriving at, a mirror node by its data-path). The same entry points the native bridges use.
     [JSExport] internal static void A11yActivate(string path) => WebHostCore.AccessibilityActivate(path);

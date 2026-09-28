@@ -110,6 +110,12 @@ public static unsafe partial class Interop
     [UnmanagedCallersOnly(EntryPoint = "IsTransparent")]
     public static int IsTransparent() { try { return WebHostCore.IsTransparent() ? 1 : 0; } catch { return 0; } }
 
+    // The app's ceiling on devicePixelRatio. The PAGE sizes the canvas, so the page is what has to
+    // know (#218). Falls back to 2 — the default — rather than 0, which would size it to nothing.
+    [UnmanagedCallersOnly(EntryPoint = "MaxDevicePixelRatio")]
+    public static double MaxDevicePixelRatio()
+    { try { return WebHostCore.MaxDevicePixelRatio; } catch { return 2; } }
+
     // ---- strings in: a shared buffer, because the C ABI has none -------------------------------
     // JS asks for a buffer of N chars, writes UTF-16 into it, then calls the consuming export with
     // the length. One live buffer is enough: all input is dispatched synchronously.
