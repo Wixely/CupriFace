@@ -13,7 +13,32 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
-## Unreleased
+## v0.30.0
+
+The browser hosts get the pixels they should always have had, and a build error
+learns to name itself.
+
+### Changed — action needed if you wrote your own page
+
+**Both web hosts changed two interop signatures.** Nothing in an ordinary app touches these: if
+your `Program.cs` is `WebHost.Run(new MyApp())` and your page is the shipped `main.js`, the host
+updates both halves together and there is nothing to do. This matters only if you hand-wrote a page
+against these exports.
+
+| | was | now |
+|---|---|---|
+| `Tick` | `(width, height, nowMs)` | `(width, height, deviceScale, nowMs)` |
+| `Wheel` | `(x, y, dy)` → void | `(x, y, dy, ctrl)` → **bool**, whether the host took it |
+
+`width`/`height` are now **device pixels** rather than CSS pixels — size the canvas backing store at
+`clientWidth * devicePixelRatio` (capped, see below) and pass that. `Wheel`'s return says whether to
+call `preventDefault()`: cancel only what the host claims, or you swallow the browser's own chords.
+
+The shipped `main.js` does all of this; copying it is the shortest path.
+
+**`CupriFace.Web.NativeAot` no longer defaults `RuntimeIdentifier`.** It could never work from a
+package — see below — and an app that relied on it needs the line in its own csproj. A build
+without it now fails as `CUPRI1001` naming the host, rather than `NETSDK1047` naming an assets file.
 
 ### Fixed
 
