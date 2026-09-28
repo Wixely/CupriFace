@@ -27,6 +27,13 @@
   -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <!-- Set HERE, by the app, because a package genuinely cannot set it: NuGet does not apply
+         package build files during restore, and restore is what decides whether the assets file
+         gets a net10.0/browser-wasm target (#216). The host's props used to default this, which
+         worked for this sample — it imports those props in its project body, so they applied at
+         restore — and did nothing for a real package consumer. That difference was the bug. The
+         sample carries the line now so it does what a consumer must. -->
+    <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>
     <OutputType>Exe</OutputType>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>

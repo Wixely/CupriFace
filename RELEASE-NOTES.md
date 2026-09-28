@@ -17,6 +17,22 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **`CupriFace.Web.NativeAot` now says what is wrong when an app has no `RuntimeIdentifier`,
+  instead of letting the SDK blame an assets file** (#216). A package cannot supply this property —
+  NuGet does not apply package build files during restore, and restore is what decides whether the
+  assets file carries a `net10.0/browser-wasm` target — so publishing without the line failed with
+  `NETSDK1047`, naming `obj/project.assets.json` and a target framework. "Ensure that restore has
+  run" is the first thing anyone tries and the least useful.
+
+  Publishing without it now fails as `CUPRI1001`, naming the host, the missing line and the reason.
+  A wrong RID (a desktop one, say) fails as `CUPRI1002` and points at `CupriFace.Shell`.
+
+  **The host's props no longer defaults `RuntimeIdentifier`.** It looked right and did nothing, and
+  it actively prevented this check: with it set, the property read `browser-wasm` at build time
+  whether or not restore had ever seen one, so nothing downstream could tell a configured app from
+  a broken one. v0.29.0's notes wrongly said the workaround could be deleted; that advice is
+  corrected there. Keep the line — `samples/WebLlvm` now carries it too, like any other consumer.
+
 - **Both web hosts presented at CSS pixels, so text was soft on every HiDPI display** (#218). The
   canvas backing store was sized at `clientWidth`/`clientHeight` and blitted 1:1, so the engine
   rasterised one pixel per CSS pixel and the compositor stretched the result. It got **worse the
@@ -84,17 +100,33 @@ stylesheet can describe its own naming convention without failing the lint.
   hand-authored one lost — with a single `NU5118` warning in the packing log as the only sign. The
   `.targets` half was untouched, so the package looked wired up.
 
-  For `CupriFace.Web.NativeAot` this cost a consumer `RuntimeIdentifier=browser-wasm`, and publishing
-  then failed in the ILC targets with `The PrivateSdkAssemblies ItemGroup is required for
-  _ComputeAssembliesToCompileToNative` — a message three hops from the cause, in someone else's
-  targets. It also cost `-sMAX_WEBGL_VERSION=2`, whose absence silently downgrades a WebGL2 context
-  request to WebGL1 and surfaces as a shader error on a line you did not write.
+  For `CupriFace.Web.NativeAot` this cost a consumer `-sMAX_WEBGL_VERSION=2`, whose absence
+  silently downgrades a WebGL2 context request to WebGL1 and surfaces as a shader error on a line
+  you did not write.
   `CupriFace.Web.Mono` lost `WasmBuildNative` and `NoWarn`, quieter only because the WebAssembly SDK
   supplies the RID anyway.
 
-  **If you pinned these properties in your own csproj to work around this, you can delete them**
-  from this version on. Setting them yourself still works and still wins — the package only
+  **If you pinned `NoWarn` or `EmccFlags` in your own csproj to work around this, you can delete
+  them** from this version on. Setting them yourself still works and still wins — the package only
   defaults them.
+
+  **KEEP YOUR `RuntimeIdentifier`.** A package cannot supply it, and this release does not change
+  that. NuGet sets `ExcludeRestorePackageImports=true` while restoring, and the import of a
+  package's `buildTransitive` props sits inside an `ImportGroup` guarded by exactly that — so
+  package props are deliberately not applied during **restore**, and restore is what decides
+  whether the assets file carries a `net10.0/browser-wasm` target. A RID that arrives at build time
+  arrives too late. Delete the line and publishing fails with `NETSDK1047: Assets file
+  'obj/project.assets.json' doesn't have a target for 'net10.0/browser-wasm'`, which names an
+  assets file and a framework rather than the host. An app on this host still needs:
+
+  ```xml
+  <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>
+  ```
+
+  `samples/WebLlvm` does not show this, for the same reason it did not show the original bug: it
+  imports the props by hand at the top of its project body, outside that guard, so its RID is set
+  during restore. A package consumer cannot copy that — the import it would need is the one NuGet
+  is suppressing.
 
 - **The packaged-build-file check now reads the file instead of listing it.** The existing guard for
   `CupriFace.Gl` grepped `unzip -l` output for the path, which #216 walked straight through: the file

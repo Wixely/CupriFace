@@ -15,6 +15,44 @@
     <_CupriAotAssets Condition="'$(_CupriAotAssets)' == ''">$(MSBuildThisFileDirectory)../staticwebassets/</_CupriAotAssets>
   </PropertyGroup>
 
+  <!--
+    THE ONE PROPERTY THIS PACKAGE CANNOT SET FOR YOU, AND WHY IT SAYS SO HERE RATHER THAN DEFAULTING.
+
+    buildTransitive props DO set RuntimeIdentifier — and it arrives too late to matter. NuGet sets
+    ExcludeRestorePackageImports=true while restoring, and the ImportGroup in obj/*.nuget.g.props
+    that pulls in a package's props is guarded by exactly that, so package build files are
+    deliberately not applied during RESTORE. Restore is what decides whether the assets file carries
+    a net10.0/browser-wasm target, so a RID that only exists at build time never reaches the decision
+    it was for. #216 fixed the props being empty; this half was never fixable there.
+
+    What the app sees without this check is NETSDK1047 naming obj/project.assets.json and a target
+    framework — an error about a file it did not write, three steps from "your csproj is missing one
+    line". Restoring again does not help, which is the first thing anyone tries. So: fail here
+    instead, in a message that names the host and the fix.
+
+    This only works because the props half deliberately does NOT default the RID. While it did, the
+    property read 'browser-wasm' at build time whether or not restore had ever seen one, so this
+    check could not tell a configured app from a broken one and never fired. An empty RID here is
+    now real information: the app did not set it, so restore did not have it.
+
+    BeforeTargets is ResolvePackageAssets specifically: that is the target whose task raises
+    NETSDK1047, so anything later loses the race and the consumer sees the unhelpful message anyway
+    (measured — PrepareForILCompilation was the first guess and never ran). And because
+    ResolvePackageAssets runs on ordinary builds too, the condition carries _IsPublishing: a plain
+    `dotnet build` of a library that references this host must not fail, only a publish that is
+    actually going to need the RID.
+  -->
+  <Target Name="CupriFaceWebAotRequiresBrowserWasmRid"
+          BeforeTargets="ResolvePackageAssets"
+          Condition="'$(RuntimeIdentifier)' != 'browser-wasm' and '$(_IsPublishing)' == 'true'">
+    <Error Condition="'$(RuntimeIdentifier)' == ''"
+           Code="CUPRI1001"
+           Text="CupriFace.Web.NativeAot needs &lt;RuntimeIdentifier&gt;browser-wasm&lt;/RuntimeIdentifier&gt; in THIS project's .csproj. The package cannot set it for you: NuGet does not apply package build files during restore (ExcludeRestorePackageImports), and restore is what decides whether the assets file gets a net10.0/browser-wasm target. Add the line and restore again." />
+    <Error Condition="'$(RuntimeIdentifier)' != ''"
+           Code="CUPRI1002"
+           Text="CupriFace.Web.NativeAot runs only on browser-wasm, but RuntimeIdentifier is '$(RuntimeIdentifier)'. Set &lt;RuntimeIdentifier&gt;browser-wasm&lt;/RuntimeIdentifier&gt;, or reference CupriFace.Shell instead for a desktop RID." />
+  </Target>
+
   <ItemGroup>
     <!-- WITHOUT THIS THE HOST DOES NOT EXIST AT RUNTIME. ILC trims what nothing roots, and an
          [UnmanagedCallersOnly(EntryPoint = "...")] method in a REFERENCED library is rooted by
