@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using CupriFace.Hosting;
 using CupriFace.Interaction;
 using SkiaSharp;
 
@@ -32,7 +33,17 @@ public static class WebHostCore
     private static int _primaryPointer = -1;     // the recognizer follows one finger; apps may hold others
     private static SKColor _bg;
     private static bool _transparent;            // overlay mode: transparent clear + straight-alpha present
-    private static float _scale = 1f;            // Present scale, for un-scaling pointer coords
+    // THE TWO SCALES, KEPT APART ON PURPOSE (#218). Conflating them is the documented way to get
+    // this wrong twice over — see HostScale: render at logical resolution and get upscaled (soft
+    // text), or apply a factor twice (a UI that shrinks on a sharper screen).
+    //
+    //   _scale        P — the PRESENT scale the app chose. CSS-pixel space. Everything the page
+    //                 sees in CSS pixels is in this: pointer un-scaling, ARIA boxes, the IME caret,
+    //                 DOM underlays. The browser already applies devicePixelRatio to those itself.
+    //   _effective    T — P x devicePixelRatio. DEVICE-pixel space, and the only one that may reach
+    //                 the canvas, a damage rect or a surface allocation.
+    private static float _scale = 1f;            // P: present scale, for un-scaling pointer coords
+    private static float _effective = 1f;        // T: P x dpr, for the canvas and everything device
     private static bool _wasAnimating;           // last tick's answer, so the settled frame gets painted
     private static double _lastAriaMs = -1e9;    // the ARIA mirror's own cadence while animating
     private static SKBitmap? _bitmap;
@@ -40,9 +51,21 @@ public static class WebHostCore
     private static readonly Stopwatch _clock = Stopwatch.StartNew();
     private static double _lastRefresh, _lastAnimMs;
     private static int _lastW, _lastH;
+    private static float _lastDpr = 1f;   // so a monitor change repaints, not just a resize
     private static bool _dirty = true;
     private static string _cursor = "";
     private static (bool, bool, bool, float, float) _lastTextInput;
+
+    /// <summary>The ceiling the app puts on devicePixelRatio, for the PAGE to size the canvas with.
+    ///
+    /// <para>The page has to be the one that applies it. It owns the backing store, and if it sized
+    /// at the raw ratio while this capped the paint scale, the engine would draw a smaller image
+    /// into a larger buffer and the compositor would stretch it — the original bug with extra steps.
+    /// So the page asks, and <see cref="Tick"/> clamps again on the way in rather than trusting what
+    /// it is told.</para>
+    /// </summary>
+    public static float MaxDevicePixelRatio =>
+        _app is null ? 2f : HostScale.Sanitize(_app.MaxDevicePixelRatio);
 
     /// <summary>The live document — for a host's own queued work.</summary>
     public static CupriDocument Document => _doc;
@@ -137,12 +160,29 @@ public static class WebHostCore
     /// <summary>One animation frame. Renders ONLY when something changed — after input, on the app's
     /// periodic re-bind, or throttled while something animates — so an idle page costs nothing.
     /// Returns whether it painted.</summary>
-    public static bool Tick(int width, int height, double nowMs)
+    /// <param name="width">Canvas backing-store width in DEVICE pixels (<c>canvas.width</c>, which
+    /// the page sizes at <c>clientWidth * devicePixelRatio</c>).</param>
+    /// <param name="height">Canvas backing-store height in DEVICE pixels.</param>
+    /// <param name="deviceScale">The page's <c>devicePixelRatio</c>. Passed every frame rather than
+    /// pushed on change: it is always known here, and a separate setter could arrive after the tick
+    /// that needed it — which on a monitor change is exactly one blurry frame.</param>
+    public static bool Tick(int width, int height, float deviceScale, double nowMs)
     {
         if (_doc is null || width <= 0 || height <= 0) return false;
 
-        // Canvas resized → repaint so scaling reflows to the new viewport.
-        if (width != _lastW || height != _lastH) { _lastW = width; _lastH = height; _dirty = true; }
+        // Clamped here as well as in the page. The page applies the cap when it sizes the backing
+        // store and this is the same number coming back, so re-clamping costs nothing — and it means
+        // a stale or hand-written page cannot ask for a scale the app refused.
+        var dpr = Math.Min(HostScale.Sanitize(deviceScale), MaxDevicePixelRatio);
+
+        // Canvas resized → repaint so scaling reflows to the new viewport. The dpr belongs in this
+        // comparison too: dragging a window to a monitor with a different scale factor changes the
+        // backing store AND the ratio, and a page that only watched the pixel count would keep
+        // painting at the old ratio until something else happened to dirty it.
+        if (width != _lastW || height != _lastH || dpr != _lastDpr)
+        {
+            _lastW = width; _lastH = height; _lastDpr = dpr; _dirty = true;
+        }
 
         // A background (remote) image finished loading → repaint so it appears.
         if (_doc.ConsumeImageArrived()) _dirty = true;
@@ -174,17 +214,25 @@ public static class WebHostCore
 
         if (!_dirty) return false;
         _dirty = false;
-        return Paint(width, height, animating);
+        return Paint(width, height, dpr, animating);
     }
 
-    private static unsafe bool Paint(int width, int height, bool animating)
+    private static unsafe bool Paint(int width, int height, float dpr, bool animating)
     {
-        var p = _app.Present(width, height);
+        // Step one: the backing store is in DEVICE pixels, so divide before asking the app anything.
+        // The app thinks in CSS pixels and must keep doing so — its media queries, its fixed design
+        // size and its own zoom are all statements about the page, not about the panel.
+        var hs = HostScale.ForFramebuffer(width, height, dpr);
+        var p = _app.Present((int)hs.LogicalClientWidth, (int)hs.LogicalClientHeight);
+
+        // Step two: fold in what the app chose. P stays available on its own because half the
+        // callers below are in CSS space and the browser scales those itself.
         _scale = p.Scale <= 0 ? 1f : p.Scale;
-        // The same factor the underlay rects are already sent in, published for surfaces that
-        // rasterise to order. A host-composited underlay reads its size from its own backing store
-        // and does not need this; a surface that hands the engine frames does.
-        _doc.Surfaces.DeviceScale = _scale;
+        _effective = hs.WithPresentScale(_scale).EffectiveScale;
+
+        // DEVICE space: a surface that rasterises to order must do it at the resolution the canvas
+        // is actually presented at, or it is the one soft thing left on a sharp screen.
+        _doc.Surfaces.DeviceScale = _effective;
 
         if (_bitmap is null || _bitmap.Width != width || _bitmap.Height != height)
         {
@@ -210,11 +258,11 @@ public static class WebHostCore
             // a HiDPI ratio of 2, fractional desktop scaling of 1.25, or any fit-to-viewport factor
             // all landed here, so most machines re-uploaded every pixel on every hover (#99).
             canvas.Save();
-            if (_scale != 1f) canvas.Scale(_scale);
+            if (_effective != 1f) canvas.Scale(_effective);
             damage = _doc.RenderIncremental(canvas, p.LogicalWidth, p.LogicalHeight, bg);
             canvas.Restore();
             if (damage is { } logical)
-                damage = CupriDocument.ScaleDamageToDevice(logical, _scale, width, height);
+                damage = CupriDocument.ScaleDamageToDevice(logical, _effective, width, height);
             canvas.Flush();
         }
         // An identical frame presents nothing. It is not "nothing happened": the frame after an
@@ -455,8 +503,40 @@ public static class WebHostCore
     public static void ContextMenu(double x, double y)
     { if (_doc?.DispatchContextMenu(L(x), L(y)) == true) _dirty = true; }
 
-    public static void Wheel(double x, double y, double dy)
-    { if (_doc?.DispatchWheel(L(x), L(y), (float)dy) == true) _dirty = true; }
+    /// <summary>A wheel notch. <paramref name="ctrl"/> is the zoom chord, split HERE rather than in
+    /// the page for the same reason the desktop host splits it in the host: the engine never learns
+    /// chord conventions, it is told to zoom or to scroll.
+    ///
+    /// <para>Returns whether the host consumed it, which the page needs in order to decide about
+    /// preventDefault. Cancelling unconditionally is what made #219 unfixable from a page: Ctrl+wheel
+    /// neither zoomed the app (the engine was handed a plain wheel and scrolled) nor zoomed the
+    /// browser (preventDefault on a non-passive listener cancels page zoom), and a page listener
+    /// cannot un-cancel afterwards.</para>
+    ///
+    /// <para>Anchored at the pointer, because a wheel zoom HAS a pointer — the user is pointing at
+    /// the thing they want to look at more closely. Better than browser zoom here too: doc.Zoom lays
+    /// out at viewport/zoom and paints to match, so it re-rasterises and @media sees the narrower
+    /// width, where browser zoom on a canvas can only resample.</para>
+    /// </summary>
+    public static bool Wheel(double x, double y, double dy, bool ctrl)
+    {
+        if (_doc is null) return false;
+
+        if (ctrl)
+        {
+            // An app that has turned page zoom off is not asking for this chord either; say so, so
+            // the page can hand it back to the browser rather than swallowing it on our behalf.
+            if (!_doc.PageZoomEnabled) return false;
+            if (dy < 0) _doc.ZoomIn(L(x), L(y));
+            else if (dy > 0) _doc.ZoomOut(L(x), L(y));
+            else return false;                       // a zero-delta notch is not a zoom step
+            _dirty = true;
+            return true;
+        }
+
+        if (_doc.DispatchWheel(L(x), L(y), (float)dy) == true) _dirty = true;
+        return true;                                 // a plain wheel is ours whether or not it moved
+    }
 
     /// <summary>Push the cursor for the current position — only when it changes, because assigning
     /// it on every mouse-move is needless DOM churn.</summary>

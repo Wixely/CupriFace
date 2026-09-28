@@ -14,6 +14,11 @@
 
     Same pattern as src/WebFonts.props, which shares the two font faces both hosts embed.
   -->
+  <!-- HostScale, the logical/device/effective split both web hosts now need (#218). Hosting.props
+       is the same share-by-source pattern one file over, and its own comment already anticipated
+       this: "desktop today, the Android and web hosts if they adopt it". -->
+  <Import Project="$(MSBuildThisFileDirectory)Hosting.props" />
+
   <ItemGroup>
     <Compile Include="$(MSBuildThisFileDirectory)CupriFace.Web.Core\*.cs" />
   </ItemGroup>

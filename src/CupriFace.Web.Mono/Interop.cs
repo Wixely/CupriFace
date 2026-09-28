@@ -34,7 +34,7 @@ internal partial class Interop
         WebHostCore.Init(app, Configure, Bridge);
     }
 
-    [JSExport] internal static bool Tick(int width, int height, double nowMs) => WebHostCore.Tick(width, height, nowMs);
+    [JSExport] internal static bool Tick(int width, int height, float deviceScale, double nowMs) => WebHostCore.Tick(width, height, deviceScale, nowMs);
 
     // ---- input ---------------------------------------------------------------------------------
 
@@ -42,7 +42,7 @@ internal partial class Interop
     [JSExport] internal static void PointerMove(double x, double y) => WebHostCore.PointerMove(x, y);
     [JSExport] internal static void PointerUp(double x, double y) => WebHostCore.PointerUp(x, y);
     [JSExport] internal static void ContextMenu(double x, double y) => WebHostCore.ContextMenu(x, y);
-    [JSExport] internal static void Wheel(double x, double y, double dy) => WebHostCore.Wheel(x, y, dy);
+    [JSExport] internal static bool Wheel(double x, double y, double dy, bool ctrl) => WebHostCore.Wheel(x, y, dy, ctrl);
 
     [JSExport] internal static void TouchDown(int id, double x, double y, double tMs) => WebHostCore.TouchDown(id, x, y, tMs);
     [JSExport] internal static void TouchMove(int id, double x, double y, double tMs) => WebHostCore.TouchMove(id, x, y, tMs);
@@ -85,6 +85,10 @@ internal partial class Interop
     [JSExport] internal static bool IsCoarsePointer() => WebHostCore.IsCoarsePointer();
 
     [JSExport] internal static bool IsTransparent() => WebHostCore.IsTransparent();
+
+    /// <summary>The app's ceiling on devicePixelRatio. The PAGE sizes the canvas, so the page is
+    /// what has to know (#218).</summary>
+    [JSExport] internal static double MaxDevicePixelRatio() => WebHostCore.MaxDevicePixelRatio;
 
     // ---- accessibility: what the ARIA overlay posts back (main.js forwards a click on, or focus
     // arriving at, a mirror node by its data-path). The same entry points the native bridges use.

@@ -51,9 +51,9 @@ public static unsafe partial class Interop
     });
 
     [UnmanagedCallersOnly(EntryPoint = "Tick")]
-    public static int Tick(int width, int height, double nowMs)
+    public static int Tick(int width, int height, float deviceScale, double nowMs)
     {
-        try { return WebHostCore.Tick(width, height, nowMs) ? 1 : 0; }
+        try { return WebHostCore.Tick(width, height, deviceScale, nowMs) ? 1 : 0; }
         catch (Exception ex) { Crash("Tick", ex); return 0; }
     }
 
@@ -72,7 +72,13 @@ public static unsafe partial class Interop
     public static void ContextMenu(double x, double y) => Guard("ContextMenu", () => WebHostCore.ContextMenu(x, y));
 
     [UnmanagedCallersOnly(EntryPoint = "Wheel")]
-    public static void Wheel(double x, double y, double dy) => Guard("Wheel", () => WebHostCore.Wheel(x, y, dy));
+    public static int Wheel(double x, double y, double dy, int ctrl)
+    {
+        // Returns whether the host consumed it, so the page knows whether to preventDefault (#219).
+        // Not Guard(): that swallows the answer, and swallowing it here means swallowing the chord.
+        try { return WebHostCore.Wheel(x, y, dy, ctrl != 0) ? 1 : 0; }
+        catch (Exception ex) { Crash("Wheel", ex); return 0; }
+    }
 
     [UnmanagedCallersOnly(EntryPoint = "TouchDown")]
     public static void TouchDown(int id, double x, double y, double tMs) => Guard("TouchDown", () => WebHostCore.TouchDown(id, x, y, tMs));
@@ -103,6 +109,12 @@ public static unsafe partial class Interop
 
     [UnmanagedCallersOnly(EntryPoint = "IsTransparent")]
     public static int IsTransparent() { try { return WebHostCore.IsTransparent() ? 1 : 0; } catch { return 0; } }
+
+    // The app's ceiling on devicePixelRatio. The PAGE sizes the canvas, so the page is what has to
+    // know (#218). Falls back to 2 — the default — rather than 0, which would size it to nothing.
+    [UnmanagedCallersOnly(EntryPoint = "MaxDevicePixelRatio")]
+    public static double MaxDevicePixelRatio()
+    { try { return WebHostCore.MaxDevicePixelRatio; } catch { return 2; } }
 
     // ---- strings in: a shared buffer, because the C ABI has none -------------------------------
     // JS asks for a buffer of N chars, writes UTF-16 into it, then calls the consuming export with

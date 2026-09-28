@@ -253,6 +253,29 @@ public abstract class CupriApp
     /// </summary>
     public virtual bool TrackMonitorDpi => true;
 
+    /// <summary>
+    /// The highest device-pixel ratio this app is willing to rasterise at. <b>Default 2</b>, which
+    /// is sharp on every current display and is what canvas applications conventionally settle on.
+    ///
+    /// <para>A ceiling exists because the cost is quadratic and the benefit is not. A phone
+    /// reporting 2.625 asks for 6.9x the pixels of a 1x buffer, against 4x at this default — and
+    /// nobody can see the difference between the two at arm's length. The measured consequence of
+    /// NOT capping was the browser gate's fling test: on the Mono host, which runs the engine
+    /// interpreted, the frame loop could not keep up with a phone-scale canvas and momentum stopped
+    /// dead where the finger left it. Sharpness is worth paying for; sharpness nobody can see, at
+    /// the cost of the animation running at all, is not.</para>
+    ///
+    /// <para>Raise it for a still image, a poster or a screenshot tool, where frame rate is not the
+    /// currency. Lower it — 1.5, or 1 — for a heavy document on a slow runtime. Values are clamped
+    /// to a sane range, and a value below 1 still renders, just softly.</para>
+    ///
+    /// <para>Honoured by the WEB hosts today, where the page owns the canvas and the ratio is a
+    /// browser fact the app cannot otherwise reach. The desktop host takes its scale from the
+    /// monitor via <see cref="DpiAware"/> and does not cap it; Android is told its density by the
+    /// platform.</para>
+    /// </summary>
+    public virtual float MaxDevicePixelRatio => 2f;
+
     /// <summary>Component library available to the markup (defaults to the built-ins).</summary>
     public virtual ComponentRegistry Components => ComponentRegistry.Default();
 

@@ -33,6 +33,38 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   a broken one. v0.29.0's notes wrongly said the workaround could be deleted; that advice is
   corrected there. Keep the line — `samples/WebLlvm` now carries it too, like any other consumer.
 
+- **Both web hosts presented at CSS pixels, so text was soft on every HiDPI display** (#218). The
+  canvas backing store was sized at `clientWidth`/`clientHeight` and blitted 1:1, so the engine
+  rasterised one pixel per CSS pixel and the compositor stretched the result. It got **worse the
+  more the page was zoomed**, because browser zoom raises `devicePixelRatio` while `clientWidth`
+  stays put — the reported trigger was Chrome at 150%.
+
+  The host now paints at `devicePixelRatio` and still lays out in CSS pixels, which are two
+  different scales and have to stay that way: the app is asked to present into the CSS size of its
+  canvas, and only the canvas, damage rects and surface allocations see `P x dpr`. Pointer
+  coordinates, ARIA boxes, the IME caret and DOM underlays stay in CSS space, because the browser
+  already applies the ratio to those itself.
+
+  `PresentInfo.Adaptive` was never the fix and still is not — it decides layout scale in CSS space,
+  where this is about how many device pixels a CSS pixel is worth.
+
+  **Capped at 2 by default, and `CupriApp.MaxDevicePixelRatio` moves it.** The cost of a ratio is
+  quadratic and the benefit is not: a phone reporting 2.625 asks for 6.9x the pixels of a 1x
+  buffer, against 4x at the cap, and nobody can tell the two apart at arm's length. Uncapped, the
+  browser gate caught the Mono host — which runs the engine interpreted — failing to paint a
+  phone-scale canvas fast enough for fling momentum to run at all. Raise it for a poster or a
+  screenshot tool; lower it for a heavy document on a slow runtime.
+
+- **Ctrl+wheel did nothing in either web host** (#219). The page passed every wheel notch on as a
+  plain scroll and called `preventDefault()` unconditionally, so the chord neither zoomed the app
+  (the engine was handed a plain wheel) nor zoomed the browser (`preventDefault` on a non-passive
+  listener cancels page zoom) — it scrolled, which is the one thing nobody asked for.
+
+  Ctrl+wheel now zooms the document, anchored at the pointer, as the desktop host has since #137.
+  An app with page zoom disabled refuses the chord, and the host now tells the page what it took so
+  **only handled gestures are cancelled** — anything the host does not want is left to the browser
+  instead of being swallowed.
+
 ## v0.29.0
 
 Three things that failed silently, and the checks that would have caught them. A font every browser

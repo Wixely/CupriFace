@@ -41,7 +41,7 @@ public class WebFileDropTests(ITestOutputHelper output)
         var app = new DropApp();
         var bridge = new WebHostCoreDropFixture();
         WebHostCore.Init(app, doc => doc.OnFileDrop(e => app.Drops.Add(e)), bridge);
-        WebHostCore.Tick(300, 200, 16);
+        WebHostCore.Tick(300, 200, 1f, 16);
         return (bridge, app);
     }
 
@@ -247,7 +247,7 @@ public class WebFileDropTests(ITestOutputHelper output)
     public void A_document_with_no_handler_reports_that_it_accepts_nothing()
     {
         WebHostCore.Init(new DropApp(), null, new WebHostCoreDropFixture());
-        WebHostCore.Tick(300, 200, 16);
+        WebHostCore.Tick(300, 200, 1f, 16);
         Assert.False(WebHostCore.AcceptsFileDrop());
 
         Boot();
@@ -271,7 +271,7 @@ public class WebFileDropTests(ITestOutputHelper output)
     {
         var app = new ScaledDropApp();
         WebHostCore.Init(app, doc => doc.OnFileDrop(e => app.Drops.Add(e)), new WebHostCoreDropFixture());
-        WebHostCore.Tick(600, 400, 16);      // 2x: 300x200 logical
+        WebHostCore.Tick(600, 400, 1f, 16);      // 2x: 300x200 logical
 
         PushFile(1, "x.txt", "text/plain", 1);
         WebHostCore.DropCommit(80, 100);

@@ -426,12 +426,41 @@ try {
     // tell the engine so an element-fullscreened video returns to its place in the layout.
     document.addEventListener('fullscreenchange', () => I.HostFullscreen(!!document.fullscreenElement));
 
-    // Size the canvas backing store to its CSS box (the full window), and keep it in sync on
-    // resize so Hybrid-Zoom scaling reflows to the viewport. Tick notices the size change and
-    // repaints (render-on-demand).
-    const sizeCanvas = () => { canvas.width = canvas.clientWidth || 940; canvas.height = canvas.clientHeight || 720; placeA11y(); };
+    // Size the canvas backing store in DEVICE pixels, not CSS pixels (#218). Sizing it at
+    // clientWidth alone means the engine rasterises one pixel per CSS pixel and the compositor
+    // stretches the result, so text is soft on every HiDPI display and gets softer the more the
+    // page is zoomed — browser zoom raises devicePixelRatio while clientWidth stays put. The dpr
+    // travels to Tick, where the host splits it back out from the app's own present scale.
+    // The app's ceiling on devicePixelRatio (#218). A ratio of 2 is sharp on every current
+    // display; the cost above it is quadratic and the benefit is not. Starts at the same default
+    // the engine uses, because sizeCanvas runs before the runtime is resident and cannot ask yet —
+    // adoptDprCap() below re-reads it once Init has run and re-sizes if the app said otherwise.
+    let dprCap = 2;
+    const dprOf = () => Math.min(window.devicePixelRatio || 1, dprCap);
+    const sizeCanvas = () => {
+        const dpr = dprOf();
+        const w = Math.max(1, Math.round((canvas.clientWidth || 940) * dpr));
+        const h = Math.max(1, Math.round((canvas.clientHeight || 720) * dpr));
+        // GUARDED: assigning width/height clears the canvas even when the value is unchanged, so an
+        // unguarded call flashes the page blank on every resize event while dragging.
+        if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+        placeA11y();
+    };
     sizeCanvas();
     window.addEventListener('resize', sizeCanvas);
+    // ResizeObserver AS WELL: a CSS box can change without a window resize (a flex sibling, a
+    // devtools split), and ResizeObserver sees that where the window event does not.
+    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(sizeCanvas).observe(canvas);
+    // ...and neither of those fires when a window is dragged to a monitor with a different scale
+    // factor: devicePixelRatio changes while the element's CSS box does not. A dppx media query is
+    // the one thing that does, and it has to be re-armed after each match because the query it was
+    // built from is no longer true.
+    const watchDpr = () => {
+        const mq = window.matchMedia(`(resolution: ${dprOf()}dppx)`);
+        const once = () => { mq.removeEventListener('change', once); sizeCanvas(); watchDpr(); };
+        mq.addEventListener('change', once);
+    };
+    watchDpr();
     const at = e => { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
 
     // Without this the browser claims every gesture for its own scrolling and pinch-zoom, and
@@ -498,7 +527,17 @@ try {
     // The browser took the gesture away (a system gesture, the tab hiding). A cancel must never
     // become a click.
     canvas.addEventListener('pointercancel', e => { if (touch(e)) I.TouchCancel(e.pointerId, e.timeStamp); });
-    canvas.addEventListener('wheel', e => { profile(false); const [x, y] = at(e); I.Wheel(x, y, e.deltaY); e.preventDefault(); }, { passive: false });
+    canvas.addEventListener('wheel', e => {
+        profile(false);
+        const [x, y] = at(e);
+        // Ctrl+wheel is the zoom chord, as every browser has it — and the host decides, because an
+        // app may have page zoom turned off. Only cancel what we actually took: cancelling
+        // unconditionally is what left Ctrl+wheel doing NOTHING (#219) — it did not zoom the app,
+        // because the engine was handed a plain wheel and scrolled, and it did not zoom the browser
+        // either, because preventDefault on a non-passive listener cancels page zoom. A page
+        // listener cannot un-cancel afterwards, so anything we do not handle is left to the browser.
+        if (I.Wheel(x, y, e.deltaY, e.ctrlKey || e.metaKey)) e.preventDefault();
+    }, { passive: false });
 
     // ---- files dragged in from the desktop -----------------------------------------------------
     // See the same block in CupriFace.Web.NativeAot's main.js. The page is the only host that hears
@@ -651,6 +690,9 @@ try {
     // composites over the page. Pass pointer events THROUGH wherever nothing is drawn — a
     // window-level move listener (fires even when the canvas has pointer-events:none) samples the
     // rendered alpha under the cursor and flips the canvas between catching and passing events.
+    // The app may want a different ceiling than the default; it can only say so once it exists.
+    try { const c = I.MaxDevicePixelRatio(); if (c > 0) { dprCap = c; sizeCanvas(); } } catch {}
+
     if (I.IsTransparent()) {
         canvas.style.background = 'transparent';
         window.addEventListener('pointermove', e => {
@@ -667,7 +709,7 @@ try {
     // periodic re-bind, or throttled while something animates. An idle page costs ~nothing.
     let firstTick = true;
     function frame(now) {
-        try { I.Tick(canvas.width, canvas.height, now); if (firstTick) { firstTick = false; logBoot('Tick ok'); } }
+        try { I.Tick(canvas.width, canvas.height, dprOf(), now); if (firstTick) { firstTick = false; logBoot('Tick ok'); } }
         catch (err) { showError('Tick', err); return; }
         requestAnimationFrame(frame);
     }
