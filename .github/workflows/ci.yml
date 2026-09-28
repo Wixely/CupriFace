@@ -1755,7 +1755,12 @@ jobs:
           # apart. So unpack the file and grep for the property that is the whole point of it.
           for spec in \
             "CupriFace.Gl:buildTransitive/CupriFace.Gl.props:DirectPInvoke" \
-            "CupriFace.Web.NativeAot:buildTransitive/CupriFace.Web.NativeAot.props:RuntimeIdentifier" \
+            # EmccFlags, NOT RuntimeIdentifier. The RID was removed from this props in #216 — a
+            # package cannot deliver it — but the file still explains that at length in a comment,
+            # so grepping for the old needle now matches PROSE and would pass on an emptied file.
+            # Exactly the vacuous-check failure #216 was about, one needle later. Pick a string that
+            # is a real property here, and one a consumer actually needs.
+            "CupriFace.Web.NativeAot:buildTransitive/CupriFace.Web.NativeAot.props:EmccFlags" \
             "CupriFace.Web.Mono:buildTransitive/CupriFace.Web.Mono.props:WasmBuildNative" \
           ; do
             pkg=${spec%%:*}; rest=${spec#*:}; path=${rest%%:*}; needle=${rest#*:}
