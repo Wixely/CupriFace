@@ -257,13 +257,36 @@ public abstract class CupriApp
     /// The highest device-pixel ratio this app is willing to rasterise at. <b>Default 2</b>, which
     /// is sharp on every current display and is what canvas applications conventionally settle on.
     ///
-    /// <para>A ceiling exists because the cost is quadratic and the benefit is not. A phone
-    /// reporting 2.625 asks for 6.9x the pixels of a 1x buffer, against 4x at this default — and
-    /// nobody can see the difference between the two at arm's length. The measured consequence of
-    /// NOT capping was the browser gate's fling test: on the Mono host, which runs the engine
-    /// interpreted, the frame loop could not keep up with a phone-scale canvas and momentum stopped
-    /// dead where the finger left it. Sharpness is worth paying for; sharpness nobody can see, at
-    /// the cost of the animation running at all, is not.</para>
+    /// <para><b>Two is where the MONO host's frame budget runs out, measured.</b> Frame pace during
+    /// a fling, phone viewport, p90 over three runs each — p90 rather than median, because the
+    /// median is pinned at one vsync (16.7 ms) everywhere and says nothing at all:</para>
+    ///
+    /// <code>
+    ///   dpr        pixels     Mono       NativeAOT
+    ///   1          0.35 MP    33.3 ms    16.7 ms
+    ///   1.5        0.78 MP    33.3 ms    16.7 ms
+    ///   2          1.38 MP    33.3 ms    16.7 ms    &lt;- Mono's knee is here
+    ///   2.625      2.38 MP    50.0 ms    16.7 ms
+    ///   3          3.11 MP    50.0 ms    16.7 ms
+    /// </code>
+    ///
+    /// <para>Mono is flat to 2 and then drops a whole extra frame at 2.625, reproducible to 0.1 ms.
+    /// So 2 is the last ratio that costs it nothing, which is what a ceiling should be: the
+    /// difference between 2x and 2.625x at arm's length is very small, and the difference between
+    /// one dropped frame and two is not.</para>
+    ///
+    /// <para><b>NativeAOT never drops a frame at all, even at 3.</b> Its budget is not the
+    /// constraint, so on that host this default is conservative and an app that wants a sharper
+    /// panel can simply raise it — 3 is measured safe there for a document of the Showcase's weight.
+    /// Whether the hosts should carry different defaults rather than sharing this one is open
+    /// (#224); the knob is deliberately on the APP, which cannot know which host it was compiled
+    /// against.</para>
+    ///
+    /// <para>Originally justified by a browser-gate failure, and that justification was wrong: the
+    /// gate was flaky for an unrelated reason (#223 — a synthetic gesture's timestamps, nothing to
+    /// do with pixels). The number survived being re-derived; the reasoning did not. Measured on one
+    /// machine against the Showcase, so a much heavier document may have a lower knee — which is
+    /// what this property is for.</para>
     ///
     /// <para>Raise it for a still image, a poster or a screenshot tool, where frame rate is not the
     /// currency. Lower it — 1.5, or 1 — for a heavy document on a slow runtime. Values are clamped
