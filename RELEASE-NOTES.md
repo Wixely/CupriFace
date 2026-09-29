@@ -13,9 +13,28 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
-## Unreleased
+## v0.31.0
+
+Frame-rate independence, finished. What a user sees no longer depends on how fast the host happens
+to be painting — not the animation clock, not the scroll physics — and the one deliberate ceiling
+that remains is the same number on every platform, overridable per device by a caller who has
+measured their own document.
+
+Minor rather than patch for two reasons: there is new public API on `CupriApp`
+(`MaxDevicePixelRatioFor`, `MaxFrameRateFor`, and the `DeviceProfile`/`HostKind` they take), and a
+fling now travels about 2.5% further at 60fps than it used to. Nothing here needs action from an
+ordinary app; the one exception is a hand-written web page, called out below.
 
 ### Fixed
+
+- **Animations no longer run slow on a slow host** (#229). Every `dt`-integrating animation — the
+  fling, the overscroll rubber band, the list-reorder slide — clamped its timestep to 100 ms. A host
+  painting at 8 fps therefore integrated 100 ms per 125 ms frame, so animations ran in their own slow
+  clock and drifted behind the wall clock: a fling took 25% longer in real time to settle at 8 fps
+  than at 60 fps, the same gesture visibly draggier on the slower host. A slow frame now integrates
+  all of the time that passed. A genuine STALL — a blocked thread, a backgrounded tab, over 250 ms —
+  integrates nothing rather than teleporting the scroll, since a blocked main thread delivers the
+  whole gap as one frame timestamp and fires no `visibilitychange` to detect it by.
 
 - **A fling now travels the same distance at every frame rate** (#231). It decayed the velocity and
   then moved by `velocity * dt` — a rectangle drawn at the *end* of a falling curve, so it fitted
@@ -35,15 +54,6 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   updating rather than its rate of change, and exponentials compose, so both were already exact. The
   distinction is not spring-versus-fling — it is whether the decaying thing *is* what you are
   updating, or is how fast it changes.
-
-- **Animations no longer run slow on a slow host** (#229). Every `dt`-integrating animation — the
-  fling, the overscroll rubber band, the list-reorder slide — clamped its timestep to 100 ms. A host
-  painting at 8 fps therefore integrated 100 ms per 125 ms frame, so animations ran in their own slow
-  clock and drifted behind the wall clock: a fling took 25% longer in real time to settle at 8 fps
-  than at 60 fps, the same gesture visibly draggier on the slower host. A slow frame now integrates
-  all of the time that passed. A genuine STALL — a blocked thread, a backgrounded tab, over 250 ms —
-  integrates nothing rather than teleporting the scroll, since a blocked main thread delivers the
-  whole gap as one frame timestamp and fires no `visibilitychange` to detect it by.
 
 - **The web touch gate's fling test no longer flakes** (#223). It failed about one run in three on
   the Mono leg, and the same commit both failed and passed it. A synthetic `PointerEvent` is stamped
@@ -89,8 +99,6 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   **`CupriFace.Web.NativeAot` never drops a frame at all**, even at dpr 3 — its p90 is a flat
   16.7 ms across the whole range. On that host the default is conservative, and an app that wants a
   sharper panel can raise it.
-
-### Changed
 
 - **The frame ceiling is one shared, overridable number instead of three different answers.**
   `CupriApp.MaxFrameRate` defaults to **120** and applies identically on desktop, Android and both
