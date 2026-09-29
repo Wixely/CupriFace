@@ -17,6 +17,15 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **Animations no longer run slow on a slow host** (#229). Every `dt`-integrating animation — the
+  fling, the overscroll rubber band, the list-reorder slide — clamped its timestep to 100 ms. A host
+  painting at 8 fps therefore integrated 100 ms per 125 ms frame, so animations ran in their own slow
+  clock and drifted behind the wall clock: a fling took 25% longer in real time to settle at 8 fps
+  than at 60 fps, the same gesture visibly draggier on the slower host. A slow frame now integrates
+  all of the time that passed. A genuine STALL — a blocked thread, a backgrounded tab, over 250 ms —
+  integrates nothing rather than teleporting the scroll, since a blocked main thread delivers the
+  whole gap as one frame timestamp and fires no `visibilitychange` to detect it by.
+
 - **The web touch gate's fling test no longer flakes** (#223). It failed about one run in three on
   the Mono leg, and the same commit both failed and passed it. A synthetic `PointerEvent` is stamped
   when it is constructed, and the Mono host blocks the main thread while painting — so the swipe's

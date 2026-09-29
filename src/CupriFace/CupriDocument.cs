@@ -3077,6 +3077,49 @@ public sealed partial class CupriDocument : IDisposable
     // (HasActiveAnimations) and drive gate (HasActiveTransitions) see it with zero host changes.
     // State is a structural path + a velocity — nothing that can dangle across a rebuild.
 
+
+    /// <summary>Seconds beyond which a frame gap is a STALL rather than a slow frame, and is
+    /// therefore not elapsed animation time at all.
+    ///
+    /// <para>Sits in a real gap rather than being picked by eye. The slowest legitimate painted
+    /// frame measured on the slowest host — the Mono web host, phone viewport, full relayout — is
+    /// about 115 ms, and the smallest stall measured (a main thread blocked for 500 ms) arrives as
+    /// 483 ms. A quarter of a second is above the first and below the second.</para>
+    /// </summary>
+    private const double StallSeconds = 0.25;
+
+    /// <summary>
+    /// Time elapsed since the last step, for a <c>dt</c>-integrating animation — and the stamp
+    /// updated in passing.
+    ///
+    /// <para><b>A stall returns zero, it is not truncated.</b> This used to be
+    /// <c>Math.Clamp(now - last, 0, 0.1)</c>, which conflated two different things: a frame that
+    /// genuinely took 140 ms, and a clock that jumped because something blocked the thread. Clamping
+    /// treats both as 100 ms — so a slow host silently integrated LESS time than really passed, on
+    /// every frame. The fling still ends up in the right PLACE (exponential decay converges to the
+    /// same distance however it is stepped) but it gets there late: it runs in its own slow clock and
+    /// drifts further behind the wall clock the worse the frame rate is. Measured at 8 fps it took
+    /// 25% longer in real time to settle than at 60 fps — the same gesture, visibly draggier on the
+    /// slower host (#229).</para>
+    ///
+    /// <para>So: a slow frame now integrates in full, and a stall integrates nothing. Zero is the
+    /// honest answer to "how much of that two-second gap was animation" — the alternative is to
+    /// teleport the scroll to wherever the elapsed time carries it. Missing one frame of motion is
+    /// self-correcting; jumping a screenful is not.</para>
+    ///
+    /// <para>Measured rather than assumed: a blocked main thread delivers the whole gap to the host
+    /// as a frame timestamp, and fires no <c>visibilitychange</c> — so detecting the discontinuity
+    /// by page visibility, the obvious first instinct, would miss it entirely.</para>
+    /// </summary>
+    private static double StepDt(ref double last, double now)
+    {
+        if (double.IsNaN(last)) { last = now; return 0; }   // first frame stamps the clock only
+        var raw = now - last;
+        last = now;
+        if (raw <= 0) return 0;                             // a clock that went backwards
+        return raw > StallSeconds ? 0 : raw;
+    }
+
     private string? _flingPath;
     private float _flingV;
     private double _flingT = double.NaN;
@@ -3174,8 +3217,7 @@ public sealed partial class CupriDocument : IDisposable
         }
         if (_overscrollHeld) return true;           // still being pulled; nothing to animate
 
-        var dt = double.IsNaN(_overscrollT) ? 0 : Math.Clamp(now - _overscrollT, 0, 0.1);
-        _overscrollT = now;
+        var dt = StepDt(ref _overscrollT, now);
         if (dt <= 0) return true;
 
         var decay = (float)Math.Exp(-dt * OverscrollSpring);
@@ -3210,8 +3252,7 @@ public sealed partial class CupriDocument : IDisposable
     private bool StepFling(double now)
     {
         if (_flingPath is null) return false;
-        var dt = double.IsNaN(_flingT) ? 0 : Math.Clamp(now - _flingT, 0, 0.1);
-        _flingT = now;
+        var dt = StepDt(ref _flingT, now);
         if (dt <= 0) return true;                       // first frame stamps the clock only
 
         _flingV *= (float)Math.Exp(-dt * FlingDecay);
@@ -5101,8 +5142,7 @@ public sealed partial class CupriDocument : IDisposable
     private bool EaseReorder(double now)
     {
         if (_reorderItems is not { } items) return false;
-        var dt = double.IsNaN(_reorderAnimT) ? 0 : Math.Clamp(now - _reorderAnimT, 0, 0.1);
-        _reorderAnimT = now;
+        var dt = StepDt(ref _reorderAnimT, now);
         var f = (float)(1 - Math.Exp(-dt * 18)); // frame-rate-independent smoothing
         var moving = false;
         foreach (var it in items)

@@ -15,6 +15,67 @@ public class FlingTests
         <body><div class="box"><div class="pad">content</div></div></body>
         """;
 
+    /// <summary>A SLOW frame integrates ALL of the time that passed, not the first 0.1s of it.
+    ///
+    /// <para>The old clamp capped dt at 0.1s, so a 125ms frame advanced the animation as though
+    /// only 100ms had elapsed and the fling fell progressively behind the clock (#229). Asserted as
+    /// "a longer frame must advance it further", because that is the property the clamp destroys:
+    /// under the clamp a 125ms frame and a 100ms frame are indistinguishable.</para>
+    ///
+    /// <para>Deliberately NOT asserted by comparing coarse stepping against fine: the integrator
+    /// decays velocity before applying it, so a large dt undershoots the exact integral by ~20% at
+    /// 8fps whatever the clamp does. That is a separate accuracy question and would make this test
+    /// fail for a reason it is not about.</para>
+    /// </summary>
+    [Fact]
+    public void A_longer_frame_advances_the_fling_further_than_a_shorter_one()
+    {
+        static float AfterOneFrame(double dt)
+        {
+            using var t = new TestDoc(Html, Css);
+            var touch = new TouchInput(t.Doc);
+            touch.Down(200, 80, 0.00);
+            touch.Move(200, 60, 0.02);
+            touch.Move(200, 40, 0.04);
+            touch.Up(200, 20, 0.06);
+
+            t.Doc.Animate(0.06);                      // stamps the animation clock, moves nothing
+            var before = t.Find(n => n.IsScrollable)!.ScrollY;
+            t.Doc.Animate(0.06 + dt);                 // exactly one frame of the given length
+            return t.Find(n => n.IsScrollable)!.ScrollY - before;
+        }
+
+        var at100 = AfterOneFrame(0.100);             // the old clamp's ceiling
+        var at125 = AfterOneFrame(0.125);             // past it
+
+        Assert.True(at100 > 0, "a 100ms frame advances the fling");
+        Assert.True(at125 > at100 * 1.05,
+            $"a 125ms frame must advance further than a 100ms one — got {at125:F2} vs {at100:F2}");
+    }
+
+    /// <summary>A STALL contributes nothing. The thread was blocked; none of that gap was animation,
+    /// so integrating it would teleport the scroll to wherever two seconds of momentum reaches.
+    /// Measured: a blocked main thread hands the host the whole gap as a frame timestamp, and fires
+    /// no visibilitychange — so this cannot be detected by page visibility.</summary>
+    [Fact]
+    public void A_stalled_clock_does_not_teleport_the_scroll()
+    {
+        using var t = new TestDoc(Html, Css);
+        var touch = new TouchInput(t.Doc);
+        touch.Down(200, 80, 0.00);
+        touch.Move(200, 60, 0.02);
+        touch.Move(200, 40, 0.04);
+        touch.Up(200, 20, 0.06);
+
+        t.Doc.Animate(0.06 + 1 / 60.0);                       // one ordinary frame
+        var before = t.Find(n => n.IsScrollable)!.ScrollY;
+
+        t.Doc.Animate(0.06 + 1 / 60.0 + 2.0);                 // …then the thread was gone for 2s
+        var after = t.Find(n => n.IsScrollable)!.ScrollY;
+
+        Assert.Equal(before, after);
+    }
+
     [Fact]
     public void A_fast_release_keeps_scrolling_and_decays_to_a_stop()
     {
