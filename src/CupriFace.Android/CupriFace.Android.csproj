@@ -36,4 +36,11 @@
     <None Include="buildTransitive\CupriFace.Android.targets" Pack="true" PackagePath="buildTransitive\" />
   </ItemGroup>
 
+
+  <!-- FrameCeiling, so this host honours CupriApp.MaxFrameRate like the other two. Shared by
+       SOURCE for the same reasons the file itself gives: pure arithmetic, no engine or package
+       edge. HostScale rides along and this host does its own density maths by hand today (#218),
+       which is a tidy-up for another day. -->
+  <Import Project="..\Hosting.props" />
+
 </Project>

@@ -299,6 +299,30 @@ public abstract class CupriApp
     /// </summary>
     public virtual float MaxDevicePixelRatio => 2f;
 
+    /// <summary>
+    /// The most frames per second a CONTINUOUS animation may drive. <b>Default 120</b>; zero or
+    /// negative means no ceiling, and the host paints as often as its frame source offers.
+    ///
+    /// <para>This throttles the animation DRIVE only. Anything the user did — a click, a key, a
+    /// finger — marks the document dirty and paints on the very next frame regardless, because an
+    /// interaction that waits for a frame budget is an interaction that feels broken. A frame is
+    /// still only painted when something actually changed, and only the damaged region is blitted;
+    /// this is a ceiling on top of that, not a replacement for it.</para>
+    ///
+    /// <para><b>Nothing here changes how an animation LOOKS over time.</b> Every animated subsystem
+    /// in the engine is time-based, not frame-based: <c>@keyframes</c>, transitions, the mask peek
+    /// and toasts all compute their phase from an absolute clock, while the fling, overscroll and
+    /// reorder easing integrate a real <c>dt</c>. Halving the frame rate makes motion coarser, never
+    /// slower or shorter. That is exactly why a ceiling is safe to have.</para>
+    ///
+    /// <para>Raise it for a high-refresh panel, or set it to 0 and let vsync decide. Lower it to
+    /// spend less battery on a page that animates constantly. It applies identically on every host;
+    /// the web hosts previously carried a hard-coded 30 fps gate of their own, which meant the
+    /// NativeAOT host — whose painted frames measure ~7.5 ms, so roughly 130 fps of capability —
+    /// was held to a quarter of what it could draw for no reason a caller could see or change.</para>
+    /// </summary>
+    public virtual float MaxFrameRate => 120f;
+
     /// <summary>Component library available to the markup (defaults to the built-ins).</summary>
     public virtual ComponentRegistry Components => ComponentRegistry.Default();
 

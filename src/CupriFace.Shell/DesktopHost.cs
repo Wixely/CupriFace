@@ -108,6 +108,7 @@ public static class DesktopHost
         Func<float> deviceScale = () => 1f;
         var logicalW = 0f; var logicalH = 0f; // last presented logical size, for the a11y snapshot
         var lastRefresh = 0.0;
+        var lastAnimFrame = double.NaN;   // NaN = nothing animated yet, so the first frame is due
 
         // Render-on-demand (same model as the WASM host): input marks the doc dirty only when a
         // dispatch actually changed something; animation/refresh/image arrival wake it too. A static
@@ -125,7 +126,16 @@ public static class DesktopHost
                 dirty = true;
             }
             if (doc.ConsumeImageArrived()) dirty = true;      // a background image finished loading
-            if (doc.HasActiveAnimations) dirty = true;        // keyframes/transitions/toasts running
+            // Continuous animation, at the app's ceiling (CupriApp.MaxFrameRate, default 120).
+            // This host had NO ceiling before and the web hosts had a hard-coded 30 fps; one shared
+            // knob replaces both. Only the animation DRIVE is throttled — input has already set
+            // dirty above and paints on this frame regardless.
+            if (doc.HasActiveAnimations &&
+                FrameCeiling.Due(clock.Elapsed.TotalSeconds, lastAnimFrame, app.MaxFrameRate))
+            {
+                lastAnimFrame = clock.Elapsed.TotalSeconds;
+                dirty = true;
+            }
             var d = dirty;
             dirty = false;
             return d;

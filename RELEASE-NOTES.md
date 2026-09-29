@@ -37,6 +37,28 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   16.7 ms across the whole range. On that host the default is conservative, and an app that wants a
   sharper panel can raise it.
 
+### Changed
+
+- **The frame ceiling is one shared, overridable number instead of three different answers.**
+  `CupriApp.MaxFrameRate` defaults to **120** and applies identically on desktop, Android and both
+  web hosts; 0 means no ceiling.
+
+  Before this, the web hosts carried a hard-coded `>= 33` gate — about 30 fps — that neither other
+  host had and no caller could change, while desktop and Android had no ceiling at all. On
+  `CupriFace.Web.NativeAot`, whose painted frames measure ~7.5 ms, that held animation to **30 fps
+  when the display and the host could both do 60**. Measured after the change: the same fling now
+  paints at 60 fps on NativeAOT, i.e. vsync-bound rather than throttle-bound. The Mono host is
+  unchanged in practice at ~26 fps, which is its own frame cost rather than a gate.
+
+  **Only the continuous animation DRIVE is throttled.** Anything the user did marks the document
+  dirty and paints on the very next frame whatever the ceiling is. Frames are still only painted
+  when something changed, and still only the damaged region is blitted.
+
+  Nothing about how an animation *looks over time* changes: every animated subsystem is time-based,
+  not frame-based. `@keyframes`, transitions, the mask peek and toasts compute their phase from an
+  absolute clock; the fling, overscroll and reorder easing integrate a real `dt`. A lower frame rate
+  makes motion coarser, never slower or shorter.
+
 ## v0.30.0
 
 The browser hosts get the pixels they should always have had, and a build error

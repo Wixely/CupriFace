@@ -113,3 +113,41 @@ public readonly record struct HostScale(
     public static float Sanitize(float scale) =>
         float.IsFinite(scale) && scale > 0 ? Math.Clamp(scale, MinDeviceScale, MaxDeviceScale) : 1f;
 }
+
+/// <summary>
+/// The animation frame ceiling, shared by every host so they cannot drift apart on it.
+///
+/// <para>Lives beside <see cref="HostScale"/> and travels the same way — compiled in as SOURCE via
+/// Hosting.props, no package edge, no engine dependency. It is four lines of arithmetic; the reason
+/// it is a type at all is that the three hosts previously disagreed. The web hosts carried a
+/// hard-coded 30 fps gate while desktop and Android had no ceiling whatsoever, which is not a
+/// decision anyone made — it is two answers to a question nobody asked in one place.</para>
+/// </summary>
+public static class FrameCeiling
+{
+    /// <summary>A ceiling this high is indistinguishable from none and costs a pointless divide;
+    /// past it, treat the app as asking for uncapped.</summary>
+    public const float Uncapped = 1000f;
+
+    /// <summary>Minimum interval between CONTINUOUS animation frames, in seconds — 0 when the app
+    /// wants no ceiling. Feed it <c>CupriApp.MaxFrameRate</c>.
+    ///
+    /// <para>A non-finite or non-positive rate means "no ceiling" rather than "never paint": a host
+    /// dividing by it would otherwise stop animating entirely, which is the worse failure and the
+    /// harder one to diagnose from a stationary screen.</para>
+    /// </summary>
+    public static double IntervalSeconds(float maxFrameRate) =>
+        !float.IsFinite(maxFrameRate) || maxFrameRate <= 0 || maxFrameRate >= Uncapped
+            ? 0.0
+            : 1.0 / maxFrameRate;
+
+    /// <summary>Whether a continuous animation frame is due, given when the last one was drawn.
+    /// Both times are in the SAME arbitrary clock; only the difference matters.</summary>
+    public static bool Due(double nowSeconds, double lastFrameSeconds, float maxFrameRate)
+    {
+        var interval = IntervalSeconds(maxFrameRate);
+        if (interval <= 0) return true;                       // uncapped
+        // NaN on the first call (nothing drawn yet) must be DUE, or the animation never starts.
+        return double.IsNaN(lastFrameSeconds) || nowSeconds - lastFrameSeconds >= interval;
+    }
+}
