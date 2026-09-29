@@ -73,9 +73,29 @@ public class TouchTests(WebHostFixture host)
               const hash = () => { const d = c.toDataURL('image/png'); let h = 0;
                 for (let i = 0; i < d.length; i += 97) h = (h * 31 + d.charCodeAt(i)) | 0; return h; };
               const wait = ms => new Promise(r => setTimeout(r, ms));
-              const ev = (t, y) => c.dispatchEvent(new PointerEvent(t, { pointerId: 31, pointerType: 'touch',
-                clientX: 200, clientY: y, bubbles: true, cancelable: true, isPrimary: true,
-                buttons: t === 'pointerup' ? 0 : 1 }));
+              // EVERY EVENT CARRIES ITS OWN TIMELINE, 14ms apart, rather than whatever the
+              // scheduler managed. The recogniser keeps a velocity ring of the last 0.1s and needs
+              // two samples in it to fling at all (TouchInput.Prune). A synthetic PointerEvent takes
+              // its timeStamp when it is CONSTRUCTED, so on a host whose frames block the main
+              // thread — Mono paints in ~90ms — `await wait(14)` lands ~90-100ms late, consecutive
+              // moves fall outside the ring window, and the fling branch is skipped. The drag still
+              // scrolls, so the failure reads as "the fling never ran" (#223).
+              //
+              // A REAL finger does not have this problem: hardware events are stamped when the touch
+              // happened, and a busy thread only batches their delivery. Pinning the timeline gives
+              // the synthetic gesture the property a real one already has, which is why this is a
+              // fix and not a fudge. Measured: unpinned, this swipe failed to coast on a developer
+              // machine even with no artificial load; pinned, it coasts with a 60ms busy-wait
+              // deliberately stalled between every move.
+              let clock = performance.now();
+              const ev = (t, y) => {
+                const e = new PointerEvent(t, { pointerId: 31, pointerType: 'touch',
+                  clientX: 200, clientY: y, bubbles: true, cancelable: true, isPrimary: true,
+                  buttons: t === 'pointerup' ? 0 : 1 });
+                clock += 14;
+                Object.defineProperty(e, 'timeStamp', { value: clock });
+                c.dispatchEvent(e);
+              };
               const start = hash();
               // The swipe must be SHORTER than the shortest page's scroll range (~535px: the
               // controls section at this width). A swipe longer than the range exhausts the scroll
