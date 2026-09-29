@@ -3255,7 +3255,27 @@ public sealed partial class CupriDocument : IDisposable
         var dt = StepDt(ref _flingT, now);
         if (dt <= 0) return true;                       // first frame stamps the clock only
 
-        _flingV *= (float)Math.Exp(-dt * FlingDecay);
+        // THE DISPLACEMENT IS THE INTEGRAL OVER THE STEP, not a sample of the velocity times the step.
+        //
+        // This used to decay the velocity and then move by `_flingV * dt` — a rectangle drawn at the
+        // END of a falling curve, so it fitted underneath and the fling travelled short. Always short,
+        // never long: the velocity decreases monotonically, so the right-hand sample is below the
+        // interval's average on EVERY frame, and a few hundred frames of a fling accumulate a few
+        // hundred deficits in the same direction rather than cancelling.
+        //
+        // How short, exactly: with u = FlingDecay * dt the ratio of the old form to the true integral
+        // is u / (e^u - 1), which is 1 - u/2 to first order — you lose about half of whatever fraction
+        // the velocity decays in one frame. Measured against that formula, seven frame rates, all
+        // within half a point: -2.3% at 60fps, -17% at 8fps, -32% at 4fps (#231). There was no frame
+        // rate at which it was right, only frame rates where it was small.
+        //
+        // The closed form below has no step size in its error because it has no discretisation at all,
+        // and it costs the same single Exp. Overscroll and the reorder ease do NOT need this: they
+        // decay the quantity they are updating rather than its rate of change, and exponentials
+        // compose (e^-ka * e^-kb = e^-k(a+b)), so those two were already exact.
+        var decay = (float)Math.Exp(-dt * FlingDecay);
+        var travel = _flingV * (1f - decay) / FlingDecay;   // integral of v*e^(-kt) over [0, dt]
+        _flingV *= decay;
         var n = NodeAtPath(_flingPath);
         if (n is null || !(_flingHorizontal ? n.IsScrollableX : n.IsScrollable)) { StopFling(); return false; }
 
@@ -3263,13 +3283,13 @@ public sealed partial class CupriDocument : IDisposable
         if (_flingHorizontal)
         {
             var beforeX = n.ScrollX;
-            n.ScrollX = Math.Clamp(n.ScrollX + _flingV * (float)dt, 0, n.MaxScrollX);
+            n.ScrollX = Math.Clamp(n.ScrollX + travel, 0, n.MaxScrollX);
             moved = Math.Abs(n.ScrollX - beforeX) > 0.01f;
         }
         else
         {
             var before = n.ScrollY;
-            n.ScrollY = Math.Clamp(n.ScrollY + _flingV * (float)dt, 0, n.MaxScrollY);
+            n.ScrollY = Math.Clamp(n.ScrollY + travel, 0, n.MaxScrollY);
             moved = Math.Abs(n.ScrollY - before) > 0.01f;
             RewindowVirtual(n);                         // may rebuild; we hold a path, not the node
         }
