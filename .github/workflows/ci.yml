@@ -1891,11 +1891,20 @@ jobs:
           SECTION=""
           if [ -f RELEASE-NOTES.md ]; then
             for heading in "$GITHUB_REF_NAME" "Unreleased"; do
+              # Trim blank lines from the START and END of the section, and keep every one INSIDE
+              # it. The previous `sed '/^[[:space:]]*$/{ /./!d }'` deleted them ALL, which quietly
+              # mangled every release body it ever produced: in GitHub-flavoured markdown a table
+              # cannot interrupt a paragraph, so a table that loses its preceding blank line renders
+              # as literal pipes, list items run together, and a fenced code block loses its fence.
+              # v0.30.0 and earlier are visibly wrong on the releases page for exactly this reason.
               SECTION=$(awk -v want="## $heading" '
                 $0 == want { grab = 1; next }
                 grab && /^## / { exit }
                 grab { print }
-              ' RELEASE-NOTES.md | sed '/^[[:space:]]*$/{ /./!d }')
+              ' RELEASE-NOTES.md | awk '
+                /^[[:space:]]*$/ { if (started) pending++; next }
+                { while (pending-- > 0) print ""; pending = 0; started = 1; print }
+              ')
               if [ -n "$(echo "$SECTION" | tr -d '[:space:]')" ]; then
                 echo "release notes: using the '$heading' section of RELEASE-NOTES.md"
                 break
