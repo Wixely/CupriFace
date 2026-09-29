@@ -29,9 +29,13 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 - **`CupriApp.MaxDevicePixelRatio`'s default of 2 is now justified by a measurement rather than by a
   flaky test** (#224). The number is unchanged. Frame pace during a fling on the Mono host is flat
   at a p90 of 33.3ms up to and including dpr 2, and steps to 50.0ms — a whole extra dropped frame —
-  at 2.625, reproducibly. So 2 is the last ratio that costs nothing, which is what a ceiling should
-  be. The original justification cited a browser-gate failure that turned out to be #223 and had
-  nothing to do with pixels.
+  at 2.625, reproducibly. So 2 is the last ratio that costs it nothing, which is what a ceiling
+  should be. The original justification cited a browser-gate failure that turned out to be #223 and
+  had nothing to do with pixels.
+
+  **`CupriFace.Web.NativeAot` never drops a frame at all**, even at dpr 3 — its p90 is a flat
+  16.7 ms across the whole range. On that host the default is conservative, and an app that wants a
+  sharper panel can raise it.
 
 ## v0.30.0
 
