@@ -1,5 +1,6 @@
 ﻿using Android.Content;
 using Android.Util;
+using CupriFace.Hosting;
 using CupriFace.Interaction;
 using SkiaSharp;
 
@@ -442,9 +443,19 @@ public sealed class AndroidHost : IDisposable
 
         // Render-on-demand's other half: WHEN_DIRTY parks the GL thread after this frame, so an
         // active animation must chain the next one itself. Image arrivals ride the same check.
-        if (_doc.HasActiveAnimations || _doc.ConsumeImageArrived()) MarkDirty();
+        // Continuous animation, at the app's ceiling (CupriApp.MaxFrameRate, default 120). This
+        // host had no ceiling and the web hosts had a hard-coded 30 fps; one shared knob replaces
+        // both. An image ARRIVING is not continuous animation and is never throttled.
+        if (_doc.HasActiveAnimations &&
+            FrameCeiling.Due(_clock.Elapsed.TotalSeconds, _lastAnimFrame, _app.MaxFrameRate))
+        {
+            _lastAnimFrame = _clock.Elapsed.TotalSeconds;
+            MarkDirty();
+        }
+        if (_doc.ConsumeImageArrived()) MarkDirty();
     }
 
+    private double _lastAnimFrame = double.NaN;   // NaN = nothing animated yet, so the first frame is due
     private bool _wasFlinging;
     private TalkBackBridge? _talkBack;
     private int _a11yVersion = -1;

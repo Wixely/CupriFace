@@ -141,13 +141,28 @@ public class WebHostCoreTests(ITestOutputHelper output)
         public override PresentInfo Present(float w, float h) => new(w / scale, h / scale, scale);
     }
 
+    /// <summary>Animates for ever, so a test measures the DRIVE rather than a document that settles
+    /// and stops asking. A spinner is the realistic shape of this: something is always moving.</summary>
+    private sealed class AnimatingApp : CupriApp
+    {
+        public float? Fps;
+        public override float MaxFrameRate => Fps ?? base.MaxFrameRate;
+        public override string Html => "<body style=\"margin:0\"><div class='spin'>x</div></body>";
+        public override string Css =>
+            "body{background:#fff}" +
+            "@keyframes spin{from{opacity:0.2}to{opacity:1}}" +
+            ".spin{animation:spin 1s linear infinite;width:50px;height:50px;background:#333}";
+    }
+
     /// <summary>Records the size it was asked to present into, so a test can assert what SPACE the
     /// app was addressed in — the whole question in #218.</summary>
     private sealed class ProbeApp(float scale = 1f) : CupriApp
     {
         public float LastW, LastH;
         public float? Cap;
+        public float? Fps;
         public override float MaxDevicePixelRatio => Cap ?? base.MaxDevicePixelRatio;
+        public override float MaxFrameRate => Fps ?? base.MaxFrameRate;
         public override string Html => "<body style=\"margin:0\"><p style=\"padding:8px\">text</p></body>";
         public override string Css => "body{background:#fff}";
         public override PresentInfo Present(float w, float h)
@@ -338,6 +353,60 @@ public class WebHostCoreTests(ITestOutputHelper output)
         // The host paints at 2, so it addresses the app as though the buffer were a 2x one.
         Assert.Equal(1082f / 2f, app.LastW);
         Assert.Equal(2202f / 2f, app.LastH);
+    }
+
+    /// <summary>An ANIMATING document repaints at the app's ceiling, not at whatever rate the host
+    /// is asked to tick. The web hosts used to carry a hard-coded ~30 fps gate that neither other
+    /// host had and no caller could change; on NativeAOT, whose painted frames measure ~7.5 ms, that
+    /// held it to about a quarter of what it could draw.</summary>
+    [Fact]
+    public void A_continuous_animation_repaints_at_the_apps_ceiling()
+    {
+        var app = new AnimatingApp { Fps = 100f };          // 100 fps => one frame per 10 ms
+        var js = Boot(app);
+
+        Assert.True(WebHostCore.Tick(300, 200, 1f, 0), "the first frame must paint");
+        var after = js.Presents;
+
+        // Twenty ticks one millisecond apart: 20 ms of wall clock, so two frames are due.
+        for (var t = 1; t <= 20; t++) WebHostCore.Tick(300, 200, 1f, t);
+        var painted = js.Presents - after;
+
+        Assert.InRange(painted, 1, 3);
+    }
+
+    /// <summary>The same document, uncapped, paints every tick it is offered. This is the half that
+    /// matters for the fast host: the ceiling must be a CHOICE, not a floor built into the loop.</summary>
+    [Fact]
+    public void An_uncapped_app_paints_every_frame_it_is_offered()
+    {
+        var app = new AnimatingApp { Fps = 0f };             // 0 => no ceiling
+        var js = Boot(app);
+
+        Assert.True(WebHostCore.Tick(300, 200, 1f, 0));
+        var after = js.Presents;
+
+        for (var t = 1; t <= 20; t++) WebHostCore.Tick(300, 200, 1f, t);
+
+        Assert.True(js.Presents - after >= 15,
+            $"uncapped should paint nearly every tick, painted {js.Presents - after} of 20");
+    }
+
+    /// <summary>INPUT IS NEVER THROTTLED. A ceiling that made a click wait for the frame budget
+    /// would be a ceiling that makes the app feel broken; only the animation drive is gated.</summary>
+    [Fact]
+    public void Input_repaints_immediately_however_low_the_ceiling()
+    {
+        var app = new AnimatingApp { Fps = 1f };             // one frame per second: brutal
+        var js = Boot(app);
+
+        Assert.True(WebHostCore.Tick(300, 200, 1f, 0));
+        var after = js.Presents;
+
+        // Well inside the 1000 ms budget, so the animation drive is certainly gated.
+        WebHostCore.MarkDirty();
+        Assert.True(WebHostCore.Tick(300, 200, 1f, 5), "a dirty document must paint regardless of the ceiling");
+        Assert.Equal(after + 1, js.Presents);
     }
 
     private static RecordingBridge Boot(CupriApp app)

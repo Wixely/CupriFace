@@ -49,7 +49,8 @@ public static class WebHostCore
     private static SKBitmap? _bitmap;
     private static SKBitmap? _straight;          // staging buffer for the premul→straight conversion
     private static readonly Stopwatch _clock = Stopwatch.StartNew();
-    private static double _lastRefresh, _lastAnimMs;
+    private static double _lastRefresh;
+    private static double _lastAnimMs = double.NaN;   // NaN = nothing drawn yet, so the first frame is due
     private static int _lastW, _lastH;
     private static float _lastDpr = 1f;   // so a monitor change repaints, not just a resize
     private static bool _dirty = true;
@@ -155,6 +156,7 @@ public static class WebHostCore
         _cursor = "";
         _lastTextInput = default;
         _lastW = _lastH = 0;
+        _lastAnimMs = double.NaN;    // a second Init must not inherit the first run's frame clock
     }
 
     /// <summary>One animation frame. Renders ONLY when something changed — after input, on the app's
@@ -201,9 +203,21 @@ public static class WebHostCore
         if (_touch.NextDeadline is { } deadline && nowMs / 1000.0 >= deadline && _touch.Tick(nowMs / 1000.0))
             _dirty = true;
 
-        // Continuous repaint only while something is actually animating, capped at ~30 fps.
+        // Continuous repaint only while something is actually animating, at the app's ceiling.
+        //
+        // This used to be a hard-coded `>= 33` — about 30 fps — which neither other host had and no
+        // caller could change. On the NativeAOT host a painted frame measures ~7.5 ms, so it was
+        // being held to roughly a quarter of what it could draw. The ceiling is now
+        // CupriApp.MaxFrameRate, defaulting to 120 and shared with desktop and Android.
+        //
+        // Only the DRIVE is throttled. Anything the user did has already set _dirty above and paints
+        // on this frame regardless; an interaction that waits on a frame budget feels broken.
         var animating = _doc.HasActiveAnimations;
-        if (animating && nowMs - _lastAnimMs >= 33) { _lastAnimMs = nowMs; _dirty = true; }
+        if (animating && FrameCeiling.Due(nowMs / 1000.0, _lastAnimMs / 1000.0, _app.MaxFrameRate))
+        {
+            _lastAnimMs = nowMs;
+            _dirty = true;
+        }
         // The frame AFTER the last animated one. Nothing else marks it dirty, so the settled state
         // was never painted with animating == false - and the ARIA mirror, published only then,
         // kept whatever it held before the animation began. On a page that animates from load that
