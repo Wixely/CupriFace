@@ -53,6 +53,50 @@ public class FlingTests
             $"a 125ms frame must advance further than a 100ms one — got {at125:F2} vs {at100:F2}");
     }
 
+    /// <summary>THE SAME GESTURE TRAVELS THE SAME DISTANCE AT EVERY FRAME RATE. The one assertion
+    /// that would have caught #231, and the one the suite did not have: every other fling test steps
+    /// at a single rate, so a 32%-at-4fps distance error passed all 1543 of them.
+    ///
+    /// <para>The fling used to decay velocity and then move by <c>v * dt</c> — a rectangle drawn at
+    /// the END of a falling curve, so it fitted underneath and the fling came up short. Always short,
+    /// never long, because velocity falls monotonically and so the right-hand sample is below the
+    /// interval's average on every single frame. Systematic bias, not noise, so it accumulated over
+    /// the whole fling instead of averaging out: -2.3% at 60fps, -17% at 8fps, -32% at 4fps.</para>
+    ///
+    /// <para>Run to completion, not to a fixed instant: what a user sees is where the list ends up.
+    /// The tolerance is 1.5%, which is comfortably inside the old error at every rate below 60fps and
+    /// above the residual from <c>FlingStopSpeed</c> truncating the tail at a slightly different point
+    /// per step size — that last part is a stop condition, not the integrator, and it is why this is
+    /// not asserted to the float.</para>
+    /// </summary>
+    [Fact]
+    public void The_same_fling_travels_the_same_distance_at_any_frame_rate()
+    {
+        static float Distance(double fps)
+        {
+            using var t = new TestDoc(Html, Css);
+            var touch = new TouchInput(t.Doc);
+            touch.Down(200, 80, 0.00);
+            touch.Move(200, 60, 0.02);
+            touch.Move(200, 40, 0.04);
+            touch.Up(200, 20, 0.06);
+
+            var start = t.Find(n => n.IsScrollable)!.ScrollY;
+            var now = 0.06;
+            for (var i = 0; i < 100_000 && t.Doc.FlingActive; i++) t.Doc.Animate(now += 1.0 / fps);
+            return t.Find(n => n.IsScrollable)!.ScrollY - start;
+        }
+
+        var reference = Distance(240);                  // fine enough to stand in for the exact integral
+        Assert.True(reference > 50, $"the reference fling must actually travel, got {reference:F1}px");
+
+        foreach (var fps in new[] { 120.0, 60, 30, 16, 8, 4 })
+        {
+            var d = Distance(fps);
+            Assert.InRange(d, reference * 0.985f, reference * 1.015f);
+        }
+    }
+
     /// <summary>A STALL contributes nothing. The thread was blocked; none of that gap was animation,
     /// so integrating it would teleport the scroll to wherever two seconds of momentum reaches.
     /// Measured: a blocked main thread hands the host the whole gap as a frame timestamp, and fires

@@ -17,6 +17,25 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **A fling now travels the same distance at every frame rate** (#231). It decayed the velocity and
+  then moved by `velocity * dt` — a rectangle drawn at the *end* of a falling curve, so it fitted
+  underneath and the scroll came up short. Always short and never long, because velocity falls
+  monotonically, so the sample was below the interval's average on every frame and a few hundred
+  frames accumulated a few hundred deficits in the same direction. Measured: **2.3% short at 60fps,
+  17% at 8fps, 32% at 4fps** — there was no frame rate at which it was right, only rates where it was
+  small. The displacement is now the analytic integral over the step, which has no step size in its
+  error because it has no discretisation, and costs the same single `Exp`.
+
+  **A fling therefore travels about 2.5% further than before at 60fps** — roughly 8px on a 320px
+  throw. `FlingDecay` is deliberately unchanged: re-tuning it to cancel this would mean keeping the
+  old shortfall on purpose. If you had dialled a gesture in against the old behaviour, that is the
+  one number to revisit.
+
+  Overscroll and the reorder ease were checked and need no change: they decay the quantity they are
+  updating rather than its rate of change, and exponentials compose, so both were already exact. The
+  distinction is not spring-versus-fling — it is whether the decaying thing *is* what you are
+  updating, or is how fast it changes.
+
 - **Animations no longer run slow on a slow host** (#229). Every `dt`-integrating animation — the
   fling, the overscroll rubber band, the list-reorder slide — clamped its timestep to 100 ms. A host
   painting at 8 fps therefore integrated 100 ms per 125 ms frame, so animations ran in their own slow
