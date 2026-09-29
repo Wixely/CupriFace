@@ -25,6 +25,20 @@ on:
   push:
     branches: [ main, feature/video ]
     paths: [ '.github/workflows/codecs.yml' ]
+  # MONTHLY, even though nothing changed. These artifacts are an INPUT TO EVERY RELEASE -- the
+  # release job downloads them into CupriFace.Media -- but they are only rebuilt when this file
+  # changes, which can be months. At the old 14-day retention that guaranteed a broken release for
+  # any tag pushed more than a fortnight after the last codec edit, and it duly broke v0.31.0: the
+  # release failed on "no codec natives for ANY rid", one day after v0.30.0 had shipped fine.
+  #
+  # Retention is now 90 days and this rebuilds every month, so the artifacts are at most ~31 days
+  # old when a release wants them and there are two spare cycles before they could ever expire. The
+  # release-side guard stays as the backstop: a hollow CupriFace.Media must be a red release rather
+  # than a warning nobody reads (that is how v0.5.0 shipped 25KB of nothing).
+  #
+  # Free: this repository is public, so Actions minutes are not billed.
+  schedule:
+    - cron: '0 4 1 * *'      # 04:00 UTC on the 1st of each month
 
 env:
   VPX_TAG: v1.14.1
@@ -74,7 +88,7 @@ jobs:
           name: cupricodecs-linux-x64
           path: libcupricodecs.so
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 90
 
   # ARM Linux, natively on GitHub's arm64 runner — no nasm (the x86 assembler): libvpx's arm
   # paths are NEON intrinsics, and configure detects the host.
@@ -113,7 +127,7 @@ jobs:
           name: cupricodecs-linux-arm64
           path: libcupricodecs.so
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 90
 
   osx-arm64:
     runs-on: macos-latest
@@ -148,7 +162,7 @@ jobs:
           name: cupricodecs-osx-arm64
           path: libcupricodecs.dylib
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 90
 
   # Intel macOS. The label is macos-15-intel: macos-13 (the old Intel image) is retired, and a
   # job asking for it doesn't fail — it QUEUES FOREVER, which is how three runs sat at 35 minutes
@@ -190,7 +204,7 @@ jobs:
           name: cupricodecs-osx-x64
           path: libcupricodecs.dylib
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 90
 
   win-x64:
     runs-on: windows-latest
@@ -256,7 +270,7 @@ jobs:
           name: cupricodecs-win-x64
           path: cupricodecs.dll
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 90
 
   # Windows on ARM, natively (GitHub's windows-11-arm image). MSYS2's CLANGARM64 environment is
   # the arm64 counterpart of MINGW64 above — clang instead of gcc, so the static-runtime flags
@@ -330,7 +344,7 @@ jobs:
           name: cupricodecs-win-arm64
           path: cupricodecs.dll
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 90
 
   # THE PORTABILITY GATE: build the media sample ONCE on Windows, framework-dependent, then run
   # those untouched managed binaries on Linux with `dotnet MediaProbe.dll` and decode real video
