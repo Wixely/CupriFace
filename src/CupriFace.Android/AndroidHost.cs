@@ -443,11 +443,15 @@ public sealed class AndroidHost : IDisposable
 
         // Render-on-demand's other half: WHEN_DIRTY parks the GL thread after this frame, so an
         // active animation must chain the next one itself. Image arrivals ride the same check.
-        // Continuous animation, at the app's ceiling (CupriApp.MaxFrameRate, default 120). This
-        // host had no ceiling and the web hosts had a hard-coded 30 fps; one shared knob replaces
-        // both. An image ARRIVING is not continuous animation and is never throttled.
+        // Continuous animation, at the app's ceiling (CupriApp.MaxFrameRateFor, default 120 on every
+        // host). This host had no ceiling and the web hosts had a hard-coded 30 fps; one shared knob
+        // replaces both. An image ARRIVING is not continuous animation and is never throttled.
+        //
+        // The density and the dp size are this frame's own, so an app that wants 60 on a phone and
+        // 120 on a tablet has the numbers to say so (#227).
         if (_doc.HasActiveAnimations &&
-            FrameCeiling.Due(_clock.Elapsed.TotalSeconds, _lastAnimFrame, _app.MaxFrameRate))
+            FrameCeiling.Due(_clock.Elapsed.TotalSeconds, _lastAnimFrame,
+                _app.MaxFrameRateFor(new DeviceProfile(HostKind.Android, density, dpW, dpH))))
         {
             _lastAnimFrame = _clock.Elapsed.TotalSeconds;
             MarkDirty();

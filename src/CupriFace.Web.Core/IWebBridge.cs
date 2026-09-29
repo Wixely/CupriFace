@@ -18,6 +18,17 @@ namespace CupriFace.Web;
 /// </summary>
 public interface IWebBridge
 {
+    /// <summary>Which runtime this bridge belongs to — the one thing the shared half cannot work out
+    /// for itself, and the only reason it wants to know is that the two differ in SPEED by about an
+    /// order of magnitude per painted frame. Reaches the app through
+    /// <see cref="DeviceProfile.Host"/> so a caller can set a performance ceiling per host (#227).
+    ///
+    /// <para>Defaulted rather than abstract on purpose: a bridge that has not been taught to answer
+    /// (a test double, an out-of-tree host) reports <see cref="HostKind.Unknown"/> and every default
+    /// still applies, instead of failing to compile over a fact it does not care about.</para>
+    /// </summary>
+    HostKind Host => HostKind.Unknown;
+
     /// <summary>Blit the frame. <paramref name="pixels"/> points at RGBA8888 bytes living in wasm
     /// memory — never copied, never owned — and the damage rect narrows the blit to what changed.</summary>
     void Present(nint pixels, int byteCount, int width, int height, int dx, int dy, int dw, int dh);

@@ -17,6 +17,15 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **Animations no longer run slow on a slow host** (#229). Every `dt`-integrating animation — the
+  fling, the overscroll rubber band, the list-reorder slide — clamped its timestep to 100 ms. A host
+  painting at 8 fps therefore integrated 100 ms per 125 ms frame, so animations ran in their own slow
+  clock and drifted behind the wall clock: a fling took 25% longer in real time to settle at 8 fps
+  than at 60 fps, the same gesture visibly draggier on the slower host. A slow frame now integrates
+  all of the time that passed. A genuine STALL — a blocked thread, a backgrounded tab, over 250 ms —
+  integrates nothing rather than teleporting the scroll, since a blocked main thread delivers the
+  whole gap as one frame timestamp and fires no `visibilitychange` to detect it by.
+
 - **The web touch gate's fling test no longer flakes** (#223). It failed about one run in three on
   the Mono leg, and the same commit both failed and passed it. A synthetic `PointerEvent` is stamped
   when it is constructed, and the Mono host blocks the main thread while painting — so the swipe's
@@ -25,6 +34,31 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   events already have: hardware stamps them when the touch happened.
 
 ### Changed
+
+- **Performance ceilings can now be set per device, and their defaults stay uniform** (#227).
+  `CupriApp.MaxDevicePixelRatio` and `MaxFrameRate` are unchanged at **2** and **120**, identical on
+  every host and every device — the measurements said the compiled-wasm host could afford a ratio of 3
+  where the interpreted one could not, and shipping the two different defaults would have meant the
+  same app looking sharper depending on which runtime painted it. So the defaults stay one number and
+  the choice is handed over instead: override `MaxDevicePixelRatioFor(DeviceProfile)` or
+  `MaxFrameRateFor(DeviceProfile)`. `DeviceProfile` carries which host is asking (`HostKind`), the
+  ratio the device is asking for, the viewport in CSS pixels, and `Megapixels` — frame cost tracks the
+  pixel count, and a ratio costs its square.
+
+  ```csharp
+  public override float MaxDevicePixelRatioFor(DeviceProfile d) => d.Host switch
+  {
+      HostKind.WebCompiled => 3f,          // measured safe on this document
+      _ => base.MaxDevicePixelRatioFor(d),
+  };
+  ```
+
+  Nothing to change if you were not overriding either property; both still work and are still what the
+  new methods default to. Two things did change behind the seam: the web hosts' page now re-asks for
+  the ratio ceiling **on every canvas sizing** instead of once at boot, so a window dragged to another
+  monitor gets a fresh answer — and the wasm export it calls was renamed from `MaxDevicePixelRatio` to
+  `MaxDevicePixelRatioFor(dpr, cssWidth, cssHeight)`. That only matters if you wrote your own page
+  against the export directly; the shipped `main.js` is updated.
 
 - **`CupriApp.MaxDevicePixelRatio`'s default of 2 is now justified by a measurement rather than by a
   flaky test** (#224). The number is unchanged. Frame pace during a fling on the Mono host is flat
