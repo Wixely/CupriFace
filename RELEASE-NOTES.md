@@ -13,6 +13,26 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- **The web touch gate's fling test no longer flakes** (#223). It failed about one run in three on
+  the Mono leg, and the same commit both failed and passed it. A synthetic `PointerEvent` is stamped
+  when it is constructed, and the Mono host blocks the main thread while painting — so the swipe's
+  moves landed 90-100ms apart, fell outside the recogniser's 0.1s velocity ring, and the fling
+  branch never ran. The gesture now carries its own timeline, which is the property a real finger's
+  events already have: hardware stamps them when the touch happened.
+
+### Changed
+
+- **`CupriApp.MaxDevicePixelRatio`'s default of 2 is now justified by a measurement rather than by a
+  flaky test** (#224). The number is unchanged. Frame pace during a fling on the Mono host is flat
+  at a p90 of 33.3ms up to and including dpr 2, and steps to 50.0ms — a whole extra dropped frame —
+  at 2.625, reproducibly. So 2 is the last ratio that costs nothing, which is what a ceiling should
+  be. The original justification cited a browser-gate failure that turned out to be #223 and had
+  nothing to do with pixels.
+
 ## v0.30.0
 
 The browser hosts get the pixels they should always have had, and a build error
