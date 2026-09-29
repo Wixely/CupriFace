@@ -774,6 +774,27 @@ jobs:
           adb shell wm size
           adb shell wm density
 
+          # THE ASSERTION CHANNEL IS LOGCAT, SO ITS BUFFER IS PART OF THE GATE.
+          #
+          # The default ring is 256KB per buffer, which a booting Google-APIs image fills in well
+          # under a minute -- GSA velour flag warnings, ConnectivityService reassignments, TapAndPay,
+          # a MediaCodec conversation -- none of it ours, all of it evicting ours. A phase that reads
+          # a marker the host logged thirty seconds earlier is then asserting on whether Android
+          # happened to be chatty, which is not a property of this engine.
+          #
+          # Seen for real: `grep "view origin"` found the line at 16:16:25 and came back EMPTY from
+          # the identical command at 16:16:51, with the retained buffer starting at 16:16:33. The
+          # failure that surfaced was "no view geometry in the log before the keyboard step", which
+          # names neither logcat nor eviction and sent the investigation at the fling instead.
+          #
+          # -G is per-buffer and survives for the life of the emulator. 16M is ~60x the default and
+          # costs nothing that matters on a runner.
+          # Non-fatal: this is hardening, and an image that cannot take -G should not take the gate
+          # down over it. The -g dump below records what we actually got, so a later investigation can
+          # confirm or rule out eviction from the log rather than re-deriving it.
+          adb logcat -G 16M || echo "WARNING: could not raise the logcat buffer - eviction is possible"
+          adb logcat -g | head -8
+
       - name: It installs, launches, and paints
         run: |
           set -x
@@ -971,8 +992,12 @@ jobs:
           # assert after that was measuring the wrong page. The old fixed sleep hid this by luck.
           # Remember the settled height now and wait for it to come back after blur.
           view_h() { adb logcat -d -s cupri:I | grep "view origin" | tail -1 | grep -oE 'size [0-9]+x[0-9]+' | grep -oE '[0-9]+$' || true; }
-          H0=$(view_h)
-          [ -n "$H0" ] || fail "no view geometry in the log before the keyboard step"
+          # view_h() has to re-read logcat -- its job is to notice the keyboard CHANGING the height.
+          # The baseline does not: geom() already put the current height in $VH, in this same shell.
+          # Re-deriving it from logcat made the baseline depend on the line surviving eviction, which
+          # is how this step failed with "no view geometry" long after the geometry was read fine.
+          H0=$(view_h); H0=${H0:-$VH}
+          [ -n "$H0" ] || fail "no view geometry, and geom() never ran -- the host published none at all"
 
           nav 2   # Form
           KB=0
@@ -988,9 +1013,14 @@ jobs:
 
           adb shell input keyevent 111   # Escape -> the engine blurs the field
           await_ime hidden 10 || fail "soft keyboard did not hide on blur"
+          # Distinguish "the view has not come back" from "the marker is gone": an evicted line makes
+          # view_h() empty for ever, so the loop below would spin out its ten seconds and then blame
+          # the engine for a height that was never re-read. Only a REAL height gets compared.
           i=0
-          until [ "$(view_h)" = "$H0" ] || [ "$i" -ge 10 ]; do sleep 1; i=$(( i + 1 )); done
-          [ "$(view_h)" = "$H0" ] || fail "the view did not return to its pre-keyboard height (${H0}px) within 10s of blur"
+          until [ -n "$(view_h)" ] && [ "$(view_h)" = "$H0" ] || [ "$i" -ge 10 ]; do sleep 1; i=$(( i + 1 )); done
+          HN=$(view_h)
+          [ -n "$HN" ] || fail "the view-geometry marker was evicted from logcat during the keyboard phase"
+          [ "$HN" = "$H0" ] || fail "the view did not return to its pre-keyboard height (${H0}px, now ${HN}px) within 10s of blur"
           sleep 1   # the insets animation is not in the layout log; one beat for it to finish
 
           # --- two fingers: the one platform claim that never had a gate --------------------------
