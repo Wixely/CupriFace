@@ -68,6 +68,33 @@ public static class WebHostCore
     public static float MaxDevicePixelRatio =>
         _app is null ? 2f : HostScale.Sanitize(_app.MaxDevicePixelRatio);
 
+    /// <summary>The ceiling for the device the page is actually on, for the PAGE to size the canvas
+    /// with — <see cref="MaxDevicePixelRatio"/> with the facts filled in.
+    ///
+    /// <para>Asked on every sizing rather than once at boot, which is what makes a per-device answer
+    /// (#227) possible at all: the ratio and the viewport both change while the page is open — a
+    /// window dragged to another monitor, a browser zoom, a phone rotated — and a ceiling computed
+    /// once from a device nobody was on yet is the wrong number for all of them.</para>
+    /// </summary>
+    /// <param name="rawDevicePixelRatio">The page's <c>window.devicePixelRatio</c>, UNCAPPED — the
+    /// thing being decided about.</param>
+    /// <param name="cssWidth">Canvas width in CSS pixels (<c>clientWidth</c>).</param>
+    /// <param name="cssHeight">Canvas height in CSS pixels.</param>
+    public static float MaxDevicePixelRatioFor(double rawDevicePixelRatio, double cssWidth, double cssHeight)
+    {
+        if (_app is null) return 2f;
+        var raw = HostScale.Sanitize((float)rawDevicePixelRatio);
+        return HostScale.Sanitize(_app.MaxDevicePixelRatioFor(
+            new DeviceProfile(_js?.Host ?? HostKind.Unknown, raw, (float)cssWidth, (float)cssHeight)));
+    }
+
+    /// <summary>What the app is running on, as the frame loop sees it. The logical size is derived
+    /// from the ratio the PAGE reported, which is the already-capped one it sized the backing store
+    /// with — so this divides back out to the CSS box exactly, with no second guess at the cap.</summary>
+    private static DeviceProfile Profile(int deviceWidth, int deviceHeight, float reportedScale) =>
+        new(_js?.Host ?? HostKind.Unknown, reportedScale,
+            deviceWidth / reportedScale, deviceHeight / reportedScale);
+
     /// <summary>The live document — for a host's own queued work.</summary>
     public static CupriDocument Document => _doc;
 
@@ -175,7 +202,9 @@ public static class WebHostCore
         // Clamped here as well as in the page. The page applies the cap when it sizes the backing
         // store and this is the same number coming back, so re-clamping costs nothing — and it means
         // a stale or hand-written page cannot ask for a scale the app refused.
-        var dpr = Math.Min(HostScale.Sanitize(deviceScale), MaxDevicePixelRatio);
+        var reported = HostScale.Sanitize(deviceScale);
+        var device = Profile(width, height, reported);
+        var dpr = Math.Min(reported, HostScale.Sanitize(_app.MaxDevicePixelRatioFor(device)));
 
         // Canvas resized → repaint so scaling reflows to the new viewport. The dpr belongs in this
         // comparison too: dragging a window to a monitor with a different scale factor changes the
@@ -208,12 +237,13 @@ public static class WebHostCore
         // This used to be a hard-coded `>= 33` — about 30 fps — which neither other host had and no
         // caller could change. On the NativeAOT host a painted frame measures ~7.5 ms, so it was
         // being held to roughly a quarter of what it could draw. The ceiling is now
-        // CupriApp.MaxFrameRate, defaulting to 120 and shared with desktop and Android.
+        // CupriApp.MaxFrameRateFor, defaulting to 120 and shared with desktop and Android — the same
+        // number on every host unless the app overrides it for this particular device (#227).
         //
         // Only the DRIVE is throttled. Anything the user did has already set _dirty above and paints
         // on this frame regardless; an interaction that waits on a frame budget feels broken.
         var animating = _doc.HasActiveAnimations;
-        if (animating && FrameCeiling.Due(nowMs / 1000.0, _lastAnimMs / 1000.0, _app.MaxFrameRate))
+        if (animating && FrameCeiling.Due(nowMs / 1000.0, _lastAnimMs / 1000.0, _app.MaxFrameRateFor(device)))
         {
             _lastAnimMs = nowMs;
             _dirty = true;

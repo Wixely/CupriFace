@@ -24,6 +24,7 @@ public class WebHostCoreTests(ITestOutputHelper output)
     private sealed class RecordingBridge : IWebBridge
     {
         public readonly List<string> Calls = [];
+        public HostKind Host { get; init; } = HostKind.WebInterpreted;   // what a real Mono bridge says
         public int Presents;
         public nint LastPixels;
         public int LastByteCount, LastWidth, LastHeight;
@@ -409,11 +410,132 @@ public class WebHostCoreTests(ITestOutputHelper output)
         Assert.Equal(after + 1, js.Presents);
     }
 
-    private static RecordingBridge Boot(CupriApp app)
+    private static RecordingBridge Boot(CupriApp app) => Boot(app, HostKind.WebInterpreted);
+
+    private static RecordingBridge Boot(CupriApp app, HostKind host)
     {
-        var bridge = new RecordingBridge();
+        var bridge = new RecordingBridge { Host = host };
         WebHostCore.Init(app, null, bridge);
         return bridge;
+    }
+
+    // ---- per-device ceilings (#227) -------------------------------------------------------------
+
+    /// <summary>An app that branches on the device, for the per-host case #227 asked about: the
+    /// compiled-wasm host measured safe at a ratio of 3, the interpreted one dropped two frames at
+    /// 2.625.</summary>
+    private sealed class PerDeviceApp : CupriApp
+    {
+        public override string Html => "<body style='margin:0'><p>text</p></body>";
+        public override string Css => "body{background:#fff}";
+        public override float MaxDevicePixelRatioFor(DeviceProfile d) => d.Host switch
+        {
+            HostKind.WebCompiled => 3f,
+            HostKind.WebInterpreted => 1.5f,
+            _ => base.MaxDevicePixelRatioFor(d),
+        };
+        public override float MaxFrameRateFor(DeviceProfile d) =>
+            d.Megapixels > 1f ? 30f : base.MaxFrameRateFor(d);
+    }
+
+    /// <summary>Branches on the pixel count, which is the other half of "per device".</summary>
+    private sealed class ByAreaApp : CupriApp
+    {
+        public override string Html => "<body style='margin:0'><p>text</p></body>";
+        public override string Css => "body{background:#fff}";
+        public override float MaxDevicePixelRatioFor(DeviceProfile d) => d.Megapixels > 4f ? 1f : 3f;
+    }
+
+    private sealed class SillyApp : CupriApp
+    {
+        public override string Html => "<body style='margin:0'><p>text</p></body>";
+        public override string Css => "body{background:#fff}";
+        public override float MaxDevicePixelRatioFor(DeviceProfile d) => 0f;
+    }
+
+    /// <summary>THE DEFAULT IS THE SAME EVERYWHERE, which is the decision #227 actually records. The
+    /// two web hosts have very different frame budgets and it would have been easy to ship them
+    /// different ceilings; the same app looking sharper on one runtime than the other is a divergence
+    /// nobody asked for, so the engine ships one number and hands over the choice instead.</summary>
+    [Theory]
+    [InlineData(HostKind.WebInterpreted)]
+    [InlineData(HostKind.WebCompiled)]
+    [InlineData(HostKind.Unknown)]
+    public void The_default_ceiling_does_not_depend_on_which_host_is_asking(HostKind host)
+    {
+        Boot(new ProbeApp(), host);
+        Assert.Equal(2f, WebHostCore.MaxDevicePixelRatioFor(2.625, 412, 839));
+        Assert.Equal(2f, WebHostCore.MaxDevicePixelRatioFor(3.0, 1440, 900));
+    }
+
+    /// <summary>...and an app that HAS measured its own document can say so per host. This is the
+    /// answer to #227 rather than a different default: the engine cannot know a caller's document,
+    /// and the caller cannot learn which host it was compiled against any other way.</summary>
+    [Fact]
+    public void An_app_can_set_a_different_ceiling_per_host()
+    {
+        Boot(new PerDeviceApp(), HostKind.WebCompiled);
+        Assert.Equal(3f, WebHostCore.MaxDevicePixelRatioFor(2.625, 412, 839));
+
+        Boot(new PerDeviceApp(), HostKind.WebInterpreted);
+        Assert.Equal(1.5f, WebHostCore.MaxDevicePixelRatioFor(2.625, 412, 839));
+    }
+
+    /// <summary>The ceiling the PAGE is told and the ceiling the HOST applies are the same function,
+    /// so a per-device answer cannot leave the backing store and the paint scale disagreeing — which
+    /// is the original #218 bug (draw small into a large buffer, let the compositor stretch it) with
+    /// a new way in.</summary>
+    [Fact]
+    public void A_per_device_ceiling_is_applied_on_the_way_in_too_not_just_offered_to_the_page()
+    {
+        var app = new ProbeApp { Cap = 1.5f };
+        Boot(app, HostKind.WebInterpreted);
+
+        // A page that sized at 1.5 as it was told: 412x840 CSS at 1.5 = 618x1260 device pixels.
+        // Both axes divide exactly, so the CSS size comes back without a rounding step to argue about.
+        Assert.True(WebHostCore.Tick(618, 1260, 1.5f, 16));
+        Assert.Equal(412f, app.LastW);
+        Assert.Equal(840f, app.LastH);
+    }
+
+    /// <summary>The profile carries the DEVICE PIXEL COUNT, not just the host, because that is what
+    /// frame cost actually tracks — a ratio costs its square. An app can spend its budget on the
+    /// screens that can afford it without enumerating devices.</summary>
+    [Fact]
+    public void A_ceiling_can_depend_on_the_pixel_count_rather_than_the_host()
+    {
+        var app = new PerDeviceApp();
+        Boot(app, HostKind.WebCompiled);
+        Assert.True(WebHostCore.Tick(824, 1678, 2f, 16), "the first frame must paint");
+
+        // Asserted on the app's own arithmetic rather than inferred from a paint count: what this
+        // test is about is the PROFILE reaching the app, and a frame tally would also pass if the
+        // threshold were read off something else.
+        Assert.Equal(120f, app.MaxFrameRateFor(new DeviceProfile(HostKind.WebCompiled, 1f, 800, 600)));
+        Assert.Equal(30f, app.MaxFrameRateFor(new DeviceProfile(HostKind.WebCompiled, 2f, 800, 600)));
+    }
+
+    /// <summary>The page re-asks on every sizing rather than caching a boot-time answer, so the two
+    /// facts a per-device ceiling depends on — the ratio and the CSS box — are the live ones. A window
+    /// dragged to another monitor changes the first without touching the second.</summary>
+    [Fact]
+    public void The_ceiling_is_recomputed_for_each_device_it_is_asked_about()
+    {
+        Boot(new ByAreaApp(), HostKind.WebCompiled);
+
+        // Same host, same app, two displays. 300x300 at 3 is 0.81 MP; 1440x900 at 3 is 11.7 MP.
+        Assert.Equal(3f, WebHostCore.MaxDevicePixelRatioFor(3.0, 300, 300));
+        Assert.Equal(1f, WebHostCore.MaxDevicePixelRatioFor(3.0, 1440, 900));
+    }
+
+    /// <summary>A nonsense per-device answer is clamped exactly like a nonsense property, because the
+    /// override is a new way to produce the same bad number — and 0 would size the canvas to
+    /// nothing.</summary>
+    [Fact]
+    public void A_nonsense_per_device_ceiling_is_clamped_rather_than_obeyed()
+    {
+        Boot(new SillyApp(), HostKind.WebCompiled);
+        Assert.Equal(1f, WebHostCore.MaxDevicePixelRatioFor(2.625, 412, 839));
     }
 
     [Fact]

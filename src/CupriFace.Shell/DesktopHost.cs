@@ -126,12 +126,18 @@ public static class DesktopHost
                 dirty = true;
             }
             if (doc.ConsumeImageArrived()) dirty = true;      // a background image finished loading
-            // Continuous animation, at the app's ceiling (CupriApp.MaxFrameRate, default 120).
-            // This host had NO ceiling before and the web hosts had a hard-coded 30 fps; one shared
-            // knob replaces both. Only the animation DRIVE is throttled — input has already set
-            // dirty above and paints on this frame regardless.
+            // Continuous animation, at the app's ceiling (CupriApp.MaxFrameRateFor, default 120 on
+            // every host). This host had NO ceiling before and the web hosts had a hard-coded 30 fps;
+            // one shared knob replaces both. Only the animation DRIVE is throttled — input has
+            // already set dirty above and paints on this frame regardless.
+            //
+            // The profile describes the monitor as of the LAST frame, which is what FrameScale holds
+            // at this point in the loop. A ceiling is not worth a frame of latency to get exactly
+            // right, and on the frame a window changes monitor the stale answer is used once.
             if (doc.HasActiveAnimations &&
-                FrameCeiling.Due(clock.Elapsed.TotalSeconds, lastAnimFrame, app.MaxFrameRate))
+                FrameCeiling.Due(clock.Elapsed.TotalSeconds, lastAnimFrame,
+                    app.MaxFrameRateFor(new DeviceProfile(HostKind.Desktop, FrameScale.DeviceScale,
+                        FrameScale.LogicalClientWidth, FrameScale.LogicalClientHeight))))
             {
                 lastAnimFrame = clock.Elapsed.TotalSeconds;
                 dirty = true;

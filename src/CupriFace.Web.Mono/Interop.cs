@@ -86,9 +86,11 @@ internal partial class Interop
 
     [JSExport] internal static bool IsTransparent() => WebHostCore.IsTransparent();
 
-    /// <summary>The app's ceiling on devicePixelRatio. The PAGE sizes the canvas, so the page is
-    /// what has to know (#218).</summary>
-    [JSExport] internal static double MaxDevicePixelRatio() => WebHostCore.MaxDevicePixelRatio;
+    /// <summary>The app's ceiling on devicePixelRatio, for the device the page is on. The PAGE sizes
+    /// the canvas, so the page is what has to know (#218) — and it re-asks on every sizing, so an app
+    /// that answers per device (#227) is answering about the display it is actually on.</summary>
+    [JSExport] internal static double MaxDevicePixelRatioFor(double dpr, double cssWidth, double cssHeight) =>
+        WebHostCore.MaxDevicePixelRatioFor(dpr, cssWidth, cssHeight);
 
     // ---- accessibility: what the ARIA overlay posts back (main.js forwards a click on, or focus
     // arriving at, a mirror node by its data-path). The same entry points the native bridges use.
@@ -144,6 +146,8 @@ internal partial class Interop
 /// terms and each method forwards to the matching [JSImport] above.</summary>
 internal sealed unsafe class MonoBridge : IWebBridge
 {
+    public HostKind Host => HostKind.WebInterpreted;
+
     /// <summary>The one call whose shape differs between the hosts. Mono marshals a MemoryView, so
     /// the address the core hands over becomes a Span here — a view over the same wasm memory, not
     /// a copy, which is what keeps the frame path allocation-free.</summary>

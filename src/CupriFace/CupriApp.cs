@@ -5,6 +5,96 @@ using SkiaSharp;
 
 namespace CupriFace;
 
+/// <summary>
+/// Which host is carrying the app, for the rare decision that genuinely depends on it.
+///
+/// <para>Almost nothing should. The engine's whole shape is that a document renders the same
+/// everywhere, and branching on this is how that stops being true. It exists because performance
+/// ceilings are the one place the hosts are NOT interchangeable: the interpreted-wasm host and the
+/// compiled-wasm host run the identical document at very different speeds, and no amount of shared
+/// code makes an interpreter as fast as ILC output. See <see cref="DeviceProfile"/>.</para>
+/// </summary>
+public enum HostKind
+{
+    /// <summary>A host that did not say — including any host written before it could.</summary>
+    Unknown,
+
+    /// <summary>The GLFW/SDL desktop shell (<c>CupriFace.Shell</c>).</summary>
+    Desktop,
+
+    /// <summary>The Android host (<c>CupriFace.Android</c>).</summary>
+    Android,
+
+    /// <summary>Browser, INTERPRETED wasm — <c>CupriFace.Web.Mono</c>. The slow one, by a wide
+    /// margin, and the one a ceiling is usually being set for.</summary>
+    WebInterpreted,
+
+    /// <summary>Browser, COMPILED wasm — <c>CupriFace.Web.NativeAot</c>, via ILC/LLVM. Roughly an
+    /// order of magnitude faster per painted frame than <see cref="WebInterpreted"/>.</summary>
+    WebCompiled,
+}
+
+/// <summary>
+/// What the app is actually running on, when it is deciding a performance ceiling.
+///
+/// <para><b>The shipped defaults are uniform, deliberately.</b>
+/// <see cref="CupriApp.MaxDevicePixelRatio"/> is 2 and <see cref="CupriApp.MaxFrameRate"/> is 120 on
+/// every host and every device, because a gesture that feels different depending on which runtime
+/// happens to be painting it is a bug, not a feature — and because a default that varies is a
+/// default nobody can reason about. This type is the escape hatch for a caller who has measured
+/// their own document on their own devices and knows better, which the engine cannot.</para>
+///
+/// <para>The motivating case (#227): the compiled-wasm host never drops a frame at a ratio of 3, and
+/// the interpreted one drops two frames at 2.625. Shipping different ceilings for the two would have
+/// meant the same app looking sharper on one host than the other, so the engine ships one number and
+/// hands the choice over instead:</para>
+///
+/// <code>
+/// public override float MaxDevicePixelRatioFor(DeviceProfile device) => device.Host switch
+/// {
+///     HostKind.WebCompiled    => 3f,   // measured safe on this document
+///     HostKind.WebInterpreted => 2f,   // the knee is here
+///     _                       => base.MaxDevicePixelRatioFor(device),
+/// };
+/// </code>
+///
+/// <para>Or on device pixels rather than host, which is what actually costs the time — frame cost
+/// rises with the pixel count, and a phone at ratio 3 has more of them than a laptop at 2:</para>
+///
+/// <code>
+/// public override float MaxDevicePixelRatioFor(DeviceProfile device) =>
+///     device.Megapixels > 4f ? 2f : 3f;
+/// </code>
+/// </summary>
+/// <param name="Host">Which host is asking. <see cref="HostKind.Unknown"/> from a host that has not
+/// been taught to say, so treat it as "no information" rather than as a platform.</param>
+/// <param name="DevicePixelRatio">The ratio the device is ASKING for, before any ceiling is applied
+/// — the number a decision has to be made about. On the web this is the page's
+/// <c>devicePixelRatio</c>.</param>
+/// <param name="LogicalWidth">Viewport width in logical (CSS) pixels.</param>
+/// <param name="LogicalHeight">Viewport height in logical (CSS) pixels.</param>
+public readonly record struct DeviceProfile(
+    HostKind Host,
+    float DevicePixelRatio,
+    float LogicalWidth,
+    float LogicalHeight)
+{
+    /// <summary>Device pixels the next frame would cover at <see cref="DevicePixelRatio"/> — the
+    /// quantity frame cost actually tracks, since a ratio costs its square. This is the number to
+    /// branch on when the question is "can this device afford it" rather than "which host is
+    /// this".</summary>
+    public float DevicePixels =>
+        LogicalWidth * LogicalHeight * DevicePixelRatio * DevicePixelRatio;
+
+    /// <summary><see cref="DevicePixels"/> in millions, which is the unit the measurements in
+    /// <see cref="CupriApp.MaxDevicePixelRatio"/> are quoted in.</summary>
+    public float Megapixels => DevicePixels / 1_000_000f;
+
+    /// <summary>True for either browser host — when the question is "is this wasm" rather than which
+    /// wasm.</summary>
+    public bool IsWeb => Host is HostKind.WebInterpreted or HostKind.WebCompiled;
+}
+
 /// <summary>How the document is presented into the window (see <see cref="CupriApp.Present"/>).</summary>
 /// <summary>
 /// What <see cref="CupriApp.Present"/> hands the host: the logical viewport the document is laid
@@ -278,9 +368,11 @@ public abstract class CupriApp
     /// <para><b>NativeAOT never drops a frame at all, even at 3.</b> Its budget is not the
     /// constraint, so on that host this default is conservative and an app that wants a sharper
     /// panel can simply raise it — 3 is measured safe there for a document of the Showcase's weight.
-    /// Whether the hosts should carry different defaults rather than sharing this one is open
-    /// (#224); the knob is deliberately on the APP, which cannot know which host it was compiled
-    /// against.</para>
+    /// The hosts deliberately do NOT carry different defaults (#227): the same app looking sharper on
+    /// one runtime than another is a divergence nobody asked for, and a default that varies by
+    /// platform is one no caller can reason about. Override
+    /// <see cref="MaxDevicePixelRatioFor(DeviceProfile)"/> to make that choice per device or per
+    /// host, having measured your own document.</para>
     ///
     /// <para>Originally justified by a browser-gate failure, and that justification was wrong: the
     /// gate was flaky for an unrelated reason (#223 — a synthetic gesture's timestamps, nothing to
@@ -298,6 +390,28 @@ public abstract class CupriApp
     /// platform.</para>
     /// </summary>
     public virtual float MaxDevicePixelRatio => 2f;
+
+    /// <summary>
+    /// The devicePixelRatio ceiling for THIS device, given what the host can tell us about it.
+    /// Defaults to <see cref="MaxDevicePixelRatio"/> — the same number everywhere, which is the
+    /// point of it.
+    ///
+    /// <para>Override this instead of the property when the right ceiling is not one number: a host
+    /// that can afford more (the compiled-wasm host measures safe at 3 where the interpreted one
+    /// does not), a screen whose pixel count has already spent the budget, or a device you have
+    /// measured and the engine has not. <see cref="DeviceProfile"/> carries worked examples of each
+    /// and explains why the defaults are uniform.</para>
+    ///
+    /// <para>Consulted whenever the canvas is sized, not once at startup, so a window dragged to a
+    /// different monitor gets a fresh answer. It must therefore be CHEAP and it must be a pure
+    /// function of its argument — anything expensive belongs in a field the constructor filled.</para>
+    ///
+    /// <para>Honoured by the web hosts, where the page owns the backing store and the ratio is a
+    /// browser fact the app cannot otherwise reach. Desktop and Android take their scale from the OS
+    /// and do not cap it: there the ratio is the user's own display preference, and quietly
+    /// rendering below it would make text soft on a machine that asked for sharp text.</para>
+    /// </summary>
+    public virtual float MaxDevicePixelRatioFor(DeviceProfile device) => MaxDevicePixelRatio;
 
     /// <summary>
     /// The most frames per second a CONTINUOUS animation may drive. <b>Default 120</b>; zero or
@@ -322,6 +436,20 @@ public abstract class CupriApp
     /// was held to a quarter of what it could draw for no reason a caller could see or change.</para>
     /// </summary>
     public virtual float MaxFrameRate => 120f;
+
+    /// <summary>
+    /// The animation frame ceiling for THIS device. Defaults to <see cref="MaxFrameRate"/>, the same
+    /// on every host — see <see cref="DeviceProfile"/> for why that is the default and how to
+    /// override it per device.
+    ///
+    /// <para>Override it to spend the budget where the device has one: 120 on a high-refresh panel
+    /// and 60 on a phone that is going to be holding a battery, say. Lowering it does not slow any
+    /// animation down — every animated subsystem integrates real time (see
+    /// <see cref="MaxFrameRate"/>) — it only makes motion coarser.</para>
+    ///
+    /// <para>Consulted every frame, so it must be cheap and side-effect free.</para>
+    /// </summary>
+    public virtual float MaxFrameRateFor(DeviceProfile device) => MaxFrameRate;
 
     /// <summary>Component library available to the markup (defaults to the built-ins).</summary>
     public virtual ComponentRegistry Components => ComponentRegistry.Default();

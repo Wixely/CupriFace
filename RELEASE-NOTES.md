@@ -35,6 +35,31 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Changed
 
+- **Performance ceilings can now be set per device, and their defaults stay uniform** (#227).
+  `CupriApp.MaxDevicePixelRatio` and `MaxFrameRate` are unchanged at **2** and **120**, identical on
+  every host and every device — the measurements said the compiled-wasm host could afford a ratio of 3
+  where the interpreted one could not, and shipping the two different defaults would have meant the
+  same app looking sharper depending on which runtime painted it. So the defaults stay one number and
+  the choice is handed over instead: override `MaxDevicePixelRatioFor(DeviceProfile)` or
+  `MaxFrameRateFor(DeviceProfile)`. `DeviceProfile` carries which host is asking (`HostKind`), the
+  ratio the device is asking for, the viewport in CSS pixels, and `Megapixels` — frame cost tracks the
+  pixel count, and a ratio costs its square.
+
+  ```csharp
+  public override float MaxDevicePixelRatioFor(DeviceProfile d) => d.Host switch
+  {
+      HostKind.WebCompiled => 3f,          // measured safe on this document
+      _ => base.MaxDevicePixelRatioFor(d),
+  };
+  ```
+
+  Nothing to change if you were not overriding either property; both still work and are still what the
+  new methods default to. Two things did change behind the seam: the web hosts' page now re-asks for
+  the ratio ceiling **on every canvas sizing** instead of once at boot, so a window dragged to another
+  monitor gets a fresh answer — and the wasm export it calls was renamed from `MaxDevicePixelRatio` to
+  `MaxDevicePixelRatioFor(dpr, cssWidth, cssHeight)`. That only matters if you wrote your own page
+  against the export directly; the shipped `main.js` is updated.
+
 - **`CupriApp.MaxDevicePixelRatio`'s default of 2 is now justified by a measurement rather than by a
   flaky test** (#224). The number is unchanged. Frame pace during a fling on the Mono host is flat
   at a p90 of 33.3ms up to and including dpr 2, and steps to 50.0ms — a whole extra dropped frame —

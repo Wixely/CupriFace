@@ -433,14 +433,33 @@ try {
     // travels to Tick, where the host splits it back out from the app's own present scale.
     // The app's ceiling on devicePixelRatio (#218). A ratio of 2 is sharp on every current
     // display; the cost above it is quadratic and the benefit is not. Starts at the same default
-    // the engine uses, because sizeCanvas runs before the runtime is resident and cannot ask yet —
-    // adoptDprCap() below re-reads it once Init has run and re-sizes if the app said otherwise.
+    // the engine uses, because sizeCanvas runs before the runtime is resident and cannot ask yet;
+    // askCap is set once Init has run and the engine is answerable.
+    //
+    // ASKED ON EVERY SIZING, not once at boot (#227). The app may answer per device, and both of the
+    // facts that answer depends on change while the page is open: the ratio (a window dragged to
+    // another monitor, a browser zoom) and the CSS box (a resize, a phone rotated). A ceiling read
+    // once, from a device nobody was on yet, is the wrong number for every one of those.
     let dprCap = 2;
+    let askCap = null;
     const dprOf = () => Math.min(window.devicePixelRatio || 1, dprCap);
+    // Re-ask the engine for the ceiling, from the one place that already has the facts. NOT from
+    // dprOf(): that runs on every animation frame, and putting a wasm call plus two clientWidth
+    // reads there would spend an interop hop and a style recalc per frame to answer a question whose
+    // answer only changes when the canvas is sized.
+    const refreshCap = (cssW, cssH) => {
+        if (!askCap) return;
+        // Guarded: a throw crossing back out of wasm here would leave the canvas unsized, which is a
+        // blank page — strictly worse than keeping the ceiling we already had.
+        try { const c = askCap(window.devicePixelRatio || 1, cssW, cssH); if (c > 0) dprCap = c; }
+        catch {}
+    };
     const sizeCanvas = () => {
+        const cssW = canvas.clientWidth || 940, cssH = canvas.clientHeight || 720;
+        refreshCap(cssW, cssH);                 // before dprOf(), which consumes what it sets
         const dpr = dprOf();
-        const w = Math.max(1, Math.round((canvas.clientWidth || 940) * dpr));
-        const h = Math.max(1, Math.round((canvas.clientHeight || 720) * dpr));
+        const w = Math.max(1, Math.round(cssW * dpr));
+        const h = Math.max(1, Math.round(cssH * dpr));
         // GUARDED: assigning width/height clears the canvas even when the value is unchanged, so an
         // unguarded call flashes the page blank on every resize event while dragging.
         if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
@@ -691,7 +710,9 @@ try {
     // window-level move listener (fires even when the canvas has pointer-events:none) samples the
     // rendered alpha under the cursor and flips the canvas between catching and passing events.
     // The app may want a different ceiling than the default; it can only say so once it exists.
-    try { const c = I.MaxDevicePixelRatio(); if (c > 0) { dprCap = c; sizeCanvas(); } } catch {}
+    // From here sizeCanvas() re-asks on every sizing, so a per-device answer tracks the device.
+    askCap = (d, w, h) => I.MaxDevicePixelRatioFor(d, w, h);
+    sizeCanvas();
 
     if (I.IsTransparent()) {
         canvas.style.background = 'transparent';

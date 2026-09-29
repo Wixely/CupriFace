@@ -112,9 +112,9 @@ public static unsafe partial class Interop
 
     // The app's ceiling on devicePixelRatio. The PAGE sizes the canvas, so the page is what has to
     // know (#218). Falls back to 2 — the default — rather than 0, which would size it to nothing.
-    [UnmanagedCallersOnly(EntryPoint = "MaxDevicePixelRatio")]
-    public static double MaxDevicePixelRatio()
-    { try { return WebHostCore.MaxDevicePixelRatio; } catch { return 2; } }
+    [UnmanagedCallersOnly(EntryPoint = "MaxDevicePixelRatioFor")]
+    public static double MaxDevicePixelRatioFor(double dpr, double cssWidth, double cssHeight)
+    { try { return WebHostCore.MaxDevicePixelRatioFor(dpr, cssWidth, cssHeight); } catch { return 2; } }
 
     // ---- strings in: a shared buffer, because the C ABI has none -------------------------------
     // JS asks for a buffer of N chars, writes UTF-16 into it, then calls the consuming export with
@@ -346,6 +346,8 @@ public static unsafe partial class Interop
     /// become a pinned pointer plus a length, because the ABI has neither.</summary>
     internal sealed class AotBridge : IWebBridge
     {
+        public HostKind Host => HostKind.WebCompiled;
+
         /// <summary>The one call whose shape differs between the hosts. Here the address the core
         /// hands over is passed straight through — JS wraps HEAPU8 at it, so nothing is copied.</summary>
         public void Present(nint pixels, int byteCount, int width, int height, int dx, int dy, int dw, int dh) =>
