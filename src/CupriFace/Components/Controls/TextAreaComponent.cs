@@ -18,7 +18,10 @@ public sealed class TextAreaComponent : ComponentBase
 {
     public override string Tag => "cupri-textarea";
     public override string DefaultCss => """
-        .cupri-textarea { display:block; min-width:260px; min-height:78px; overflow:auto;
+        /* 102, not 78, for the reason the text field's 42 is not 20: border-box counts the 10px
+           padding each side and the 2px border each side (78 + 20 + 4 = 102). Same control, same
+           three visible rows. */
+        .cupri-textarea { display:block; min-width:260px; min-height:102px; overflow:auto;
                           background:var(--cupri-surface, white);
                           border:2px var(--cupri-border, #cbd2dc); border-radius:8px; padding:10px 12px; font-size:15px; }
         .cupri-textarea[data-hover] { border-color:#98a2b3; }

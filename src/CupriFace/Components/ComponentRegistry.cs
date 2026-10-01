@@ -24,19 +24,29 @@ public sealed class ComponentRegistry
     /// stale the moment a control is added.</summary>
     public IReadOnlyCollection<string> Tags => _components.Keys;
 
-    /// <summary>Concatenated default CSS of all registered components (low priority).
+    /// <summary>
+    /// Every registered component's default CSS, preceded by one rule putting the whole catalogue on
+    /// <c>box-sizing: border-box</c>.
     ///
-    /// <para><b>No catalogue-wide <c>box-sizing</c> here, and that was tried.</b> Putting the whole
-    /// catalogue on <c>border-box</c> is the right end state — a caller who writes
-    /// <c>width: 120px</c> on a component means the box they can see, and under content-box that
-    /// silently excludes the component's own padding. But every control's CSS was AUTHORED for
-    /// content-box, so the flip changes what their own declarations mean: the text field's
-    /// <c>min-height: 20px</c> meant "reserve one line of CONTENT" and became a field 18px shorter
-    /// than a line, and the slider's <c>min-width: 120px</c> narrowed its track by its own padding
-    /// and moved where a drag lands. Each control needs its declared sizes re-derived and looked at,
-    /// which is a migration rather than a flag, and a half-done one is worse than neither.</para>
+    /// <para><b>The catalogue only.</b> A control chose its own padding and often its own border, so
+    /// a caller who writes <c>width: 120px</c> on one means the box they can see — under content-box
+    /// that silently excludes the control's padding and it comes out wider than asked for, which is
+    /// indistinguishable from a layout bug. Author elements keep the CSS default, because that is
+    /// what someone who knows CSS expects of their own markup and flipping it under them would be a
+    /// surprise in the other direction.</para>
+    ///
+    /// <para>Generated from the registry and emitted FIRST, so it cannot drift as controls are added
+    /// and any control can override it. A hand-kept list of forty tags is wrong within a month.</para>
+    ///
+    /// <para>The controls' own declared sizes were re-derived to mean the same thing under it — see
+    /// the migration note in RELEASE-NOTES. Flipping this without that work changes what each
+    /// control's own CSS says about itself, which is how it was first tried and reverted.</para>
     /// </summary>
-    public string AggregatedCss => string.Join("\n", _components.Values.Select(c => c.DefaultCss));
+    public string AggregatedCss =>
+        BorderBoxRule + string.Join("\n", _components.Values.Select(c => c.DefaultCss));
+
+    private string BorderBoxRule =>
+        _components.Count == 0 ? "" : string.Join(", ", _components.Keys) + " { box-sizing: border-box; }\n";
 
     public void Expand(IDocument document)
     {

@@ -244,11 +244,14 @@ Digits are the sharp case: a clock or a score reflows its row on every tick, bec
 proportional and `font-variant-numeric: tabular-nums` **is not supported** (CupriDoctor will tell
 you). Pin the width of the element holding the number.
 
-### 4. `box-sizing` is `content-box`, as in CSS.
+### 4. `box-sizing` is `content-box` in YOUR markup, `border-box` on the controls.
 
-`width: 200px` plus `padding: 12px` is a 224px box. Say `box-sizing: border-box` yourself when you
-mean the outer size — Shade does it four times for exactly this reason. The `cupri-*` controls have
-their own padding and borders, so prefer `min-width`/`min-height` over `width`/`height` on them.
+In your own CSS, `width: 200px` plus `padding: 12px` is a 224px box — the CSS default. Say
+`box-sizing: border-box` yourself when you mean the outer size; Shade does it four times for exactly
+this reason.
+
+The `cupri-*` controls are already `border-box`, so a width you set on one is the box you can see:
+`<cupri-textfield style="width:220px">` is 220px wide, padding and border included.
 
 ### And run the doctor over the states, not just the page
 
