@@ -13,6 +13,45 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Added
+
+- **`outline` and `outline-offset`** — a frame painted OUTSIDE the border box that takes part in no
+  layout. This is how a focus or selection ring must be drawn: a `border` is part of the box, so
+  adding one on focus grows the element and shifts everything after it, which is what a
+  controller-driven UI looks like when the selection moves. Measured: an outlined element and its
+  sibling do not move by a pixel.
+
+  ```css
+  [data-focus] { outline: 2px solid #8b5cf6; outline-offset: 2px; }
+  ```
+
+  Note the hook is `[data-focus]`, not `:focus` — the engine marks focus with an attribute.
+
+- **`--cupri-focus` recolours the engine's own focus ring**, which was a hard-coded blue. That was
+  the reason apps drew their own with `border` and got the shift above. An element that sets its own
+  `outline` now suppresses the built-in ring rather than getting two.
+
+### Fixed
+
+- **CupriDoctor reports an ignored CSS property wherever it is written, including inside a state.**
+  CF0050 was derived from declarations the resolver APPLIED, and a document is checked at rest — so
+  no `:focus`, `:hover`, `:active` or runtime-added class rule was ever examined. `.btn { outline: … }`
+  reported; the identical `.btn:focus { outline: … }` reported nothing. That was the worst possible
+  blind spot, because a focus ring lives in exactly such a rule. Every author rule is now replayed
+  through the resolver regardless of whether its selector matches anything.
+
+- **`<cupri-button>` is a centred row, not an `inline-block`.** Its contents aligned on the text
+  baseline, which an icon and a label do not share — an icon button measured 104x62 beside a plain
+  button's 42, with its label laid out at zero width. It is now
+  `display:flex; align-items:center; justify-content:center; gap:8px`, which is the override every
+  app was writing by hand.
+
+  **A `ghost` button is now the same size as a primary one.** The 2px border was declared only on
+  `.ghost`, so switching variant resized the control by 4px in both axes; the base rule now carries a
+  transparent border of the same width.
+
 ## v0.31.0
 
 Frame-rate independence, finished. What a user sees no longer depends on how fast the host happens

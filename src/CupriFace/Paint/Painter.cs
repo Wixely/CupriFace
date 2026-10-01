@@ -239,6 +239,21 @@ public sealed class Painter
         if (hasBorder && node.Width > 0)
             list.Add(BorderCmd(absX, absY, node.Width, node.Height, radius, node, s));
 
+        // Outline: the same frame command, drawn OUTSIDE the border box and offset outwards.
+        //
+        // Emitted after the border so it sits on top where the two meet, and sized from the box the
+        // layout already produced rather than feeding anything back into it -- that is the property's
+        // entire point. The radius grows with the ring so a rounded button keeps a concentric one
+        // instead of a rounded box sitting inside a square frame.
+        if (s.HasOutline && node.Width > 0)
+        {
+            var spread = s.OutlineOffset + s.OutlineWidth;
+            list.Add(new BorderRect(absX - spread, absY - spread,
+                node.Width + 2 * spread, node.Height + 2 * spread, radius.Grow(spread),
+                s.OutlineWidth, s.OutlineWidth, s.OutlineWidth, s.OutlineWidth,
+                s.OutlineColor, s.OutlineStyle));
+        }
+
         // Inline element with a background/border (a <code> chip): one rounded box per line it spans
         // (Width is 0 — a passthrough inline box), painted behind its text. Coords are in the block's
         // content box, i.e. relative to the same origin the element's text fragments use.

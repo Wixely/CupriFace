@@ -2197,10 +2197,27 @@ public sealed partial class CupriDocument : IDisposable
         if (!_focusVisible || _kbIndex < 0) return;
         var f = Focusables();
         if (_kbIndex >= f.Count) return;
-        var (x, y, w, h) = HitTesting.AbsoluteBox(f[_kbIndex]);
+        var node = f[_kbIndex];
+
+        // THE AUTHOR'S OWN RING WINS, and the engine draws nothing.
+        //
+        // An app that styles [data-focus] with `outline` has already had it painted, in the right
+        // place, by the normal paint pass. Drawing this one on top would put two rings round one
+        // control -- and the reason apps reach for their own is that this one is a fixed blue, which
+        // is wrong in most palettes. Before the --cupri-focus variable below existed, an author who
+        // wanted a ring in their own colour had no way to ask for one, so they drew it with `border`
+        // instead and the layout moved every time the selection did. That is the bug this is for.
+        if (node.Style.HasOutline) return;
+
+        var (x, y, w, h) = HitTesting.AbsoluteBox(node);
         const float t = 2f, pad = 2f;                 // ring thickness + gap outside the border box
         var (rx, ry, rw, rh) = (x - pad, y - pad, w + 2 * pad, h + 2 * pad);
-        var c = new SKColor(0x2F, 0x6F, 0xED);        // accessible focus blue
+        // --cupri-focus recolours it without anyone having to reimplement it. Inherited like any
+        // custom property, so setting it once on :root themes every control in the document.
+        var c = node.Style.CustomProps.TryGetValue("--cupri-focus", out var themed)
+                && Style.Colors.TryParse(themed, out var parsed)
+            ? parsed
+            : new SKColor(0x2F, 0x6F, 0xED);          // accessible focus blue, when nobody said
         list.Add(new FillRect(rx, ry, rw, t, 0f, c));           // top
         list.Add(new FillRect(rx, ry + rh - t, rw, t, 0f, c));  // bottom
         list.Add(new FillRect(rx, ry, t, rh, 0f, c));           // left

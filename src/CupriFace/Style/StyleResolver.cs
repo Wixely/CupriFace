@@ -479,6 +479,16 @@ public sealed class StyleResolver
                 // listening it hears about each one. Reporting from the REAL switch is the point: a
                 // list of supported properties kept anywhere else would drift from this one and
                 // start accusing working CSS of being broken.
+                // ---- outline: painted outside the box, never laid out ----------------------
+                // Shares border's width/style/colour words because an author who writes one writes
+                // the other the same way, and the VALUE order is not assumed -- CSS lets the three
+                // parts appear in any order, so "solid 2px #fff" is the same ring as "2px solid #fff".
+                case "outline": ParseOutlineShorthand(s, v); break;
+                case "outline-width": s.OutlineWidth = ParsePx(v); break;
+                case "outline-offset": s.OutlineOffset = ParsePx(v); break;
+                case "outline-color": if (Colors.TryParse(v, out var olc)) s.OutlineColor = olc; break;
+                case "outline-style": if (ParseBorderStyle(v) is { } ols) s.OutlineStyle = ols; break;
+
                 default: UnsupportedProperty?.Invoke(prop, v); break;
             }
         }
@@ -1364,6 +1374,21 @@ public sealed class StyleResolver
                 SetBorderWidth(s, side, ParsePx(token));
             else if (ParseBorderStyle(token) is { } st) s.BorderStyle = st;
             else if (Colors.TryParse(token, out var c)) SetBorderColor(s, side, c);
+        }
+    }
+
+    /// <summary><c>outline: &lt;width&gt; || &lt;style&gt; || &lt;color&gt;</c>, in any order --
+    /// the same tokenising as <see cref="ParseBorderShorthand"/> and for the same reason: an author
+    /// writes the two the same way, so they must accept the same thing. <c>outline: none</c> arrives
+    /// as a style and switches the ring off without disturbing a width or colour set elsewhere.</summary>
+    private static void ParseOutlineShorthand(ComputedStyle s, string v)
+    {
+        foreach (var token in SplitTopLevel(v))
+        {
+            if (token.EndsWith("px", StringComparison.OrdinalIgnoreCase) || CssNumber.TryParse(token, out _))
+                s.OutlineWidth = ParsePx(token);
+            else if (ParseBorderStyle(token) is { } st) s.OutlineStyle = st;
+            else if (Colors.TryParse(token, out var c)) s.OutlineColor = c;
         }
     }
 

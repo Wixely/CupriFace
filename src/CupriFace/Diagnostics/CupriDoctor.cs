@@ -201,6 +201,9 @@ public static partial class CupriDoctor
         }
 
         MissingGlyphs(missingGlyphs, findings);
+        // Rules whose selector never matched during the render above have still never been looked
+        // at — see StateRulesAreNeverApplied. Sweep them before reporting.
+        SweepRulesThatNeverMatched(css, html, unsupportedCss);
         UnsupportedCssProperties(unsupportedCss, css, html, findings);
         // Keyframe declarations too: they never reach the resolver's loop, so the hook above never
         // sees them — and an animated transform was exactly the case worth catching, since the
@@ -626,6 +629,58 @@ public static partial class CupriDoctor
     /// in the second. A property with no line is still reported: the finding is the point, the line
     /// number is a convenience.</para>
     /// </summary>
+    /// <summary>
+    /// Every property the author wrote, including the ones behind a state the check never enters.
+    ///
+    /// <para><b>The render above only hears about declarations that were APPLIED.</b> A rule is
+    /// applied when its selector matches an element, so a document checked at rest never examines
+    /// <c>:focus</c>, <c>:hover</c>, <c>:active</c> or <c>:checked</c> — nor any rule for a class
+    /// that is added later at runtime. That is the single worst place to be blind, because a focus
+    /// ring is written in exactly one of those rules and the property it reaches for first
+    /// (<c>outline</c>) is not one this engine supports. Measured before this existed:
+    /// <c>.btn { outline: … }</c> reported CF0050; the identical <c>.btn:focus { outline: … }</c>
+    /// reported nothing at all.</para>
+    ///
+    /// <para>So every rule is replayed through <see cref="StyleResolver.ApplyDeclarations"/> onto a
+    /// throwaway style, with no selector matching involved. Replayed rather than pattern-matched
+    /// against a list of known properties: the resolver's own switch decides what is supported, and
+    /// a second list here would drift from it the first time a property was added.</para>
+    ///
+    /// <para>Only the AUTHOR's CSS — the stylesheet plus any inline <c>&lt;style&gt;</c>. The
+    /// component library's own rules are swept out deliberately: a caller cannot fix those, and
+    /// anything found there is this repository's bug to fix rather than a finding to publish.</para>
+    ///
+    /// <para>A rule that matches nothing at all is still reported, and that is intended. A property
+    /// the engine ignores does nothing wherever it is written, and "this rule is dead" is worth
+    /// knowing on its own.</para>
+    /// </summary>
+    private static void SweepRulesThatNeverMatched(string? css, string html, List<string> into)
+    {
+        // The stylesheet, plus every inline <style> block, read from the MARKUP rather than from the
+        // built DOM. Two reasons: a document that failed to build has no DOM and its CSS is exactly
+        // what a caller most wants checked, and this is already how CssLines finds line numbers —
+        // one notion of "where CSS can be written", not two that can disagree.
+        var rules = CssParser.Parse(css);
+        foreach (Match m in InlineStyleBlocks().Matches(html))
+            rules.AddRange(CssParser.Parse(m.Groups[1].Value));
+        if (rules.Count == 0) return;
+
+        var previous = StyleResolver.UnsupportedProperty;
+        StyleResolver.UnsupportedProperty = (prop, _) => into.Add(prop);
+        try
+        {
+            foreach (var rule in rules)
+            {
+                // Per rule, because one unparseable value must not cost the sweep every rule after
+                // it. A declaration that THROWS is already reported by the render pass when its
+                // selector matches; when it never matches, nothing was going to paint anyway.
+                try { StyleResolver.ApplyDeclarations(new ComputedStyle(), rule.Declarations); }
+                catch { /* not a supportedness question */ }
+            }
+        }
+        finally { StyleResolver.UnsupportedProperty = previous; }
+    }
+
     private static void UnsupportedCssProperties(List<string> ignored, string? css, string html,
                                                  List<Finding> findings)
     {
@@ -639,6 +694,9 @@ public static partial class CupriDoctor
     /// <summary>Everywhere CSS can be written in what the caller handed us: the stylesheet, then the
     /// markup (for an inline <c>&lt;style&gt;</c>). Concatenated rather than chosen between, because
     /// a document may well have both.</summary>
+    [GeneratedRegex(@"<style[^>]*>(.*?)</style\s*>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
+    private static partial Regex InlineStyleBlocks();
+
     private static string[] CssLines(string? css, string html) =>
         ((css ?? "") + "\n" + html).Replace("\r\n", "\n").Split('\n');
 
