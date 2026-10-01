@@ -202,6 +202,12 @@ Things only sit in a line, and only align with each other, when **the parent say
 sits them on a baseline you did not choose — which is what "my buttons do not line up" always is.
 42 of Bantz's 65 flex rules are this exact line.
 
+**A flex container is block-level and fills the row.** There is no shrink-to-fit flex here —
+`inline-flex` maps to the same thing and `fit-content` maps to `auto`. If you want a shrink-wrapped
+box, `display:inline-block` is the only one, and its contents align on the text baseline rather than
+centring. An icon beside a label inside one will sit slightly off, and there is currently no way to
+have both.
+
 ### 2. Never draw focus or selection with `border`.
 
 A border is part of the box, so adding one on focus **grows the element and shifts everything after

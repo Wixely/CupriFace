@@ -42,15 +42,19 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   blind spot, because a focus ring lives in exactly such a rule. Every author rule is now replayed
   through the resolver regardless of whether its selector matches anything.
 
-- **`<cupri-button>` is a centred row, not an `inline-block`.** Its contents aligned on the text
-  baseline, which an icon and a label do not share — an icon button measured 104x62 beside a plain
-  button's 42, with its label laid out at zero width. It is now
-  `display:flex; align-items:center; justify-content:center; gap:8px`, which is the override every
-  app was writing by hand.
+- **A `ghost` button is now the same size as a primary one.** The 2px border was declared only on
+  `.ghost`, so switching variant — which apps do to show state — resized the control by 4px in both
+  axes and nudged everything beside it. The base rule now carries a transparent border of the same
+  width, so the variants are interchangeable. `<cupri-button>` also gets `box-sizing: border-box`,
+  which is safe on this one control because it declares no width or height of its own: nothing it
+  says changes meaning, and a width a CALLER sets now means the box they can see.
 
-  **A `ghost` button is now the same size as a primary one.** The 2px border was declared only on
-  `.ghost`, so switching variant resized the control by 4px in both axes; the base rule now carries a
-  transparent border of the same width.
+  **An icon beside a label in a button is still not centred** (its contents align on the text
+  baseline, which an icon and a label do not share). The fix is `display:flex`, and that was tried:
+  a flex container here is BLOCK-level, so two buttons became full-width and stacked instead of
+  sitting side by side — much worse than the problem. `inline-flex` parses but maps to the same
+  display type and `fit-content` maps to auto, so the engine currently has no shrink-to-fit row.
+  That is the next thing to add.
 
 ## v0.31.0
 

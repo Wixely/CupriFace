@@ -104,29 +104,32 @@ public class AlignmentDefaultsTests(ITestOutputHelper output)
     // ---- the button is a row, centred ----------------------------------------------------------
 
     /// <summary>
-    /// AN ICON AND A LABEL SHARE A CENTRE LINE. The button used to be <c>inline-block</c>, so its
-    /// contents aligned on the TEXT BASELINE — an icon glyph and a text run do not share one, so the
-    /// two sat at different heights for reasons no author wrote down. Measured before the change:
-    /// <c>&lt;cupri-button&gt;&lt;cupri-icon/&gt; Shortcuts&lt;/cupri-button&gt;</c> came out 62 tall
-    /// beside a plain button's 42, with its label laid out at zero width.
+    /// TWO BUTTONS SIT SIDE BY SIDE AND SHRINK TO THEIR LABELS. This exists because I broke it:
+    /// fixing the icon/label centring by making the button <c>display:flex</c> also made it
+    /// BLOCK-level, so two buttons became 600px wide and stacked, which is a far worse bug than the
+    /// one being fixed. <c>inline-flex</c> parses but maps to the same DisplayType, and
+    /// <c>fit-content</c> maps to auto, so there is no way to have both until the engine grows a
+    /// real inline-flex.
+    ///
+    /// <para>Centring an icon against a label is therefore still not done. This test guards the
+    /// property that must not be traded away for it.</para>
     /// </summary>
     [Fact]
-    public void An_icon_and_a_label_in_a_button_are_centred_on_each_other()
+    public void Two_buttons_shrink_to_their_labels_and_share_a_row()
     {
         using var t = new TestDoc(
-            "<body><cupri-button><cupri-icon name='menu'></cupri-icon> Shortcuts</cupri-button></body>",
-            "body { background:#111; }", width: 500, height: 200, components: true);
+            "<body><cupri-button>Save</cupri-button><cupri-button>Cancel</cupri-button></body>",
+            "body { background:#111; }", width: 600, height: 200, components: true);
         t.Doc.Refresh();
-        using (t.Doc.RenderToImage(500, 200)) { }
+        using (t.Doc.RenderToImage(600, 200)) { }
         output.WriteLine(t.Doc.DumpTree(maxDepth: 3));
 
-        var button = t.FindClass("cupri-button");
-        var icon = t.FindClass("cupri-icon");
+        var first = t.FindClass("cupri-button");
+        var second = t.Find(n => n.Element?.ClassList.Contains("cupri-button") == true && n != first)!;
 
-        // Centres, not edges: the icon is shorter than the line box, so equal gaps are the claim.
-        var iconCentre = icon.Y + icon.Height / 2f;
-        var buttonCentre = button.Y + button.Height / 2f;
-        Assert.Equal(buttonCentre, iconCentre, 1.0);
+        Assert.True(first.Width < 300, $"a button shrinks to its label, got {first.Width}");
+        Assert.Equal(first.Y, second.Y, 0.01);          // same row, not stacked
+        Assert.True(second.X > first.X, "the second sits after the first, not under it");
     }
 
     /// <summary>A GHOST BUTTON IS THE SAME SIZE AS A PRIMARY ONE. The border lived only on
