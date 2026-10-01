@@ -24,6 +24,18 @@ public sealed class ComponentRegistry
     /// stale the moment a control is added.</summary>
     public IReadOnlyCollection<string> Tags => _components.Keys;
 
+    /// <summary>Concatenated default CSS of all registered components (low priority).
+    ///
+    /// <para><b>No catalogue-wide <c>box-sizing</c> here, and that was tried.</b> Putting the whole
+    /// catalogue on <c>border-box</c> is the right end state — a caller who writes
+    /// <c>width: 120px</c> on a component means the box they can see, and under content-box that
+    /// silently excludes the component's own padding. But every control's CSS was AUTHORED for
+    /// content-box, so the flip changes what their own declarations mean: the text field's
+    /// <c>min-height: 20px</c> meant "reserve one line of CONTENT" and became a field 18px shorter
+    /// than a line, and the slider's <c>min-width: 120px</c> narrowed its track by its own padding
+    /// and moved where a drag lands. Each control needs its declared sizes re-derived and looked at,
+    /// which is a migration rather than a flag, and a half-done one is worse than neither.</para>
+    /// </summary>
     public string AggregatedCss => string.Join("\n", _components.Values.Select(c => c.DefaultCss));
 
     public void Expand(IDocument document)

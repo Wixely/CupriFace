@@ -89,6 +89,28 @@ public sealed class ComputedStyle
         (BorderTop > 0 && BorderTopColor.Alpha > 0) || (BorderRight > 0 && BorderRightColor.Alpha > 0)
         || (BorderBottom > 0 && BorderBottomColor.Alpha > 0) || (BorderLeft > 0 && BorderLeftColor.Alpha > 0);
     public BorderLineStyle BorderStyle = BorderLineStyle.Solid;
+
+    // ---- Outline: a border that is NOT part of the box ------------------------------------------
+    //
+    // The whole reason this property exists in CSS, and the whole reason it is worth having here: it
+    // is painted OUTSIDE the border box and occupies no space, so showing and hiding one cannot move
+    // anything. A focus ring is the case that matters. Drawn with `border` instead, the element grows
+    // by twice the width the moment it is focused and every sibling after it shifts -- which is what
+    // a controller-driven UI looks like when the selection moves.
+    //
+    // Deliberately narrower than CSS: one width, one colour, one offset, no per-side anything. A
+    // focus ring that differs per side is not a thing anyone has asked for, and the restraint keeps
+    // this out of the layout entirely.
+    public float OutlineWidth;
+    public SKColor OutlineColor = SKColors.Transparent;
+    public float OutlineOffset;
+    public BorderLineStyle OutlineStyle = BorderLineStyle.Solid;
+
+    /// <summary>Worth painting: a width, a visible colour, and not <c>outline-style: none</c>.</summary>
+    public bool HasOutline =>
+        OutlineWidth > 0 && OutlineColor.Alpha > 0 && OutlineStyle != BorderLineStyle.None;
+
+
     /// <summary>Per corner and per axis, and unresolved: a percentage is a fraction of the BOX, so it
     /// becomes a number only when there is a box to measure it against. <see cref="BorderRadiusSpec.Resolve"/>.</summary>
     public BorderRadiusSpec BorderRadius;

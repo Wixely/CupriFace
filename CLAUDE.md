@@ -180,6 +180,78 @@ For the WASM/browser host, drive the canvas with the Playwright MCP.
 
 ---
 
+## Four things that make a UI look wrong here
+
+These are not style preferences. Each is a place where markup that would be right in a browser comes
+out visibly wrong in this engine, and three separate apps (Shade, CursorGoblin, Bantz) each worked
+all four out the hard way before any of it was written down.
+
+### 1. A row is `display:flex`. There is no inline box.
+
+**Everything lays out as a block that fills its parent.** `<span>`, `<div>` and a `<cupri-badge>` all
+measure the same full width — `span.p 600x35`, `div.p 600x35`. So two "pills" written side by side do
+not sit side by side; they stack, each as wide as the row.
+
+Things only sit in a line, and only align with each other, when **the parent says so**:
+
+```css
+.row { display:flex; align-items:center; gap:8px; }
+```
+
+`align-items:center` is the one that matters. Without it a taller item stretches its neighbours or
+sits them on a baseline you did not choose — which is what "my buttons do not line up" always is.
+42 of Bantz's 65 flex rules are this exact line.
+
+**A flex container is block-level and fills the row.** There is no shrink-to-fit flex here —
+`inline-flex` maps to the same thing and `fit-content` maps to `auto`. If you want a shrink-wrapped
+box, `display:inline-block` is the only one, and its contents align on the text baseline rather than
+centring. An icon beside a label inside one will sit slightly off, and there is currently no way to
+have both.
+
+### 2. Never draw focus or selection with `border`.
+
+A border is part of the box, so adding one on focus **grows the element and shifts everything after
+it** — the whole row jitters as a controller moves the selection. Two correct options:
+
+```css
+/* the engine's own ring, recoloured — layout-safe, nothing else to write */
+:root { --cupri-focus: #8b5cf6; }
+
+/* or your own, with outline: painted OUTSIDE the box, never laid out */
+[data-focus] { outline: 2px solid #8b5cf6; outline-offset: 2px; }
+```
+
+**The hook is `[data-focus]`, not `:focus`.** The engine marks the focused element with an attribute;
+`:focus` matches nothing and fails silently. If you set your own `outline`, the built-in ring steps
+aside so you do not get two.
+
+### 3. Pin anything whose text changes.
+
+A button sized by its label resizes when the label does — "Connect" → "Disconnecting…" moves every
+control beside it. Give it a floor:
+
+```css
+.cupri-button { min-width: 120px; }
+```
+
+Digits are the sharp case: a clock or a score reflows its row on every tick, because the digits are
+proportional and `font-variant-numeric: tabular-nums` **is not supported** (CupriDoctor will tell
+you). Pin the width of the element holding the number.
+
+### 4. `box-sizing` is `content-box`, as in CSS.
+
+`width: 200px` plus `padding: 12px` is a 224px box. Say `box-sizing: border-box` yourself when you
+mean the outer size — Shade does it four times for exactly this reason. The `cupri-*` controls have
+their own padding and borders, so prefer `min-width`/`min-height` over `width`/`height` on them.
+
+### And run the doctor over the states, not just the page
+
+`CupriDoctor.Check(html, css, width:, height:, model:)` reports a CSS property the engine ignores
+**wherever you wrote it** — including inside `:focus`, `:hover` and classes you only add at runtime,
+which it could not see before and which is where focus styling lives.
+
+---
+
 ## Other things worth knowing
 
 - **Trimming and AOT fail silently here.** A trimmed build can lose hardware GL or the accessibility

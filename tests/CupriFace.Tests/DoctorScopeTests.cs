@@ -153,4 +153,74 @@ public class DoctorScopeTests(ITestOutputHelper output)
         output.WriteLine($"complete reports: {found}/60");
         Assert.Equal(60, found);
     }
+
+    // ---- state rules: the place a focus ring lives, and the place the check used to never look ----
+
+    /// <summary>A PROPERTY BEHIND A STATE IS STILL REPORTED. The check renders a document at rest,
+    /// so no <c>:focus</c>, <c>:hover</c>, <c>:active</c> or <c>:checked</c> rule ever matches, and
+    /// CF0050 is derived from declarations the resolver APPLIED. Everything in a state rule was
+    /// therefore invisible to it.
+    ///
+    /// <para>That was the worst possible blind spot rather than a cosmetic gap: a keyboard or
+    /// controller focus ring is written in exactly such a rule, and the property it reaches for
+    /// first — <c>outline</c> — is one this engine ignores. An agent would write it, see nothing
+    /// from the doctor, watch the ring not appear, and reach for <c>border</c> instead, which is
+    /// the one way to draw a focus box that moves the layout under it.</para>
+    ///
+    /// <para>Measured before the fix: the two documents below differed only in <c>:focus</c>, and
+    /// the first reported CF0050 while the second reported nothing at all. The property here is
+    /// <c>vertical-align</c> rather than the <c>outline</c> that motivated this, because the same
+    /// change that added this check also added outline support -- a test has to use something the
+    /// engine really does ignore or it stops testing anything.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(".btn { vertical-align: middle; }")]          // matches - always worked
+    [InlineData(".btn:focus { vertical-align: middle; }")]    // a state - the regression
+    [InlineData(".btn:hover { vertical-align: middle; }")]
+    [InlineData(".btn.is-selected { vertical-align: middle; }")]  // a class added at runtime
+    [InlineData(".never-used-anywhere { vertical-align: middle; }")]
+    public void An_ignored_property_is_reported_wherever_it_is_written(string css)
+    {
+        var report = CupriDoctor.Check("<body><div class='btn'>x</div></body>", css,
+                                       width: 400, height: 200);
+        Assert.Contains(report.Findings,
+            f => f.Code == "CF0050" && f.Message.Contains("vertical-align"));
+    }
+
+    /// <summary>The sweep reads the author's CSS, not the component library's. A caller cannot fix a
+    /// finding in CupriFace's own rules, so one reported there would be noise they can only ignore —
+    /// and it would be this repository's bug to fix rather than theirs.</summary>
+    [Fact]
+    public void The_component_librarys_own_rules_are_not_swept()
+    {
+        var report = CupriDoctor.Check("<body><cupri-button>go</cupri-button></body>", css: null,
+                                       width: 400, height: 200);
+        Assert.DoesNotContain(report.Findings, f => f.Code == "CF0050");
+    }
+
+    /// <summary>An inline &lt;style&gt; block is author CSS too, and is swept on the same terms. It
+    /// is where a composition that keeps its rules with its markup puts them, which is most of
+    /// them.</summary>
+    [Fact]
+    public void An_inline_style_block_is_swept_as_well()
+    {
+        var report = CupriDoctor.Check(
+            "<body><style>.btn:focus { vertical-align: middle; }</style><div class='btn'>x</div></body>",
+            css: null, width: 400, height: 200);
+        Assert.Contains(report.Findings,
+            f => f.Code == "CF0050" && f.Message.Contains("vertical-align"));
+    }
+
+    /// <summary>Reported ONCE however many rules mention it — the finding is the property, not each
+    /// place it appears, and a stylesheet that styles focus on six controls should not say the same
+    /// thing six times.</summary>
+    [Fact]
+    public void A_property_in_many_state_rules_is_reported_once()
+    {
+        var report = CupriDoctor.Check("<body><div class='btn'>x</div></body>",
+            ".a:focus { vertical-align: middle; } .b:focus { vertical-align: middle; } " +
+            ".c:hover { vertical-align: top; }",
+            width: 400, height: 200);
+        Assert.Single(report.Findings, f => f.Code == "CF0050" && f.Message.Contains("vertical-align"));
+    }
 }

@@ -368,6 +368,21 @@ public readonly record struct BorderRadiusSpec(
 /// </summary>
 public readonly record struct CornerRadii(SKPoint TopLeft, SKPoint TopRight, SKPoint BottomRight, SKPoint BottomLeft)
 {
+    /// <summary>The same corners, grown by a uniform ring drawn outside the box.
+    ///
+    /// <para>A concentric ring round a rounded box has the LARGER radius -- grow the box by n and its
+    /// corners grow by n too -- so an outline round a pill stays a pill instead of becoming a rounded
+    /// rectangle with a square frame hanging off it. A square corner (0) stays square, which is what
+    /// concentricity gives as well.</para>
+    /// </summary>
+    public CornerRadii Grow(float by)
+    {
+        if (by <= 0) return this;
+        static SKPoint G(SKPoint c, float by) =>
+            new(c.X > 0 ? c.X + by : 0, c.Y > 0 ? c.Y + by : 0);
+        return new CornerRadii(G(TopLeft, by), G(TopRight, by), G(BottomRight, by), G(BottomLeft, by));
+    }
+
     public static readonly CornerRadii None = default;
 
     public static implicit operator CornerRadii(float r)
