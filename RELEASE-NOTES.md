@@ -36,6 +36,14 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   shrinks to its label, shares a row with the next one, and centres its contents — all three, which
   was not previously expressible.
 
+  **A lone one shrinks too, which it did not before.** A single inline-level child skipped the inline
+  path and laid out as a block, so one chip came out the full width of its parent while two of them
+  shrank correctly. That hit **18 of the shipped controls**: a `<cupri-badge>` on its own measured 600
+  wide and now measures 52.5, a `<cupri-chip>` 600 and now 56.5, with heights unchanged. It applies
+  to `inline-block` as well, so a lone `<span>`-style pill no longer fills its row. A lone TEXT child
+  still takes the block path — routing that through the line changes white-space handling and
+  line-box heights across the engine.
+
   `inline-grid` is deliberately NOT included. It needs an intrinsic width and the engine has no track
   sizing for a grid, so making it inline-level left it the full width of its parent — accepting the
   value and changing nothing. It stays block-level, as before.

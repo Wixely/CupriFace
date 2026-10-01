@@ -135,4 +135,54 @@ public class InlineFlexTests(ITestOutputHelper output)
         using (t.Doc.RenderToImage(700, 200)) { }
         Assert.Equal(700f, t.FindClass("g").Width, 0.5);
     }
+
+    /// <summary>
+    /// ONE OF THEM SHRINKS TOO. A lone inline-level child used to skip the inline path entirely and
+    /// lay out as a block, so a single chip came out the full width of its parent while two of them
+    /// shrank correctly — a difference with no reason an author could see, and most of "my badge
+    /// fills the row". Eighteen of the shipped controls were affected: a cupri-badge alone measured
+    /// 600 wide and now measures 52.5, with its height unchanged.
+    ///
+    /// <para>Narrowed to ATOMIC boxes — inline-block and inline-flex. A lone TEXT child still takes
+    /// the block path: routing it through the line changes white-space handling, line-box heights
+    /// and measurement across the engine, which 24 tests say in chorus.</para>
+    /// </summary>
+    [Fact]
+    public void A_lone_inline_flex_box_shrinks_as_well()
+    {
+        using var t = new TestDoc(
+            "<body><div class='chip'><div class='lbl'>Demo</div></div></body>", Css,
+            width: 700, height: 200);
+        t.Doc.Refresh();
+        using (t.Doc.RenderToImage(700, 200)) { }
+        output.WriteLine(t.Doc.DumpTree(maxDepth: 3));
+        Assert.True(t.FindClass("chip").Width < 300,
+            $"one on its own shrinks like two do — got {t.FindClass("chip").Width}");
+    }
+
+    /// <summary>A lone inline-BLOCK shrinks for the same reason, which is the half of this that was
+    /// wrong before inline-flex existed at all.</summary>
+    [Fact]
+    public void A_lone_inline_block_shrinks_as_well()
+    {
+        using var t = new TestDoc(
+            "<body><div class='pill'>Demo</div></body>",
+            ".pill { display:inline-block; padding:8px 14px; background:#345; font-size:15px; }",
+            width: 700, height: 200);
+        t.Doc.Refresh();
+        using (t.Doc.RenderToImage(700, 200)) { }
+        Assert.True(t.FindClass("pill").Width < 300, "a lone inline-block shrinks to its content");
+    }
+
+    /// <summary>A lone TEXT child is untouched — it keeps the block path, and this pins the boundary
+    /// of the change rather than leaving it to be rediscovered by whoever widens it next.</summary>
+    [Fact]
+    public void A_lone_text_child_is_unaffected()
+    {
+        using var t = new TestDoc("<body><div class='t'>hello</div></body>",
+                                  ".t { font-size:15px; }", width: 700, height: 200);
+        t.Doc.Refresh();
+        using (t.Doc.RenderToImage(700, 200)) { }
+        Assert.Equal(700f, t.FindClass("t").Width, 0.5);
+    }
 }
