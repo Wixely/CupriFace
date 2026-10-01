@@ -38,6 +38,24 @@ public sealed class ComputedStyle
     /// (#76).</summary>
     public bool BorderBox;
 
+    /// <summary>
+    /// The OUTER half of <c>display</c>: this box sits on a line beside its siblings and shrinks to
+    /// its content, instead of taking a line of its own and filling the width.
+    ///
+    /// <para><b>A flag rather than a DisplayType, deliberately.</b> CSS's <c>display</c> is two
+    /// decisions wearing one name — an outer role (block or inline) and an inner one (flow, flex,
+    /// grid) — and <c>inline-flex</c> changes only the outer. Adding <c>InlineFlex</c> to the enum
+    /// would have meant auditing all 34 places that compare against <c>DisplayType.Flex</c> and
+    /// getting every one right, where missing one leaves a flex container that silently stops
+    /// behaving like one. This way the inner role is untouched and exactly one gate consults the
+    /// outer: <c>IsInlineLevel</c>, which decides whether a child joins an inline formatting
+    /// context.</para>
+    ///
+    /// <para>Set by <c>inline-flex</c> and <c>inline-grid</c>. <c>inline-block</c> does not need it —
+    /// it is already its own DisplayType, and its inner role is plain flow.</para>
+    /// </summary>
+    public bool InlineLevel;
+
     // Absolute positioning insets
     public Length Top = Length.Auto, Right = Length.Auto, Bottom = Length.Auto, Left = Length.Auto;
 

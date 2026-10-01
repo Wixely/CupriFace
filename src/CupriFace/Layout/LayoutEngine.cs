@@ -307,8 +307,18 @@ public sealed class LayoutEngine
         return cursorY;
     }
 
+    /// <summary>Whether a child joins an inline formatting context — placed on a line with its
+    /// siblings — rather than taking a line of its own.
+    ///
+    /// <para><c>InlineLevel</c> is what makes <c>inline-flex</c> work, and it needs nothing else:
+    /// the atomic-box path this sends a node down already shrinks an auto-width box to
+    /// <see cref="MaxContentWidth"/>, which already sums a horizontal flex row and its gaps, and
+    /// already calls <see cref="LayoutNode"/> so the node runs whatever inner layout it has. The
+    /// pieces were all present; the only thing missing was a way to ask for them together.</para>
+    /// </summary>
     private static bool IsInlineLevel(RenderNode n) =>
-        n.IsText || n.Style.Display is DisplayType.Inline or DisplayType.InlineBlock;
+        n.IsText || n.Style.InlineLevel
+                 || n.Style.Display is DisplayType.Inline or DisplayType.InlineBlock;
 
     // Inline formatting context: flow kids[start..end) (text + inline/inline-block) into wrapping line
     // boxes, starting at startY within the block's content box. Text/inline elements are positioned via
