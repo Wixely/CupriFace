@@ -149,6 +149,20 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   the part of this engine that cannot be verified without hardware, so the window being able to
   testify about what it received is the difference between a five-minute answer and a blind hunt.
 
+- **A game controller works in the browser** — the last of the four hosts. The Gamepad API has no
+  events for buttons or axes, so the page polls in its existing frame loop; the D-pad and face
+  buttons are sent as the keys they stand for, and the stick feeds a `GamepadDriver`. Because a poll
+  always sees a button go up, the web host reports releases too (`EditKeyRelease`), so corners are
+  decided from held state rather than from arrival times here as well. A tab losing focus clears
+  what it thought was held — that release is delivered to whoever gains focus, never to us.
+
+- **The shipped samples can turn controller navigation on, so it can be tested.** A pad already
+  worked without this — a D-pad arrives as arrow keys and a stick navigates by geometry regardless —
+  but the arrows stepped through the markup rather than the screen, which is the half worth
+  watching. `Viewer --gamepad` on the desktop, and `adb shell am start -n <activity> --ez gamepad
+  true` on Android. Both opt-in for the same reason the engine's own default is off: these are
+  ordinary applications, where arrow keys are expected to move a caret.
+
 - **A prerelease tag publishes as a prerelease.** `gh release create` never passed `--prerelease`,
   so a tag like `v0.33.0-alpha.1` would have been marked **Latest** — the download every visitor
   gets, and the answer every "what is the newest release" check believes. Any tag with a hyphen is

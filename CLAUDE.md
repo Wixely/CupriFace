@@ -229,6 +229,10 @@ pad not opened) from "events arrive and are mapped wrongly", which look identica
 The stick lines carry the signs, which is the one thing about controller support that cannot be
 checked without hardware — push down and `y` must be positive, or navigation runs upside down.
 
+In the browser the equivalent is the console: a connected pad is always announced (with its id and
+whether the browser gave it the standard mapping), and `?padlog=1` on the URL adds the per-event
+stream of buttons and stick readings.
+
 For the WASM/browser host, drive the canvas with the Playwright MCP.
 
 ---

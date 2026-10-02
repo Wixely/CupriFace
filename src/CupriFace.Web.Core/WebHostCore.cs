@@ -26,6 +26,7 @@ public static class WebHostCore
     private static IWebBridge _js = null!;
     private static CupriApp _app = null!;
     private static CupriDocument _doc = null!;
+    private static GamepadDriver? _pad;
     private static TouchInput _touch = null!;
     private static WebVideoBackend? _video;
     private static WebUnderlays? _underlays;
@@ -115,6 +116,11 @@ public static class WebHostCore
         _js = bridge;
         _app = app;
         _doc = app.CreateDocument();
+        // The page polls the Gamepad API every frame and reports button releases, so directional
+        // navigation can decide a corner from what is still HELD rather than from how fast two
+        // presses arrived. See CupriDocument.DiagonalNavigation.
+        _doc.ReportsKeyUp = true;
+        _pad = new GamepadDriver(_doc, onFrame: () => _dirty = true);
         configure?.Invoke(_doc);
         _touch = new TouchInput(_doc);
 
@@ -667,6 +673,23 @@ public static class WebHostCore
     public static void KeyChar(string text) { if (_doc?.DispatchKey(text, EditKey.None) == true) _dirty = true; }
     public static void EditKeyPress(int code, int mods)
     { if (_doc?.DispatchKey(null, (EditKey)code, (KeyMods)mods) == true) _dirty = true; }
+
+    /// <summary>A key let go. The page sends this for a controller's D-pad and face buttons, which
+    /// it polls rather than receives as events — so unlike a keyboard it always knows the release
+    /// happened, and the engine gets held state for free.</summary>
+    public static void EditKeyRelease(int code)
+    { if (_doc?.DispatchKeyUp((EditKey)code) == true) _dirty = true; }
+
+    /// <summary>The left stick, −1..1, y DOWN positive — which is what the Gamepad API's axis 1
+    /// already reports, so nothing is flipped on the way in. Safe to call every frame: the driver
+    /// edge-detects, so a stick held over moves the selection once rather than once per frame.</summary>
+    public static void GamepadStick(double x, double y)
+    { if (_pad?.Stick((float)x, (float)y) == true) _dirty = true; }
+
+    /// <summary>Every held key forgotten — the page calls this when the tab loses focus, because the
+    /// release of anything down at that moment is delivered to whoever has focus next and never to
+    /// us. A direction remembered as held for ever would make the next press read as a corner.</summary>
+    public static void ReleaseAllKeys() => _doc?.ReleaseAllKeys();
 
     /// <summary>A Ctrl/Cmd + letter chord. Returns whether the engine took it, so the page can
     /// preventDefault only then and otherwise leave the browser its own shortcuts.</summary>

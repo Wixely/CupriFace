@@ -1267,6 +1267,11 @@ windows do this — the GL one through Silk.NET's `IGamepad` (with Silk's own de
 `GamepadDeadzone` is the only one that applies), the software fallback through SDL's controller
 events. Pads connected after launch work on both.
 
+**On the web the page polls.** The Gamepad API has no events for buttons or axes, so the poll lives
+in the frame loop rather than beside the keyboard listeners. Same mapping as everywhere else — D-pad
+and A/B become keys, the stick feeds a `GamepadDriver` — and because a poll always sees a button go
+up, the web host reports releases too, so corners are decided from held state there as well.
+
 **On Android the driver is the host's own.** `CupriHostView.OnGenericMotionEvent` reads the stick
 and hat axes — nothing read them before, so analog input was dropped entirely — and hands them
 straight to a `GamepadDriver`. A controller D-pad arrives as the same `Dpad*` keycodes a keyboard's

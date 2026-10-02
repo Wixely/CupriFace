@@ -1,3 +1,4 @@
+using CupriFace;
 using CupriFace.Demo;
 using CupriFace.Media;
 using CupriFace.Media.Decoding;
@@ -14,9 +15,27 @@ using CupriFace.Shell;
 // Without it the video card shows its poster with disabled controls.
 // `--app mobile` runs the phone-first sample in a phone-shaped window — the fast dev loop for
 // mobile UI work (edit, F5, no emulator), and the proof the SAME app runs on desktop unchanged.
+// --gamepad turns the arrows into a D-pad and lets two of them make a corner. A FLAG rather than
+// the default because it changes what the arrow keys do: in an ordinary application they move a
+// caret and scroll a view, and the Showcase is an ordinary application. A game would set these in
+// Configure and never think about it again.
+//
+// A controller works WITHOUT the flag — its D-pad arrives as arrow keys and its stick navigates by
+// geometry regardless — but the arrows then step through the markup rather than the screen, which
+// is the thing worth looking at. See CupriDocument.ArrowNavigation.
+var gamepad = args.Contains("--gamepad");
+void Controller(CupriDocument doc)
+{
+    if (!gamepad) return;
+    doc.ArrowNavigation = true;
+    doc.DiagonalNavigation = true;
+    Console.WriteLine("[Viewer] gamepad navigation ON: arrows move by geometry, two together make a corner.");
+    Console.WriteLine("[Viewer] set CUPRIFACE_KEY_DEBUG=keys.log to see what the pad actually sends.");
+}
+
 if (args.SkipWhile(a => a != "--app").Skip(1).FirstOrDefault() == "mobile")
 {
-    DesktopHost.Run(new MobileApp());
+    DesktopHost.Run(new MobileApp(), Controller);
     return;
 }
 
@@ -30,4 +49,5 @@ DesktopHost.Run(new ShowcaseApp(section), doc =>
     // browser and Android hosts and must not reference a desktop GL stack. Returns null (and the
     // page shows its poster) on a machine with no usable OpenGL; the Showcase is not a 3D app.
     Teapot3dSurface.TryAttach(doc, Console.WriteLine);
+    Controller(doc);
 });

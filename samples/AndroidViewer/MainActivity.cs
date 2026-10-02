@@ -47,6 +47,24 @@ public class MainActivity : CupriActivity
     /// Back pops or the About page launches the Showcase. That is why no new Push overload was
     /// needed - the hook already reached every app on the stack.</para>
     /// </summary>
-    protected override void ConfigureDocument(CupriDocument document) =>
+    protected override void ConfigureDocument(CupriDocument document)
+    {
         Teapot3dSurface.TryAttach(document, m => global::Android.Util.Log.Info("cupri", m));
+
+        // Spatial navigation for a controller test:
+        //   adb shell am start -n <activity> --ez gamepad true
+        //
+        // An intent extra for the same reason --section is one, and opt-in for the same reason the
+        // desktop Viewer needs a flag: it changes what the arrow keys do, and a phone app is an
+        // ordinary application where they move a caret. A pad still WORKS without it — Android
+        // reports a D-pad as arrow keycodes and the stick navigates by geometry regardless — but
+        // the D-pad then steps through the markup rather than the screen, which is the half worth
+        // watching. Being in this hook, it applies to the Showcase pushed from the front screen as
+        // well: a setting that lapsed on the second screen would look like the feature failing
+        // rather than like it never being asked for.
+        if (Intent?.GetBooleanExtra("gamepad", false) != true) return;
+        document.ArrowNavigation = true;
+        document.DiagonalNavigation = true;
+        global::Android.Util.Log.Info("cupri", "cupri-gamepad: navigation ON (arrows by geometry; two together make a corner)");
+    }
 }
