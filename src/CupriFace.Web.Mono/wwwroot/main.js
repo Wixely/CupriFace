@@ -743,6 +743,18 @@ try {
     // as half of a corner for the rest of the session.
     window.addEventListener('blur', () => { padHeld.clear(); I.ReleaseAllKeys(); });
 
+    // The browser counterpart of CUPRIFACE_KEY_DEBUG. A pad that "does nothing" has two
+    // very different causes that look identical from outside: the page never sees it at
+    // all (no permission, no gesture yet, unsupported mapping), or it sees it and maps it
+    // wrongly. Connection is always announced; add ?padlog=1 for the per-event stream.
+    const padLog = new URLSearchParams(location.search).has('padlog');
+    window.addEventListener('gamepadconnected', (e) => console.log(
+        '[cupriface] gamepad connected:', e.gamepad.id,
+        'mapping=' + (e.gamepad.mapping || '(non-standard)'),
+        'buttons=' + e.gamepad.buttons.length, 'axes=' + e.gamepad.axes.length));
+    window.addEventListener('gamepaddisconnected',
+        (e) => console.log('[cupriface] gamepad disconnected:', e.gamepad.id));
+
     function pollGamepads() {
         if (!navigator.getGamepads) return;        // older browser, or a page without the permission
         let pads;
@@ -759,6 +771,8 @@ try {
                 // for one held button; sending the release is what lets the engine tell a pair
                 // pressed TOGETHER from two pressed in turn.
                 if (down !== (padHeld.get(key) === true)) {
+                    if (padLog) console.log('[cupriface] pad button', index,
+                        PAD_KEYS[index], down ? 'down' : 'up');
                     if (down) I.EditKeyPress(code, 0); else I.EditKeyRelease(code);
                     padHeld.set(key, down);
                 }
@@ -766,6 +780,10 @@ try {
             // Axis 1 is the left stick's Y and the Gamepad API already defines it down-positive,
             // which is the engine's own convention — nothing is flipped on the way in. Safe every
             // frame: the driver edge-detects, and a stick at rest inside the deadzone does nothing.
+            // Push DOWN and y must be positive — that is the one assumption in
+            // controller support that cannot be checked without hardware.
+            if (padLog && (pad.axes[0] || pad.axes[1]))
+                console.log('[cupriface] pad stick', pad.axes[0].toFixed(2), pad.axes[1].toFixed(2));
             I.GamepadStick(pad.axes[0] || 0, pad.axes[1] || 0);
         }
     }
