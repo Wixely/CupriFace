@@ -30,6 +30,11 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   on, and a tabular run of `1`s is exactly as wide as a plain run of `0`s. Text with no digits is
   untouched, and a face that already has tabular figures takes its original code path unchanged.
 
+  "Already tabular" is judged relative to the digit width — a hundredth of a digit, not of a pixel.
+  macOS's generic monospace face reports advances that differ by 0.02px at 40pt, which is rounding
+  and nothing anyone wants padded, and an absolute floor would also get stricter as text gets
+  smaller.
+
   Measuring and painting share **one** computation, which is the whole design — a run measured one
   width and drawn another is text that clips or sits off-centre, and the two paths are a hundred
   lines apart. Only `tabular-nums` is acted on; the other values of the property still report

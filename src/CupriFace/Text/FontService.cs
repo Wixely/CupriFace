@@ -421,7 +421,13 @@ public sealed class FontService : IDisposable
             var isDigit = cluster >= 0 && cluster < segment.Length && char.IsAsciiDigit(segment[cluster]);
             var advance = (g + 1 < n ? shaped.Points[g + 1].X : shaped.Width) - shaped.Points[g].X;
             var pad = isDigit && advance > 0 ? widest - advance : 0f;
-            if (pad > 0.01f)
+            // A HUNDREDTH OF A DIGIT, not an absolute hundredth of a pixel, and the difference is
+            // not academic: on macOS the generic monospace face reports digit advances that differ
+            // by 0.0195px at 40pt -- rounding, invisible, and nothing anyone wants padded. An
+            // absolute floor also scales the wrong way, getting stricter as the text gets smaller.
+            // Relative to the widest digit, a face that is tabular to within a rounding error takes
+            // the null fast path at every size, and Georgia's genuine 0.7px gaps still pad.
+            if (pad > widest * 0.01f)
             {
                 shifts ??= new float[n];
                 shifts[g] = running + pad / 2f;     // centred in the slot
