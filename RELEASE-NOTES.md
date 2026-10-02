@@ -89,6 +89,49 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   this, and the key→`EditKey` mapping each had inline is now one shared method per window rather
   than a copy that could drift between press and release.
 
+- **A game controller works on Android.** Three gaps closed at once. **Analog sticks were dropped
+  entirely** — nothing in the repo read `OnGenericMotionEvent`, which is how Android delivers stick
+  and hat axes; the view now reads them and feeds a `GamepadDriver`, so a stick produces a direction
+  (and a corner, with no timing window, because a stick reports a vector rather than two presses).
+  **Releases are forwarded**, so directional navigation uses held state rather than guessing a
+  corner from arrival times, and focus loss clears what is held. **`ButtonA` activates and `ButtonB`
+  cancels**, mapping to Enter and Escape so a pad goes through exactly the paths a keyboard already
+  does.
+
+  A controller D-pad needs nothing special: Android reports it as the same `Dpad*` keycodes a
+  keyboard's arrow keys produce, so whether arrows move a caret or the selection stays one app-level
+  decision (`ArrowNavigation`) that means the same thing for both.
+
+- **`doc.GamepadDeadzone` — the stick deadzone, set by the app rather than the host.** Default 0.5,
+  clamped to 0.05–0.95, read per call so it can be retuned at runtime. The host builds the driver
+  (on Android the view owns it, being what receives the motion events), so a deadzone fixed at
+  construction was one an integrating developer could not reach. Pads differ in travel and in how
+  much they drift once worn, and a menu wants a different answer from a cursor — so this is not a
+  number the engine can be right about on its own.
+
+- **`GamepadDriver` follows the document's `DiagonalNavigation` by default.** `diagonals` is now
+  nullable and unset means "ask the document". A host should not have to answer a question the app
+  has already answered — and if it did, it could disagree, giving a stick corners in a UI whose
+  keyboard refuses them.
+
+- **Keyboard focus no longer slides onto a different control when the page rebuilds.** Focus was an
+  index into the focusable list, and that list is rebuilt from scratch on every rebuild — every
+  keystroke, every model change, every `:hover` restyle. While the tree kept its shape the index
+  happened to still point at the right thing, which is why this was easy to miss; the moment a
+  control appeared or disappeared **anywhere earlier**, every index after it slid by one and the
+  selection was silently on something the user was not looking at. A controller UI is where it bites
+  hardest, being driven entirely by the selection and exactly the kind of UI whose contents change.
+
+  Focus is now carried across a rebuild as an identity: `data-bind-value`/`id` where the author gave
+  one — the same key text focus has always used — and otherwise the control's label, used only when
+  exactly one focusable carries it (two buttons reading "Delete" identify nothing). Carried on both
+  rebuild paths, `Rebuild` and `ReStyle`.
+
+  A structural path is deliberately not part of this, though the engine has one and scroll
+  restoration uses it: a path is a position, and positions are the thing that shifts. When a control
+  appears above the focused one the path slides exactly as the index does, so resolving it returns
+  the neighbour with every appearance of confidence.
+
 ### Fixed
 
 - **A focus move arriving between frames is no longer swallowed.** Directional navigation reads where

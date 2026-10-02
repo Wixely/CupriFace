@@ -138,6 +138,14 @@ public sealed class AndroidHost : IDisposable
     /// app gets a fresh document, and each one needs the identical wiring.</summary>
     private void WireDocument(CupriDocument doc)
     {
+        // This host forwards key releases (CupriHostView.OnKeyUp), so directional navigation can use
+        // held state instead of guessing a corner from arrival times. Declared rather than inferred:
+        // nothing has been released when the first arrow of a session is pressed, so inferring it
+        // would make the first corner behave differently from every later one.
+        doc.ReportsKeyUp = true;
+        // Diagonals follow whatever the APP asked for — the host has no business overruling it.
+        _pad = new GamepadDriver(doc, onFrame: MarkDirty);
+
         // External links go to the OS; internal ones are the app's routing concern. Fires on the
         // GL thread (inside a dispatch), so hop to the UI thread for the Intent.
         doc.Navigated += e =>
@@ -585,6 +593,24 @@ public sealed class AndroidHost : IDisposable
 
     internal void Key(EditKey key, KeyMods mods = KeyMods.None)
     { if (_doc.DispatchKey(null, key, mods)) MarkDirty(); }
+
+    /// <summary>A key let go. Forwarding releases is what lets directional navigation tell "pressed
+    /// together" from "pressed in turn" by what is still DOWN rather than by how fast they arrived —
+    /// see <see cref="CupriDocument.DispatchKeyUp"/>.</summary>
+    internal void KeyUp(EditKey key)
+    { if (_doc.DispatchKeyUp(key)) MarkDirty(); }
+
+    /// <summary>The window lost focus. Anything still down belongs to whoever has focus now — its
+    /// release is delivered to them and never to us, so a key remembered as held here would stay
+    /// held for the rest of the session and every later arrow would read as half of a corner.</summary>
+    internal void WindowFocusLost() => _doc.ReleaseAllKeys();
+
+    /// <summary>A thumbstick or hat, as a VECTOR — which is why it needs no timing window to produce
+    /// a diagonal: "down and right" arrives as one reading rather than as two presses to correlate.
+    /// The driver edge-detects, so a stick held over does not race the selection across the panel.
+    /// </summary>
+    internal void Stick(float x, float y) => _pad?.Stick(x, y);
+    private GamepadDriver? _pad;
 
     internal void KeyText(string text)
     { if (_doc.DispatchKey(text, EditKey.None)) MarkDirty(); }
