@@ -132,6 +132,23 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   appears above the focused one the path slides exactly as the index does, so resolving it returns
   the neighbour with every appearance of confidence.
 
+- **A game controller works on the desktop host.** The D-pad and face buttons are wired to the
+  keyboard's own events — `EditKeyPressed`/`EditKeyReleased`, with A as Enter and B as Escape — so a
+  pad inherits directional navigation, corner moves decided from held state, activation and overlay
+  dismissal rather than getting a parallel path that could drift from the keyboard's. Only the stick
+  needs its own handling, being an axis rather than a press; it feeds a `GamepadDriver` that takes
+  both its deadzone and its corner policy from the document.
+
+  Done on **both** windows: the GL one through Silk.NET's `IGamepad` (whose own deadzone is turned
+  off so `GamepadDeadzone` is the only one that applies), the software fallback through SDL's
+  controller events, with `SDL_INIT_GAMECONTROLLER` added — without that subsystem SDL produces no
+  controller events at all and a pad does nothing, silently. Pads connected after launch work on
+  both.
+
+  `CUPRIFACE_KEY_DEBUG` now records controller buttons and stick readings too. Controller support is
+  the part of this engine that cannot be verified without hardware, so the window being able to
+  testify about what it received is the difference between a five-minute answer and a blind hunt.
+
 ### Fixed
 
 - **A focus move arriving between frames is no longer swallowed.** Directional navigation reads where

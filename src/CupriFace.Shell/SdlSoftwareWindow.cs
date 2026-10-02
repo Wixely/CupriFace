@@ -101,6 +101,24 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     public event Action<EditKey, KeyMods>? EditKeyPressed;  // key + Shift/Ctrl modifiers
     public event Action<EditKey>? EditKeyReleased;          // the same key let go
     public event Action? FocusLost;                         // every held key is now someone else's
+    public event Action<float, float>? GamepadStick;        // left stick, -1..1, y DOWN positive
+
+    // SDL sends one axis per event; the vector is only whole once both halves are remembered.
+    private float _stickX, _stickY;
+
+    /// <summary>A controller's D-pad and face buttons as the keys they stand for, so a pad inherits
+    /// everything the keyboard already has rather than getting a parallel path that could come to
+    /// disagree with it. The same mapping the GL window uses.</summary>
+    private static EditKey ToEditKey(GameControllerButton b) => b switch
+    {
+        GameControllerButton.ControllerButtonDpadUp => EditKey.Up,
+        GameControllerButton.ControllerButtonDpadDown => EditKey.Down,
+        GameControllerButton.ControllerButtonDpadLeft => EditKey.Left,
+        GameControllerButton.ControllerButtonDpadRight => EditKey.Right,
+        GameControllerButton.ControllerButtonA => EditKey.Enter,
+        GameControllerButton.ControllerButtonB => EditKey.Escape,
+        _ => EditKey.None,
+    };
 
     /// <summary>One mapping for both press and release — a duplicate would drift.
     /// <paramref name="shift"/> only separates Tab from Shift+Tab; releases pass false.</summary>
@@ -462,7 +480,9 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                 throw new InvalidOperationException($"SDL_RegisterApp failed: {_sdl.GetErrorS()}");
             _registeredAlphaClass = true;
         }
-        if (_sdl.Init(Sdl.InitVideo) != 0)
+        // Gamecontroller alongside video: without the subsystem SDL never produces controller
+        // events at all, and a pad would simply do nothing with no error anywhere.
+        if (_sdl.Init(Sdl.InitVideo | Sdl.InitGamecontroller) != 0)
             throw new InvalidOperationException($"SDL_Init failed: {_sdl.GetErrorS()}");
 
         var flags = WindowFlags.Resizable;
@@ -698,6 +718,41 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                         // things nobody meant to close.
                         if (e.Key.Repeat != 0 && ek is EditKey.Escape or EditKey.Tab or EditKey.ShiftTab) break;
                         if (ek != EditKey.None) EditKeyPressed?.Invoke(ek, mods);
+                        break;
+                    }
+                    // A pad plugged in (SDL reports every already-connected one at startup too).
+                    // Opening it is what makes SDL deliver its events; without the open it stays a
+                    // joystick nobody is listening to.
+                    case EventType.Controllerdeviceadded:
+                        _sdl.GameControllerOpen(e.Cdevice.Which);
+                        KeyDiag.Log($"sdl gamepad connected: index {e.Cdevice.Which}");
+                        break;
+                    case EventType.Controllerbuttondown:
+                    {
+                        var ek = ToEditKey((GameControllerButton)e.Cbutton.Button);
+                        KeyDiag.Log($"sdl gamepad down {(GameControllerButton)e.Cbutton.Button} -> {ek}");
+                        if (ek != EditKey.None) EditKeyPressed?.Invoke(ek, KeyMods.None);
+                        break;
+                    }
+                    case EventType.Controllerbuttonup:
+                    {
+                        var ek = ToEditKey((GameControllerButton)e.Cbutton.Button);
+                        if (ek != EditKey.None) EditKeyReleased?.Invoke(ek);
+                        break;
+                    }
+                    case EventType.Controlleraxismotion:
+                    {
+                        // SDL reports one axis per event, so the other half of the vector has to be
+                        // remembered — a stick pushed diagonally arrives as two events, and sending
+                        // each with the other axis zeroed would read as two separate pushes.
+                        var axis = (GameControllerAxis)e.Caxis.Axis;
+                        if (axis == GameControllerAxis.ControllerAxisLeftx) _stickX = e.Caxis.Value / 32767f;
+                        else if (axis == GameControllerAxis.ControllerAxisLefty) _stickY = e.Caxis.Value / 32767f;
+                        else break;
+                        // The sign is the one thing that cannot be checked without hardware: push
+                        // the stick down and this must read y > 0, or navigation runs upside down.
+                        KeyDiag.Log($"sdl gamepad stick x={_stickX:F2} y={_stickY:F2}");
+                        GamepadStick?.Invoke(_stickX, _stickY);
                         break;
                     }
                     case EventType.Keyup:

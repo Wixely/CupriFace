@@ -265,6 +265,57 @@ public sealed class SkiaWindow : IDisposable
     public event Action<float, float, string[]>? FilesDropped;
 
     public event Action<string>? TextEntered;
+    /// <summary>
+    /// A game controller, wired to the SAME events the keyboard raises.
+    ///
+    /// <para>The D-pad becomes the arrow keys and A/B become Enter/Escape, which is not a shortcut
+    /// but the point: a pad then inherits everything the keyboard already has — directional
+    /// navigation, corner moves decided from what is still held, activation, closing an overlay —
+    /// without a parallel path that could come to disagree with it. It is also what Android does for
+    /// free, since the OS reports a controller D-pad as the same keycodes an arrow key produces, so
+    /// the two hosts end up behaving identically rather than merely similarly.</para>
+    ///
+    /// <para>The stick cannot go the same way: it is an axis, not a press, so it is raised raw and
+    /// the host turns it into moves through a <c>GamepadDriver</c>.</para>
+    /// </summary>
+    private void WireGamepad(IGamepad pad)
+    {
+        // Silk applies a deadzone of its own, which would compound with the app's and leave
+        // CupriDocument.GamepadDeadzone quietly not meaning what it says. Take the raw axis and let
+        // the app's number be the only one.
+        pad.Deadzone = new Deadzone(0f, DeadzoneMethod.Traditional);
+
+        KeyDiag.Log($"gl gamepad connected: {pad.Name}");
+        pad.ButtonDown += (_, b) =>
+        {
+            KeyDiag.Log($"gl gamepad down {b.Name} -> {ToEditKey(b.Name)?.ToString() ?? "(unmapped)"}");
+            if (ToEditKey(b.Name) is { } ek) EditKeyPressed?.Invoke(ek, KeyMods.None);
+        };
+        pad.ButtonUp += (_, b) => { if (ToEditKey(b.Name) is { } ek) EditKeyReleased?.Invoke(ek); };
+        // Thumbstick 0 is the left stick. Y is DOWN-positive here, matching the engine's own
+        // coordinate space: Silk's GLFW backend passes GLFW_GAMEPAD_AXIS_LEFT_Y straight through,
+        // and GLFW defines -1 as up.
+        pad.ThumbstickMoved += (_, stick) =>
+        {
+            if (stick.Index != 0) return;
+            // Logged because the SIGN is the one thing here that cannot be checked without hardware:
+            // push the stick down and this must read y > 0, or navigation runs upside down.
+            KeyDiag.Log($"gl gamepad stick x={stick.X:F2} y={stick.Y:F2}");
+            GamepadStick?.Invoke(stick.X, stick.Y);
+        };
+    }
+
+    private static EditKey? ToEditKey(ButtonName b) => b switch
+    {
+        ButtonName.DPadUp => EditKey.Up,
+        ButtonName.DPadDown => EditKey.Down,
+        ButtonName.DPadLeft => EditKey.Left,
+        ButtonName.DPadRight => EditKey.Right,
+        ButtonName.A => EditKey.Enter,     // activate, through the path Enter already takes
+        ButtonName.B => EditKey.Escape,    // back / cancel, which is what Escape already does
+        _ => null,
+    };
+
     /// <summary>One mapping for both directions. It used to live inline in the KeyDown lambda, which
     /// is why releases could not be forwarded without duplicating it — and a duplicate would drift.
     /// <paramref name="shift"/> only distinguishes Tab from Shift+Tab; releases pass false.</summary>
@@ -287,6 +338,7 @@ public sealed class SkiaWindow : IDisposable
     public event Action<EditKey, KeyMods>? EditKeyPressed;  // key + Shift/Ctrl modifiers
     public event Action<EditKey>? EditKeyReleased;          // the same key let go; see kb.KeyUp
     public event Action? FocusLost;                         // every held key is now someone else's
+    public event Action<float, float>? GamepadStick;        // left stick, -1..1, y DOWN positive
     public event Action<char, KeyMods>? Shortcut;           // Ctrl/Cmd + letter (a/c/x/v …) or =/-/0 (zoom)
 
     /// <summary>
@@ -581,6 +633,15 @@ public sealed class SkiaWindow : IDisposable
         };
 
         _input = _window.CreateInput();
+
+        // Controllers, including any plugged in later — a pad connected after launch is the normal
+        // case, not an edge one.
+        foreach (var pad in _input.Gamepads) WireGamepad(pad);
+        _input.ConnectionChanged += (device, connected) =>
+        {
+            if (connected && device is IGamepad pad) WireGamepad(pad);
+        };
+
         foreach (var mouse in _input.Mice)
         {
             // Every one of these normalises to logical client units FIRST (see ToLogicalClient):
