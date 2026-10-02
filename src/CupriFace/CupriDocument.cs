@@ -3615,6 +3615,27 @@ public sealed partial class CupriDocument : IDisposable
     }
 
     /// <summary>
+    /// How far a thumbstick must travel from centre before it counts as pushed, 0..1. Default 0.5.
+    ///
+    /// <para><b>Set this per app, not per host.</b> It is a property of the hardware and of the game
+    /// rather than of the platform: pads differ in how far they travel and how much they drift once
+    /// worn, and a menu wants a larger deadzone than a cursor does. The host builds the driver — on
+    /// Android the view owns it, because it is what receives the motion events — so an integrating
+    /// developer could not otherwise reach it; setting it here, in <c>Configure</c> alongside
+    /// <see cref="ArrowNavigation"/>, works on every host.</para>
+    ///
+    /// <para>Too low and a worn stick creeps the selection while nobody is touching it; too high and
+    /// a deliberate push is ignored. Clamped to a sane range — 1.0 could never be reached on a
+    /// circular gate, and 0 would make drift indistinguishable from input.</para>
+    /// </summary>
+    public float GamepadDeadzone
+    {
+        get => _gamepadDeadzone;
+        set => _gamepadDeadzone = Math.Clamp(value, 0.05f, 0.95f);
+    }
+    private float _gamepadDeadzone = 0.5f;
+
+    /// <summary>
     /// True when this host forwards key releases through <see cref="DispatchKeyUp"/>. Hosts set it
     /// once, at wire-up.
     ///

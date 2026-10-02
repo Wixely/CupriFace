@@ -33,7 +33,10 @@ namespace CupriFace.Interaction;
 /// broken.</para>
 /// </summary>
 /// <param name="doc">The document to move focus in.</param>
-/// <param name="deadzone">How far the stick travels before it counts as pushed, 0..1.</param>
+/// <param name="deadzone">How far the stick travels before it counts as pushed, 0..1. Left null it
+/// follows <see cref="CupriDocument.GamepadDeadzone"/>, which is where an integrating app sets it —
+/// a host builds the driver, so a value fixed here would be one the app could not reach. Pass a
+/// value only to pin it, as a test does.</param>
 /// <param name="onFrame">Called after every press that changed something, for a caller that wants
 /// the repaint a host would do anyway. Optional — see the remarks.</param>
 /// <param name="diagonals">Let the stick resolve to a corner as well as to an axis — eight sectors
@@ -44,7 +47,7 @@ namespace CupriFace.Interaction;
 /// <b>A stick needs no waiting period to do this</b>, unlike the keyboard: it reports a VECTOR, so
 /// "down and right" arrives as one reading and the corner is simply what it says. The latency that
 /// flag costs on a keyboard is the price of not having a vector, and it is not paid here.</param>
-public sealed class GamepadDriver(CupriDocument doc, float deadzone = 0.5f, Action? onFrame = null,
+public sealed class GamepadDriver(CupriDocument doc, float? deadzone = null, Action? onFrame = null,
                                  bool? diagonals = null)
 {
     private NavigationDirection? _held;
@@ -89,7 +92,8 @@ public sealed class GamepadDriver(CupriDocument doc, float deadzone = 0.5f, Acti
     private NavigationDirection? Resolve(float x, float y)
     {
         var (ax, ay) = (MathF.Abs(x), MathF.Abs(y));
-        if (ax < deadzone && ay < deadzone) return null;
+        var rest = deadzone ?? doc.GamepadDeadzone;   // read per call: the app may retune it live
+        if (ax < rest && ay < rest) return null;
 
         // The 45° sector boundary sits where the smaller axis is tan(22.5°) of the larger.
         const float CornerRatio = 0.4142f;

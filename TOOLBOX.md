@@ -1247,7 +1247,15 @@ no window and no latency. Leave `diagonals` unset and it follows the document's
 corners, and a host answering again could disagree with it (a stick producing corners in a UI whose
 keyboard refuses to). Pass a value only to pin the behaviour, as a test does.
 
-**On Android that driver is the host's own.** `CupriHostView.OnGenericMotionEvent` reads the stick
+**The deadzone belongs to the app.** `doc.GamepadDeadzone` (default 0.5, clamped to 0.05–0.95) is
+how far a stick must travel before it counts as pushed, and it is set in `Configure` beside
+`ArrowNavigation` rather than on the driver — because the *host* builds the driver, so anything
+fixed at construction is a value an integrating developer could never reach. It is read per call, so
+an app can retune it at runtime (a settings screen, or a per-controller profile). Too low and a worn
+stick creeps the selection while nobody is touching it; too high and a deliberate push is ignored —
+and pads genuinely differ, so this is not a number the engine can be right about on its own.
+
+**On Android the driver is the host's own.** `CupriHostView.OnGenericMotionEvent` reads the stick
 and hat axes — nothing read them before, so analog input was dropped entirely — and hands them
 straight to a `GamepadDriver`. A controller D-pad arrives as the same `Dpad*` keycodes a keyboard's
 arrows produce, so it needs nothing special; `ButtonA` maps to Enter and `ButtonB` to Escape, so a

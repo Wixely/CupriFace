@@ -416,6 +416,45 @@ public class DiagonalNavigationTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// THE DEADZONE IS THE APP'S, NOT THE HOST'S. A host builds the driver — on Android the view
+    /// owns it, because it is what receives the motion events — so a value fixed at construction is
+    /// one an integrating developer can never reach. It is read from the document, per call, so an
+    /// app can set it in <c>Configure</c> and retune it at runtime.
+    /// </summary>
+    [Fact]
+    public void The_deadzone_comes_from_the_document_and_can_be_retuned()
+    {
+        using var t = new TestDoc(Staggered, Css, width: 1040, height: 720);
+        var pad = new GamepadDriver(t.Doc, onFrame: t.Layout);   // a host's driver: no opinion
+        pad.Press(NavigationDirection.Down);
+        Assert.Equal("B1", t.FocusedName());
+
+        t.Doc.GamepadDeadzone = 0.8f;                 // a loose, worn stick
+        Assert.False(pad.Stick(0f, 0.6f), "0.6 is at rest when the deadzone is 0.8");
+        Assert.Equal("B1", t.FocusedName());
+
+        t.Doc.GamepadDeadzone = 0.3f;                 // retuned live, same driver
+        Assert.True(pad.Stick(0f, 0.6f), "…and pushed when the deadzone is 0.3");
+        Assert.Equal("B3", t.FocusedName());
+    }
+
+    /// <summary>Clamped: 0 would make a worn stick's drift indistinguishable from a push, and 1
+    /// could never be reached on a circular gate — either would be a deadzone that never works and
+    /// no way to tell from the outside.</summary>
+    [Theory]
+    [InlineData(0f, 0.05f)]
+    [InlineData(-5f, 0.05f)]
+    [InlineData(1f, 0.95f)]
+    [InlineData(99f, 0.95f)]
+    [InlineData(0.4f, 0.4f)]
+    public void The_deadzone_is_clamped_to_a_usable_range(float set, float expected)
+    {
+        using var t = new TestDoc(Staggered, Css, width: 1040, height: 720);
+        t.Doc.GamepadDeadzone = set;
+        Assert.Equal(expected, t.Doc.GamepadDeadzone, 3);
+    }
+
+    /// <summary>
     /// A HOST'S DRIVER FOLLOWS THE DOCUMENT. Left unset, <c>diagonals</c> takes its answer from
     /// <see cref="CupriDocument.DiagonalNavigation"/> — the app has already said whether this UI has
     /// corners, and a host that had to answer again could disagree with it. That disagreement is the

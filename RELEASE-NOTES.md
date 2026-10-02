@@ -102,6 +102,13 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   keyboard's arrow keys produce, so whether arrows move a caret or the selection stays one app-level
   decision (`ArrowNavigation`) that means the same thing for both.
 
+- **`doc.GamepadDeadzone` — the stick deadzone, set by the app rather than the host.** Default 0.5,
+  clamped to 0.05–0.95, read per call so it can be retuned at runtime. The host builds the driver
+  (on Android the view owns it, being what receives the motion events), so a deadzone fixed at
+  construction was one an integrating developer could not reach. Pads differ in travel and in how
+  much they drift once worn, and a menu wants a different answer from a cursor — so this is not a
+  number the engine can be right about on its own.
+
 - **`GamepadDriver` follows the document's `DiagonalNavigation` by default.** `diagonals` is now
   nullable and unset means "ask the document". A host should not have to answer a question the app
   has already answered — and if it did, it could disagree, giving a stick corners in a UI whose
