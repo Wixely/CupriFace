@@ -1167,6 +1167,32 @@ Focus on a non-text control is visible in the **accessibility tree**, not as an 
 `data-focus` marks an editable field, so a focused button has no attribute to look for. Read it with
 `BuildAccessibilityTree(w, h)` and the node's `Focused` flag.
 
+### The arrows as a D-pad: `doc.ArrowNavigation`
+
+```csharp
+doc.ArrowNavigation = true;                   // off by default
+```
+
+**Off is the right default for an ordinary application**, and the reason is not caution: arrow keys
+there are expected to move a caret, scroll a view, and step through a radio group or a list. A
+general-purpose UI that silently repurposed them would be fighting every habit its users arrived
+with, and `Tab` is what moves focus in that world. **On is the right setting for a game**, or
+anything else driven from a sofa — the arrows become a keyboard D-pad, so a controller and a
+keyboard navigate the same panel the same way, and a controller UI can be built and tested with no
+controller plugged in.
+
+Turning it on **takes nothing away**. Everything that already consumed an arrow still does, because
+each of those is decided first: a focused text field moves its caret, a slider nudges its value, a
+radio group follows the ARIA pattern, a date picker takes the arrows for day navigation, a tree
+expands and collapses, a reorder grip moves its row, and `Tab` still follows the document in both
+modes. The only thing that changes is what an arrow does when the answer would otherwise have been
+"move to the next focusable in document order" — which, on anything laid out in two dimensions, is
+the case where document order is the wrong answer.
+
+It is a settable property rather than a constructor argument, so an app can have it on for a game
+board and off for the settings screen behind it. `samples/SpatialNav` is a worked example: 30
+scattered boxes and an `M` key that flips the mode while you watch.
+
 For tests, `GamepadDriver` (also `CupriFace.Interaction`) is the `TouchDriver` counterpart, and
 exists for the same reason: a stick is not a keyboard, so driving it as one tests the wrong code.
 

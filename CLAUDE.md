@@ -158,6 +158,15 @@ pad.Stick(0f, 0f);                            // …until it comes back to centr
 pad.Confirm();                                // A / OK — the same path Enter takes
 ```
 
+**For a game, `doc.ArrowNavigation = true` makes the ARROW KEYS a D-pad** — off by default,
+because an ordinary application's arrows are expected to move a caret, scroll, and step through a
+radio group, and quietly repurposing them would fight every habit a user has. Turning it on takes
+nothing away: a focused text field still moves its caret, a slider still nudges, a radio group still
+follows the ARIA pattern, and Tab still follows the document. It only changes what an arrow does
+when the answer would otherwise be "the next focusable in document order". It is also how you
+develop a controller UI without a controller — `samples/SpatialNav` is 30 scattered boxes and an M
+key that flips the mode live, so you can watch the same keypress do two different things.
+
 `doc.MoveFocus(NavigationDirection.Up)` is the engine call under it. Three things to know:
 **it does not wrap** — a stick held right stops at the edge rather than reappearing on the left (Tab
 wraps because a form is a loop; a grid is not), and the `false` it returns at the boundary is your

@@ -40,6 +40,22 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   edge, and a rule about returning to centre. A held stick moves once rather than once per frame,
   drift inside the deadzone is at rest, and a diagonal push picks the dominant axis.
 
+- **`doc.ArrowNavigation` — the arrow keys as a D-pad, off by default.** Off is deliberate: arrow
+  keys in an ordinary application are expected to move a caret, scroll a view and step through a
+  radio group, and silently repurposing them would fight every habit a user arrived with. `Tab` is
+  what moves focus there, in both modes. On is for a game, or anything driven from a sofa — the
+  arrows become a keyboard D-pad, so a controller and a keyboard navigate the same panel the same
+  way and a controller UI can be built without a controller.
+
+  Turning it on takes nothing away. A focused text field still moves its caret, a slider still
+  nudges, a radio group still follows the ARIA pattern, a date picker still takes the arrows for
+  day navigation, a tree still expands and a reorder grip still moves its row — each of those is
+  decided before this is reached. It only changes what an arrow does when the answer would otherwise
+  have been "move to the next focusable in document order".
+
+  `samples/SpatialNav` is a worked example: 30 scattered boxes and an `M` key that switches the mode
+  live, so the same keypress can be watched doing two different things.
+
 ### Fixed
 
 - **A focus move arriving between frames is no longer swallowed.** Directional navigation reads where

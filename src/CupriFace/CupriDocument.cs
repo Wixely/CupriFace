@@ -3569,6 +3569,32 @@ public sealed partial class CupriDocument : IDisposable
     }
 
     /// <summary>
+    /// Let the ARROW KEYS navigate by geometry, the way a D-pad does. <b>Off by default.</b>
+    ///
+    /// <para>Off is the right default for an ordinary application, and deliberately so: arrow keys
+    /// are expected to move a caret, scroll a view, and step through a radio group or a list, and a
+    /// general-purpose UI that quietly repurposed them would be fighting every habit its users
+    /// already have. <c>Tab</c> is what moves focus there, and it stays that way whatever this is
+    /// set to.</para>
+    ///
+    /// <para>On is the right setting for a GAME, or anything else driven from a sofa: the arrows
+    /// become a keyboard D-pad, so a controller and a keyboard navigate the same panel the same way
+    /// and one layout serves both. It also makes a controller UI developable without a controller.</para>
+    ///
+    /// <para><b>Turning it on takes nothing away.</b> Every arrow that was already spoken for stays
+    /// spoken for, because each of those is decided before this one is reached: a focused text field
+    /// moves its caret, a slider nudges its value, a radio group follows the ARIA pattern, a date
+    /// picker takes the arrows for day navigation, a tree expands and collapses, and a reorder grip
+    /// moves its row. The only thing that changes is what an arrow does when the answer would
+    /// otherwise have been "move to the next focusable in document order" — which, on anything laid
+    /// out in two dimensions, is the case where document order is the wrong answer.</para>
+    ///
+    /// <para>Settable rather than a constructor argument, because an app may well want it on for a
+    /// game board and off for the settings screen behind it.</para>
+    /// </summary>
+    public bool ArrowNavigation { get; set; }
+
+    /// <summary>
     /// Move keyboard focus to the nearest control in a DIRECTION — a D-pad, a thumbstick, or the
     /// arrow keys on a page that is laid out as a grid rather than as a form.
     ///
@@ -3744,11 +3770,14 @@ public sealed partial class CupriDocument : IDisposable
     // Arrow-key nav within a group: radios move+select among their group; everything else
     // (menu items, list options, general) moves focus to the previous/next focusable. Sliders
     // are handled separately (they nudge their value) before this is called.
-    private bool ArrowMove(int dir)
+    private bool ArrowMove(int dir, NavigationDirection nav)
     {
         if (CurrentFocusNode() is { } cur && cur.Element?.GetAttribute("role") == "radio")
             return RadioArrow(cur, dir);
-        return MoveFocus(dir);
+        // The one place where the answer would otherwise be "the next focusable in document order",
+        // which is the answer ArrowNavigation exists to replace. Up and Left are both dir = -1, so
+        // the axis has to be passed in: document order has no axes.
+        return ArrowNavigation ? MoveFocus(nav) : MoveFocus(dir);
     }
 
     // Move to the previous/next radio in the same group and select it (ARIA radio pattern).
@@ -4237,10 +4266,10 @@ public sealed partial class CupriDocument : IDisposable
             switch (key)
             {
                 case EditKey.Enter or EditKey.Space: return ActivateFocused();
-                case EditKey.Up: return role == "slider" ? NudgeSlider(CurrentFocusNode()!, +1) : ArrowMove(-1);
-                case EditKey.Down: return role == "slider" ? NudgeSlider(CurrentFocusNode()!, -1) : ArrowMove(+1);
-                case EditKey.Left: return role == "slider" ? NudgeSlider(CurrentFocusNode()!, -1) : ArrowMove(-1);
-                case EditKey.Right: return role == "slider" ? NudgeSlider(CurrentFocusNode()!, +1) : ArrowMove(+1);
+                case EditKey.Up: return role == "slider" ? NudgeSlider(CurrentFocusNode()!, +1) : ArrowMove(-1, NavigationDirection.Up);
+                case EditKey.Down: return role == "slider" ? NudgeSlider(CurrentFocusNode()!, -1) : ArrowMove(+1, NavigationDirection.Down);
+                case EditKey.Left: return role == "slider" ? NudgeSlider(CurrentFocusNode()!, -1) : ArrowMove(-1, NavigationDirection.Left);
+                case EditKey.Right: return role == "slider" ? NudgeSlider(CurrentFocusNode()!, +1) : ArrowMove(+1, NavigationDirection.Right);
             }
             return text == " " && ActivateFocused();
         }
