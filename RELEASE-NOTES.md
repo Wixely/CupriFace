@@ -13,48 +13,21 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
-## Unreleased
+## v0.32.0
+
+Four ways a CupriFace UI came out looking wrong for reasons that were the ENGINE's rather than the
+author's, and the diagnostic that could not tell you about any of them.
+
+All four were reported from real integrations, and three separate apps had already worked around them
+by hand before any of it was written down — 42 of one app's 65 flex rules are a single line of
+`align-items:center`, which is a default pointing the wrong way rather than 42 decisions.
+
+Minor rather than patch: there is new CSS support, and two changes to how existing markup lays out.
+**A lone shrink-to-fit box no longer fills its row** (18 of the shipped controls were affected), and
+**a width set on a `cupri-*` control is now the outer box**. Neither changes how a control looks on
+its own; both change what a declaration around one means.
 
 ### Added
-
-- **`font-variant-numeric: tabular-nums`** — every digit takes the widest digit's advance, so a value
-  that changes does not change the width of the thing showing it. In most faces a `1` is narrower
-  than a `0`, which is right for prose and wrong for a clock, a score, a counter or a percentage: as
-  `15:00:32` ticks over the text physically changes width and everything beside it twitches.
-
-  ```css
-  .clock { font-variant-numeric: tabular-nums; }
-  ```
-
-  Measured on a proportional face, four values that spanned 128–172px wide all measure 172.3 with it
-  on, and a tabular run of `1`s is exactly as wide as a plain run of `0`s. Text with no digits is
-  untouched, and a face that already has tabular figures takes its original code path unchanged.
-
-  "Already tabular" is judged relative to the digit width — a hundredth of a digit, not of a pixel.
-  macOS's generic monospace face reports advances that differ by 0.02px at 40pt, which is rounding
-  and nothing anyone wants padded, and an absolute floor would also get stricter as text gets
-  smaller.
-
-  Measuring and painting share **one** computation, which is the whole design — a run measured one
-  width and drawn another is text that clips or sits off-centre, and the two paths are a hundred
-  lines apart. Only `tabular-nums` is acted on; the other values of the property still report
-  CF0050, because accepting a declaration and ignoring it is the failure this work exists to remove.
-
-- **The `cupri-*` controls are `box-sizing: border-box`.** A control chose its own padding and often
-  its own border, so a caller who writes `width: 120px` on one means the box they can see — under
-  content-box that silently excluded the control's padding and it came out wider than asked for,
-  which is indistinguishable from a layout bug. **Author elements are unchanged** and keep the CSS
-  default, because that is what someone who knows CSS expects of their own markup.
-
-  **No control changes size.** Each one's own declared values were re-derived to mean the same thing:
-  the text field's `min-height` 20 → 42, the textarea's 78 → 102, the checkbox and radio 20 → 24, the
-  slider's `min-width` 120 → 138. Verified by censusing all 79 registered components before and
-  after — zero moved — and then by a pixel diff of a sheet containing every one of them, which came
-  back identical.
-
-  The one visible change is the intended one: a **caller** who sets an explicit size on a control now
-  gets that outer size. A `<cupri-slider style="width:220px">` is 220px wide where it used to be 238,
-  so its track is 18px narrower and a drag to the same place reads a percent or two higher.
 
 - **`display: inline-flex`** — a row that shrinks to its content. The engine could do "a row with
   its contents centred" (`flex`, which fills the width) and "a box that shrinks to its content"
@@ -102,6 +75,47 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 - **`--cupri-focus` recolours the engine's own focus ring**, which was a hard-coded blue. That was
   the reason apps drew their own with `border` and got the shift above. An element that sets its own
   `outline` now suppresses the built-in ring rather than getting two.
+
+- **`font-variant-numeric: tabular-nums`** — every digit takes the widest digit's advance, so a value
+  that changes does not change the width of the thing showing it. In most faces a `1` is narrower
+  than a `0`, which is right for prose and wrong for a clock, a score, a counter or a percentage: as
+  `15:00:32` ticks over the text physically changes width and everything beside it twitches.
+
+  ```css
+  .clock { font-variant-numeric: tabular-nums; }
+  ```
+
+  Measured on a proportional face, four values that spanned 128–172px wide all measure 172.3 with it
+  on, and a tabular run of `1`s is exactly as wide as a plain run of `0`s. Text with no digits is
+  untouched, and a face that already has tabular figures takes its original code path unchanged.
+
+  "Already tabular" is judged relative to the digit width — a hundredth of a digit, not of a pixel.
+  macOS's generic monospace face reports advances that differ by 0.02px at 40pt, which is rounding
+  and nothing anyone wants padded, and an absolute floor would also get stricter as text gets
+  smaller.
+
+  Measuring and painting share **one** computation, which is the whole design — a run measured one
+  width and drawn another is text that clips or sits off-centre, and the two paths are a hundred
+  lines apart. Only `tabular-nums` is acted on; the other values of the property still report
+  CF0050, because accepting a declaration and ignoring it is the failure this work exists to remove.
+
+### Changed
+
+- **The `cupri-*` controls are `box-sizing: border-box`.** A control chose its own padding and often
+  its own border, so a caller who writes `width: 120px` on one means the box they can see — under
+  content-box that silently excluded the control's padding and it came out wider than asked for,
+  which is indistinguishable from a layout bug. **Author elements are unchanged** and keep the CSS
+  default, because that is what someone who knows CSS expects of their own markup.
+
+  **No control changes size.** Each one's own declared values were re-derived to mean the same thing:
+  the text field's `min-height` 20 → 42, the textarea's 78 → 102, the checkbox and radio 20 → 24, the
+  slider's `min-width` 120 → 138. Verified by censusing all 79 registered components before and
+  after — zero moved — and then by a pixel diff of a sheet containing every one of them, which came
+  back identical.
+
+  The one visible change is the intended one: a **caller** who sets an explicit size on a control now
+  gets that outer size. A `<cupri-slider style="width:220px">` is 220px wide where it used to be 238,
+  so its track is 18px narrower and a drag to the same place reads a percent or two higher.
 
 ### Fixed
 
