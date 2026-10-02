@@ -17,6 +17,29 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **`font-variant-numeric: tabular-nums`** — every digit takes the widest digit's advance, so a value
+  that changes does not change the width of the thing showing it. In most faces a `1` is narrower
+  than a `0`, which is right for prose and wrong for a clock, a score, a counter or a percentage: as
+  `15:00:32` ticks over the text physically changes width and everything beside it twitches.
+
+  ```css
+  .clock { font-variant-numeric: tabular-nums; }
+  ```
+
+  Measured on a proportional face, four values that spanned 128–172px wide all measure 172.3 with it
+  on, and a tabular run of `1`s is exactly as wide as a plain run of `0`s. Text with no digits is
+  untouched, and a face that already has tabular figures takes its original code path unchanged.
+
+  "Already tabular" is judged relative to the digit width — a hundredth of a digit, not of a pixel.
+  macOS's generic monospace face reports advances that differ by 0.02px at 40pt, which is rounding
+  and nothing anyone wants padded, and an absolute floor would also get stricter as text gets
+  smaller.
+
+  Measuring and painting share **one** computation, which is the whole design — a run measured one
+  width and drawn another is text that clips or sits off-centre, and the two paths are a hundred
+  lines apart. Only `tabular-nums` is acted on; the other values of the property still report
+  CF0050, because accepting a declaration and ignoring it is the failure this work exists to remove.
+
 - **The `cupri-*` controls are `box-sizing: border-box`.** A control chose its own padding and often
   its own border, so a caller who writes `width: 120px` on one means the box they can see — under
   content-box that silently excluded the control's padding and it came out wider than asked for,

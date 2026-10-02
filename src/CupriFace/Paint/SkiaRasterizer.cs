@@ -547,14 +547,16 @@ public sealed class SkiaRasterizer
         var runs = Bidi.Reorder(t.Text);
         if (runs.Count == 1 && !runs[0].Rtl)
         {
-            DrawRun(canvas, paint, font, t.Family, t.Weight, t.Slant, t.Text, x, baseline, t.LetterSpacing);
+            DrawRun(canvas, paint, font, t.Family, t.Weight, t.Slant, t.Text, x, baseline, t.LetterSpacing,
+                    t.TabularNums);
         }
         else
         {
             var cursor = x;
             foreach (var run in runs)
             {
-                DrawRun(canvas, paint, font, t.Family, t.Weight, t.Slant, run.Text, cursor, baseline, t.LetterSpacing);
+                DrawRun(canvas, paint, font, t.Family, t.Weight, t.Slant, run.Text, cursor, baseline,
+                    t.LetterSpacing, t.TabularNums);
                 cursor += _fonts.MeasureText(t.Family, t.Weight, t.Size, run.Text, t.Slant, t.LetterSpacing);
             }
         }
@@ -589,7 +591,8 @@ public sealed class SkiaRasterizer
     }
 
     private void DrawRun(SKCanvas canvas, SKPaint paint, SKFont primaryFont, string family, int weight,
-                         FontSlant slant, string text, float x, float baseline, float letterSpacing = 0f)
+                         FontSlant slant, string text, float x, float baseline, float letterSpacing = 0f,
+                         bool tabularNums = false)
     {
         // Split into fallback-face runs so glyphs the primary lacks (emoji/CJK/symbols) draw in a
         // face that has them instead of tofu. Each sub-run is HarfBuzz-shaped in its own typeface.
@@ -604,19 +607,26 @@ public sealed class SkiaRasterizer
             // The untracked path is left exactly as it was — every document that sets no
             // letter-spacing takes the same single DrawShapedText call it always has, and none of
             // the positioning below can affect it.
-            if (letterSpacing == 0f)
+            if (letterSpacing == 0f && !tabularNums)
             {
                 try { canvas.DrawShapedText(shaper, segment, x, baseline, font, paint); }
                 catch { canvas.DrawText(segment, x, baseline, font, paint); }
             }
-            else if (!DrawTracked(canvas, paint, shaper, font, segment, x, baseline, letterSpacing))
+            else if (!DrawTracked(canvas, paint, shaper, font, segment, x, baseline, letterSpacing, tabularNums))
             {
                 canvas.DrawText(segment, x, baseline, font, paint);   // shaping unavailable
             }
 
             if (i < runs.Count - 1) // advance to the next run only when one follows
             {
-                try { x += shaper.Shape(segment, font).Width; }
+                try
+                {
+                    var shaped = shaper.Shape(segment, font);
+                    x += shaped.Width;
+                    // The padding the digits took has to move the next run along too, or a fallback
+                    // face after a number would be drawn back over it.
+                    if (tabularNums) { _fonts.TabularShifts(shaped, segment, font, out var extra); x += extra; }
+                }
                 catch { x += font.MeasureText(segment); }
                 x += letterSpacing * FontService.ClusterCount(segment);
             }
@@ -632,13 +642,19 @@ public sealed class SkiaRasterizer
     /// is applied per CLUSTER, so a ligature moves as one and a combining mark stays on its
     /// letter — which is why the shaper's own cluster map is what drives it.</para>
     /// </summary>
-    private static bool DrawTracked(SKCanvas canvas, SKPaint paint, SKShaper shaper, SKFont font,
-                                    string segment, float x, float baseline, float letterSpacing)
+    private bool DrawTracked(SKCanvas canvas, SKPaint paint, SKShaper shaper, SKFont font,
+                             string segment, float x, float baseline, float letterSpacing,
+                             bool tabularNums = false)
     {
         SKShaper.Result shaped;
         try { shaped = shaper.Shape(segment, font); }
         catch { return false; }
         if (shaped.Codepoints.Length == 0) return true;   // nothing to draw, but not a failure
+
+        // The same per-glyph shifts the MEASUREMENT used, from the same method. Tracking and tabular
+        // digits compose here rather than fighting: one is a constant extra per cluster, the other a
+        // variable one per digit, and both are just an x-offset on an already-shaped run.
+        var tabular = tabularNums ? _fonts.TabularShifts(shaped, segment, font, out _) : null;
 
         var glyphs = new ushort[shaped.Codepoints.Length];
         var positions = new SKPoint[shaped.Codepoints.Length];
@@ -648,7 +664,8 @@ public sealed class SkiaRasterizer
         {
             if (shaped.Clusters[g] != lastCluster) { ordinal++; lastCluster = shaped.Clusters[g]; }
             glyphs[g] = (ushort)shaped.Codepoints[g];
-            positions[g] = new SKPoint(x + shaped.Points[g].X + letterSpacing * ordinal,
+            positions[g] = new SKPoint(x + shaped.Points[g].X + letterSpacing * ordinal
+                                         + (tabular is null ? 0f : tabular[g]),
                                        baseline + shaped.Points[g].Y);
         }
 

@@ -240,9 +240,15 @@ control beside it. Give it a floor:
 .cupri-button { min-width: 120px; }
 ```
 
-Digits are the sharp case: a clock or a score reflows its row on every tick, because the digits are
-proportional and `font-variant-numeric: tabular-nums` **is not supported** (CupriDoctor will tell
-you). Pin the width of the element holding the number.
+Digits are the sharp case — a clock or a score reflows its row on every tick, because in most faces
+a `1` is narrower than a `0`. Say so:
+
+```css
+.clock { font-variant-numeric: tabular-nums; }
+```
+
+Every digit then takes the widest digit's advance, so the value can change without the box moving.
+Only `tabular-nums` is supported; the other values of that property are reported by CupriDoctor.
 
 ### 4. `box-sizing` is `content-box` in YOUR markup, `border-box` on the controls.
 

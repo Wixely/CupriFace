@@ -124,6 +124,17 @@ public sealed class ComputedStyle
     public float OutlineOffset;
     public BorderLineStyle OutlineStyle = BorderLineStyle.Solid;
 
+    /// <summary>
+    /// <c>font-variant-numeric: tabular-nums</c> — every digit takes the width of the widest digit,
+    /// so a value that changes does not change the width of the thing showing it.
+    ///
+    /// <para>In most faces a <c>1</c> is narrower than a <c>0</c>. That is right for prose and wrong
+    /// for a clock, a score, a counter or a percentage: as <c>15:00:32</c> ticks over, the text
+    /// physically changes width, the box holding it resizes, and everything beside it twitches. The
+    /// reported case was a scoreboard whose badges jittered once a second.</para>
+    /// </summary>
+    public bool TabularNums;
+
     /// <summary>Worth painting: a width, a visible colour, and not <c>outline-style: none</c>.</summary>
     public bool HasOutline =>
         OutlineWidth > 0 && OutlineColor.Alpha > 0 && OutlineStyle != BorderLineStyle.None;
@@ -257,6 +268,11 @@ public sealed class ComputedStyle
         FontStyle = parent.FontStyle;
         Decorations = parent.Decorations;
         LetterSpacing = parent.LetterSpacing;
+        // Inherited, like every other font property here, and for a reason worth stating: the
+        // declaration goes on the element, but the thing that gets MEASURED is the text node inside
+        // it. Without this line the flag was set on the div, read as false on its text, and
+        // tabular-nums did precisely nothing while appearing to be supported.
+        TabularNums = parent.TabularNums;
     }
 
     public bool IsFlexContainer => Display == DisplayType.Flex;
