@@ -1206,6 +1206,18 @@ layout, Right-then-Down and Down-then-Right land on different controls and neith
 actually sitting on the diagonal. That is not a tuning problem; it is a race, and a user pressing
 both keys cannot predict which side of it they will get.
 
+**There are two ways it can decide that, and they are not equally good.**
+
+A host that forwards key releases — `doc.ReportsKeyUp = true` plus `DispatchKeyUp(key)`, which the
+desktop host does on both its GL and SDL paths — gets the *exact* answer: were the two keys down at
+the same time? That is a fact about the keyboard, not an inference from timing, so it holds whether
+the gap was 20 ms or 300 ms, **nothing is ever delayed**, and there is no number to tune. Such a
+host should also call `ReleaseAllKeys()` when its window loses focus: the key-up for anything down
+at that moment is delivered to whoever gains focus, never to you, so the key would stay "held" for
+the rest of the session and every later arrow would read as half a corner.
+
+Everything below describes the **fallback** for a host that only reports presses.
+
 The cost is unavoidable: to know whether a second key is coming, the first one has to wait. **Every**
 arrow press is therefore held for up to `DiagonalWindowSeconds` before anything moves, which is why
 this is off by default — a UI that never wants diagonals should not pay for them.

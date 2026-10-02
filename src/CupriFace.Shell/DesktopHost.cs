@@ -308,6 +308,13 @@ public static class DesktopHost
                 // convention. Overlays keep winning: dismissing one returns handled above.
                 if (!handled && k == EditKey.Escape && window.IsFullscreen) window.SetFullscreen(false);
             };
+            // Releases, so directional navigation can tell "pressed together" from "pressed in turn"
+            // by what is still DOWN rather than by how fast they arrived. Forgetting them on focus
+            // loss matters just as much: the key-up for anything held when the window loses focus is
+            // delivered to whoever gains it, so without this the key stays held here for ever.
+            doc.ReportsKeyUp = true;   // this host forwards releases; see DiagonalNavigation
+            window.EditKeyReleased += k => Mark(doc.DispatchKeyUp(k));
+            window.FocusLost += doc.ReleaseAllKeys;
             window.Shortcut += (ch, mods) => { Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             doc.ContextRequested += cmd => { ContextAction(doc, cmd, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             // A copy button (data-cupri-copy) supplies its own text rather than copying a selection.
@@ -520,6 +527,13 @@ public static class DesktopHost
                 Mark(handled);
                 if (!handled && k == EditKey.Escape && window.IsFullscreen) window.SetFullscreen(false);
             };
+            // Releases, so directional navigation can tell "pressed together" from "pressed in turn"
+            // by what is still DOWN rather than by how fast they arrived. Forgetting them on focus
+            // loss matters just as much: the key-up for anything held when the window loses focus is
+            // delivered to whoever gains it, so without this the key stays held here for ever.
+            doc.ReportsKeyUp = true;   // this host forwards releases; see DiagonalNavigation
+            window.EditKeyReleased += k => Mark(doc.DispatchKeyUp(k));
+            window.FocusLost += doc.ReleaseAllKeys;
             window.Shortcut += (ch, mods) => { Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             doc.ContextRequested += cmd => { ContextAction(doc, cmd, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             // A copy button (data-cupri-copy) supplies its own text rather than copying a selection.

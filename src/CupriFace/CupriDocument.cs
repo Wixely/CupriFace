@@ -95,9 +95,19 @@ public sealed partial class CupriDocument : IDisposable
     private int _kbIndex = -1;      // keyboard focus: index into the focusable list (-1 = none)
     // A directional press held back for a moment in case its partner on the other axis is already
     // on the way: Right and Down pressed together should be ONE move to the corner, not two moves
-    // through whatever happens to sit beside it. Null when nothing is waiting.
+    // through whatever happens to sit beside it. Null when nothing is waiting. Only used by the
+    // timing fallback — a host that reports key-up does not need it; see DiagonalNavigation.
     private NavigationDirection? _pendingNav;
     private double _pendingNavAt = double.NaN;   // stamped on the first Animate after the press
+
+    // Which directional keys are PHYSICALLY DOWN, and whether this host says so at all. A host that
+    // reports key-up turns "were these two pressed together?" from a guess about timing into a fact
+    // about state, which is the whole reason to want it.
+    private readonly HashSet<NavigationDirection> _heldNav = [];
+    // Where the last directional move started, so a corner press arriving while the first key is
+    // still down can be re-scored from there instead of compounding onto its result.
+    private int _navOriginIndex = -1;
+    private NavigationDirection? _navOriginKey;
     private bool _focusVisible;     // show the focus ring? true after Tab, false after a mouse click
     private bool _dragging;
     // A live window drag (data-window-drag) and the point it was grabbed at, in window pixels.
@@ -3577,6 +3587,65 @@ public sealed partial class CupriDocument : IDisposable
     }
 
     /// <summary>
+    /// Tell the document a key was RELEASED. Optional, and the engine works without it — but a host
+    /// that reports it gets materially better directional navigation, so every host should.
+    ///
+    /// <para>Without key-up the engine only ever sees presses, so "did the user mean these two
+    /// together?" can only be guessed from how close together they arrived — which is what
+    /// <see cref="DiagonalWindowSeconds"/> is, and why it needs tuning per person and keyboard. With
+    /// key-up the question is not a guess at all: if the first key is still physically down when the
+    /// second arrives, they were pressed together. That is true whether the gap was 20 ms or 300 ms,
+    /// so the window stops mattering and the latency it costs can be skipped entirely.</para>
+    ///
+    /// <para>Set <see cref="ReportsKeyUp"/> once at startup to select the held-state path. Detecting
+    /// it from the first release instead would be tidier to wire and wrong to use: no key has been
+    /// released when the first arrow of a session is pressed, so the first corner would silently
+    /// behave differently from every later one.</para>
+    ///
+    /// <para>Returns true when the release changed something the caller should repaint for. Hosts
+    /// should also call <see cref="ReleaseAllKeys"/> when the window loses focus, or a key released
+    /// while unfocused is remembered as held for ever.</para>
+    /// </summary>
+    public bool DispatchKeyUp(EditKey key)
+    {
+        if (Arrow(key) is not { } direction) return false;
+        _heldNav.Remove(direction);
+        if (_navOriginKey == direction) { _navOriginKey = null; _navOriginIndex = -1; }
+        return false;   // a release moves nothing on its own
+    }
+
+    /// <summary>
+    /// True when this host forwards key releases through <see cref="DispatchKeyUp"/>. Hosts set it
+    /// once, at wire-up.
+    ///
+    /// <para>It selects how <see cref="DiagonalNavigation"/> decides that two arrows were pressed
+    /// together. Set, the answer is whether the first key is still physically down — exact, and
+    /// independent of how fast the two arrived, so no press is ever delayed. Unset, the engine has
+    /// only arrival times to go on and falls back to holding each press for
+    /// <see cref="DiagonalWindowSeconds"/>, which costs latency and needs tuning per keyboard.</para>
+    /// </summary>
+    public bool ReportsKeyUp { get; set; }
+
+    /// <summary>Forget every held key. A host calls this when its window loses focus: the key-up for
+    /// anything down at that moment is delivered to whoever has focus next, never to us, and a
+    /// direction remembered as held for ever would make the next press read as a corner.</summary>
+    public void ReleaseAllKeys()
+    {
+        _heldNav.Clear();
+        _navOriginKey = null;
+        _navOriginIndex = -1;
+    }
+
+    private static NavigationDirection? Arrow(EditKey key) => key switch
+    {
+        EditKey.Up => NavigationDirection.Up,
+        EditKey.Down => NavigationDirection.Down,
+        EditKey.Left => NavigationDirection.Left,
+        EditKey.Right => NavigationDirection.Right,
+        _ => null,
+    };
+
+    /// <summary>
     /// Let the ARROW KEYS navigate by geometry, the way a D-pad does. <b>Off by default.</b>
     ///
     /// <para>Off is the right default for an ordinary application, and deliberately so: arrow keys
@@ -3847,7 +3916,43 @@ public sealed partial class CupriDocument : IDisposable
         // which is the answer ArrowNavigation exists to replace. Up and Left are both dir = -1, so
         // the axis has to be passed in: document order has no axes.
         if (!ArrowNavigation) return MoveFocus(dir);
-        return DiagonalNavigation ? QueueDirectional(nav) : MoveFocus(nav);
+        if (!DiagonalNavigation) return MoveFocus(nav);
+        return ReportsKeyUp ? HeldDirectional(nav) : QueueDirectional(nav);
+    }
+
+    /// <summary>
+    /// Directional navigation for a host that reports key-up — no waiting, and no window.
+    ///
+    /// <para>The press moves IMMEDIATELY, so ordinary navigation costs nothing. What makes corners
+    /// work is the second press: if the key that caused the previous move is <b>still physically
+    /// down</b>, the two were pressed together, and the move is re-scored as a corner FROM WHERE THE
+    /// FIRST ONE STARTED rather than compounded onto its result. That is the whole difference
+    /// key-up makes — "together" becomes a fact about the keyboard instead of a guess about
+    /// timing, so it holds whether the gap was 20 ms or 300 ms.</para>
+    ///
+    /// <para>Two presses that are genuinely separate are unaffected, because the first key has been
+    /// released by then and there is nothing to combine with.</para>
+    /// </summary>
+    private bool HeldDirectional(NavigationDirection nav)
+    {
+        var held = _heldNav.Count > 0 && _navOriginKey is { } origin
+            && _heldNav.Contains(origin) && origin.CombinesWith(nav)
+            && _navOriginIndex >= 0;
+        _heldNav.Add(nav);
+
+        if (held && NavigationDirections.Combine(_navOriginKey!.Value, nav) is { } corner)
+        {
+            _kbIndex = _navOriginIndex;          // back to where the pair began…
+            var moved = MoveFocus(corner);       // …and one move, to the corner
+            _navOriginKey = null;                // a corner is final: a third press starts afresh
+            _navOriginIndex = -1;
+            return moved;
+        }
+
+        var from = _kbIndex;
+        var ok = MoveFocus(nav);
+        if (ok) { _navOriginIndex = from; _navOriginKey = nav; }
+        return ok;
     }
 
     /// <summary>

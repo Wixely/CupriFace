@@ -75,6 +75,20 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   straight-line distance rather than through the cone-and-beam rule, which names a lane a corner
   does not have.
 
+- **Key releases reach the engine: `doc.DispatchKeyUp`, `ReleaseAllKeys` and `ReportsKeyUp`.** The
+  engine previously saw only presses, so "were these two arrows meant together?" could only be
+  inferred from how close together they arrived — which is what `DiagonalWindowSeconds` is, and why
+  it needed tuning per person and keyboard. With releases the question is answered exactly: is the
+  first key still physically down? That holds at any gap, **delays nothing**, and has no number to
+  tune. The desktop host forwards releases on both its GL and SDL paths and sets `ReportsKeyUp`; a
+  host that does not keeps the timing fallback unchanged.
+
+  Hosts forwarding releases must also call `ReleaseAllKeys()` on focus loss — the key-up for
+  anything held when a window loses focus goes to whoever gains it, so the key would otherwise be
+  remembered as held for the rest of the session. Both desktop windows now raise `FocusLost` for
+  this, and the key→`EditKey` mapping each had inline is now one shared method per window rather
+  than a copy that could drift between press and release.
+
 ### Fixed
 
 - **A focus move arriving between frames is no longer swallowed.** Directional navigation reads where

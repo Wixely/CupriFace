@@ -184,13 +184,19 @@ public sealed class SpatialNavApp : CupriApp
         _model.ModeLabel = on ? "ARROWS: D-PAD (spatial)" : "ARROWS: DOCUMENT ORDER";
         _model.ModeColor = on ? "#7ED491" : "#9AA3B5";
         var diag = doc.DiagonalNavigation;
+        // Which path is in play matters more than the number: with key releases the window is not
+        // consulted at all, so showing a window value here would be a lie on this host.
         _model.DiagLabel = diag
-            ? $"DIAGONALS: ON · window {doc.DiagonalWindowSeconds * 1000:F0}ms"
+            ? doc.ReportsKeyUp
+                ? "DIAGONALS: ON · held keys, no delay"
+                : $"DIAGONALS: ON · window {doc.DiagonalWindowSeconds * 1000:F0}ms"
             : "DIAGONALS: off  (press D)";
         _model.DiagColor = diag ? "#7ED491" : "#5F6879";
         _model.ModeHint = on
             ? (diag
-                ? $"Right + Down together in cluster B should be ONE move to B2. If you land on B4 the two keys were more than {doc.DiagonalWindowSeconds * 1000:F0}ms apart — press ] to widen the window."
+                ? (doc.ReportsKeyUp
+                    ? "Hold Right and press Down (or the reverse) in cluster B: one move to B2. No timing involved — the corner is recognised because the first key is still down, so any gap works."
+                    : $"Right + Down together in cluster B should be ONE move to B2. If you land on B4 the two keys were more than {doc.DiagonalWindowSeconds * 1000:F0}ms apart — press ] to widen the window.")
                 : "Arrows move to the nearest box in that direction. Hold ↓ in cluster B — it stays in the column even though the other column is nearer. Press D for corner moves.")
             : "Arrows step through the markup like Tab, so ↓ and → do the same thing. This is the default, and the right one for an ordinary app. Press M.";
     }

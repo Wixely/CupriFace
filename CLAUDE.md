@@ -171,10 +171,15 @@ key that flips the mode live, so you can watch the same keypress do two differen
 off by default, and it costs latency: to know whether a second key is coming, the first has to wait
 (`DiagonalWindowSeconds`, default 0.05). Without it, Right-then-Down and Down-then-Right land on
 different controls and neither is the one diagonally adjacent — where you end up depends on which
-key the hardware reported first. It needs a host that calls `Animate` — all three do, because the
-document reports `HasActiveAnimations` while a press is held, which is the signal every host polls
-to decide whether to draw a frame at all (a test must call `Animate` itself, as it must after a
-fling). **A thumbstick needs none of this** — it
+key the hardware reported first.
+
+**How it decides "together" depends on whether the host forwards key releases.** A host that sets
+`doc.ReportsKeyUp = true` and calls `DispatchKeyUp` (the desktop host does both) gets the exact
+answer — *is the first key still physically down?* — which holds at any gap and delays nothing. A
+host that does not falls back to holding every arrow press for `DiagonalWindowSeconds` and guessing
+from arrival times; that costs latency, needs tuning per keyboard, and needs a host that calls
+`Animate` (all three do). Hosts should also call `ReleaseAllKeys()` on focus loss, or a key held at
+that moment is remembered as held for ever. **A thumbstick needs none of this** — it
 reports a vector, so `new GamepadDriver(doc, diagonals: true)` resolves a corner from one reading
 with no window at all.
 

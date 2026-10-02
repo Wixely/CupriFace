@@ -270,6 +270,120 @@ public class DiagonalNavigationTests(ITestOutputHelper output)
         t.Layout();
     }
 
+    // ---- key-up: "together" as a fact rather than a guess -----------------------------------------
+
+    /// <summary>Press a key, telling the document it is now physically down.</summary>
+    private static void Down(TestDoc t, EditKey k) => t.Key(k);
+
+    /// <summary>Release it.</summary>
+    private static void Up(TestDoc t, EditKey k) { t.Doc.DispatchKeyUp(k); t.Layout(); }
+
+    /// <summary>
+    /// WITH KEY-UP THERE IS NO WINDOW AND NO WAITING. The first press moves immediately — ordinary
+    /// navigation costs nothing — and the corner is recognised because the first key is STILL DOWN
+    /// when the second arrives, which is a fact about the keyboard rather than a guess about timing.
+    ///
+    /// <para>The window is set absurdly short here precisely to prove it is not involved: under the
+    /// timing fallback these presses would be two separate moves.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(EditKey.Right, EditKey.Down)]
+    [InlineData(EditKey.Down, EditKey.Right)]
+    public void Two_keys_held_together_make_a_corner_with_no_window(EditKey first, EditKey second)
+    {
+        using var t = Open();
+        t.Doc.DiagonalWindowSeconds = 0.001;   // irrelevant on this path, and proves it
+        t.Doc.ReportsKeyUp = true;             // a host that forwards releases
+        Focus(t, "B1");
+
+        Down(t, first);                        // moves at once — no latency
+        Assert.NotEqual("B1", t.FocusedName());
+        Down(t, second);                       // …and the first is still down, so this is a corner
+        Assert.Equal("B2", t.FocusedName());
+
+        Up(t, first); Up(t, second);
+    }
+
+    /// <summary>ANY GAP WORKS, because nothing is being timed. A pair held across a third of a second
+    /// still combines — under the timing fallback this is far outside any sane window.</summary>
+    [Fact]
+    public void A_slow_pair_still_combines_while_the_first_key_is_held()
+    {
+        using var t = Open();
+        t.Doc.ReportsKeyUp = true;
+        Focus(t, "B1");
+
+        Down(t, EditKey.Right);
+        for (var i = 0; i < 20; i++) { t.Doc.Animate(i * 0.02); t.Layout(); }   // ~400 ms of frames
+        Down(t, EditKey.Down);                 // still holding Right
+        Assert.Equal("B2", t.FocusedName());
+    }
+
+    /// <summary>And the converse, which is what makes it correct rather than merely permissive: two
+    /// presses where the first was RELEASED are two separate moves, however fast they came.</summary>
+    [Fact]
+    public void Released_then_pressed_is_two_moves_however_fast()
+    {
+        using var t = Open();
+        t.Doc.ReportsKeyUp = true;
+        Focus(t, "B1");
+
+        Down(t, EditKey.Right);
+        Up(t, EditKey.Right);                  // let go — whatever comes next is a separate move
+        Assert.Equal("B2", t.FocusedName());
+        Down(t, EditKey.Down);
+        Assert.Equal("B4", t.FocusedName());   // down from B2, not a corner from B1
+    }
+
+    /// <summary>A key held when the window loses focus must not be remembered as held. Its key-up is
+    /// delivered to whoever has focus next and never arrives here, so without this the next arrow
+    /// press would be read as half of a corner for the rest of the session.</summary>
+    [Fact]
+    public void Focus_loss_forgets_everything_held()
+    {
+        using var t = Open();
+        t.Doc.ReportsKeyUp = true;
+        Focus(t, "B1");
+
+        Down(t, EditKey.Right);                // → B2, and Right is "held"
+        t.Doc.ReleaseAllKeys();                // the host saw the window lose focus
+        t.Layout();
+
+        Down(t, EditKey.Down);                 // a fresh press, not a corner
+        Assert.Equal("B4", t.FocusedName());
+    }
+
+    /// <summary>A third press after a corner starts afresh rather than compounding on the pair.</summary>
+    [Fact]
+    public void A_press_after_a_corner_is_an_ordinary_move()
+    {
+        using var t = Open();
+        t.Doc.ReportsKeyUp = true;
+        Focus(t, "B1");
+
+        Down(t, EditKey.Right); Down(t, EditKey.Down);
+        Assert.Equal("B2", t.FocusedName());
+        Up(t, EditKey.Right); Up(t, EditKey.Down);
+
+        Down(t, EditKey.Down);
+        Assert.Equal("B4", t.FocusedName());   // straight down from B2
+    }
+
+    /// <summary>A host that never reports key-up keeps the timing fallback, so nothing regresses for
+    /// one that has not been taught to forward releases yet.</summary>
+    [Fact]
+    public void A_host_that_never_reports_key_up_still_uses_the_window()
+    {
+        using var t = Open();                  // no DispatchKeyUp call anywhere
+        Focus(t, "B1");
+
+        t.Key(EditKey.Right);
+        Assert.Equal("B1", t.FocusedName());   // held back: the window path
+        Assert.True(t.Doc.HasActiveAnimations);
+        t.Key(EditKey.Down);
+        Assert.Equal("B2", t.FocusedName());
+    }
+
     // ---- the stick, which needs no window at all -------------------------------------------------
 
     /// <summary>A THUMBSTICK NEEDS NO WAITING. It reports a vector, so "down and right" arrives as a
