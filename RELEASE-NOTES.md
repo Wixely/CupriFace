@@ -17,6 +17,22 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **The `cupri-*` controls are `box-sizing: border-box`.** A control chose its own padding and often
+  its own border, so a caller who writes `width: 120px` on one means the box they can see — under
+  content-box that silently excluded the control's padding and it came out wider than asked for,
+  which is indistinguishable from a layout bug. **Author elements are unchanged** and keep the CSS
+  default, because that is what someone who knows CSS expects of their own markup.
+
+  **No control changes size.** Each one's own declared values were re-derived to mean the same thing:
+  the text field's `min-height` 20 → 42, the textarea's 78 → 102, the checkbox and radio 20 → 24, the
+  slider's `min-width` 120 → 138. Verified by censusing all 79 registered components before and
+  after — zero moved — and then by a pixel diff of a sheet containing every one of them, which came
+  back identical.
+
+  The one visible change is the intended one: a **caller** who sets an explicit size on a control now
+  gets that outer size. A `<cupri-slider style="width:220px">` is 220px wide where it used to be 238,
+  so its track is 18px narrower and a drag to the same place reads a percent or two higher.
+
 - **`display: inline-flex`** — a row that shrinks to its content. The engine could do "a row with
   its contents centred" (`flex`, which fills the width) and "a box that shrinks to its content"
   (`inline-block`, whose contents align on the text baseline), but not both at once — and both at

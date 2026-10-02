@@ -18,7 +18,11 @@ public sealed class SliderComponent : ComponentBase
            is its content, and its content is absolutely positioned — so it collapsed to the width
            of the thumb, the track vanished, and the control looked stuck at the far right. A
            slider narrower than this cannot be dragged meaningfully anyway. */
-        .cupri-slider { display:block; padding:9px 9px; min-width:120px; }
+        /* 138, not 120, and it means the same track: the catalogue is border-box, so this now counts
+           the 9px padding each side that the 120 used to sit inside. The census of component boxes
+           did not catch this one -- it measures a control's OUTER box, and what moved here was the
+           track inside it, which is what a drag is measured against. The suite did. */
+        .cupri-slider { display:block; padding:9px 9px; min-width:138px; }
         .cupri-slider-track { position:relative; height:6px; background:#d7dbe3; border-radius:3px; }
         .cupri-slider-fill { position:absolute; top:0; left:0; height:6px; background:var(--cupri-accent,#B87333);
                              border-radius:3px; width:var(--cupri-fill, 0%); }

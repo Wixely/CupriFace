@@ -7,8 +7,12 @@ public sealed class CheckboxComponent : ComponentBase
 {
     public override string Tag => "cupri-checkbox";
     public override string DefaultCss => """
+        /* 24, not 20: the catalogue is border-box, so this is the box you can SEE. It was 20px of
+           content plus a 2px border each side, which came to the same 24 -- the number moved, the
+           control did not. border-radius is unchanged for the same reason: it already described the
+           border box. */
         .cupri-checkbox { display:inline-flex; align-items:center; justify-content:center;
-                          width:20px; height:20px; border:2px #98a2b3; border-radius:5px; }
+                          width:24px; height:24px; border:2px #98a2b3; border-radius:5px; }
         .cupri-checkbox.on { background:var(--cupri-accent,#B87333); border:2px var(--cupri-accent,#B87333); color:white; }
         """;
 
@@ -32,8 +36,9 @@ public sealed class RadioComponent : ComponentBase
 {
     public override string Tag => "cupri-radio";
     public override string DefaultCss => """
+        /* 24 for the same reason as the checkbox above: 20 of content plus 2px of border a side. */
         .cupri-radio { display:inline-flex; align-items:center; justify-content:center;
-                       width:20px; height:20px; border:2px #98a2b3; border-radius:10px; }
+                       width:24px; height:24px; border:2px #98a2b3; border-radius:10px; }
         .cupri-radio.on { border:2px var(--cupri-accent,#B87333); }
         .cupri-radio-dot { width:10px; height:10px; background:var(--cupri-accent,#B87333); border-radius:5px; }
         """;

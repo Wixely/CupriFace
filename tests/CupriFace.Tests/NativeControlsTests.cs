@@ -121,7 +121,13 @@ public class NativeControlsTests
         t.Click(b.X + b.W * 0.30f, b.Y + b.H / 2);   // press at ~30%
         t.Move(b.X + b.W * 0.80f, b.Y + b.H / 2);    // drag to ~80%
         t.Up(b.X + b.W * 0.80f, b.Y + b.H / 2);
-        Assert.InRange(m.Volume, 70, 82);
+        // 70..85, widened when the catalogue moved to border-box. The drag targets 80% of the
+        // control's OUTER box, and the track inside it is inset by the slider's 9px padding each
+        // side -- so the same gesture always lands a little past 80% of the track. It used to land
+        // at ~82 because `width:220px` meant a 238px outer box with a 220px track; now 220 means the
+        // box the caller can see, the track is 202, and the same press reads 83. The control did not
+        // change; what the caller's own declaration means did, which is the point of the change.
+        Assert.InRange(m.Volume, 70, 85);
     }
 
     private sealed class TabModel { public string Tab { get; set; } = "overview"; }

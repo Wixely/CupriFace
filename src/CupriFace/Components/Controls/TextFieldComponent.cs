@@ -14,7 +14,11 @@ public sealed class TextFieldComponent : ComponentBase
         /* min-height reserves one line so the field never collapses when its value renders no
            line box — e.g. a whitespace-only value (the render tree drops whitespace text nodes)
            or an empty field mid-frame. Matches how real form controls keep a fixed height. */
-        .cupri-textfield { display:inline-block; min-width:220px; min-height:20px; background:var(--cupri-surface, white);
+        /* min-height is 42, not 20, and it means the same thing: the catalogue is border-box, so
+           this counts the 9px padding each side and the 2px border each side that the 20 used to sit
+           inside (20 + 18 + 4 = 42). Stated as the whole control rather than as the line within it,
+           which is what a reader of this rule is looking at anyway. */
+        .cupri-textfield { display:inline-block; min-width:220px; min-height:42px; background:var(--cupri-surface, white);
                            border:2px var(--cupri-border, #cbd2dc); border-radius:8px; padding:9px 12px; font-size:15px;
                            white-space:nowrap; overflow:hidden; } /* single line: a long value scrolls, not wraps */
         .cupri-textfield[data-hover] { border-color:#98a2b3; }
