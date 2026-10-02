@@ -163,6 +163,12 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   true` on Android. Both opt-in for the same reason the engine's own default is off: these are
   ordinary applications, where arrow keys are expected to move a caret.
 
+- **A prerelease tag publishes as a prerelease.** `gh release create` never passed `--prerelease`,
+  so a tag like `v0.33.0-alpha.1` would have been marked **Latest** — the download every visitor
+  gets, and the answer every "what is the newest release" check believes. Any tag with a hyphen is
+  now published as a prerelease, which is exactly what semver calls one and what NuGet already uses
+  to keep such a package out of a default `dotnet add package`.
+
 ### Fixed
 
 - **A focus move arriving between frames is no longer swallowed.** Directional navigation reads where
