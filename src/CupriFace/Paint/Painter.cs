@@ -487,7 +487,7 @@ public sealed class Painter
                 ContainerWidth: node.Width, LineWidth: line.Width, LineHeight: line.Height,
                 Text: line.Text, Family: s.FontFamily, Weight: s.FontWeight, Size: s.FontSize,
                 Color: s.Color, Align: s.TextAlign, Slant: s.FontStyle, Decorations: s.Decorations,
-                LetterSpacing: s.LetterSpacing));
+                LetterSpacing: s.LetterSpacing, TabularNums: s.TabularNums));
         }
     }
 }

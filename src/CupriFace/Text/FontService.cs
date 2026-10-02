@@ -62,7 +62,8 @@ public sealed class FontService : IDisposable
     private readonly Dictionary<SKTypeface, SKShaper> _shapersByTypeface = new();
     private readonly Dictionary<SKTypeface, SKFont> _probes = new();      // cached font per typeface for glyph checks
     private readonly Dictionary<int, SKTypeface?> _fallbackByCodepoint = new(); // fallback face per missing codepoint
-    private readonly Dictionary<(string, int, int, FontSlant, string), float> _measure = new(); // + slant → width
+    // + tabularNums: the same string measures two widths depending on it, so it is part of the key.
+    private readonly Dictionary<(string, int, int, FontSlant, string, bool), float> _measure = new();
     private readonly Dictionary<(string, int, FontSlant), FontResolution> _resolutions = new();
 
     internal static SKFontStyleSlant Slant(FontSlant s) => s switch
@@ -343,34 +344,116 @@ public sealed class FontService : IDisposable
     /// unavailable.
     /// </summary>
     public float MeasureText(string family, int weight, float size, string text,
-                            FontSlant slant = FontSlant.Normal, float letterSpacing = 0f)
+                            FontSlant slant = FontSlant.Normal, float letterSpacing = 0f,
+                            bool tabularNums = false)
     {
         if (string.IsNullOrEmpty(text)) return 0f;
         // Tracking is added after every cluster, INCLUDING the last, which is what browsers do and
         // what makes a trailing space of tracking part of the box. Measured separately from the
         // shaped width so the shaping cache stays keyed on the font and the text alone.
         if (letterSpacing != 0f)
-            return MeasureText(family, weight, size, text, slant) + letterSpacing * ClusterCount(text);
+            return MeasureText(family, weight, size, text, slant, 0f, tabularNums)
+                 + letterSpacing * ClusterCount(text);
 
         // Cache by (font, text): during animation the same words are re-measured every frame, and each
         // miss runs run-splitting + HarfBuzz shaping (the layout pass's dominant cost + allocation).
         // Measurements are deterministic and fonts don't change at runtime, so the cache never invalidates.
-        var key = (family, weight, (int)MathF.Round(size * 4), slant, text);
+        // The flag is part of the key: the same string measures two different widths depending on
+        // it, and sharing one entry would hand a tabular measurement to a prose run or the reverse.
+        var key = (family, weight, (int)MathF.Round(size * 4), slant, text, tabularNums);
         if (_measure.TryGetValue(key, out var cached)) return cached;
 
         var total = 0f;
         foreach (var (segment, tf) in SplitRuns(text, family, weight, slant))
         {
             var font = GetFont(tf, size);
-            try { total += GetShaper(tf).Shape(segment, font).Width; }
+            try
+            {
+                var shaped = GetShaper(tf).Shape(segment, font);
+                total += shaped.Width;
+                // The SAME call the painter makes, so the two cannot disagree about the width.
+                if (tabularNums) { TabularShifts(shaped, segment, font, out var extra); total += extra; }
+            }
             catch { total += font.MeasureText(segment); }
         }
         _measure[key] = total;
         return total;
     }
 
+    /// <summary>
+    /// Where each glyph of a shaped run must move, and how much wider the run becomes, to put every
+    /// digit on the widest digit's advance.
+    ///
+    /// <para><b>This is the only place that arithmetic exists, and that is the point.</b> Measuring
+    /// and painting have to agree exactly — a run measured one width and drawn another is text that
+    /// overflows its box, clips, or sits off-centre, and the two code paths are a hundred lines
+    /// apart. So both call this, and neither can drift.</para>
+    ///
+    /// <para>Each digit is CENTRED in its slot rather than left-aligned: a 1 given a 0's advance and
+    /// pushed left leaves a visible gap after it, which is what "monospaced digits" done carelessly
+    /// looks like. Non-digits are untouched, so <c>15:00:32</c> keeps its colons tight.</para>
+    ///
+    /// <para>Returns null when there is nothing to do — no digits in the run, or the font already
+    /// gives them equal advances (many UI faces do). That null is the fast path: every string in the
+    /// document asks this question and almost none of them need an answer.</para>
+    /// </summary>
+    /// <param name="shaped">The shaped run, whose cluster map says which glyph came from which char.</param>
+    /// <param name="segment">The source text of that run.</param>
+    /// <param name="font">The face it was shaped in — the digit advances come from here.</param>
+    /// <param name="extraWidth">How much wider the run is once the digits are padded.</param>
+    internal float[]? TabularShifts(SKShaper.Result shaped, string segment, SKFont font, out float extraWidth)
+    {
+        extraWidth = 0f;
+        var n = shaped.Codepoints.Length;
+        if (n == 0) return null;
+
+        var widest = MaxDigitAdvance(font);
+        if (widest <= 0) return null;
+
+        // Cluster starts in visual order, so a cluster's own advance is the gap to the next one.
+        // Derived from the shaped positions rather than measured separately: this is what the run
+        // ACTUALLY laid out as, kerning and all.
+        float[]? shifts = null;
+        var running = 0f;
+        for (var g = 0; g < n; g++)
+        {
+            var cluster = (int)shaped.Clusters[g];
+            var isDigit = cluster >= 0 && cluster < segment.Length && char.IsAsciiDigit(segment[cluster]);
+            var advance = (g + 1 < n ? shaped.Points[g + 1].X : shaped.Width) - shaped.Points[g].X;
+            var pad = isDigit && advance > 0 ? widest - advance : 0f;
+            if (pad > 0.01f)
+            {
+                shifts ??= new float[n];
+                shifts[g] = running + pad / 2f;     // centred in the slot
+                running += pad;
+            }
+            else if (shifts is not null) shifts[g] = running;
+        }
+        if (shifts is null) return null;
+        extraWidth = running;
+        return shifts;
+    }
+
+    /// <summary>The widest advance among the ten digits in this face, cached — what a tabular digit
+    /// occupies. Keyed on the typeface and the size because an advance is in pixels.</summary>
+    private float MaxDigitAdvance(SKFont font)
+    {
+        if (font.Typeface is not { } tf) return 0f;
+        var key = (tf, (int)MathF.Round(font.Size * 4));
+        if (_maxDigit.TryGetValue(key, out var cached)) return cached;
+        var widest = 0f;
+        for (var d = '0'; d <= '9'; d++) widest = MathF.Max(widest, font.MeasureText(d.ToString()));
+        _maxDigit[key] = widest;
+        return widest;
+    }
+
+    // Keyed on the typeface OBJECT, as the shaper cache beside it is: SkiaSharp exposes no
+    // stable id here, and the faces are long-lived and shared.
+    private readonly Dictionary<(SKTypeface, int), float> _maxDigit = new();
+
     public float MeasureText(ComputedStyle s, string text) =>
-        MeasureText(s.FontFamily, s.FontWeight, s.FontSize, text, s.FontStyle, s.LetterSpacing);
+        MeasureText(s.FontFamily, s.FontWeight, s.FontSize, text, s.FontStyle, s.LetterSpacing,
+                    s.TabularNums);
 
     /// <summary>Grapheme clusters in <paramref name="text"/> — what tracking is added after.
     ///

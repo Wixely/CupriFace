@@ -495,6 +495,15 @@ public sealed class StyleResolver
                 case "outline-color": if (Colors.TryParse(v, out var olc)) s.OutlineColor = olc; break;
                 case "outline-style": if (ParseBorderStyle(v) is { } ols) s.OutlineStyle = ols; break;
 
+                // Only tabular-nums is acted on. The rest of font-variant-numeric (ordinals,
+                // slashed zero, diagonal fractions) needs OpenType features this engine does not
+                // plumb, and quietly accepting them would be the exact failure CF0050 exists to
+                // report -- so anything else falls through and is named as unsupported.
+                case "font-variant-numeric":
+                    if (v.Contains("tabular-nums", StringComparison.OrdinalIgnoreCase)) s.TabularNums = true;
+                    else UnsupportedProperty?.Invoke(prop, v);
+                    break;
+
                 default: UnsupportedProperty?.Invoke(prop, v); break;
             }
         }
