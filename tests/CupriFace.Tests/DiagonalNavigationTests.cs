@@ -224,6 +224,52 @@ public class DiagonalNavigationTests(ITestOutputHelper output)
         Assert.False(t.Doc.DiagonalNavigation);
     }
 
+    /// <summary>
+    /// THE REAL HOST SEQUENCE. Every test above presses both keys back to back with nothing in
+    /// between, which is not what a window does: it polls input, draws a frame, calls Animate, and
+    /// only then sees the second key. If the held press were released by that intervening frame the
+    /// feature would work in a test and fail in front of a user — which is exactly the shape of bug
+    /// this feature has already had once.
+    ///
+    /// <para>Also pins the boundary: a pair inside the window combines, a pair outside it does not.
+    /// "Simultaneous" by hand is not simultaneous, and <c>DiagonalWindowSeconds</c> is how much
+    /// human skew is forgiven.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(0.008, "B2")]   // 8 ms  — one frame at 120 fps
+    [InlineData(0.016, "B2")]   // 16 ms — one frame at 60 fps
+    [InlineData(0.040, "B2")]   // 40 ms — a slow but deliberate "together"
+    [InlineData(0.120, "B4")]   // 120 ms — past the window: two separate moves, and rightly so
+    public void A_pair_split_across_frames_still_combines(double skew, string expected)
+    {
+        using var t = Open();
+        t.Doc.DiagonalWindowSeconds = 0.05;   // stated, not inherited: this pins the RULE, and a
+                                              // change to the shipped default must not silently
+                                              // redefine what these cases are asserting.
+        Focus(t, "B1");
+
+        var now = 0.0;
+        t.Doc.DispatchKey(null, EditKey.Down);      // frame N: the first key
+        Frame(t, ref now, 0.008);                   // …the host draws and ticks
+        while (now < skew) Frame(t, ref now, 0.008);
+
+        t.Doc.DispatchKey(null, EditKey.Right);     // frame N+k: the second key
+        Frame(t, ref now, 0.008);
+        for (var i = 0; i < 30; i++) Frame(t, ref now, 0.008);   // let anything held drain
+
+        output.WriteLine($"skew {skew * 1000:F0} ms → {t.FocusedName()}");
+        Assert.Equal(expected, t.FocusedName());
+    }
+
+    /// <summary>One frame of a host loop: render, then tick the clock, in that order.</summary>
+    private static void Frame(TestDoc t, ref double now, double dt)
+    {
+        t.Layout();
+        now += dt;
+        t.Doc.Animate(now);
+        t.Layout();
+    }
+
     // ---- the stick, which needs no window at all -------------------------------------------------
 
     /// <summary>A THUMBSTICK NEEDS NO WAITING. It reports a vector, so "down and right" arrives as a

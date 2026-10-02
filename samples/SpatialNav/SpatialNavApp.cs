@@ -93,7 +93,7 @@ public sealed class SpatialNavApp : CupriApp
               <span class="diag" style="color:{{DiagColor}}">{{DiagLabel}}</span>
             </div>
             <div class="hint">{{ModeHint}}</div>
-            <div class="keys">↑ ↓ ← →  move  ·  Enter  activate  ·  Tab  document order (unchanged)  ·  M  switch mode  ·  D  diagonals  ·  R  reset</div>
+            <div class="keys">↑ ↓ ← →  move  ·  Enter  activate  ·  Tab  document order  ·  M  switch mode  ·  D  diagonals  ·  [ ]  window ±20ms  ·  R  reset</div>
           </div>
 
           <div class="box" role="button" data-repeat="Boxes" data-nav-box="{{Label}}"
@@ -147,6 +147,19 @@ public sealed class SpatialNavApp : CupriApp
             Apply(doc);
         });
 
+        // The window is the one number to turn when corners "do not work": two keys a hand meant to
+        // press together are routinely 50-100ms apart, and that varies by person and keyboard.
+        doc.OnShortcut(KeyMods.None, "]", () =>
+        {
+            doc.DiagonalWindowSeconds = Math.Min(0.4, doc.DiagonalWindowSeconds + 0.02);
+            Apply(doc);
+        });
+        doc.OnShortcut(KeyMods.None, "[", () =>
+        {
+            doc.DiagonalWindowSeconds = Math.Max(0.02, doc.DiagonalWindowSeconds - 0.02);
+            Apply(doc);
+        });
+
         doc.OnShortcut(KeyMods.None, "r", () =>
         {
             foreach (var b in _model.Boxes) b.Hits = 0;
@@ -171,11 +184,13 @@ public sealed class SpatialNavApp : CupriApp
         _model.ModeLabel = on ? "ARROWS: D-PAD (spatial)" : "ARROWS: DOCUMENT ORDER";
         _model.ModeColor = on ? "#7ED491" : "#9AA3B5";
         var diag = doc.DiagonalNavigation;
-        _model.DiagLabel = diag ? "DIAGONALS: on (50ms hold)" : "DIAGONALS: off";
+        _model.DiagLabel = diag
+            ? $"DIAGONALS: ON · window {doc.DiagonalWindowSeconds * 1000:F0}ms"
+            : "DIAGONALS: off  (press D)";
         _model.DiagColor = diag ? "#7ED491" : "#5F6879";
         _model.ModeHint = on
             ? (diag
-                ? "Right + Down together in cluster B is now ONE move to B2, the box actually on the diagonal — and the same move whichever key lands first."
+                ? $"Right + Down together in cluster B should be ONE move to B2. If you land on B4 the two keys were more than {doc.DiagonalWindowSeconds * 1000:F0}ms apart — press ] to widen the window."
                 : "Arrows move to the nearest box in that direction. Hold ↓ in cluster B — it stays in the column even though the other column is nearer. Press D for corner moves.")
             : "Arrows step through the markup like Tab, so ↓ and → do the same thing. This is the default, and the right one for an ordinary app. Press M.";
     }

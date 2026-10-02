@@ -62,8 +62,9 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   Down-then-Right disagree, and neither is the control actually on the diagonal.
 
   The cost is latency and it cannot be avoided — to know whether a second key is coming, the first
-  has to wait. `DiagonalWindowSeconds` (default 0.05) is exactly that wait, and it applies to every
-  arrow press while the flag is on. The held press is released on a clock, so this needs a host that
+  has to wait. `DiagonalWindowSeconds` (default 0.08) is exactly that wait, and it applies to every
+  arrow press while the flag is on — and it is the one number to turn when corners seem not to work,
+  because two keys a hand meant to press together are routinely 50–100 ms apart. The held press is released on a clock, so this needs a host that
   calls `Animate`: both `HasActiveAnimations` (which every host polls to decide whether to draw a
   frame at all) and `HasActiveTransitions` (which decides whether to call `Animate` within it) now
   report true while a press is waiting. A test must call `Animate` itself, as it must after a fling.

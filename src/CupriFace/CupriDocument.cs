@@ -3628,11 +3628,20 @@ public sealed partial class CupriDocument : IDisposable
     /// </summary>
     public bool DiagonalNavigation { get; set; }
 
-    /// <summary>How long a directional press waits for a partner on the other axis, in seconds.
-    /// Default 0.05 — long enough to catch two keys a hand meant to press together (human skew runs
-    /// to about 30 ms), short enough not to read as lag. Only consulted while
-    /// <see cref="DiagonalNavigation"/> is on, and it is the exact latency that flag adds.</summary>
-    public double DiagonalWindowSeconds { get; set; } = 0.05;
+    /// <summary>
+    /// How long a directional press waits for a partner on the other axis, in seconds. Default 0.08.
+    /// Only consulted while <see cref="DiagonalNavigation"/> is on, and it is the exact latency that
+    /// flag adds to every arrow press.
+    ///
+    /// <para><b>This is the one number to turn when corners "do not work".</b> Two keys a hand meant
+    /// to press together are not simultaneous — the skew is routinely 50–100 ms, and varies by
+    /// person, keyboard and how the two keys sit under the fingers. Too short and deliberate pairs
+    /// are read as two moves, which looks exactly like the feature being broken; too long and every
+    /// single press feels sluggish. 0.08 is a compromise, not a constant of nature: an app that
+    /// knows its users should tune it, and one that cannot should consider leaving diagonals off.
+    /// </para>
+    /// </summary>
+    public double DiagonalWindowSeconds { get; set; } = 0.08;
 
     /// <summary>
     /// Move keyboard focus to the nearest control in a DIRECTION — a D-pad, a thumbstick, or the

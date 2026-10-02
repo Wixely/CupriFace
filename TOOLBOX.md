@@ -1197,7 +1197,7 @@ scattered boxes and an `M` key that flips the mode while you watch.
 
 ```csharp
 doc.DiagonalNavigation = true;                // off by default; needs ArrowNavigation on
-doc.DiagonalWindowSeconds = 0.05;             // …and this is exactly the latency it adds
+doc.DiagonalWindowSeconds = 0.08;             // …and this is exactly the latency it adds
 ```
 
 Two arrows pressed together become **one** move to the corner. Without it they are two moves, and
@@ -1208,9 +1208,15 @@ both keys cannot predict which side of it they will get.
 
 The cost is unavoidable: to know whether a second key is coming, the first one has to wait. **Every**
 arrow press is therefore held for up to `DiagonalWindowSeconds` before anything moves, which is why
-this is off by default — a UI that never wants diagonals should not pay for them. The default 0.05
-is long enough to catch two keys a hand meant to press together (human skew runs to about 30 ms) and
-short enough not to read as lag.
+this is off by default — a UI that never wants diagonals should not pay for them.
+
+**`DiagonalWindowSeconds` is the one number to turn when corners "do not work".** Two keys a hand
+meant to press together are not simultaneous: the skew is routinely 50–100 ms and varies by person,
+keyboard, and how the two keys sit under the fingers. Set it too short and deliberate pairs read as
+two separate moves, which looks exactly like the feature being broken rather than like a threshold
+being missed. Set it too long and every single press feels sluggish. The 0.08 default is a
+compromise, not a constant of nature — an app that knows its users should tune it, and one that
+cannot should think hard about whether it wants diagonals at all.
 
 The held press is released on a clock, the same way a masked field re-masks itself, so **it needs a
 host that calls `Animate`**. Two separate signals matter here and both report true while a press is
