@@ -146,6 +146,27 @@ Three things that bite if you drive `TouchInput` by hand instead:
 `new TouchDriver(doc, new TouchOptions { SlopPx = … })` moves the thresholds, for testing a gesture
 at its boundary. `tests/CupriFace.Tests/TouchDriverTests.cs` is a worked example of each verb.
 
+**A controller navigates by GEOMETRY, not Tab order, and it has its own driver too.** Tab is
+one-dimensional and follows the document, so on a panel in two columns "down" and "next" are
+different controls and only one of them is what the user pointed the stick at.
+
+```csharp
+var pad = new GamepadDriver(doc);             // CupriFace.Interaction
+pad.Press(NavigationDirection.Down);          // a D-pad press: one move
+pad.Stick(0.9f, 0f);                          // a stick pushed right: ONE move, then nothing…
+pad.Stick(0f, 0f);                            // …until it comes back to centre
+pad.Confirm();                                // A / OK — the same path Enter takes
+```
+
+`doc.MoveFocus(NavigationDirection.Up)` is the engine call under it. Three things to know:
+**it does not wrap** — a stick held right stops at the edge rather than reappearing on the left (Tab
+wraps because a form is a loop; a grid is not), and the `false` it returns at the boundary is your
+hook for paging across instead; **the first press enters from the edge it travels from**, so Down
+lands on the topmost control rather than on whatever is first in the markup; and **focus on a button
+is only visible in the accessibility tree** — `data-focus` is for an editable field, so assert with
+`BuildAccessibilityTree(w, h)` (`TestDoc.FocusedName()`) rather than looking for an attribute that
+will never be there. `tests/CupriFace.Tests/DirectionalFocusTests.cs` is a worked example.
+
 **A file dropped in from the OS has its own driver too**, for the same reason:
 
 ```csharp

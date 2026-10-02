@@ -1138,6 +1138,52 @@ reorder handle or split divider is a **drag from the first contact** rather than
 for testing a gesture at its boundary. `Input` exposes the recogniser underneath for anything the
 verbs do not cover.
 
+### Controller focus: `doc.MoveFocus` and `GamepadDriver`
+
+A controller navigates by **where controls are**, and Tab order cannot tell it that. Tab is
+one-dimensional and follows the document — the right model for a form — so on a panel laid out in two
+columns "down" and "next" are different controls, and only one of them is what the user pointed the
+stick at.
+
+```csharp
+doc.MoveFocus(NavigationDirection.Down);      // nearest control that way, or false
+```
+
+Candidates are scored by a 45° cone (without it the nearest thing to almost any control is its
+neighbour on the same row, so every direction walks the row), then a preference for anything whose
+span **overlaps** the focused control, then distance along the axis of travel. That middle test is
+what keeps a column a column on a **staggered** layout — a masonry panel, or a two-column form with
+one tall field — where the next control down this column is further away than something sitting level
+with the gap in the next column. Scored on distance alone, the selection drifts sideways as the user
+holds Down. An even grid will not show the difference: there the cone rejects the diagonal by itself.
+
+Two behaviours to design around. **It does not wrap** — a stick held right stops at the right-hand
+edge rather than reappearing on the left, and the `false` returned there is the hook for paging
+across, nudging the panel, or doing nothing. And with nothing focused yet, **the first press enters
+from the edge it travels from**: Down lands on the topmost control, not on whatever the markup
+happens to begin with.
+
+Focus on a non-text control is visible in the **accessibility tree**, not as an attribute —
+`data-focus` marks an editable field, so a focused button has no attribute to look for. Read it with
+`BuildAccessibilityTree(w, h)` and the node's `Focused` flag.
+
+For tests, `GamepadDriver` (also `CupriFace.Interaction`) is the `TouchDriver` counterpart, and
+exists for the same reason: a stick is not a keyboard, so driving it as one tests the wrong code.
+
+```csharp
+var pad = new GamepadDriver(doc);
+pad.Press(NavigationDirection.Down);          // a D-pad press: one move
+pad.Stick(0.9f, 0f);                          // a stick pushed right: ONE move, then nothing…
+pad.Stick(0f, 0f);                            // …until it returns to centre
+pad.Confirm();                                // A / OK — the same path Enter takes
+```
+
+Three things it gets right that are easy to get wrong by hand: a **held stick moves once**, not once
+per frame, so one flick does not race the selection across the panel; **drift inside the deadzone is
+at rest**, which every real controller needs or the selection creeps while nobody is touching it;
+and a **diagonal push picks the dominant axis**, because moving two squares for one flick feels
+broken. `new GamepadDriver(doc, deadzone: …)` moves the threshold.
+
 ### Multi-touch: `doc.OnPointer`
 
 The engine's own gestures — tap, scroll, fling, long-press, and the drag surfaces on sliders,
