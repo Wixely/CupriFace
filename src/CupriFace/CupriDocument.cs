@@ -3568,6 +3568,152 @@ public sealed partial class CupriDocument : IDisposable
         return -1;
     }
 
+    /// <summary>
+    /// Move keyboard focus to the nearest control in a DIRECTION — a D-pad, a thumbstick, or the
+    /// arrow keys on a page that is laid out as a grid rather than as a form.
+    ///
+    /// <para>Tab order cannot answer this. It is one-dimensional and follows the document, so on a
+    /// panel of buttons in two columns "down" and "next" are different controls, and only one of them
+    /// is what the user pointed the stick at. Every controller-driven CupriFace app so far has
+    /// written this itself, reading geometry back out of the accessibility tree because the engine
+    /// offered nothing else.</para>
+    ///
+    /// <para>Returns false when nothing lies that way, and deliberately does NOT wrap: a stick held
+    /// right should stop at the right-hand edge rather than reappear on the left. Tab wraps because a
+    /// form is a loop; a grid is not.</para>
+    ///
+    /// <para>With no focus yet, the first press focuses the control nearest the corner the user is
+    /// travelling FROM — pressing Down lands on the topmost control, not on whatever happens to be
+    /// first in the markup.</para>
+    /// </summary>
+    public bool MoveFocus(NavigationDirection direction)
+    {
+        // This navigates by WHERE CONTROLS ARE, so it is a geometry entry point like hit-testing, and
+        // needs the same guard: a focus change rebuilds the tree, so a second press arriving before
+        // the next frame would score against boxes that are all zero — nothing would be "in
+        // direction", and the press would be silently swallowed.
+        EnsureLaidOut();
+        var f = Focusables();
+        if (f.Count == 0) return false;
+
+        var index = _kbIndex >= 0 && _kbIndex < f.Count
+            ? BestInDirection(f, _kbIndex, direction)
+            : EntryPoint(f, direction);
+        if (index < 0) return false;
+
+        _kbIndex = index;
+        _focusVisible = true;
+        var el = f[_kbIndex].Element;
+        UpdateFocus(el?.GetAttribute("role") is "textbox" or "spinbutton" ? el : null);
+        Refresh();
+        return true;
+    }
+
+    /// <summary>
+    /// The best candidate in <paramref name="direction"/> from the focused control, or -1.
+    ///
+    /// <para><b>Three tests, in order, and the order is what makes it feel right.</b></para>
+    ///
+    /// <para><b>1. A 45-degree cone.</b> A candidate counts as "up" only if it is more above than it
+    /// is beside — <c>|dx| &lt;= -dy</c>. Without it, the nearest thing to almost any control is its
+    /// immediate neighbour on the same row, and every direction walks the row.</para>
+    ///
+    /// <para><b>2. The beam.</b> A candidate whose horizontal span OVERLAPS the focused control's
+    /// wins over one that does not, before distance is considered at all. This is the rule that keeps
+    /// a column a column: pressing Down in the left column goes to the next button down that column
+    /// even when a button in the right column is slightly nearer. Scoring on raw distance alone
+    /// produces a selection that wanders diagonally across a grid, which is the usual way this is got
+    /// wrong.</para>
+    ///
+    /// <para><b>3. Then distance</b> — along the travel axis first, across it second, and finally
+    /// document order so that a genuine tie is resolved the same way every time rather than by
+    /// whichever node the walk happened to reach first.</para>
+    /// </summary>
+    private static int BestInDirection(List<RenderNode> f, int from, NavigationDirection direction)
+    {
+        var current = Box(f[from]);
+        var best = -1;
+        var bestScore = (Beam: int.MaxValue, Primary: float.MaxValue, Secondary: float.MaxValue);
+
+        for (var i = 0; i < f.Count; i++)
+        {
+            if (i == from) continue;
+            var candidate = Box(f[i]);
+            if (!IsInDirection(current, candidate, direction)) continue;
+
+            var score = Score(current, candidate, direction);
+            if (score.Beam < bestScore.Beam
+                || (score.Beam == bestScore.Beam && score.Primary < bestScore.Primary)
+                || (score.Beam == bestScore.Beam && score.Primary == bestScore.Primary
+                    && score.Secondary < bestScore.Secondary))
+            {
+                best = i;
+                bestScore = score;
+            }
+        }
+        return best;
+    }
+
+    /// <summary>Where focus lands on the first directional press, with nothing focused yet: the
+    /// control furthest back along the direction of travel, so Down starts at the top and Right starts
+    /// at the left. Falling back to index 0 would start wherever the markup happens to begin, which on
+    /// a grid is rarely where the user is looking.</summary>
+    private static int EntryPoint(List<RenderNode> f, NavigationDirection direction)
+    {
+        var best = 0;
+        var bestEdge = float.MaxValue;
+        for (var i = 0; i < f.Count; i++)
+        {
+            var b = Box(f[i]);
+            var edge = direction switch
+            {
+                NavigationDirection.Down => b.Y,
+                NavigationDirection.Up => -(b.Y + b.H),
+                NavigationDirection.Right => b.X,
+                _ => -(b.X + b.W),
+            };
+            if (edge < bestEdge) { bestEdge = edge; best = i; }
+        }
+        return best;
+    }
+
+    private static (float X, float Y, float W, float H) Box(RenderNode n) => HitTesting.AbsoluteBox(n);
+
+    private static bool IsInDirection((float X, float Y, float W, float H) a,
+                                      (float X, float Y, float W, float H) b,
+                                      NavigationDirection direction)
+    {
+        var dx = (b.X + b.W / 2f) - (a.X + a.W / 2f);
+        var dy = (b.Y + b.H / 2f) - (a.Y + a.H / 2f);
+        return direction switch
+        {
+            NavigationDirection.Up => dy < 0 && MathF.Abs(dx) <= -dy,
+            NavigationDirection.Down => dy > 0 && MathF.Abs(dx) <= dy,
+            NavigationDirection.Left => dx < 0 && MathF.Abs(dy) <= -dx,
+            NavigationDirection.Right => dx > 0 && MathF.Abs(dy) <= dx,
+            _ => false,
+        };
+    }
+
+    private static (int Beam, float Primary, float Secondary) Score(
+        (float X, float Y, float W, float H) a, (float X, float Y, float W, float H) b,
+        NavigationDirection direction)
+    {
+        var horizontal = direction is NavigationDirection.Left or NavigationDirection.Right;
+        var dx = MathF.Abs((b.X + b.W / 2f) - (a.X + a.W / 2f));
+        var dy = MathF.Abs((b.Y + b.H / 2f) - (a.Y + a.H / 2f));
+        // The beam is the focused control's extent ACROSS the direction of travel, swept forwards.
+        // Anything it touches is "in this column" (or row) and is preferred outright.
+        var inBeam = horizontal
+            ? Overlaps(a.Y, a.Y + a.H, b.Y, b.Y + b.H)
+            : Overlaps(a.X, a.X + a.W, b.X, b.X + b.W);
+        return (inBeam ? 0 : 1,
+                horizontal ? dx : dy,
+                horizontal ? dy : dx);
+    }
+
+    private static bool Overlaps(float a1, float a2, float b1, float b2) => a1 < b2 && b1 < a2;
+
     /// <summary>Move keyboard focus to the next (dir=+1) or previous (dir=-1) control, wrapping.</summary>
     private bool MoveFocus(int dir)
     {

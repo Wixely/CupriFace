@@ -76,6 +76,29 @@ public sealed class TestDoc : IDisposable
     public TouchDriver Touch => _touch ??= new TouchDriver(Doc, onFrame: Layout);
     private TouchDriver? _touch;
 
+    /// <summary>A controller — <c>t.Pad.Press(NavigationDirection.Down)</c>, <c>Stick</c>,
+    /// <c>Confirm</c>. Wired to re-lay-out after every move the way <see cref="Touch"/> is, so a test
+    /// can make pixel assertions between presses. Navigation does not depend on it: the engine lays
+    /// itself out, which <c>Presses_between_frames_still_navigate</c> pins down.</summary>
+    public GamepadDriver Pad => _pad ??= new GamepadDriver(Doc, onFrame: Layout);
+    private GamepadDriver? _pad;
+
+    /// <summary>The accessible name of whatever holds keyboard focus, or "". The accessibility tree is
+    /// the only place focus on a non-text control is visible — <c>data-focus</c> is set for an
+    /// editable field, not for a focused button.</summary>
+    public string FocusedName()
+    {
+        var root = Doc.BuildAccessibilityTree(Width, Height);
+        return Walk(root) ?? "";
+
+        static string? Walk(Accessibility.AccessibilityNode n)
+        {
+            if (n.Focused) return n.Name ?? "";
+            foreach (var c in n.Children) { var f = Walk(c); if (f is not null) return f; }
+            return null;
+        }
+    }
+
     public void ClickNode(RenderNode n, int clicks = 1) { var (x, y) = Center(n); Click(x, y, clicks); }
     public void ClickMatch(Func<RenderNode, bool> match) => ClickNode(Find(match)!);
     public void HoverClass(string cls) { var (x, y) = Center(FindClass(cls)); Move(x, y); }
