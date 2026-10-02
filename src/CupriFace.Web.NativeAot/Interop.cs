@@ -98,6 +98,15 @@ public static unsafe partial class Interop
     [UnmanagedCallersOnly(EntryPoint = "EditKeyPress")]
     public static void EditKeyPress(int code, int mods) => Guard("EditKeyPress", () => WebHostCore.EditKeyPress(code, mods));
 
+    [UnmanagedCallersOnly(EntryPoint = "EditKeyRelease")]
+    public static void EditKeyRelease(int code) => Guard("EditKeyRelease", () => WebHostCore.EditKeyRelease(code));
+
+    [UnmanagedCallersOnly(EntryPoint = "GamepadStick")]
+    public static void GamepadStick(double x, double y) => Guard("GamepadStick", () => WebHostCore.GamepadStick(x, y));
+
+    [UnmanagedCallersOnly(EntryPoint = "ReleaseAllKeys")]
+    public static void ReleaseAllKeys() => Guard("ReleaseAllKeys", WebHostCore.ReleaseAllKeys);
+
     [UnmanagedCallersOnly(EntryPoint = "Undo")] public static void Undo() => Guard("Undo", WebHostCore.Undo);
     [UnmanagedCallersOnly(EntryPoint = "Redo")] public static void Redo() => Guard("Redo", WebHostCore.Redo);
 

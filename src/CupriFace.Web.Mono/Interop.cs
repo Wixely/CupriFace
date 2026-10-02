@@ -65,6 +65,9 @@ internal partial class Interop
 
     [JSExport] internal static void KeyChar(string text) => WebHostCore.KeyChar(text);
     [JSExport] internal static void EditKeyPress(int code, int mods) => WebHostCore.EditKeyPress(code, mods);
+    [JSExport] internal static void EditKeyRelease(int code) => WebHostCore.EditKeyRelease(code);
+    [JSExport] internal static void GamepadStick(double x, double y) => WebHostCore.GamepadStick(x, y);
+    [JSExport] internal static void ReleaseAllKeys() => WebHostCore.ReleaseAllKeys();
     [JSExport] internal static bool KeyChord(string text, int mods) => WebHostCore.KeyChord(text, mods);
     [JSExport] internal static string EditKeyMap() => WebHostCore.EditKeyMap();
 

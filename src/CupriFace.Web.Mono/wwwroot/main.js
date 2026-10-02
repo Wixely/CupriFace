@@ -726,10 +726,55 @@ try {
         }, true);
     }
 
+
+    // ---- game controllers ---------------------------------------------------------------------
+    // The Gamepad API has no events for buttons or axes: a page must POLL, which is why this lives
+    // in the frame loop rather than beside the keyboard listeners. Standard-mapping indices — 12..15
+    // are the D-pad, 0 is A, 1 is B.
+    //
+    // The D-pad and face buttons are sent as the KEYS they stand for, exactly as the desktop and
+    // Android hosts do, so a pad inherits directional navigation, corner moves, activation and
+    // overlay dismissal rather than getting a path of its own that could drift from the keyboard's.
+    const PAD_KEYS = { 12: "ArrowUp", 13: "ArrowDown", 14: "ArrowLeft", 15: "ArrowRight", 0: "Enter", 1: "Escape" };
+    const padHeld = new Map();   // "padIndex:button" -> was it down last frame
+
+    // A tab that loses focus never sees the release of anything held: that event goes to
+    // whoever gains focus. A direction left marked as held would make the next press read
+    // as half of a corner for the rest of the session.
+    window.addEventListener('blur', () => { padHeld.clear(); I.ReleaseAllKeys(); });
+
+    function pollGamepads() {
+        if (!navigator.getGamepads) return;        // older browser, or a page without the permission
+        let pads;
+        try { pads = navigator.getGamepads(); } catch { return; }
+        for (const pad of pads) {
+            if (!pad || !pad.connected) continue;
+            for (const index in PAD_KEYS) {
+                const code = EK[PAD_KEYS[index]];
+                if (code === undefined) continue;
+                const button = pad.buttons[index];
+                const down = !!(button && button.pressed);
+                const key = pad.index + ":" + index;
+                // Edges only. Sending a press per frame would race the selection across the panel
+                // for one held button; sending the release is what lets the engine tell a pair
+                // pressed TOGETHER from two pressed in turn.
+                if (down !== (padHeld.get(key) === true)) {
+                    if (down) I.EditKeyPress(code, 0); else I.EditKeyRelease(code);
+                    padHeld.set(key, down);
+                }
+            }
+            // Axis 1 is the left stick's Y and the Gamepad API already defines it down-positive,
+            // which is the engine's own convention — nothing is flipped on the way in. Safe every
+            // frame: the driver edge-detects, and a stick at rest inside the deadzone does nothing.
+            I.GamepadStick(pad.axes[0] || 0, pad.axes[1] || 0);
+        }
+    }
+
     // Frame loop: Tick decides whether to paint (render-on-demand) — after input, on the app's
     // periodic re-bind, or throttled while something animates. An idle page costs ~nothing.
     let firstTick = true;
     function frame(now) {
+        try { pollGamepads(); } catch { /* a pad must never take the frame loop down */ }
         try { I.Tick(canvas.width, canvas.height, dprOf(), now); if (firstTick) { firstTick = false; logBoot('Tick ok'); } }
         catch (err) { showError('Tick', err); return; }
         requestAnimationFrame(frame);
