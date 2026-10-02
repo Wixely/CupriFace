@@ -93,6 +93,21 @@ public sealed partial class CupriDocument : IDisposable
     private int _gridHi = -1;    // highlighted cell index for an open [data-gridnav] overlay (datepicker); -1 = none
     private bool _textDrag;      // a mouse drag is extending the text selection
     private int _kbIndex = -1;      // keyboard focus: index into the focusable list (-1 = none)
+    // A directional press held back for a moment in case its partner on the other axis is already
+    // on the way: Right and Down pressed together should be ONE move to the corner, not two moves
+    // through whatever happens to sit beside it. Null when nothing is waiting. Only used by the
+    // timing fallback — a host that reports key-up does not need it; see DiagonalNavigation.
+    private NavigationDirection? _pendingNav;
+    private double _pendingNavAt = double.NaN;   // stamped on the first Animate after the press
+
+    // Which directional keys are PHYSICALLY DOWN, and whether this host says so at all. A host that
+    // reports key-up turns "were these two pressed together?" from a guess about timing into a fact
+    // about state, which is the whole reason to want it.
+    private readonly HashSet<NavigationDirection> _heldNav = [];
+    // Where the last directional move started, so a corner press arriving while the first key is
+    // still down can be re-scored from there instead of compounding onto its result.
+    private int _navOriginIndex = -1;
+    private NavigationDirection? _navOriginKey;
     private bool _focusVisible;     // show the focus ring? true after Tab, false after a mouse click
     private bool _dragging;
     // A live window drag (data-window-drag) and the point it was grabbed at, in window pixels.
@@ -1121,6 +1136,9 @@ public sealed partial class CupriDocument : IDisposable
         // so the transition below applies it the SAME frame — the toast starts from its off-screen state
         // instead of flashing at the target for one frame before the transition kicks in.
         if (_toasts.Count > 0 && StepToasts(timeSeconds)) any = true;
+        // A directional press waiting for a partner on the other axis. Released here rather than at
+        // the keystroke precisely so that the partner has a moment to arrive.
+        if (_pendingNav is not null && StepPendingNav(timeSeconds)) any = true;
         // @keyframes RULES existing is not animation HAPPENING: hosts call Animate whenever rules
         // exist (HasAnimations), but only a visibly animated node makes this frame's output differ.
         if (_keyframes.Count > 0)
@@ -1160,7 +1178,7 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>True while a CSS transition is mid-flight (a continuous host should keep calling
     /// <see cref="Animate"/> and repainting until it settles). Also true while a masked field is
     /// peeking its last-typed char, so the host keeps ticking until <see cref="Animate"/> re-masks it.</summary>
-    public bool HasActiveTransitions => _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || FlingActive || OverscrollActive;
+    public bool HasActiveTransitions => _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || FlingActive || OverscrollActive || _pendingNav is not null;
 
     /// <summary>True only if a *visible* node is currently animating (display:none subtrees are
     /// absent from the render tree). Lets a host render continuously only when it must, instead
@@ -1168,7 +1186,7 @@ public sealed partial class CupriDocument : IDisposable
     /// set only changes when the tree does), so a host may poll it every frame for free. Also true
     /// while a masked field peeks its last-typed char (see <see cref="HasActiveTransitions"/>),
     /// and while any live surface (a playing video) is producing frames.</summary>
-    public bool HasActiveAnimations => (_hasActiveAnim && _animRunning) || _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || Surfaces.AnyTicking || FlingActive || OverscrollActive;
+    public bool HasActiveAnimations => (_hasActiveAnim && _animRunning) || _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || Surfaces.AnyTicking || FlingActive || OverscrollActive || _pendingNav is not null;
     private bool _hasActiveAnim;
     private bool _animRunning = true;
 
@@ -3569,6 +3587,132 @@ public sealed partial class CupriDocument : IDisposable
     }
 
     /// <summary>
+    /// Tell the document a key was RELEASED. Optional, and the engine works without it — but a host
+    /// that reports it gets materially better directional navigation, so every host should.
+    ///
+    /// <para>Without key-up the engine only ever sees presses, so "did the user mean these two
+    /// together?" can only be guessed from how close together they arrived — which is what
+    /// <see cref="DiagonalWindowSeconds"/> is, and why it needs tuning per person and keyboard. With
+    /// key-up the question is not a guess at all: if the first key is still physically down when the
+    /// second arrives, they were pressed together. That is true whether the gap was 20 ms or 300 ms,
+    /// so the window stops mattering and the latency it costs can be skipped entirely.</para>
+    ///
+    /// <para>Set <see cref="ReportsKeyUp"/> once at startup to select the held-state path. Detecting
+    /// it from the first release instead would be tidier to wire and wrong to use: no key has been
+    /// released when the first arrow of a session is pressed, so the first corner would silently
+    /// behave differently from every later one.</para>
+    ///
+    /// <para>Returns true when the release changed something the caller should repaint for. Hosts
+    /// should also call <see cref="ReleaseAllKeys"/> when the window loses focus, or a key released
+    /// while unfocused is remembered as held for ever.</para>
+    /// </summary>
+    public bool DispatchKeyUp(EditKey key)
+    {
+        if (Arrow(key) is not { } direction) return false;
+        _heldNav.Remove(direction);
+        if (_navOriginKey == direction) { _navOriginKey = null; _navOriginIndex = -1; }
+        return false;   // a release moves nothing on its own
+    }
+
+    /// <summary>
+    /// True when this host forwards key releases through <see cref="DispatchKeyUp"/>. Hosts set it
+    /// once, at wire-up.
+    ///
+    /// <para>It selects how <see cref="DiagonalNavigation"/> decides that two arrows were pressed
+    /// together. Set, the answer is whether the first key is still physically down — exact, and
+    /// independent of how fast the two arrived, so no press is ever delayed. Unset, the engine has
+    /// only arrival times to go on and falls back to holding each press for
+    /// <see cref="DiagonalWindowSeconds"/>, which costs latency and needs tuning per keyboard.</para>
+    /// </summary>
+    public bool ReportsKeyUp { get; set; }
+
+    /// <summary>Forget every held key. A host calls this when its window loses focus: the key-up for
+    /// anything down at that moment is delivered to whoever has focus next, never to us, and a
+    /// direction remembered as held for ever would make the next press read as a corner.</summary>
+    public void ReleaseAllKeys()
+    {
+        _heldNav.Clear();
+        _navOriginKey = null;
+        _navOriginIndex = -1;
+    }
+
+    private static NavigationDirection? Arrow(EditKey key) => key switch
+    {
+        EditKey.Up => NavigationDirection.Up,
+        EditKey.Down => NavigationDirection.Down,
+        EditKey.Left => NavigationDirection.Left,
+        EditKey.Right => NavigationDirection.Right,
+        _ => null,
+    };
+
+    /// <summary>
+    /// Let the ARROW KEYS navigate by geometry, the way a D-pad does. <b>Off by default.</b>
+    ///
+    /// <para>Off is the right default for an ordinary application, and deliberately so: arrow keys
+    /// are expected to move a caret, scroll a view, and step through a radio group or a list, and a
+    /// general-purpose UI that quietly repurposed them would be fighting every habit its users
+    /// already have. <c>Tab</c> is what moves focus there, and it stays that way whatever this is
+    /// set to.</para>
+    ///
+    /// <para>On is the right setting for a GAME, or anything else driven from a sofa: the arrows
+    /// become a keyboard D-pad, so a controller and a keyboard navigate the same panel the same way
+    /// and one layout serves both. It also makes a controller UI developable without a controller.</para>
+    ///
+    /// <para><b>Turning it on takes nothing away.</b> Every arrow that was already spoken for stays
+    /// spoken for, because each of those is decided before this one is reached: a focused text field
+    /// moves its caret, a slider nudges its value, a radio group follows the ARIA pattern, a date
+    /// picker takes the arrows for day navigation, a tree expands and collapses, and a reorder grip
+    /// moves its row. The only thing that changes is what an arrow does when the answer would
+    /// otherwise have been "move to the next focusable in document order" — which, on anything laid
+    /// out in two dimensions, is the case where document order is the wrong answer.</para>
+    ///
+    /// <para>Settable rather than a constructor argument, because an app may well want it on for a
+    /// game board and off for the settings screen behind it.</para>
+    /// </summary>
+    public bool ArrowNavigation { get; set; }
+
+    /// <summary>
+    /// Treat two arrows pressed TOGETHER as one move to the corner. Off by default, and only has any
+    /// effect while <see cref="ArrowNavigation"/> is on.
+    ///
+    /// <para>Without it, pressing Right and Down together is two separate moves, and <b>where you
+    /// end up depends on which key the hardware happened to report first</b> — right-then-down and
+    /// down-then-right land on different controls, and neither is the one diagonally adjacent. With
+    /// it on, the two presses combine into a single <see cref="NavigationDirection.DownRight"/>,
+    /// which is both what the user meant and the same answer whichever key won the race.</para>
+    ///
+    /// <para><b>The cost is latency, and it is unavoidable:</b> to know whether a second key is
+    /// coming, the first one has to wait. Every arrow press is therefore held for up to
+    /// <see cref="DiagonalWindowSeconds"/> before it moves anything. That is why this is off by
+    /// default — a UI that never wants diagonals should not pay for them.</para>
+    ///
+    /// <para><b>It needs a host that calls <see cref="Animate"/>.</b> The held press is released on a
+    /// clock, the same way a masked field re-masks itself. BOTH
+    /// <see cref="HasActiveAnimations"/> and <see cref="HasActiveTransitions"/> report true while one
+    /// is waiting, and both are load-bearing: hosts poll the first to decide whether to produce a
+    /// frame at all, and the second to decide whether to call <c>Animate</c> within it. A flag on
+    /// only the second is invisible — the host never wakes, so the press is never released, and it
+    /// sits there until the NEXT press merges with it however much later that comes. A test must
+    /// call <c>Animate</c> itself, exactly as it must after a fling.</para>
+    /// </summary>
+    public bool DiagonalNavigation { get; set; }
+
+    /// <summary>
+    /// How long a directional press waits for a partner on the other axis, in seconds. Default 0.08.
+    /// Only consulted while <see cref="DiagonalNavigation"/> is on, and it is the exact latency that
+    /// flag adds to every arrow press.
+    ///
+    /// <para><b>This is the one number to turn when corners "do not work".</b> Two keys a hand meant
+    /// to press together are not simultaneous — the skew is routinely 50–100 ms, and varies by
+    /// person, keyboard and how the two keys sit under the fingers. Too short and deliberate pairs
+    /// are read as two moves, which looks exactly like the feature being broken; too long and every
+    /// single press feels sluggish. 0.08 is a compromise, not a constant of nature: an app that
+    /// knows its users should tune it, and one that cannot should consider leaving diagonals off.
+    /// </para>
+    /// </summary>
+    public double DiagonalWindowSeconds { get; set; } = 0.08;
+
+    /// <summary>
     /// Move keyboard focus to the nearest control in a DIRECTION — a D-pad, a thumbstick, or the
     /// arrow keys on a page that is laid out as a grid rather than as a form.
     ///
@@ -3665,12 +3809,17 @@ public sealed partial class CupriDocument : IDisposable
         for (var i = 0; i < f.Count; i++)
         {
             var b = Box(f[i]);
+            // A diagonal enters from a CORNER, so both axes count; an orthogonal uses one edge.
             var edge = direction switch
             {
                 NavigationDirection.Down => b.Y,
                 NavigationDirection.Up => -(b.Y + b.H),
                 NavigationDirection.Right => b.X,
-                _ => -(b.X + b.W),
+                NavigationDirection.Left => -(b.X + b.W),
+                NavigationDirection.DownRight => b.X + b.Y,
+                NavigationDirection.DownLeft => -(b.X + b.W) + b.Y,
+                NavigationDirection.UpRight => b.X - (b.Y + b.H),
+                _ => -(b.X + b.W) - (b.Y + b.H),                  // UpLeft
             };
             if (edge < bestEdge) { bestEdge = edge; best = i; }
         }
@@ -3687,10 +3836,19 @@ public sealed partial class CupriDocument : IDisposable
         var dy = (b.Y + b.H / 2f) - (a.Y + a.H / 2f);
         return direction switch
         {
+            // Orthogonal: a 45-degree cone. Without it the nearest thing to almost any control is
+            // its neighbour on the same row, and every direction walks the row.
             NavigationDirection.Up => dy < 0 && MathF.Abs(dx) <= -dy,
             NavigationDirection.Down => dy > 0 && MathF.Abs(dx) <= dy,
             NavigationDirection.Left => dx < 0 && MathF.Abs(dy) <= -dx,
             NavigationDirection.Right => dx > 0 && MathF.Abs(dy) <= dx,
+            // Diagonal: the whole quadrant. "Down-right" names a corner rather than a lane, so a
+            // cone centred on the 45-degree line would reject most of what the user is aiming at —
+            // a box 140 right and 110 down sits at 38 degrees and would miss a +/-22.5 cone.
+            NavigationDirection.UpLeft => dx < 0 && dy < 0,
+            NavigationDirection.UpRight => dx > 0 && dy < 0,
+            NavigationDirection.DownLeft => dx < 0 && dy > 0,
+            NavigationDirection.DownRight => dx > 0 && dy > 0,
             _ => false,
         };
     }
@@ -3699,9 +3857,15 @@ public sealed partial class CupriDocument : IDisposable
         (float X, float Y, float W, float H) a, (float X, float Y, float W, float H) b,
         NavigationDirection direction)
     {
-        var horizontal = direction is NavigationDirection.Left or NavigationDirection.Right;
         var dx = MathF.Abs((b.X + b.W / 2f) - (a.X + a.W / 2f));
         var dy = MathF.Abs((b.Y + b.H / 2f) - (a.Y + a.H / 2f));
+
+        // A diagonal has no column or row to stay in, so the beam rule has nothing to say about it
+        // and applying it anyway would prefer whatever happened to share an edge over what the user
+        // was pointing at. Straight-line distance is the whole of it.
+        if (direction.IsDiagonal()) return (0, dx * dx + dy * dy, 0);
+
+        var horizontal = direction is NavigationDirection.Left or NavigationDirection.Right;
         // The beam is the focused control's extent ACROSS the direction of travel, swept forwards.
         // Anything it touches is "in this column" (or row) and is preferred outright.
         var inBeam = horizontal
@@ -3744,11 +3908,92 @@ public sealed partial class CupriDocument : IDisposable
     // Arrow-key nav within a group: radios move+select among their group; everything else
     // (menu items, list options, general) moves focus to the previous/next focusable. Sliders
     // are handled separately (they nudge their value) before this is called.
-    private bool ArrowMove(int dir)
+    private bool ArrowMove(int dir, NavigationDirection nav)
     {
         if (CurrentFocusNode() is { } cur && cur.Element?.GetAttribute("role") == "radio")
             return RadioArrow(cur, dir);
-        return MoveFocus(dir);
+        // The one place where the answer would otherwise be "the next focusable in document order",
+        // which is the answer ArrowNavigation exists to replace. Up and Left are both dir = -1, so
+        // the axis has to be passed in: document order has no axes.
+        if (!ArrowNavigation) return MoveFocus(dir);
+        if (!DiagonalNavigation) return MoveFocus(nav);
+        return ReportsKeyUp ? HeldDirectional(nav) : QueueDirectional(nav);
+    }
+
+    /// <summary>
+    /// Directional navigation for a host that reports key-up — no waiting, and no window.
+    ///
+    /// <para>The press moves IMMEDIATELY, so ordinary navigation costs nothing. What makes corners
+    /// work is the second press: if the key that caused the previous move is <b>still physically
+    /// down</b>, the two were pressed together, and the move is re-scored as a corner FROM WHERE THE
+    /// FIRST ONE STARTED rather than compounded onto its result. That is the whole difference
+    /// key-up makes — "together" becomes a fact about the keyboard instead of a guess about
+    /// timing, so it holds whether the gap was 20 ms or 300 ms.</para>
+    ///
+    /// <para>Two presses that are genuinely separate are unaffected, because the first key has been
+    /// released by then and there is nothing to combine with.</para>
+    /// </summary>
+    private bool HeldDirectional(NavigationDirection nav)
+    {
+        var held = _heldNav.Count > 0 && _navOriginKey is { } origin
+            && _heldNav.Contains(origin) && origin.CombinesWith(nav)
+            && _navOriginIndex >= 0;
+        _heldNav.Add(nav);
+
+        if (held && NavigationDirections.Combine(_navOriginKey!.Value, nav) is { } corner)
+        {
+            _kbIndex = _navOriginIndex;          // back to where the pair began…
+            var moved = MoveFocus(corner);       // …and one move, to the corner
+            _navOriginKey = null;                // a corner is final: a third press starts afresh
+            _navOriginIndex = -1;
+            return moved;
+        }
+
+        var from = _kbIndex;
+        var ok = MoveFocus(nav);
+        if (ok) { _navOriginIndex = from; _navOriginKey = nav; }
+        return ok;
+    }
+
+    /// <summary>
+    /// Hold a directional press briefly, in case its partner on the other axis is on the way.
+    ///
+    /// <para>Three cases. A press with nothing waiting starts the window. A press on the OTHER axis
+    /// combines with the one waiting and moves once, to the corner — this is the whole point, and it
+    /// gives the same answer whichever key the hardware reported first. A press on the SAME axis
+    /// means the first one was a move in its own right, so it is released now and this one starts a
+    /// fresh window.</para>
+    ///
+    /// <para>Returns true in every case: nothing has moved yet when a window opens, but the press was
+    /// consumed, and saying so is what keeps a render-on-demand host awake to tick the deadline.</para>
+    /// </summary>
+    private bool QueueDirectional(NavigationDirection nav)
+    {
+        if (_pendingNav is not { } waiting) return HoldDirectional(nav);
+        ClearPendingNav();
+        if (NavigationDirections.Combine(waiting, nav) is { } corner) return MoveFocus(corner);
+        MoveFocus(waiting);                  // same axis: two real presses, in order
+        return HoldDirectional(nav);
+    }
+
+    private bool HoldDirectional(NavigationDirection nav)
+    {
+        _pendingNav = nav;
+        _pendingNavAt = double.NaN;          // stamped on the first Animate, as the mask peek is
+        return true;
+    }
+
+    private void ClearPendingNav() { _pendingNav = null; _pendingNavAt = double.NaN; }
+
+    /// <summary>Release a held directional press once its window has passed with no partner. Called
+    /// from <see cref="Animate"/>; true when focus actually moved.</summary>
+    private bool StepPendingNav(double timeSeconds)
+    {
+        if (_pendingNav is not { } waiting) return false;
+        if (double.IsNaN(_pendingNavAt)) { _pendingNavAt = timeSeconds; return false; }
+        if (timeSeconds - _pendingNavAt < DiagonalWindowSeconds) return false;
+        ClearPendingNav();
+        return MoveFocus(waiting);
     }
 
     // Move to the previous/next radio in the same group and select it (ARIA radio pattern).
@@ -4237,10 +4482,10 @@ public sealed partial class CupriDocument : IDisposable
             switch (key)
             {
                 case EditKey.Enter or EditKey.Space: return ActivateFocused();
-                case EditKey.Up: return role == "slider" ? NudgeSlider(CurrentFocusNode()!, +1) : ArrowMove(-1);
-                case EditKey.Down: return role == "slider" ? NudgeSlider(CurrentFocusNode()!, -1) : ArrowMove(+1);
-                case EditKey.Left: return role == "slider" ? NudgeSlider(CurrentFocusNode()!, -1) : ArrowMove(-1);
-                case EditKey.Right: return role == "slider" ? NudgeSlider(CurrentFocusNode()!, +1) : ArrowMove(+1);
+                case EditKey.Up: return role == "slider" ? NudgeSlider(CurrentFocusNode()!, +1) : ArrowMove(-1, NavigationDirection.Up);
+                case EditKey.Down: return role == "slider" ? NudgeSlider(CurrentFocusNode()!, -1) : ArrowMove(+1, NavigationDirection.Down);
+                case EditKey.Left: return role == "slider" ? NudgeSlider(CurrentFocusNode()!, -1) : ArrowMove(-1, NavigationDirection.Left);
+                case EditKey.Right: return role == "slider" ? NudgeSlider(CurrentFocusNode()!, +1) : ArrowMove(+1, NavigationDirection.Right);
             }
             return text == " " && ActivateFocused();
         }

@@ -40,6 +40,55 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   edge, and a rule about returning to centre. A held stick moves once rather than once per frame,
   drift inside the deadzone is at rest, and a diagonal push picks the dominant axis.
 
+- **`doc.ArrowNavigation` — the arrow keys as a D-pad, off by default.** Off is deliberate: arrow
+  keys in an ordinary application are expected to move a caret, scroll a view and step through a
+  radio group, and silently repurposing them would fight every habit a user arrived with. `Tab` is
+  what moves focus there, in both modes. On is for a game, or anything driven from a sofa — the
+  arrows become a keyboard D-pad, so a controller and a keyboard navigate the same panel the same
+  way and a controller UI can be built without a controller.
+
+  Turning it on takes nothing away. A focused text field still moves its caret, a slider still
+  nudges, a radio group still follows the ARIA pattern, a date picker still takes the arrows for
+  day navigation, a tree still expands and a reorder grip still moves its row — each of those is
+  decided before this is reached. It only changes what an arrow does when the answer would otherwise
+  have been "move to the next focusable in document order".
+
+  `samples/SpatialNav` is a worked example: 30 scattered boxes and an `M` key that switches the mode
+  live, so the same keypress can be watched doing two different things.
+
+- **`doc.DiagonalNavigation` — two arrows pressed together as one move to the corner.** Off by
+  default. Without it the two presses are two moves, and **which control you land on depends on
+  which key the hardware reported first**: on a staggered two-column layout Right-then-Down and
+  Down-then-Right disagree, and neither is the control actually on the diagonal.
+
+  The cost is latency and it cannot be avoided — to know whether a second key is coming, the first
+  has to wait. `DiagonalWindowSeconds` (default 0.08) is exactly that wait, and it applies to every
+  arrow press while the flag is on — and it is the one number to turn when corners seem not to work,
+  because two keys a hand meant to press together are routinely 50–100 ms apart. The held press is released on a clock, so this needs a host that
+  calls `Animate`: both `HasActiveAnimations` (which every host polls to decide whether to draw a
+  frame at all) and `HasActiveTransitions` (which decides whether to call `Animate` within it) now
+  report true while a press is waiting. A test must call `Animate` itself, as it must after a fling.
+
+  A thumbstick needs none of it: it reports a vector, so `new GamepadDriver(doc, diagonals: true)`
+  resolves a corner from one reading, eight sectors, no window. `NavigationDirection` gains
+  `UpLeft`, `UpRight`, `DownLeft` and `DownRight`; a diagonal is scored over the whole quadrant by
+  straight-line distance rather than through the cone-and-beam rule, which names a lane a corner
+  does not have.
+
+- **Key releases reach the engine: `doc.DispatchKeyUp`, `ReleaseAllKeys` and `ReportsKeyUp`.** The
+  engine previously saw only presses, so "were these two arrows meant together?" could only be
+  inferred from how close together they arrived — which is what `DiagonalWindowSeconds` is, and why
+  it needed tuning per person and keyboard. With releases the question is answered exactly: is the
+  first key still physically down? That holds at any gap, **delays nothing**, and has no number to
+  tune. The desktop host forwards releases on both its GL and SDL paths and sets `ReportsKeyUp`; a
+  host that does not keeps the timing fallback unchanged.
+
+  Hosts forwarding releases must also call `ReleaseAllKeys()` on focus loss — the key-up for
+  anything held when a window loses focus goes to whoever gains it, so the key would otherwise be
+  remembered as held for the rest of the session. Both desktop windows now raise `FocusLost` for
+  this, and the key→`EditKey` mapping each had inline is now one shared method per window rather
+  than a copy that could drift between press and release.
+
 ### Fixed
 
 - **A focus move arriving between frames is no longer swallowed.** Directional navigation reads where

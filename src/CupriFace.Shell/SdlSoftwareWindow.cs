@@ -99,6 +99,26 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
 
     public event Action<string>? TextEntered;               // printable text (IME-aware)
     public event Action<EditKey, KeyMods>? EditKeyPressed;  // key + Shift/Ctrl modifiers
+    public event Action<EditKey>? EditKeyReleased;          // the same key let go
+    public event Action? FocusLost;                         // every held key is now someone else's
+
+    /// <summary>One mapping for both press and release — a duplicate would drift.
+    /// <paramref name="shift"/> only separates Tab from Shift+Tab; releases pass false.</summary>
+    private static EditKey ToEditKey(Scancode sc, bool shift) => sc switch
+    {
+        Scancode.ScancodeBackspace => EditKey.Backspace,
+        Scancode.ScancodeDelete => EditKey.Delete,
+        Scancode.ScancodeLeft => EditKey.Left,
+        Scancode.ScancodeRight => EditKey.Right,
+        Scancode.ScancodeHome => EditKey.Home,
+        Scancode.ScancodeEnd => EditKey.End,
+        Scancode.ScancodeReturn or Scancode.ScancodeReturn2 => EditKey.Enter,
+        Scancode.ScancodeUp => EditKey.Up,
+        Scancode.ScancodeDown => EditKey.Down,
+        Scancode.ScancodeTab => shift ? EditKey.ShiftTab : EditKey.Tab,
+        Scancode.ScancodeEscape => EditKey.Escape,
+        _ => EditKey.None,
+    };
     public event Action<char, KeyMods>? Shortcut;           // Ctrl/Cmd + letter (a/c/x/v …) or =/-/0 (zoom)
     public FrameStats Stats => _stats;
 
@@ -638,6 +658,7 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                         break;
                     case EventType.Windowevent when (WindowEventID)e.Window.Event == WindowEventID.FocusLost:
                         KeyDiag.Log("sdl focus-lost");
+                        FocusLost?.Invoke();   // their key-ups go elsewhere; forget what we think is held
                         break;
                     case EventType.Keydown:
                     {
@@ -668,21 +689,7 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                             };
                             if (zoomCh != '\0') { Shortcut?.Invoke(zoomCh, mods); continue; }
                         }
-                        var ek = e.Key.Keysym.Scancode switch
-                        {
-                            Scancode.ScancodeBackspace => EditKey.Backspace,
-                            Scancode.ScancodeDelete => EditKey.Delete,
-                            Scancode.ScancodeLeft => EditKey.Left,
-                            Scancode.ScancodeRight => EditKey.Right,
-                            Scancode.ScancodeHome => EditKey.Home,
-                            Scancode.ScancodeEnd => EditKey.End,
-                            Scancode.ScancodeReturn or Scancode.ScancodeReturn2 => EditKey.Enter,
-                            Scancode.ScancodeUp => EditKey.Up,
-                            Scancode.ScancodeDown => EditKey.Down,
-                            Scancode.ScancodeTab => shift ? EditKey.ShiftTab : EditKey.Tab,
-                            Scancode.ScancodeEscape => EditKey.Escape,
-                            _ => EditKey.None,
-                        };
+                        var ek = ToEditKey(e.Key.Keysym.Scancode, shift);
                         // A HELD key repeats — SDL delivers the repeats itself, which is why this
                         // window always had auto-repeat and the GLFW one did not (Silk's GLFW input
                         // backend drops InputAction.Repeat, so holding Backspace there deleted one
@@ -691,6 +698,14 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                         // things nobody meant to close.
                         if (e.Key.Repeat != 0 && ek is EditKey.Escape or EditKey.Tab or EditKey.ShiftTab) break;
                         if (ek != EditKey.None) EditKeyPressed?.Invoke(ek, mods);
+                        break;
+                    }
+                    case EventType.Keyup:
+                    {
+                        // Forward the release: the engine can only tell "pressed together" from
+                        // "pressed one after the other" if it knows what is still down.
+                        var up = ToEditKey(e.Key.Keysym.Scancode, shift: false);
+                        if (up != EditKey.None) EditKeyReleased?.Invoke(up);
                         break;
                     }
                     case EventType.Windowevent when (WindowEventID)e.Window.Event == WindowEventID.SizeChanged:

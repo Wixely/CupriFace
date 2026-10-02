@@ -265,7 +265,28 @@ public sealed class SkiaWindow : IDisposable
     public event Action<float, float, string[]>? FilesDropped;
 
     public event Action<string>? TextEntered;
+    /// <summary>One mapping for both directions. It used to live inline in the KeyDown lambda, which
+    /// is why releases could not be forwarded without duplicating it — and a duplicate would drift.
+    /// <paramref name="shift"/> only distinguishes Tab from Shift+Tab; releases pass false.</summary>
+    private static EditKey ToEditKey(Key key, bool shift) => key switch
+    {
+        Key.Backspace => EditKey.Backspace,
+        Key.Delete => EditKey.Delete,
+        Key.Left => EditKey.Left,
+        Key.Right => EditKey.Right,
+        Key.Home => EditKey.Home,
+        Key.End => EditKey.End,
+        Key.Enter or Key.KeypadEnter => EditKey.Enter,
+        Key.Up => EditKey.Up,
+        Key.Down => EditKey.Down,
+        Key.Tab => shift ? EditKey.ShiftTab : EditKey.Tab,
+        Key.Escape => EditKey.Escape,
+        _ => EditKey.None,
+    };
+
     public event Action<EditKey, KeyMods>? EditKeyPressed;  // key + Shift/Ctrl modifiers
+    public event Action<EditKey>? EditKeyReleased;          // the same key let go; see kb.KeyUp
+    public event Action? FocusLost;                         // every held key is now someone else's
     public event Action<char, KeyMods>? Shortcut;           // Ctrl/Cmd + letter (a/c/x/v …) or =/-/0 (zoom)
 
     /// <summary>
@@ -550,7 +571,14 @@ public sealed class SkiaWindow : IDisposable
 
         // Being restored/refocused can invalidate what's on screen — repaint on the next frame.
         _window.StateChanged += _ => _forceRender = true;
-        _window.FocusChanged += f => { _forceRender = true; KeyDiag.Log(f ? "gl focus-gained" : "gl focus-lost"); };
+        _window.FocusChanged += f =>
+        {
+            _forceRender = true;
+            KeyDiag.Log(f ? "gl focus-gained" : "gl focus-lost");
+            // Anything still down belongs to whoever has focus now: its KeyUp is delivered to them,
+            // never to us, so a key remembered as held here would stay held for ever.
+            if (!f) FocusLost?.Invoke();
+        };
 
         _input = _window.CreateInput();
         foreach (var mouse in _input.Mice)
@@ -609,26 +637,21 @@ public sealed class SkiaWindow : IDisposable
                     };
                     if (zoomCh != '\0') { Shortcut?.Invoke(zoomCh, mods); return; }
                 }
-                var ek = key switch
-                {
-                    Key.Backspace => EditKey.Backspace,
-                    Key.Delete => EditKey.Delete,
-                    Key.Left => EditKey.Left,
-                    Key.Right => EditKey.Right,
-                    Key.Home => EditKey.Home,
-                    Key.End => EditKey.End,
-                    Key.Enter or Key.KeypadEnter => EditKey.Enter,
-                    Key.Up => EditKey.Up,
-                    Key.Down => EditKey.Down,
-                    Key.Tab => shift ? EditKey.ShiftTab : EditKey.Tab,
-                    Key.Escape => EditKey.Escape,
-                    _ => EditKey.None,
-                };
+                var ek = ToEditKey(key, shift);
                 if (ek == EditKey.None) return;
                 EditKeyPressed?.Invoke(ek, mods);
                 BeginRepeat(k, key, ek);
             };
-            kb.KeyUp += (_, key, _) => { if (_repeatKey == key) _repeat.Release(); };
+            kb.KeyUp += (_, key, _) =>
+            {
+                if (_repeatKey == key) _repeat.Release();
+                // Forward the release. The engine only ever saw presses, which left it guessing from
+                // TIMING whether two directional keys were meant together; knowing which keys are
+                // still down turns that into a fact. Shift is irrelevant to a release here — it only
+                // picks Tab vs Shift+Tab, and neither is a direction.
+                var ek = ToEditKey(key, shift: false);
+                if (ek != EditKey.None) EditKeyReleased?.Invoke(ek);
+            };
         }
 
         // D, and the window's real size — LAST in OnLoad on purpose. The window was created at the

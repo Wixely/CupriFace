@@ -82,6 +82,34 @@
       "cwd": "${workspaceFolder}"
     },
     {
+      // Thirty scattered boxes, navigated with the arrow keys. Press M to switch between the two
+      // modes — document order (the default, and what an ordinary app wants) and spatial, where the
+      // arrows behave as a D-pad. The point is to watch the SAME keypress do two different things.
+      "name": "SpatialNav — arrow-key navigation (stays open)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${workspaceFolder}/samples/SpatialNav/bin/Debug/net10.0/SpatialNav.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "stopAtEntry": false
+    },
+    {
+      // Same sample with no window: drives both modes and writes spatialnav-off.png /
+      // spatialnav-on.png, for a machine with no GL driver.
+      "name": "SpatialNav — headless (two PNGs)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${workspaceFolder}/samples/SpatialNav/bin/Debug/net10.0/SpatialNav.dll",
+      "args": [],
+      "env": { "CUPRI_HEADLESS": "1" },
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "stopAtEntry": false
+    },
+    {
       "name": "Viewer — live window (stays open)",
       "type": "coreclr",
       "request": "launch",

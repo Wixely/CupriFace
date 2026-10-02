@@ -1167,6 +1167,90 @@ Focus on a non-text control is visible in the **accessibility tree**, not as an 
 `data-focus` marks an editable field, so a focused button has no attribute to look for. Read it with
 `BuildAccessibilityTree(w, h)` and the node's `Focused` flag.
 
+### The arrows as a D-pad: `doc.ArrowNavigation`
+
+```csharp
+doc.ArrowNavigation = true;                   // off by default
+```
+
+**Off is the right default for an ordinary application**, and the reason is not caution: arrow keys
+there are expected to move a caret, scroll a view, and step through a radio group or a list. A
+general-purpose UI that silently repurposed them would be fighting every habit its users arrived
+with, and `Tab` is what moves focus in that world. **On is the right setting for a game**, or
+anything else driven from a sofa — the arrows become a keyboard D-pad, so a controller and a
+keyboard navigate the same panel the same way, and a controller UI can be built and tested with no
+controller plugged in.
+
+Turning it on **takes nothing away**. Everything that already consumed an arrow still does, because
+each of those is decided first: a focused text field moves its caret, a slider nudges its value, a
+radio group follows the ARIA pattern, a date picker takes the arrows for day navigation, a tree
+expands and collapses, a reorder grip moves its row, and `Tab` still follows the document in both
+modes. The only thing that changes is what an arrow does when the answer would otherwise have been
+"move to the next focusable in document order" — which, on anything laid out in two dimensions, is
+the case where document order is the wrong answer.
+
+It is a settable property rather than a constructor argument, so an app can have it on for a game
+board and off for the settings screen behind it. `samples/SpatialNav` is a worked example: 30
+scattered boxes and an `M` key that flips the mode while you watch.
+
+### Corners: `doc.DiagonalNavigation`
+
+```csharp
+doc.DiagonalNavigation = true;                // off by default; needs ArrowNavigation on
+doc.DiagonalWindowSeconds = 0.08;             // …and this is exactly the latency it adds
+```
+
+Two arrows pressed together become **one** move to the corner. Without it they are two moves, and
+**where you end up depends on which key the hardware reported first** — on a staggered two-column
+layout, Right-then-Down and Down-then-Right land on different controls and neither is the one
+actually sitting on the diagonal. That is not a tuning problem; it is a race, and a user pressing
+both keys cannot predict which side of it they will get.
+
+**There are two ways it can decide that, and they are not equally good.**
+
+A host that forwards key releases — `doc.ReportsKeyUp = true` plus `DispatchKeyUp(key)`, which the
+desktop host does on both its GL and SDL paths — gets the *exact* answer: were the two keys down at
+the same time? That is a fact about the keyboard, not an inference from timing, so it holds whether
+the gap was 20 ms or 300 ms, **nothing is ever delayed**, and there is no number to tune. Such a
+host should also call `ReleaseAllKeys()` when its window loses focus: the key-up for anything down
+at that moment is delivered to whoever gains focus, never to you, so the key would stay "held" for
+the rest of the session and every later arrow would read as half a corner.
+
+Everything below describes the **fallback** for a host that only reports presses.
+
+The cost is unavoidable: to know whether a second key is coming, the first one has to wait. **Every**
+arrow press is therefore held for up to `DiagonalWindowSeconds` before anything moves, which is why
+this is off by default — a UI that never wants diagonals should not pay for them.
+
+**`DiagonalWindowSeconds` is the one number to turn when corners "do not work".** Two keys a hand
+meant to press together are not simultaneous: the skew is routinely 50–100 ms and varies by person,
+keyboard, and how the two keys sit under the fingers. Set it too short and deliberate pairs read as
+two separate moves, which looks exactly like the feature being broken rather than like a threshold
+being missed. Set it too long and every single press feels sluggish. The 0.08 default is a
+compromise, not a constant of nature — an app that knows its users should tune it, and one that
+cannot should think hard about whether it wants diagonals at all.
+
+The held press is released on a clock, the same way a masked field re-masks itself, so **it needs a
+host that calls `Animate`**. Two separate signals matter here and both report true while a press is
+waiting: **`HasActiveAnimations`**, which every host polls to decide whether to draw a frame at all,
+and **`HasActiveTransitions`**, which decides whether to call `Animate` within that frame. Setting
+only the second is invisible — no frame happens, so `Animate` is never reached, the press is never
+released, and it sits there until the next press merges with it however much later. (That is not
+hypothetical; it shipped in the first cut of this feature.) A test must call `Animate` itself,
+exactly as it must after a fling.
+
+**A thumbstick needs none of this.** It reports a vector, so "down and right" arrives as a single
+reading and the corner is simply what it says — `new GamepadDriver(doc, diagonals: true)` resolves
+eight sectors with no window and no latency. The keyboard's waiting period is a keyboard problem,
+not a navigation one.
+
+Scoring differs for a corner, and deliberately. An orthogonal direction takes a 45° cone and then
+prefers anything whose span overlaps the control you are leaving, which is what keeps a column a
+column. A diagonal has no column to stay in, so it takes the whole quadrant and the nearest thing in
+it. Sharing the orthogonal rule would make diagonals nearly unusable: a cone centred on the 45° line
+rejects anything more sideways than 45°, which on a staggered layout is most of what the user is
+aiming at.
+
 For tests, `GamepadDriver` (also `CupriFace.Interaction`) is the `TouchDriver` counterpart, and
 exists for the same reason: a stick is not a keyboard, so driving it as one tests the wrong code.
 

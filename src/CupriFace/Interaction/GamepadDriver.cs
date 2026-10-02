@@ -36,7 +36,13 @@ namespace CupriFace.Interaction;
 /// <param name="deadzone">How far the stick travels before it counts as pushed, 0..1.</param>
 /// <param name="onFrame">Called after every press that changed something, for a caller that wants
 /// the repaint a host would do anyway. Optional — see the remarks.</param>
-public sealed class GamepadDriver(CupriDocument doc, float deadzone = 0.5f, Action? onFrame = null)
+/// <param name="diagonals">Let the stick resolve to a corner as well as to an axis — eight sectors
+/// rather than four. Off by default, to match <see cref="CupriDocument.DiagonalNavigation"/>.
+/// <b>A stick needs no waiting period to do this</b>, unlike the keyboard: it reports a VECTOR, so
+/// "down and right" arrives as one reading and the corner is simply what it says. The latency that
+/// flag costs on a keyboard is the price of not having a vector, and it is not paid here.</param>
+public sealed class GamepadDriver(CupriDocument doc, float deadzone = 0.5f, Action? onFrame = null,
+                                 bool diagonals = false)
 {
     private NavigationDirection? _held;
 
@@ -68,12 +74,32 @@ public sealed class GamepadDriver(CupriDocument doc, float deadzone = 0.5f, Acti
     /// controller and a keyboard cannot come to disagree about what "activate" means.</summary>
     public bool Confirm() => Frame(doc.DispatchKey("", EditKey.Enter, KeyMods.None));
 
-    /// <summary>The dominant axis past the deadzone, or null when the stick is at rest. Dominant
-    /// rather than both: one flick is one move, and a stick is never perfectly on an axis.</summary>
+    /// <summary>
+    /// Which way the stick is pointing, or null when it is at rest.
+    ///
+    /// <para>With <c>diagonals</c> off this is the DOMINANT axis — one flick is one move, and a stick
+    /// is never perfectly on an axis, so a push 10° off vertical still means "up". With it on the
+    /// circle is cut into eight equal 45° sectors instead of four 90° ones, which is what a D-pad
+    /// does and what a player expects: a corner is claimed only when the push is genuinely nearer
+    /// the corner than either axis, not whenever both axes happen to be off centre.</para>
+    /// </summary>
     private NavigationDirection? Resolve(float x, float y)
     {
-        if (MathF.Abs(x) < deadzone && MathF.Abs(y) < deadzone) return null;
-        return MathF.Abs(x) >= MathF.Abs(y)
+        var (ax, ay) = (MathF.Abs(x), MathF.Abs(y));
+        if (ax < deadzone && ay < deadzone) return null;
+
+        // The 45° sector boundary sits where the smaller axis is tan(22.5°) of the larger.
+        const float CornerRatio = 0.4142f;
+        if (diagonals && MathF.Min(ax, ay) >= MathF.Max(ax, ay) * CornerRatio)
+            return (x < 0, y < 0) switch
+            {
+                (true, true) => NavigationDirection.UpLeft,
+                (false, true) => NavigationDirection.UpRight,
+                (true, false) => NavigationDirection.DownLeft,
+                _ => NavigationDirection.DownRight,
+            };
+
+        return ax >= ay
             ? x < 0 ? NavigationDirection.Left : NavigationDirection.Right
             : y < 0 ? NavigationDirection.Up : NavigationDirection.Down;
     }
