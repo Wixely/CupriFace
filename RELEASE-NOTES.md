@@ -13,6 +13,43 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Added
+
+- **Directional focus navigation — `doc.MoveFocus(NavigationDirection.Up)`.** A D-pad, a thumbstick,
+  or the arrow keys on a page laid out as a grid rather than as a form. Tab order cannot answer "what
+  is above this": it is one-dimensional and follows the document, so on a panel in two columns "down"
+  and "next" are different controls and only one of them is what the user pointed the stick at. Every
+  controller-driven CupriFace app so far wrote this itself, reading geometry back out of the
+  accessibility tree because the engine offered nothing else.
+
+  Candidates are scored by a 45-degree cone, then a preference for anything whose span overlaps the
+  focused control, then distance along the travel axis. The middle test is what keeps a column a
+  column on a staggered layout, where the next control down this column is further away than
+  something level with the gap in the next one.
+
+  **It does not wrap**, unlike Tab: a stick held right stops at the right-hand edge rather than
+  reappearing on the left, and the `false` it returns there is the host's hook for paging across
+  instead. With nothing focused yet, the first press enters from the edge it travels from — Down
+  lands on the topmost control, not on whatever comes first in the markup.
+
+- **`GamepadDriver` — a controller, scripted**, alongside `TouchDriver` and `DropDriver` in
+  `CupriFace.Interaction`. A stick is not a keyboard, so testing it as one tests the wrong code: a
+  thumbstick delivers a continuous axis, and turning that into "one move left" needs a deadzone, an
+  edge, and a rule about returning to centre. A held stick moves once rather than once per frame,
+  drift inside the deadzone is at rest, and a diagonal push picks the dominant axis.
+
+### Fixed
+
+- **A focus move arriving between frames is no longer swallowed.** Directional navigation reads where
+  controls are, which makes it a geometry entry point like hit-testing — and a focus change rebuilds
+  the tree, so a second press before the next frame scored against boxes that were all zero, matched
+  nothing in any direction, and did nothing at all. Three presses of Down left focus on the first
+  control. Hosts cannot avoid this (Android delivers key events when it likes, and a held D-pad
+  autorepeats faster than a frame), so `MoveFocus` now lays the tree out on entry the way every other
+  geometry entry point already did.
+
 ## v0.32.0
 
 Four ways a CupriFace UI came out looking wrong for reasons that were the ENGINE's rather than the
