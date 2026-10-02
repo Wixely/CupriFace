@@ -202,11 +202,17 @@ Things only sit in a line, and only align with each other, when **the parent say
 sits them on a baseline you did not choose — which is what "my buttons do not line up" always is.
 42 of Bantz's 65 flex rules are this exact line.
 
-**A flex container is block-level and fills the row.** There is no shrink-to-fit flex here —
-`inline-flex` maps to the same thing and `fit-content` maps to `auto`. If you want a shrink-wrapped
-box, `display:inline-block` is the only one, and its contents align on the text baseline rather than
-centring. An icon beside a label inside one will sit slightly off, and there is currently no way to
-have both.
+**For a box that shrinks to its content AND centres what is inside it, use `display:inline-flex`** —
+a button, a badge, a chip, a tag, a pill. Plain `flex` is block-level and fills the row, so two of
+them stack instead of sitting side by side:
+
+```css
+.pill { display:inline-flex; align-items:center; gap:8px; padding:10px 18px; }
+```
+
+`inline-block` also shrinks, but its contents align on the text baseline rather than centring, so an
+icon beside a label sits slightly off. `inline-grid` is still block-level (grid has no intrinsic
+width yet) and `fit-content` maps to `auto`.
 
 ### 2. Never draw focus or selection with `border`.
 

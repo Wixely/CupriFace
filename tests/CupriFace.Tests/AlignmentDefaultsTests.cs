@@ -104,18 +104,17 @@ public class AlignmentDefaultsTests(ITestOutputHelper output)
     // ---- the button is a row, centred ----------------------------------------------------------
 
     /// <summary>
-    /// TWO BUTTONS SIT SIDE BY SIDE AND SHRINK TO THEIR LABELS. This exists because I broke it:
-    /// fixing the icon/label centring by making the button <c>display:flex</c> also made it
-    /// BLOCK-level, so two buttons became 600px wide and stacked, which is a far worse bug than the
-    /// one being fixed. <c>inline-flex</c> parses but maps to the same DisplayType, and
-    /// <c>fit-content</c> maps to auto, so there is no way to have both until the engine grows a
-    /// real inline-flex.
+    /// A BUTTON SHRINKS TO ITS LABEL, SHARES A ROW, AND CENTRES ITS CONTENTS — all three, which is
+    /// the combination that was impossible until <c>inline-flex</c> existed.
     ///
-    /// <para>Centring an icon against a label is therefore still not done. This test guards the
-    /// property that must not be traded away for it.</para>
+    /// <para>Both failure modes are guarded because each was the cost of fixing the other. As
+    /// <c>inline-block</c> a button shrank correctly and aligned its contents on the text baseline,
+    /// so an icon beside a label sat off-centre. As block-level <c>display:flex</c> the contents
+    /// centred and two buttons became full-width and stacked — the worse bug, and one I shipped
+    /// briefly before measuring it.</para>
     /// </summary>
     [Fact]
-    public void Two_buttons_shrink_to_their_labels_and_share_a_row()
+    public void A_button_shrinks_to_its_label_and_shares_a_row()
     {
         using var t = new TestDoc(
             "<body><cupri-button>Save</cupri-button><cupri-button>Cancel</cupri-button></body>",
@@ -128,8 +127,25 @@ public class AlignmentDefaultsTests(ITestOutputHelper output)
         var second = t.Find(n => n.Element?.ClassList.Contains("cupri-button") == true && n != first)!;
 
         Assert.True(first.Width < 300, $"a button shrinks to its label, got {first.Width}");
-        Assert.Equal(first.Y, second.Y, 0.01);          // same row, not stacked
         Assert.True(second.X > first.X, "the second sits after the first, not under it");
+    }
+
+    /// <summary>AN ICON AND A LABEL SHARE A CENTRE LINE. The original report: the hamburger in a
+    /// "Shortcuts" button sat visibly off the label's centre. Asserted on centres rather than edges,
+    /// because the icon is shorter than the line box and equal gaps are the claim.</summary>
+    [Fact]
+    public void An_icon_and_a_label_in_a_button_are_centred_on_each_other()
+    {
+        using var t = new TestDoc(
+            "<body><cupri-button><cupri-icon name='menu'></cupri-icon> Shortcuts</cupri-button></body>",
+            "body { background:#111; }", width: 500, height: 200, components: true);
+        t.Doc.Refresh();
+        using (t.Doc.RenderToImage(500, 200)) { }
+        output.WriteLine(t.Doc.DumpTree(maxDepth: 3));
+
+        var button = t.FindClass("cupri-button");
+        var icon = t.FindClass("cupri-icon");
+        Assert.Equal(button.Y + button.Height / 2f, icon.Y + icon.Height / 2f, 1.0);
     }
 
     /// <summary>A GHOST BUTTON IS THE SAME SIZE AS A PRIMARY ONE. The border lived only on

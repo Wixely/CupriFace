@@ -17,6 +17,37 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **`display: inline-flex`** — a row that shrinks to its content. The engine could do "a row with
+  its contents centred" (`flex`, which fills the width) and "a box that shrinks to its content"
+  (`inline-block`, whose contents align on the text baseline), but not both at once — and both at
+  once is a button, a badge, a chip, a tag, a toolbar item, a status pill. `inline-flex` parsed and
+  mapped to plain `flex`, so asking for it got a full-width row.
+
+  ```css
+  .pill { display:inline-flex; align-items:center; gap:8px; padding:10px 18px; }
+  ```
+
+  Implemented as a flag beside the existing flex rather than a new `DisplayType`: CSS's `display` is
+  an OUTER role (block or inline) and an INNER one (flow, flex, grid), and `inline-flex` changes only
+  the outer. 34 places compare against `DisplayType.Flex` and a new enum value would have had to be
+  right in all of them; this way the inner role is untouched and one gate reads the outer.
+
+  **`<cupri-button>` now uses it**, which closes the icon-beside-a-label misalignment: a button
+  shrinks to its label, shares a row with the next one, and centres its contents — all three, which
+  was not previously expressible.
+
+  **A lone one shrinks too, which it did not before.** A single inline-level child skipped the inline
+  path and laid out as a block, so one chip came out the full width of its parent while two of them
+  shrank correctly. That hit **18 of the shipped controls**: a `<cupri-badge>` on its own measured 600
+  wide and now measures 52.5, a `<cupri-chip>` 600 and now 56.5, with heights unchanged. It applies
+  to `inline-block` as well, so a lone `<span>`-style pill no longer fills its row. A lone TEXT child
+  still takes the block path — routing that through the line changes white-space handling and
+  line-box heights across the engine.
+
+  `inline-grid` is deliberately NOT included. It needs an intrinsic width and the engine has no track
+  sizing for a grid, so making it inline-level left it the full width of its parent — accepting the
+  value and changing nothing. It stays block-level, as before.
+
 - **`outline` and `outline-offset`** — a frame painted OUTSIDE the border box that takes part in no
   layout. This is how a focus or selection ring must be drawn: a `border` is part of the box, so
   adding one on focus grows the element and shifts everything after it, which is what a

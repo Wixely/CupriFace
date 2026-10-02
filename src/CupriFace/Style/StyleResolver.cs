@@ -319,7 +319,13 @@ public sealed class StyleResolver
             DeclarationApplied?.Invoke(prop, v);
             switch (prop)
             {
-                case "display": s.Display = ParseDisplay(v); break;
+                // The INNER role goes to Display; the OUTER one to InlineLevel. Assigned rather
+                // than or-ed, so a later `display:flex` genuinely undoes an earlier `inline-flex`
+                // instead of leaving the box inline for the rest of the cascade.
+                case "display":
+                    s.Display = ParseDisplay(v);
+                    s.InlineLevel = IsInlineOuter(v);
+                    break;
                 case "position": s.Position = v.ToLowerInvariant() switch { "relative" => PositionType.Relative, "absolute" => PositionType.Absolute, "fixed" => PositionType.Fixed, "sticky" => PositionType.Sticky, _ => PositionType.Static }; break;
                 case "z-index": s.ZIndex = (int)ParseNum(v); break;
                 case "overflow": s.Overflow = v.ToLowerInvariant() switch { "hidden" => OverflowMode.Hidden, "scroll" or "auto" => OverflowMode.Scroll, _ => OverflowMode.Visible }; break;
@@ -535,6 +541,21 @@ public sealed class StyleResolver
     };
 
     // ---- value parsers -------------------------------------------------------
+    /// <summary>Whether a <c>display</c> value puts the box on a line with its siblings.
+    ///
+    /// <para><c>inline-block</c> is absent on purpose: it carries its own DisplayType and the layout
+    /// already treats it as inline-level.</para>
+    ///
+    /// <para><b><c>inline-grid</c> is absent because it does not work yet, and was measured rather
+    /// than assumed.</b> Making it inline-level sends it down the shrink-to-fit path, and that path
+    /// asks <c>MaxContentWidth</c> for an intrinsic width — which understands a flex row (it sums
+    /// the children and the gaps) but has no track sizing for a grid, so the box came back the full
+    /// width of its parent and nothing was gained. Left mapping to block-level grid, exactly as
+    /// before, rather than accepting the value and changing nothing about it.</para>
+    /// </summary>
+    private static bool IsInlineOuter(string v) =>
+        v.Trim().ToLowerInvariant() is "inline-flex";
+
     private static DisplayType ParseDisplay(string v) => v.ToLowerInvariant() switch
     {
         "flex" or "inline-flex" => DisplayType.Flex,

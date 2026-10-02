@@ -288,13 +288,24 @@ public sealed class LayoutEngine
         while (i < kids.Count)
         {
             // A run of ≥2 consecutive inline-level children forms an inline formatting context (text +
-            // inline/inline-block elements flow into wrapping lines). Everything else — a block child, or
-            // a lone inline child — stacks as its own box (the original behaviour, untouched).
+            // inline/inline-block elements flow into wrapping lines).
+            //
+            // A LONE one goes down it too when it is an ATOMIC box — an inline-block or an
+            // inline-flex. Without that, one chip in a row was laid out as a block and came out the
+            // full width of its parent, while two of them shrank correctly, which is a difference no
+            // author can see a reason for. It is also most of "my badge fills the row".
+            //
+            // A lone TEXT child still does not: routing it through the inline path changes
+            // white-space handling, line-box heights and measurement across the board (24 tests say
+            // so, starting with A_lone_text_child_still_lays_out_normally). Text in a block is the
+            // overwhelmingly common case and the block path is tuned for it; an atomic box is the
+            // rare one and needs the line.
             if (IsInlineLevel(kids[i]))
             {
                 var j = i + 1;
                 while (j < kids.Count && IsInlineLevel(kids[j])) j++;
-                if (j - i >= 2) { cursorY += LayoutInline(node, kids, i, j, contentW, cbH, cursorY); i = j; continue; }
+                if (j - i >= 2 || IsAtomicInline(kids[i]))
+                { cursorY += LayoutInline(node, kids, i, j, contentW, cbH, cursorY); i = j; continue; }
             }
             var child = kids[i];
             LayoutNode(child, contentW, cbH);
@@ -307,8 +318,25 @@ public sealed class LayoutEngine
         return cursorY;
     }
 
+    /// <summary>An ATOMIC inline-level box: one that lays out its own contents and sits on the line
+    /// as a single unit. inline-block and inline-flex, and deliberately neither text nor a plain
+    /// inline element — those two are what the block path is tuned for, and routing a lone one
+    /// through the line changes white-space handling and line-box heights across the engine.</summary>
+    private static bool IsAtomicInline(RenderNode n) =>
+        !n.IsText && (n.Style.InlineLevel || n.Style.Display == DisplayType.InlineBlock);
+
+    /// <summary>Whether a child joins an inline formatting context — placed on a line with its
+    /// siblings — rather than taking a line of its own.
+    ///
+    /// <para><c>InlineLevel</c> is what makes <c>inline-flex</c> work, and it needs nothing else:
+    /// the atomic-box path this sends a node down already shrinks an auto-width box to
+    /// <see cref="MaxContentWidth"/>, which already sums a horizontal flex row and its gaps, and
+    /// already calls <see cref="LayoutNode"/> so the node runs whatever inner layout it has. The
+    /// pieces were all present; the only thing missing was a way to ask for them together.</para>
+    /// </summary>
     private static bool IsInlineLevel(RenderNode n) =>
-        n.IsText || n.Style.Display is DisplayType.Inline or DisplayType.InlineBlock;
+        n.IsText || n.Style.InlineLevel
+                 || n.Style.Display is DisplayType.Inline or DisplayType.InlineBlock;
 
     // Inline formatting context: flow kids[start..end) (text + inline/inline-block) into wrapping line
     // boxes, starting at startY within the block's content box. Text/inline elements are positioned via
