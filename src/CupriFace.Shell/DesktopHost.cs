@@ -315,6 +315,12 @@ public static class DesktopHost
             doc.ReportsKeyUp = true;   // this host forwards releases; see DiagonalNavigation
             window.EditKeyReleased += k => Mark(doc.DispatchKeyUp(k));
             window.FocusLost += doc.ReleaseAllKeys;
+            // A controller's D-pad and buttons already arrive as EditKeys above, so only the STICK
+            // needs anything of its own: it is an axis rather than a press, and the driver is what
+            // turns a continuous reading into one move per push. Deadzone and whether a corner is a
+            // corner both come from the document, so the app's settings govern a pad as well.
+            var gamepad = new GamepadDriver(doc, onFrame: () => Mark(true));
+            window.GamepadStick += (x, y) => Mark(gamepad.Stick(x, y));
             window.Shortcut += (ch, mods) => { Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             doc.ContextRequested += cmd => { ContextAction(doc, cmd, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             // A copy button (data-cupri-copy) supplies its own text rather than copying a selection.
@@ -534,6 +540,12 @@ public static class DesktopHost
             doc.ReportsKeyUp = true;   // this host forwards releases; see DiagonalNavigation
             window.EditKeyReleased += k => Mark(doc.DispatchKeyUp(k));
             window.FocusLost += doc.ReleaseAllKeys;
+            // A controller's D-pad and buttons already arrive as EditKeys above, so only the STICK
+            // needs anything of its own: it is an axis rather than a press, and the driver is what
+            // turns a continuous reading into one move per push. Deadzone and whether a corner is a
+            // corner both come from the document, so the app's settings govern a pad as well.
+            var gamepad = new GamepadDriver(doc, onFrame: () => Mark(true));
+            window.GamepadStick += (x, y) => Mark(gamepad.Stick(x, y));
             window.Shortcut += (ch, mods) => { Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             doc.ContextRequested += cmd => { ContextAction(doc, cmd, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             // A copy button (data-cupri-copy) supplies its own text rather than copying a selection.

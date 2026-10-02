@@ -1255,6 +1255,18 @@ an app can retune it at runtime (a settings screen, or a per-controller profile)
 stick creeps the selection while nobody is touching it; too high and a deliberate push is ignored —
 and pads genuinely differ, so this is not a number the engine can be right about on its own.
 
+**On desktop a controller is wired to the keyboard's own events.** The D-pad raises the same
+`EditKeyPressed`/`EditKeyReleased` an arrow key does, and A/B raise Enter/Escape — so a pad inherits
+directional navigation, corner moves decided from what is still held, activation and overlay
+dismissal without a parallel path that could drift from the keyboard's. It is also what Android gets
+for free, since the OS reports a controller D-pad as the same keycodes an arrow key produces, so the
+two hosts behave identically rather than merely similarly. Only the *stick* needs its own handling,
+being an axis rather than a press: the host feeds it to a `GamepadDriver`, which takes its deadzone
+and its corner policy from the document, so the app's settings govern a pad as well. Both desktop
+windows do this — the GL one through Silk.NET's `IGamepad` (with Silk's own deadzone turned off, so
+`GamepadDeadzone` is the only one that applies), the software fallback through SDL's controller
+events. Pads connected after launch work on both.
+
 **On Android the driver is the host's own.** `CupriHostView.OnGenericMotionEvent` reads the stick
 and hat axes — nothing read them before, so analog input was dropped entirely — and hands them
 straight to a `GamepadDriver`. A controller D-pad arrives as the same `Dpad*` keycodes a keyboard's

@@ -222,6 +222,13 @@ at 128 MiB** because an unbounded read on wasm ends the tab rather than throwing
 `CUPRIFACE_FRAME_DUMP=out.png` dumps what the window actually presented, read back from the render
 target — ground truth when a live window looks wrong but the document seems right.
 
+`CUPRIFACE_KEY_DEBUG=keys.log` makes the window testify about the input it actually received —
+keys, focus changes, and **every controller button and stick reading**. Reach for it before
+theorising about a pad that "does nothing": it separates "no events arrive at all" (wrong subsystem,
+pad not opened) from "events arrive and are mapped wrongly", which look identical from the outside.
+The stick lines carry the signs, which is the one thing about controller support that cannot be
+checked without hardware — push down and `y` must be positive, or navigation runs upside down.
+
 For the WASM/browser host, drive the canvas with the Playwright MCP.
 
 ---
