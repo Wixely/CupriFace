@@ -174,7 +174,7 @@ different controls and neither is the one diagonally adjacent — where you end 
 key the hardware reported first.
 
 **How it decides "together" depends on whether the host forwards key releases.** A host that sets
-`doc.ReportsKeyUp = true` and calls `DispatchKeyUp` (the desktop host does both) gets the exact
+`doc.ReportsKeyUp = true` and calls `DispatchKeyUp` (desktop and Android both do) gets the exact
 answer — *is the first key still physically down?* — which holds at any gap and delays nothing. A
 host that does not falls back to holding every arrow press for `DiagonalWindowSeconds` and guessing
 from arrival times; that costs latency, needs tuning per keyboard, and needs a host that calls

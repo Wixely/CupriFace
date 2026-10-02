@@ -450,21 +450,7 @@ public sealed class CupriHostView : SKGLSurfaceView
             }
         }
 
-        var key = keyCode switch
-        {
-            Keycode.Del => EditKey.Backspace,
-            Keycode.ForwardDel => EditKey.Delete,
-            Keycode.DpadLeft => EditKey.Left,
-            Keycode.DpadRight => EditKey.Right,
-            Keycode.DpadUp => EditKey.Up,
-            Keycode.DpadDown => EditKey.Down,
-            Keycode.MoveHome => EditKey.Home,
-            Keycode.MoveEnd => EditKey.End,
-            Keycode.Enter or Keycode.NumpadEnter => EditKey.Enter,
-            Keycode.Tab => shift ? EditKey.ShiftTab : EditKey.Tab,
-            Keycode.Escape => EditKey.Escape,
-            _ => EditKey.None,
-        };
+        var key = ToEditKey(keyCode, shift);
         if (key != EditKey.None)
         {
             QueueEvent(() => _host.Key(key, mods));
@@ -479,6 +465,78 @@ public sealed class CupriHostView : SKGLSurfaceView
             return true;
         }
         return base.OnKeyDown(keyCode, e);
+    }
+
+    /// <summary>One mapping for press and release. It lived inline in <see cref="OnKeyDown"/>, which
+    /// is why releases could not be forwarded without copying it — and a copy that drifted would
+    /// mean a key reported down and never up. <paramref name="shift"/> only separates Tab from
+    /// Shift+Tab; releases pass false.
+    ///
+    /// <para>A gamepad's face buttons land here too. Android reports a controller D-pad as the same
+    /// <c>Dpad*</c> keycodes a keyboard's arrow keys produce, so navigation needs nothing special to
+    /// support one: whether arrows move the caret or the selection is the app's call, through
+    /// <see cref="CupriDocument.ArrowNavigation"/>, and it should mean the same thing for both.</para>
+    /// </summary>
+    private static EditKey ToEditKey(Keycode keyCode, bool shift) => keyCode switch
+    {
+        Keycode.Del => EditKey.Backspace,
+        Keycode.ForwardDel => EditKey.Delete,
+        Keycode.DpadLeft => EditKey.Left,
+        Keycode.DpadRight => EditKey.Right,
+        Keycode.DpadUp => EditKey.Up,
+        Keycode.DpadDown => EditKey.Down,
+        Keycode.MoveHome => EditKey.Home,
+        Keycode.MoveEnd => EditKey.End,
+        Keycode.Enter or Keycode.NumpadEnter => EditKey.Enter,
+        Keycode.Tab => shift ? EditKey.ShiftTab : EditKey.Tab,
+        Keycode.Escape => EditKey.Escape,
+        // A controller: A activates what is selected, through the SAME path Enter takes, so a pad
+        // and a keyboard cannot come to disagree about what "activate" means. B is the universal
+        // back/cancel, which is what Escape already does (it closes the topmost overlay).
+        Keycode.ButtonA or Keycode.DpadCenter => EditKey.Enter,
+        Keycode.ButtonB => EditKey.Escape,
+        _ => EditKey.None,
+    };
+
+    public override bool OnKeyUp(Keycode keyCode, KeyEvent? e)
+    {
+        if (e is null) return base.OnKeyUp(keyCode, e);
+        var key = ToEditKey(keyCode, shift: false);
+        if (key == EditKey.None) return base.OnKeyUp(keyCode, e);
+        QueueEvent(() => _host.KeyUp(key));
+        return true;
+    }
+
+    public override void OnWindowFocusChanged(bool hasWindowFocus)
+    {
+        base.OnWindowFocusChanged(hasWindowFocus);
+        // The release of anything held right now is delivered to whoever takes focus, never to us.
+        if (!hasWindowFocus) QueueEvent(() => _host.WindowFocusLost());
+    }
+
+    /// <summary>
+    /// A thumbstick or hat. Android delivers these as motion events rather than keys, and nothing
+    /// read them before — analog stick input was dropped on the floor entirely.
+    ///
+    /// <para>Values are copied out before returning for the same reason <see cref="OnTouchEvent"/>
+    /// does it: the platform recycles <see cref="MotionEvent"/> objects, so anything read after this
+    /// method returns is reading someone else's event.</para>
+    /// </summary>
+    public override bool OnGenericMotionEvent(MotionEvent? e)
+    {
+        if (e is null) return false;
+        var joystick = (e.Source & InputSourceType.Joystick) == InputSourceType.Joystick;
+        if (!joystick || e.ActionMasked != MotionEventActions.Move)
+            return base.OnGenericMotionEvent(e);
+
+        var x = e.GetAxisValue(Axis.X);
+        var y = e.GetAxisValue(Axis.Y);
+        // Many pads report their D-pad as a hat rather than as Dpad* keycodes, and some report the
+        // left stick only on the hat axes. Falling back costs nothing and covers both.
+        if (x == 0f && y == 0f) { x = e.GetAxisValue(Axis.HatX); y = e.GetAxisValue(Axis.HatY); }
+
+        QueueEvent(() => _host.Stick(x, y));
+        return true;
     }
 
     public override bool OnTouchEvent(MotionEvent? e)

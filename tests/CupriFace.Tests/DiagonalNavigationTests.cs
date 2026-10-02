@@ -415,6 +415,36 @@ public class DiagonalNavigationTests(ITestOutputHelper output)
         Assert.Equal("B3", t.FocusedName());
     }
 
+    /// <summary>
+    /// A HOST'S DRIVER FOLLOWS THE DOCUMENT. Left unset, <c>diagonals</c> takes its answer from
+    /// <see cref="CupriDocument.DiagonalNavigation"/> — the app has already said whether this UI has
+    /// corners, and a host that had to answer again could disagree with it. That disagreement is the
+    /// bug this prevents: a stick producing corners in a UI whose keyboard refuses to.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_driver_with_no_opinion_follows_the_document(bool documentWantsCorners)
+    {
+        using var t = new TestDoc(Staggered, Css, width: 1040, height: 720);
+        t.Doc.ArrowNavigation = true;
+        t.Doc.DiagonalNavigation = documentWantsCorners;
+        var pad = new GamepadDriver(t.Doc, onFrame: t.Layout);   // no opinion of its own
+
+        pad.Press(NavigationDirection.Down);                      // B1
+        pad.Stick(0.8f, 0.8f);                                    // to B2 on either reading
+        pad.Stick(0f, 0f);
+        Assert.Equal("B2", t.FocusedName());
+
+        // A down-and-LEFT push from B2 is where the two readings genuinely disagree. As a CORNER it
+        // is DownLeft, and the nearest box in that quadrant is B3. As a DOMINANT AXIS it is a tie,
+        // which goes to the horizontal, so it is Left — and leftwards the cone holds both B1 and B3,
+        // neither sharing B2's row, so the tie breaks on cross-axis distance: B1 at 110 beats B3
+        // at 126. Two different boxes, so this actually discriminates.
+        pad.Stick(-0.8f, 0.8f);
+        Assert.Equal(documentWantsCorners ? "B3" : "B1", t.FocusedName());
+    }
+
     /// <summary>The driver's default is unchanged: diagonals are opt-in there too, so nothing that
     /// already uses a stick starts moving differently.
     ///

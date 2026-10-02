@@ -1209,7 +1209,8 @@ both keys cannot predict which side of it they will get.
 **There are two ways it can decide that, and they are not equally good.**
 
 A host that forwards key releases — `doc.ReportsKeyUp = true` plus `DispatchKeyUp(key)`, which the
-desktop host does on both its GL and SDL paths — gets the *exact* answer: were the two keys down at
+desktop host does on both its GL and SDL paths and the Android host does too — gets the *exact*
+answer: were the two keys down at
 the same time? That is a fact about the keyboard, not an inference from timing, so it holds whether
 the gap was 20 ms or 300 ms, **nothing is ever delayed**, and there is no number to tune. Such a
 host should also call `ReleaseAllKeys()` when its window loses focus: the key-up for anything down
@@ -1240,8 +1241,17 @@ hypothetical; it shipped in the first cut of this feature.) A test must call `An
 exactly as it must after a fling.
 
 **A thumbstick needs none of this.** It reports a vector, so "down and right" arrives as a single
-reading and the corner is simply what it says — `new GamepadDriver(doc, diagonals: true)` resolves
-eight sectors with no window and no latency. The keyboard's waiting period is a keyboard problem,
+reading and the corner is simply what it says — `new GamepadDriver(doc)` resolves eight sectors with
+no window and no latency. Leave `diagonals` unset and it follows the document's
+`DiagonalNavigation`, which is what a host wants: the app has already said whether this UI has
+corners, and a host answering again could disagree with it (a stick producing corners in a UI whose
+keyboard refuses to). Pass a value only to pin the behaviour, as a test does.
+
+**On Android that driver is the host's own.** `CupriHostView.OnGenericMotionEvent` reads the stick
+and hat axes — nothing read them before, so analog input was dropped entirely — and hands them
+straight to a `GamepadDriver`. A controller D-pad arrives as the same `Dpad*` keycodes a keyboard's
+arrows produce, so it needs nothing special; `ButtonA` maps to Enter and `ButtonB` to Escape, so a
+pad activates and cancels through exactly the paths a keyboard already uses. The keyboard's waiting period is a keyboard problem,
 not a navigation one.
 
 Scoring differs for a corner, and deliberately. An orthogonal direction takes a 45° cone and then

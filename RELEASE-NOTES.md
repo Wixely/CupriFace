@@ -89,6 +89,24 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   this, and the key→`EditKey` mapping each had inline is now one shared method per window rather
   than a copy that could drift between press and release.
 
+- **A game controller works on Android.** Three gaps closed at once. **Analog sticks were dropped
+  entirely** — nothing in the repo read `OnGenericMotionEvent`, which is how Android delivers stick
+  and hat axes; the view now reads them and feeds a `GamepadDriver`, so a stick produces a direction
+  (and a corner, with no timing window, because a stick reports a vector rather than two presses).
+  **Releases are forwarded**, so directional navigation uses held state rather than guessing a
+  corner from arrival times, and focus loss clears what is held. **`ButtonA` activates and `ButtonB`
+  cancels**, mapping to Enter and Escape so a pad goes through exactly the paths a keyboard already
+  does.
+
+  A controller D-pad needs nothing special: Android reports it as the same `Dpad*` keycodes a
+  keyboard's arrow keys produce, so whether arrows move a caret or the selection stays one app-level
+  decision (`ArrowNavigation`) that means the same thing for both.
+
+- **`GamepadDriver` follows the document's `DiagonalNavigation` by default.** `diagonals` is now
+  nullable and unset means "ask the document". A host should not have to answer a question the app
+  has already answered — and if it did, it could disagree, giving a stick corners in a UI whose
+  keyboard refuses them.
+
 ### Fixed
 
 - **A focus move arriving between frames is no longer swallowed.** Directional navigation reads where

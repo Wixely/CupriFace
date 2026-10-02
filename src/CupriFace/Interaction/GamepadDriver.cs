@@ -37,12 +37,15 @@ namespace CupriFace.Interaction;
 /// <param name="onFrame">Called after every press that changed something, for a caller that wants
 /// the repaint a host would do anyway. Optional — see the remarks.</param>
 /// <param name="diagonals">Let the stick resolve to a corner as well as to an axis — eight sectors
-/// rather than four. Off by default, to match <see cref="CupriDocument.DiagonalNavigation"/>.
+/// rather than four. Left null it FOLLOWS <see cref="CupriDocument.DiagonalNavigation"/>, which is
+/// what a host wants: the app has already said whether this UI has corners, and a host that had to
+/// answer again could disagree with it. Pass a value only to pin the behaviour regardless, as a
+/// test does.
 /// <b>A stick needs no waiting period to do this</b>, unlike the keyboard: it reports a VECTOR, so
 /// "down and right" arrives as one reading and the corner is simply what it says. The latency that
 /// flag costs on a keyboard is the price of not having a vector, and it is not paid here.</param>
 public sealed class GamepadDriver(CupriDocument doc, float deadzone = 0.5f, Action? onFrame = null,
-                                 bool diagonals = false)
+                                 bool? diagonals = null)
 {
     private NavigationDirection? _held;
 
@@ -90,7 +93,7 @@ public sealed class GamepadDriver(CupriDocument doc, float deadzone = 0.5f, Acti
 
         // The 45° sector boundary sits where the smaller axis is tan(22.5°) of the larger.
         const float CornerRatio = 0.4142f;
-        if (diagonals && MathF.Min(ax, ay) >= MathF.Max(ax, ay) * CornerRatio)
+        if ((diagonals ?? doc.DiagonalNavigation) && MathF.Min(ax, ay) >= MathF.Max(ax, ay) * CornerRatio)
             return (x < 0, y < 0) switch
             {
                 (true, true) => NavigationDirection.UpLeft,
