@@ -149,6 +149,12 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   the part of this engine that cannot be verified without hardware, so the window being able to
   testify about what it received is the difference between a five-minute answer and a blind hunt.
 
+- **A prerelease tag publishes as a prerelease.** `gh release create` never passed `--prerelease`,
+  so a tag like `v0.33.0-alpha.1` would have been marked **Latest** — the download every visitor
+  gets, and the answer every "what is the newest release" check believes. Any tag with a hyphen is
+  now published as a prerelease, which is exactly what semver calls one and what NuGet already uses
+  to keep such a package out of a default `dotnet add package`.
+
 ### Fixed
 
 - **A focus move arriving between frames is no longer swallowed.** Directional navigation reads where

@@ -1922,19 +1922,33 @@ jobs:
           # release rather than failing on "already exists". Each call is checked explicitly —
           # inside an `if` condition errexit is suspended, so a bare sequence would report the
           # LAST command's status and silently swallow a failed upload.
+          # A semver prerelease tag (v0.33.0-alpha.1, -beta.2, -rc.1 — anything with a hyphen)
+          # must be published AS a prerelease. Without the flag GitHub marks it "Latest", so an
+          # alpha cut to be tested on one machine becomes the download every visitor gets and the
+          # answer every "what is the newest release" check believes. The hyphen is the whole test
+          # because that is exactly what semver calls a prerelease, and what NuGet already uses to
+          # keep such a package out of a default `dotnet add package`.
+          PRERELEASE=""
+          case "$GITHUB_REF_NAME" in
+            *-*) PRERELEASE="--prerelease"; echo "publishing $GITHUB_REF_NAME as a PRERELEASE" ;;
+          esac
           publish() {
             if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
               echo "release exists — updating"
               gh release upload "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --clobber || return 1
               # --draft=false is load-bearing: deleting a tag orphans its release into an untagged
               # DRAFT, so a re-run must republish and re-associate it, not just refresh the notes.
+              # $PRERELEASE is deliberately unquoted: quoted, an empty value would become an empty
+              # argument and gh rejects that.
               gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
-                --title "CupriFace $GITHUB_REF_NAME" --notes-file notes.md --draft=false || return 1
+                --title "CupriFace $GITHUB_REF_NAME" --notes-file notes.md --draft=false \
+                $PRERELEASE || return 1
             else
               gh release create "$GITHUB_REF_NAME" dist/* \
                 --repo "$GITHUB_REPOSITORY" \
                 --title "CupriFace $GITHUB_REF_NAME" \
-                --notes-file notes.md || return 1
+                --notes-file notes.md \
+                $PRERELEASE || return 1
             fi
           }
           # v0.2.7 was built, packed and then LOST to a single `503 No server is currently
