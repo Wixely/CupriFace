@@ -56,6 +56,24 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   `samples/SpatialNav` is a worked example: 30 scattered boxes and an `M` key that switches the mode
   live, so the same keypress can be watched doing two different things.
 
+- **`doc.DiagonalNavigation` — two arrows pressed together as one move to the corner.** Off by
+  default. Without it the two presses are two moves, and **which control you land on depends on
+  which key the hardware reported first**: on a staggered two-column layout Right-then-Down and
+  Down-then-Right disagree, and neither is the control actually on the diagonal.
+
+  The cost is latency and it cannot be avoided — to know whether a second key is coming, the first
+  has to wait. `DiagonalWindowSeconds` (default 0.05) is exactly that wait, and it applies to every
+  arrow press while the flag is on. The held press is released on a clock, so this needs a host that
+  calls `Animate`; `HasActiveTransitions` now reports true while one is waiting, so a
+  render-on-demand host keeps ticking (desktop and Android honour that; a test must call `Animate`
+  itself, as it must after a fling).
+
+  A thumbstick needs none of it: it reports a vector, so `new GamepadDriver(doc, diagonals: true)`
+  resolves a corner from one reading, eight sectors, no window. `NavigationDirection` gains
+  `UpLeft`, `UpRight`, `DownLeft` and `DownRight`; a diagonal is scored over the whole quadrant by
+  straight-line distance rather than through the cone-and-beam rule, which names a lane a corner
+  does not have.
+
 ### Fixed
 
 - **A focus move arriving between frames is no longer swallowed.** Directional navigation reads where

@@ -1193,6 +1193,42 @@ It is a settable property rather than a constructor argument, so an app can have
 board and off for the settings screen behind it. `samples/SpatialNav` is a worked example: 30
 scattered boxes and an `M` key that flips the mode while you watch.
 
+### Corners: `doc.DiagonalNavigation`
+
+```csharp
+doc.DiagonalNavigation = true;                // off by default; needs ArrowNavigation on
+doc.DiagonalWindowSeconds = 0.05;             // …and this is exactly the latency it adds
+```
+
+Two arrows pressed together become **one** move to the corner. Without it they are two moves, and
+**where you end up depends on which key the hardware reported first** — on a staggered two-column
+layout, Right-then-Down and Down-then-Right land on different controls and neither is the one
+actually sitting on the diagonal. That is not a tuning problem; it is a race, and a user pressing
+both keys cannot predict which side of it they will get.
+
+The cost is unavoidable: to know whether a second key is coming, the first one has to wait. **Every**
+arrow press is therefore held for up to `DiagonalWindowSeconds` before anything moves, which is why
+this is off by default — a UI that never wants diagonals should not pay for them. The default 0.05
+is long enough to catch two keys a hand meant to press together (human skew runs to about 30 ms) and
+short enough not to read as lag.
+
+The held press is released on a clock, the same way a masked field re-masks itself, so **it needs a
+host that calls `Animate`**. `HasActiveTransitions` reports true while a press is waiting, so a
+render-on-demand host keeps ticking; the desktop and Android hosts both honour that. A test must
+call `Animate` itself, exactly as it must after a fling.
+
+**A thumbstick needs none of this.** It reports a vector, so "down and right" arrives as a single
+reading and the corner is simply what it says — `new GamepadDriver(doc, diagonals: true)` resolves
+eight sectors with no window and no latency. The keyboard's waiting period is a keyboard problem,
+not a navigation one.
+
+Scoring differs for a corner, and deliberately. An orthogonal direction takes a 45° cone and then
+prefers anything whose span overlaps the control you are leaving, which is what keeps a column a
+column. A diagonal has no column to stay in, so it takes the whole quadrant and the nearest thing in
+it. Sharing the orthogonal rule would make diagonals nearly unusable: a cone centred on the 45° line
+rejects anything more sideways than 45°, which on a staggered layout is most of what the user is
+aiming at.
+
 For tests, `GamepadDriver` (also `CupriFace.Interaction`) is the `TouchDriver` counterpart, and
 exists for the same reason: a stick is not a keyboard, so driving it as one tests the wrong code.
 

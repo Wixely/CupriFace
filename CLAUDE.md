@@ -167,6 +167,15 @@ when the answer would otherwise be "the next focusable in document order". It is
 develop a controller UI without a controller — `samples/SpatialNav` is 30 scattered boxes and an M
 key that flips the mode live, so you can watch the same keypress do two different things.
 
+**`doc.DiagonalNavigation = true` makes two arrows pressed together one move to the corner.** Also
+off by default, and it costs latency: to know whether a second key is coming, the first has to wait
+(`DiagonalWindowSeconds`, default 0.05). Without it, Right-then-Down and Down-then-Right land on
+different controls and neither is the one diagonally adjacent — where you end up depends on which
+key the hardware reported first. It needs a host that calls `Animate` (desktop and Android do; a
+test must call it itself, as it must after a fling). **A thumbstick needs none of this** — it
+reports a vector, so `new GamepadDriver(doc, diagonals: true)` resolves a corner from one reading
+with no window at all.
+
 `doc.MoveFocus(NavigationDirection.Up)` is the engine call under it. Three things to know:
 **it does not wrap** — a stick held right stops at the edge rather than reappearing on the left (Tab
 wraps because a form is a loop; a grid is not), and the `false` it returns at the boundary is your

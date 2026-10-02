@@ -90,9 +90,10 @@ public sealed class SpatialNavApp : CupriApp
               <span class="h">Spatial navigation</span>
               <span class="last">activated: {{Last}}</span>
               <span class="mode" style="color:{{ModeColor}}">{{ModeLabel}}</span>
+              <span class="diag" style="color:{{DiagColor}}">{{DiagLabel}}</span>
             </div>
             <div class="hint">{{ModeHint}}</div>
-            <div class="keys">↑ ↓ ← →  move  ·  Enter  activate  ·  Tab  document order (unchanged)  ·  M  switch mode  ·  R  reset</div>
+            <div class="keys">↑ ↓ ← →  move  ·  Enter  activate  ·  Tab  document order (unchanged)  ·  M  switch mode  ·  D  diagonals  ·  R  reset</div>
           </div>
 
           <div class="box" role="button" data-repeat="Boxes" data-nav-box="{{Label}}"
@@ -115,6 +116,7 @@ public sealed class SpatialNavApp : CupriApp
         .h { color:#F2F4F8; font-size:20px; font-weight:bold; }
         .last { color:#9AA3B5; font-size:13px; }
         .mode { font-size:15px; font-weight:bold; font-variant-numeric:tabular-nums; }
+        .diag { font-size:13px; font-weight:bold; }
         .hint { color:#9AA3B5; font-size:13px; margin-top:6px; }
         .keys { color:#5F6879; font-size:12px; margin-top:6px; }
 
@@ -134,6 +136,14 @@ public sealed class SpatialNavApp : CupriApp
         doc.OnShortcut(KeyMods.None, "m", () =>
         {
             doc.ArrowNavigation = !doc.ArrowNavigation;
+            Apply(doc);
+        });
+
+        // D turns on corner moves. Try it in cluster B with Right and Down together: without it,
+        // where you land depends on which key the hardware reported first.
+        doc.OnShortcut(KeyMods.None, "d", () =>
+        {
+            doc.DiagonalNavigation = !doc.DiagonalNavigation;
             Apply(doc);
         });
 
@@ -160,8 +170,13 @@ public sealed class SpatialNavApp : CupriApp
         var on = doc.ArrowNavigation;
         _model.ModeLabel = on ? "ARROWS: D-PAD (spatial)" : "ARROWS: DOCUMENT ORDER";
         _model.ModeColor = on ? "#7ED491" : "#9AA3B5";
+        var diag = doc.DiagonalNavigation;
+        _model.DiagLabel = diag ? "DIAGONALS: on (50ms hold)" : "DIAGONALS: off";
+        _model.DiagColor = diag ? "#7ED491" : "#5F6879";
         _model.ModeHint = on
-            ? "Arrows move to the nearest box in that direction. Hold ↓ in cluster B — it stays in the column even though the other column is nearer."
+            ? (diag
+                ? "Right + Down together in cluster B is now ONE move to B2, the box actually on the diagonal — and the same move whichever key lands first."
+                : "Arrows move to the nearest box in that direction. Hold ↓ in cluster B — it stays in the column even though the other column is nearer. Press D for corner moves.")
             : "Arrows step through the markup like Tab, so ↓ and → do the same thing. This is the default, and the right one for an ordinary app. Press M.";
     }
 }
@@ -174,6 +189,8 @@ public sealed class NavModel
     public string ModeLabel { get; set; } = "";
     public string ModeHint { get; set; } = "";
     public string ModeColor { get; set; } = "#9AA3B5";
+    public string DiagLabel { get; set; } = "";
+    public string DiagColor { get; set; } = "#5F6879";
     public string Last { get; set; } = "—";
 }
 
