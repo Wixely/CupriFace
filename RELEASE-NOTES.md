@@ -114,6 +114,24 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   has already answered — and if it did, it could disagree, giving a stick corners in a UI whose
   keyboard refuses them.
 
+- **Keyboard focus no longer slides onto a different control when the page rebuilds.** Focus was an
+  index into the focusable list, and that list is rebuilt from scratch on every rebuild — every
+  keystroke, every model change, every `:hover` restyle. While the tree kept its shape the index
+  happened to still point at the right thing, which is why this was easy to miss; the moment a
+  control appeared or disappeared **anywhere earlier**, every index after it slid by one and the
+  selection was silently on something the user was not looking at. A controller UI is where it bites
+  hardest, being driven entirely by the selection and exactly the kind of UI whose contents change.
+
+  Focus is now carried across a rebuild as an identity: `data-bind-value`/`id` where the author gave
+  one — the same key text focus has always used — and otherwise the control's label, used only when
+  exactly one focusable carries it (two buttons reading "Delete" identify nothing). Carried on both
+  rebuild paths, `Rebuild` and `ReStyle`.
+
+  A structural path is deliberately not part of this, though the engine has one and scroll
+  restoration uses it: a path is a position, and positions are the thing that shifts. When a control
+  appears above the focused one the path slides exactly as the index does, so resolving it returns
+  the neighbour with every appearance of confidence.
+
 ### Fixed
 
 - **A focus move arriving between frames is no longer swallowed.** Directional navigation reads where

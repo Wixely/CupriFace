@@ -858,6 +858,10 @@ public sealed partial class CupriDocument : IDisposable
         // A rebuild starts from a fresh DOM, so scroll offsets on the fresh tree would reset — carry
         // them over (keyed by structural path, since element identity isn't stable across rebuilds).
         var scroll = CaptureScroll();
+        // Keyboard focus is an INDEX into the focusable list, and that list is rebuilt from scratch
+        // here — so a control appearing or disappearing anywhere earlier silently slides the
+        // selection onto a different thing. Carry an identity across instead and re-find it below.
+        var focus = CaptureFocus();
         CancelOrphanedPointerDrags(); // any node the pointer was dragging is about to be orphaned
 
         _dom?.Dispose();
@@ -987,6 +991,7 @@ public sealed partial class CupriDocument : IDisposable
         _hasViewportUnits |= resolver.SawViewportUnit;
         _layoutDirty = true; // fresh tree: no geometry until the next layout
         RestoreScroll(scroll);
+        RestoreFocus(focus);
         // Scroll offsets the BINDER chose (a bottom-anchored list opening at / following its tail,
         // or a prepend's compensation): the node exists only now. Overrides whatever RestoreScroll
         // carried, and syncs _virtualScroll so the next wheel tick measures drift against the same
@@ -1027,6 +1032,71 @@ public sealed partial class CupriDocument : IDisposable
         if (s.Transitions is not { Count: > 0 } specs) return false;
         foreach (var sp in specs) if (sp.Property is "height" or "all") return true;
         return false;
+    }
+
+    /// <summary>
+    /// What keyboard focus is ON, in a form that survives the tree being rebuilt.
+    ///
+    /// <para><b>A key</b> — <c>data-bind-value</c>, else <c>id</c> — is the identity text focus has
+    /// always used (see <c>_focusKey</c>), and the only authoritative one: it follows the control
+    /// wherever the rebuild puts it, however much changed around it.</para>
+    ///
+    /// <para><b>A label</b> is the fallback for a control the author gave no key, and it is used only
+    /// when exactly one focusable carries it. It is how a person would re-find the control, and for
+    /// the buttons this mostly concerns it is both stable and meaningful.</para>
+    ///
+    /// <para><b>A structural path is deliberately NOT used here</b>, though the engine has one and
+    /// scroll restoration leans on it. A path is a position, and the whole problem is that positions
+    /// shift: when a control appears above the focused one, the path slides by exactly as the index
+    /// does, and resolving it returns the neighbour with every appearance of confidence. It would add
+    /// a mechanism without adding an answer.</para>
+    ///
+    /// <para>When neither is available the index is left to fend for itself, as it always did. For an
+    /// unkeyed, unlabelled control in a reshaped tree there is no identity to carry, and inventing
+    /// one would move the selection with more confidence rather than less.</para>
+    /// </summary>
+    private (string? Key, string? Label) CaptureFocus()
+    {
+        if (_kbIndex < 0 || CurrentFocusNode() is not { } node) return (null, null);
+        return (FocusKeyOf(node), LabelOf(node));
+    }
+
+    /// <summary>Point <c>_kbIndex</c> back at whatever <see cref="CaptureFocus"/> identified, now
+    /// that the tree is a different set of objects.</summary>
+    private void RestoreFocus((string? Key, string? Label) focus)
+    {
+        if (_kbIndex < 0 || (focus.Key is null && focus.Label is null)) return;
+        var f = Focusables();
+
+        if (focus.Key is { Length: > 0 } key)
+            for (var i = 0; i < f.Count; i++)
+                if (FocusKeyOf(f[i]) == key) { _kbIndex = i; return; }
+
+        // Only an unambiguous label is worth acting on: two buttons reading "Delete" identify
+        // nothing, and picking the first would be a coin toss dressed up as a decision.
+        if (focus.Label is { Length: > 0 } label)
+        {
+            var found = -1;
+            for (var i = 0; i < f.Count; i++)
+                if (LabelOf(f[i]) == label) { if (found >= 0) { found = -1; break; } found = i; }
+            if (found >= 0) { _kbIndex = found; return; }
+        }
+
+        // Nothing matched — the control is gone. Keep the index inside the list rather than leaving
+        // it past the end of one that just got shorter, which reads as "nothing focused" and leaves
+        // a controller with no way back except Tab.
+        if (_kbIndex >= f.Count) _kbIndex = f.Count - 1;
+    }
+
+    private static string? FocusKeyOf(RenderNode n) =>
+        n.Element?.GetAttribute("data-bind-value") ?? n.Element?.GetAttribute("id");
+
+    /// <summary>The control's text, read off the ELEMENT rather than the laid-out node: a rebuild
+    /// leaves no geometry and no line boxes, so there is nothing measured to read at this point.</summary>
+    private static string? LabelOf(RenderNode n)
+    {
+        var text = n.Element?.TextContent?.Trim();
+        return text is { Length: > 0 } ? text : null;
     }
 
     private Dictionary<string, NodeState>? CaptureScroll()
@@ -6156,13 +6226,17 @@ public sealed partial class CupriDocument : IDisposable
     {
         if (_dom is null) return;
         // Restyle (hover/active) rebuilds the tree too, so preserve scroll offsets — otherwise any
-        // mouse move over the page snaps a scrolled field back to the top.
+        // mouse move over the page snaps a scrolled field back to the top. Keyboard focus needs
+        // carrying for the same reason: a :hover rule that reveals or hides a control changes the
+        // focusable list, and a mouse moving across the page must not drag the selection with it.
         var scroll = CaptureScroll();
+        var focus = CaptureFocus();
         var resolver = new StyleResolver(_rules, _viewportWidth, _viewportHeight);
         _root = resolver.BuildTree(_dom);
         _hasViewportUnits |= resolver.SawViewportUnit;
         _layoutDirty = true; // fresh tree: no geometry until the next layout
         RestoreScroll(scroll);
+        RestoreFocus(focus);
         _transitions.Detect(_root, _laidOutWidth, _laidOutHeight); // hover/focus/class change → (re)start any transitions that flipped
     }
 
