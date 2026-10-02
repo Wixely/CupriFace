@@ -64,9 +64,9 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   The cost is latency and it cannot be avoided — to know whether a second key is coming, the first
   has to wait. `DiagonalWindowSeconds` (default 0.05) is exactly that wait, and it applies to every
   arrow press while the flag is on. The held press is released on a clock, so this needs a host that
-  calls `Animate`; `HasActiveTransitions` now reports true while one is waiting, so a
-  render-on-demand host keeps ticking (desktop and Android honour that; a test must call `Animate`
-  itself, as it must after a fling).
+  calls `Animate`: both `HasActiveAnimations` (which every host polls to decide whether to draw a
+  frame at all) and `HasActiveTransitions` (which decides whether to call `Animate` within it) now
+  report true while a press is waiting. A test must call `Animate` itself, as it must after a fling.
 
   A thumbstick needs none of it: it reports a vector, so `new GamepadDriver(doc, diagonals: true)`
   resolves a corner from one reading, eight sectors, no window. `NavigationDirection` gains

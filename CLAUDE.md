@@ -171,8 +171,10 @@ key that flips the mode live, so you can watch the same keypress do two differen
 off by default, and it costs latency: to know whether a second key is coming, the first has to wait
 (`DiagonalWindowSeconds`, default 0.05). Without it, Right-then-Down and Down-then-Right land on
 different controls and neither is the one diagonally adjacent — where you end up depends on which
-key the hardware reported first. It needs a host that calls `Animate` (desktop and Android do; a
-test must call it itself, as it must after a fling). **A thumbstick needs none of this** — it
+key the hardware reported first. It needs a host that calls `Animate` — all three do, because the
+document reports `HasActiveAnimations` while a press is held, which is the signal every host polls
+to decide whether to draw a frame at all (a test must call `Animate` itself, as it must after a
+fling). **A thumbstick needs none of this** — it
 reports a vector, so `new GamepadDriver(doc, diagonals: true)` resolves a corner from one reading
 with no window at all.
 

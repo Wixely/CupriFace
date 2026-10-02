@@ -123,21 +123,60 @@ public class DiagonalNavigationTests(ITestOutputHelper output)
         Assert.Equal("B3", t.FocusedName());   // released, and ordinary spatial navigation applies
     }
 
-    /// <summary>While a press is waiting the document reports that it wants another frame. A
-    /// render-on-demand host would otherwise go to sleep holding the keypress and never deliver it —
-    /// the move would simply never happen.</summary>
+    /// <summary>
+    /// A WAITING PRESS MUST WAKE THE HOST, and specifically through
+    /// <c>HasActiveAnimations</c> — the signal every host polls to decide whether to produce a frame
+    /// at all. <c>HasActiveTransitions</c> only decides whether to call <c>Animate</c> WITHIN a
+    /// frame, so a flag on that alone is invisible: no frame happens, <c>Animate</c> is never
+    /// reached, and the held press is never released.
+    ///
+    /// <para>That is not hypothetical — it shipped. The symptom is maddening rather than obviously
+    /// broken: the first press appears to do nothing, and then merges with the next press whenever
+    /// it comes, so two deliberately separate moves become one diagonal seconds apart.</para>
+    /// </summary>
     [Fact]
-    public void A_waiting_press_keeps_a_render_on_demand_host_awake()
+    public void A_waiting_press_wakes_a_render_on_demand_host()
     {
         using var t = Open();
         Focus(t, "B1");
-        Assert.False(t.Doc.HasActiveTransitions, "nothing is pending yet");
+        Assert.False(t.Doc.HasActiveAnimations, "nothing is pending yet");
+        Assert.False(t.Doc.HasActiveTransitions);
 
         t.Key(EditKey.Down);
-        Assert.True(t.Doc.HasActiveTransitions, "a host must keep ticking while a press is held");
+        Assert.True(t.Doc.HasActiveAnimations,
+            "the host polls THIS to decide whether to draw a frame; without it nothing ticks");
+        Assert.True(t.Doc.HasActiveTransitions,
+            "and THIS to decide whether to call Animate inside that frame");
 
         Settle(t);
-        Assert.False(t.Doc.HasActiveTransitions, "and stop once it has been released");
+        Assert.False(t.Doc.HasActiveAnimations, "and both go quiet once it has been released");
+        Assert.False(t.Doc.HasActiveTransitions);
+    }
+
+    /// <summary>
+    /// The bug as a user would describe it: two presses meant as separate moves, far enough apart to
+    /// be obviously separate, must not combine. They only did because the first was never released —
+    /// so this is the regression test for the wake signal above, written in terms of what was seen
+    /// rather than which flag was missing.
+    ///
+    /// <para>It is NOT the guard, though, and that is worth knowing: this harness calls
+    /// <c>Animate</c> itself, so it has no render-on-demand gate to get wrong and it passed happily
+    /// while the bug was live. The assertion that actually catches it is the one above, on the flag
+    /// the hosts poll.</para>
+    /// </summary>
+    [Fact]
+    public void Two_presses_seconds_apart_are_two_moves_not_a_diagonal()
+    {
+        using var t = Open();
+        Focus(t, "B1");
+
+        t.Key(EditKey.Right);
+        Settle(t, from: 0);                    // the host ticks; the window expires
+        Assert.Equal("B2", t.FocusedName());
+
+        t.Key(EditKey.Down);                   // a separate move, much later
+        Settle(t, from: 100);
+        Assert.Equal("B4", t.FocusedName());   // down from B2 — NOT a corner move from B1
     }
 
     /// <summary>Two presses on the SAME axis are two presses, not a corner. Pressing Down twice

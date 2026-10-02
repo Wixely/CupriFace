@@ -1213,9 +1213,13 @@ is long enough to catch two keys a hand meant to press together (human skew runs
 short enough not to read as lag.
 
 The held press is released on a clock, the same way a masked field re-masks itself, so **it needs a
-host that calls `Animate`**. `HasActiveTransitions` reports true while a press is waiting, so a
-render-on-demand host keeps ticking; the desktop and Android hosts both honour that. A test must
-call `Animate` itself, exactly as it must after a fling.
+host that calls `Animate`**. Two separate signals matter here and both report true while a press is
+waiting: **`HasActiveAnimations`**, which every host polls to decide whether to draw a frame at all,
+and **`HasActiveTransitions`**, which decides whether to call `Animate` within that frame. Setting
+only the second is invisible — no frame happens, so `Animate` is never reached, the press is never
+released, and it sits there until the next press merges with it however much later. (That is not
+hypothetical; it shipped in the first cut of this feature.) A test must call `Animate` itself,
+exactly as it must after a fling.
 
 **A thumbstick needs none of this.** It reports a vector, so "down and right" arrives as a single
 reading and the corner is simply what it says — `new GamepadDriver(doc, diagonals: true)` resolves

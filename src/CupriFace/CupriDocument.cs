@@ -1176,7 +1176,7 @@ public sealed partial class CupriDocument : IDisposable
     /// set only changes when the tree does), so a host may poll it every frame for free. Also true
     /// while a masked field peeks its last-typed char (see <see cref="HasActiveTransitions"/>),
     /// and while any live surface (a playing video) is producing frames.</summary>
-    public bool HasActiveAnimations => (_hasActiveAnim && _animRunning) || _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || Surfaces.AnyTicking || FlingActive || OverscrollActive;
+    public bool HasActiveAnimations => (_hasActiveAnim && _animRunning) || _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || Surfaces.AnyTicking || FlingActive || OverscrollActive || _pendingNav is not null;
     private bool _hasActiveAnim;
     private bool _animRunning = true;
 
@@ -3618,10 +3618,13 @@ public sealed partial class CupriDocument : IDisposable
     /// default — a UI that never wants diagonals should not pay for them.</para>
     ///
     /// <para><b>It needs a host that calls <see cref="Animate"/>.</b> The held press is released on a
-    /// clock, the same way a masked field re-masks itself, and <see cref="HasActiveTransitions"/>
-    /// reports true while one is waiting so a render-on-demand host keeps ticking. The desktop and
-    /// Android hosts both honour that. A test must call <c>Animate</c> itself, exactly as it must
-    /// after a fling.</para>
+    /// clock, the same way a masked field re-masks itself. BOTH
+    /// <see cref="HasActiveAnimations"/> and <see cref="HasActiveTransitions"/> report true while one
+    /// is waiting, and both are load-bearing: hosts poll the first to decide whether to produce a
+    /// frame at all, and the second to decide whether to call <c>Animate</c> within it. A flag on
+    /// only the second is invisible — the host never wakes, so the press is never released, and it
+    /// sits there until the NEXT press merges with it however much later that comes. A test must
+    /// call <c>Animate</c> itself, exactly as it must after a fling.</para>
     /// </summary>
     public bool DiagonalNavigation { get; set; }
 
