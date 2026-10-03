@@ -61,6 +61,11 @@ internal static class HeadlessProof
         Console.WriteLine($"[SpatialNav]   ArrowNavigation=true  -> {endedOn}  (geometry)");
         Console.WriteLine("[SpatialNav] wrote spatialnav-off.png and spatialnav-on.png");
 
+        // The two ways of showing a selection, side by side — the engine's ring and the sample's own
+        // :focus styling. A picture is the only way to check this one: it is painted, not laid out.
+        using (var styled = FocusStyle(on: true)) Save(styled, "spatialnav-focus-styled.png");
+        using (var ring = FocusStyle(on: false)) Save(ring, "spatialnav-focus-ring.png");
+
         // The diagonal case, in cluster B, which is where the order-dependence showed up: Right and
         // Down pressed together must be ONE move to B2 (the box actually on the diagonal) and must
         // give the SAME answer whichever key the hardware reported first.
@@ -109,6 +114,18 @@ internal static class HeadlessProof
         doc.Animate(step * 10.0);
         doc.Animate(step * 10.0 + 1.0);
         using (doc.RenderToImage(W, H)) { }
+    }
+
+    /// <summary>One frame with the selection on a box, styled either way.</summary>
+    private static SKImage FocusStyle(bool on)
+    {
+        var app = new SpatialNavApp(arrowNavigation: true);
+        using var doc = app.CreateDocument();
+        using (doc.RenderToImage(W, H)) { }
+        doc.DispatchKey(null, EditKey.Tab);
+        if (on) doc.DispatchKey("f", EditKey.None);      // the sample's own toggle
+        using (doc.RenderToImage(W, H)) { }
+        return doc.RenderToImage(W, H, new SKColor(0x14, 0x16, 0x1C));
     }
 
     private static SKImage Walk(SpatialNavApp app, out string ended)

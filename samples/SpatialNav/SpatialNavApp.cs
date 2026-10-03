@@ -84,16 +84,17 @@ public sealed class SpatialNavApp : CupriApp
     }
 
     public override string Html => """
-        <body>
+        <body class="{{FocusClass}}">
           <div class="hud">
             <div class="hudtop">
               <span class="h">Spatial navigation</span>
               <span class="last">activated: {{Last}}</span>
               <span class="mode" style="color:{{ModeColor}}">{{ModeLabel}}</span>
               <span class="diag" style="color:{{DiagColor}}">{{DiagLabel}}</span>
+              <span class="diag" style="color:#9AA3B5">{{FocusLabel}}</span>
             </div>
             <div class="hint">{{ModeHint}}</div>
-            <div class="keys">↑ ↓ ← →  move  ·  Enter  activate  ·  Tab  document order  ·  M  switch mode  ·  D  diagonals  ·  [ ]  window ±20ms  ·  R  reset</div>
+            <div class="keys">↑ ↓ ← →  move  ·  Enter  activate  ·  Tab  document order  ·  M  mode  ·  D  diagonals  ·  F  focus style  ·  [ ]  window ±20ms  ·  R  reset</div>
           </div>
 
           <div class="box" role="button" data-repeat="Boxes" data-nav-box="{{Label}}"
@@ -119,6 +120,19 @@ public sealed class SpatialNavApp : CupriApp
         .diag { font-size:13px; font-weight:bold; }
         .hint { color:#9AA3B5; font-size:13px; margin-top:6px; }
         .keys { color:#5F6879; font-size:12px; margin-top:6px; }
+
+        /* The DEFAULT needs no rule at all: the engine paints a focus ring outside the box, which is
+           layout-neutral and recoloured by --cupri-focus above. Right for an application.
+
+           A GAME usually wants the selection to look like selection rather than like a form field,
+           and `:focus` is the hook for that — `outline:none` is what takes the engine's ring off, the
+           same idiom as on the web. Both are shown here because the difference is the point. */
+        .styled .box:focus {
+            background:#4A3F22;
+            box-shadow: inset 0 0 0 3px #E39B52;
+            color:#FFF3DF;
+            outline: none;
+        }
 
         .box { position:absolute; box-sizing:border-box;
                display:flex; align-items:center; justify-content:center; gap:8px;
@@ -160,6 +174,14 @@ public sealed class SpatialNavApp : CupriApp
             Apply(doc);
         });
 
+        // F switches between the engine's ring and the sample's own :focus styling. Both are real
+        // answers: the ring is right for an application, a filled tile is right for a game.
+        doc.OnShortcut(KeyMods.None, "f", () =>
+        {
+            _model.Styled = !_model.Styled;
+            Apply(doc);
+        });
+
         doc.OnShortcut(KeyMods.None, "r", () =>
         {
             foreach (var b in _model.Boxes) b.Hits = 0;
@@ -183,6 +205,8 @@ public sealed class SpatialNavApp : CupriApp
         var on = doc.ArrowNavigation;
         _model.ModeLabel = on ? "ARROWS: D-PAD (spatial)" : "ARROWS: DOCUMENT ORDER";
         _model.ModeColor = on ? "#7ED491" : "#9AA3B5";
+        _model.FocusClass = _model.Styled ? "styled" : "";
+        _model.FocusLabel = _model.Styled ? "FOCUS: :focus styling" : "FOCUS: engine ring";
         var diag = doc.DiagonalNavigation;
         // Which path is in play matters more than the number: with key releases the window is not
         // consulted at all, so showing a window value here would be a lie on this host.
@@ -211,6 +235,9 @@ public sealed class NavModel
     public string ModeHint { get; set; } = "";
     public string ModeColor { get; set; } = "#9AA3B5";
     public string DiagLabel { get; set; } = "";
+    public bool Styled { get; set; }
+    public string FocusClass { get; set; } = "";
+    public string FocusLabel { get; set; } = "";
     public string DiagColor { get; set; } = "#5F6879";
     public string Last { get; set; } = "—";
 }

@@ -241,6 +241,11 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   never mentioning outline, so the universal way to say "I style focus myself" left the blue ring
   drawn on top of whatever the author had done.
 
+  `samples/SpatialNav` demonstrates both: **F** switches between the engine's ring and the sample's
+  own `:focus` styling — a filled tile with an inset edge, which is what a game usually wants — and
+  the headless mode renders one PNG of each, because a ring is painted rather than laid out and a
+  picture is the only way to check it.
+
   An editable field's `data-focus` keeps its narrower meaning (the caret is in it): a combobox reveals
   its list with `.cupri-cb-input:focus ~ .cupri-cb-popup`, and marking a field merely because the
   selection rests there would hold the list open after the user had picked from it.
