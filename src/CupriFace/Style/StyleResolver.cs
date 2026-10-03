@@ -493,7 +493,10 @@ public sealed class StyleResolver
                 case "outline-width": s.OutlineWidth = ParsePx(v); break;
                 case "outline-offset": s.OutlineOffset = ParsePx(v); break;
                 case "outline-color": if (Colors.TryParse(v, out var olc)) s.OutlineColor = olc; break;
-                case "outline-style": if (ParseBorderStyle(v) is { } ols) s.OutlineStyle = ols; break;
+                case "outline-style":
+                    if (ParseBorderStyle(v) is { } ols) s.OutlineStyle = ols;
+                    s.OutlineSuppressed = v.Trim().Equals("none", StringComparison.OrdinalIgnoreCase);
+                    break;
 
                 // Only tabular-nums is acted on. The rest of font-variant-numeric (ordinals,
                 // slashed zero, diagonal fractions) needs OpenType features this engine does not
@@ -1413,6 +1416,9 @@ public sealed class StyleResolver
     /// as a style and switches the ring off without disturbing a width or colour set elsewhere.</summary>
     private static void ParseOutlineShorthand(ComputedStyle s, string v)
     {
+        // `outline: none` is the web's way of saying "I draw my own focus styling" — distinct from
+        // saying nothing, which is why it is recorded rather than merely resulting in no outline.
+        s.OutlineSuppressed = v.Trim().Equals("none", StringComparison.OrdinalIgnoreCase);
         foreach (var token in SplitTopLevel(v))
         {
             if (token.EndsWith("px", StringComparison.OrdinalIgnoreCase) || CssNumber.TryParse(token, out _))

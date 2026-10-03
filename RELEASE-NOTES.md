@@ -230,6 +230,43 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   while no text field has focus — typing is not navigation. This replaces having to register no-op
   handlers on eight keys, which is what an integration had to do to drive its own focus.
 
+- **`:focus` can style a focused BUTTON — it never could before.** The selector is rewritten to
+  `[data-focus]`, and that attribute was set only on an editable field, so `button:focus { … }` was a
+  rule that could never match, with nothing to say so. The keyboard-focused control now carries it,
+  which is the hook an application needs to make selection look like selection rather than like a form
+  field. `:focus-visible` is understood too; it was not recognised at all.
+
+- **`outline: none` now takes the engine's focus ring off**, the same idiom as on the web — and
+  `[data-focus] { outline: none }` does it document-wide. Previously "none" was indistinguishable from
+  never mentioning outline, so the universal way to say "I style focus myself" left the blue ring
+  drawn on top of whatever the author had done.
+
+  `samples/SpatialNav` demonstrates both: **F** switches between the engine's ring and the sample's
+  own `:focus` styling — a filled tile with an inset edge, which is what a game usually wants — and
+  the headless mode renders one PNG of each, because a ring is painted rather than laid out and a
+  picture is the only way to check it.
+
+  An editable field's `data-focus` keeps its narrower meaning (the caret is in it): a combobox reveals
+  its list with `.cupri-cb-input:focus ~ .cupri-cb-popup`, and marking a field merely because the
+  selection rests there would hold the list open after the user had picked from it.
+
+- **A binding inside a `data-repeat` can see the model the list came from.** The item used to be the
+  only context, so a name the item did not have resolved to nothing — silently — and an author
+  wanting a model-level flag in a list had to copy it onto every item or find an element outside the
+  list to hang it on. Names now resolve innermost-first: the item, then each enclosing repeat, then
+  the model.
+
+  This is also what the syntax promises. `{{…}}` is Mustache, and the engine already borrows `{{.}}`
+  from it; Mustache resolves against a stack of contexts. The expectation arrives with the syntax and
+  the engine was quietly not meeting it.
+
+  The item still wins where both have a name, or every row would show the same value. An item
+  property that exists and is *null* does not stop the search — "no such name" and "that name is
+  null" are indistinguishable for a model using the generated accessor, and a rule that varied by how
+  a model opted into binding would be the worse trap. `CupriDoctor`'s CF0060 needed no change and is
+  now exactly right rather than deliberately lenient: its "exists in any scope" rule and the binder's
+  scope chain are the same rule.
+
 ### Fixed
 
 - **A focus move arriving between frames is no longer swallowed.** Directional navigation reads where

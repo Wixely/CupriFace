@@ -50,10 +50,43 @@ public static partial class BindingEngine
     public static void Apply(IDocument document, object model,
         Func<string, VirtualListState>? stateFor, Action<string, double>? scrollOverride)
     {
-        if (document.Body is { } body) Process(body, model, stateFor, scrollOverride);
+        if (document.Body is { } body) Process(body, new Scope(model, null), stateFor, scrollOverride);
     }
 
-    private static void Process(IElement element, object? context,
+    /// <summary>
+    /// The binding context, and the ones it sits inside.
+    ///
+    /// <para>Inside a <c>data-repeat</c> the item used to be the ONLY context: a name the item did
+    /// not have resolved to nothing, silently, so a template could not reach a flag on the model that
+    /// the list itself came from. An author wanting one had to copy it onto every item or find an
+    /// element outside the list to hang it on.</para>
+    ///
+    /// <para>That is also not what the syntax promises. <c>{{…}}</c> is Mustache, and this engine
+    /// already borrows <c>{{.}}</c> from it; Mustache resolves a name against a STACK of contexts,
+    /// innermost first. So a developer arriving with that syntax brings this expectation, and the
+    /// engine was quietly not meeting it.</para>
+    ///
+    /// <para><b>A name is looked up innermost-first, and the first non-null answer wins.</b> The
+    /// consequence worth knowing: an item property that exists and is genuinely null does not stop
+    /// the search, so an outer property of the same name would answer instead. Distinguishing the two
+    /// is not possible for a model using the generated accessor — <c>GetBindable</c> returns null for
+    /// both "no such name" and "that name is null" — and a rule that behaved differently depending on
+    /// how a model opted into binding would be a worse trap than the one it fixed.</para>
+    /// </summary>
+    private sealed class Scope(object? context, Scope? outer)
+    {
+        public object? Context => context;
+        public Scope? Outer => outer;
+
+        public object? Resolve(string path)
+        {
+            for (var s = this; s is not null; s = s.Outer)
+                if (BindingEngine.Resolve(s.Context, path) is { } found) return found;
+            return null;
+        }
+    }
+
+    private static void Process(IElement element, Scope context,
         Func<string, VirtualListState>? stateFor, Action<string, double>? scrollOverride)
     {
         // Repeat directive expands this element once per collection item.
@@ -62,7 +95,7 @@ public static partial class BindingEngine
         {
             element.RemoveAttribute("data-repeat");
             var parent = element.ParentElement;
-            if (parent is not null && Resolve(context, repeatPath) is IEnumerable seq and not string)
+            if (parent is not null && context.Resolve(repeatPath) is IEnumerable seq and not string)
             {
                 var items = seq.Cast<object?>().ToList();
                 var (first, last, above, below) = Window(parent, repeatPath, items.Count, stateFor, scrollOverride);
@@ -70,7 +103,9 @@ public static partial class BindingEngine
                 for (var i = first; i < last; i++)
                 {
                     var clone = (IElement)element.Clone(deep: true);
-                    ProcessSubtree(clone, items[i], stateFor, scrollOverride);
+                    // The item is PUSHED onto the chain rather than replacing it, so a name the
+                    // item does not have is still answered by the model the list came from.
+                    ProcessSubtree(clone, new Scope(items[i], context), stateFor, scrollOverride);
                     parent.InsertBefore(clone, element);
                 }
                 if (below > 0.01) parent.InsertBefore(Spacer(parent, below), element); // below
@@ -172,7 +207,7 @@ public static partial class BindingEngine
         return sp;
     }
 
-    private static void ProcessSubtree(IElement element, object? context,
+    private static void ProcessSubtree(IElement element, Scope context,
         Func<string, VirtualListState>? stateFor, Action<string, double>? scrollOverride)
     {
         BindAttributes(element, context);
@@ -186,7 +221,7 @@ public static partial class BindingEngine
         }
     }
 
-    private static void BindAttributes(IElement element, object? context)
+    private static void BindAttributes(IElement element, Scope context)
     {
         foreach (var attr in element.Attributes.ToArray())
         {
@@ -200,14 +235,14 @@ public static partial class BindingEngine
         }
     }
 
-    private static void BindText(IText text, object? context)
+    private static void BindText(IText text, Scope context)
     {
         if (!text.Data.Contains("{{")) return;
         text.Data = Interpolate(text.Data, context);
     }
 
-    private static string Interpolate(string template, object? context) =>
-        Interp().Replace(template, m => FormatValue(Resolve(context, m.Groups[1].Value)));
+    private static string Interpolate(string template, Scope context) =>
+        Interp().Replace(template, m => FormatValue(context.Resolve(m.Groups[1].Value)));
 
     private static string FormatValue(object? value) => value switch
     {
