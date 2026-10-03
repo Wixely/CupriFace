@@ -1267,6 +1267,32 @@ windows do this — the GL one through Silk.NET's `IGamepad` (with Silk's own de
 `GamepadDeadzone` is the only one that applies), the software fallback through SDL's controller
 events. Pads connected after launch work on both.
 
+**`doc.ArrowKeyNavigation` says HOW arrows move** — `Sequential` (the default: document order, Tab
+by another name), `Spatial` (a D-pad: the nearest control in that direction), or `Disabled`.
+
+It replaced a boolean, and the reason is worth knowing because it was a real bug in a real
+integration: `ArrowNavigation = false` read as "arrows off" and **meant "arrows move in document
+order"**. An application driving focus through its own model found the engine moving the selection
+underneath it. `Disabled` is the state the boolean could not express. The old property still works and
+still means what it meant; it is only marked obsolete.
+
+`Disabled` stops *navigation*, not a control's own arrow behaviour — a focused slider still nudges and
+a radio group still follows the ARIA pattern, because those belong to the control.
+
+**`doc.KeyboardNavigation` says WHETHER the keyboard navigates at all** — `Tab`, the arrows,
+`Enter`/`Space` to activate, `Escape` to dismiss:
+
+```csharp
+doc.KeyboardNavigation = InputRoute.Consume;   // I steer; report these handled so the host stays out
+doc.KeyboardNavigation = InputRoute.Ignore;    // …same refusal, but let the host do its own thing
+```
+
+The difference between the two "no" answers is not pedantry: `DispatchKey` returns whether the engine
+handled the key, and the desktop host exits fullscreen on an Escape the document did not take. **Only
+while no text field has focus** — typing is not navigation, and an app saying "I steer" is not asking
+for its search box to stop working. Before this, an application had to register no-op handlers on
+eight keys to get the same effect.
+
 **`doc.Gamepad` is THE driver — share it, don't make another.** A driver holds which direction is
 currently held, which is what turns a continuous axis into discrete moves. Two drivers hold that
 twice, so a stick seen by both the host and an app's own reader moves the selection two squares per

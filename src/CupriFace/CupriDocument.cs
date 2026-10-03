@@ -3827,6 +3827,13 @@ public sealed partial class CupriDocument : IDisposable
         _navOriginIndex = -1;
     }
 
+    /// <summary>The keys CupriFace navigates or activates with — what
+    /// <see cref="KeyboardNavigation"/> switches off. Not an exhaustive list of keys it reads: text
+    /// editing, shortcuts and IME are a different question and are not navigation.</summary>
+    private static bool IsNavigationKey(EditKey key) => key is
+        EditKey.Tab or EditKey.ShiftTab or EditKey.Escape or EditKey.Enter or EditKey.Space
+        or EditKey.Up or EditKey.Down or EditKey.Left or EditKey.Right;
+
     private static NavigationDirection? WasdDirection(char c) => char.ToLowerInvariant(c) switch
     {
         'w' => NavigationDirection.Up,
@@ -3869,7 +3876,53 @@ public sealed partial class CupriDocument : IDisposable
     /// <para>Settable rather than a constructor argument, because an app may well want it on for a
     /// game board and off for the settings screen behind it.</para>
     /// </summary>
-    public bool ArrowNavigation { get; set; }
+    /// <summary>
+    /// How the ARROW KEYS move focus: <see cref="NavigationMode.Sequential"/> (the default, document
+    /// order — Tab by another name), <see cref="NavigationMode.Spatial"/> (a D-pad: the nearest
+    /// control in that direction), or <see cref="NavigationMode.Disabled"/>.
+    ///
+    /// <para><b>Disabled is why this is an enum.</b> It replaces a boolean that had three meaningful
+    /// states and could express two: <c>ArrowNavigation = false</c> read as "arrows off" and meant
+    /// "arrows move in document order". An application that drove focus itself therefore found the
+    /// engine still moving the selection underneath it, and worked around it by registering key
+    /// handlers that did nothing — which is a sentence that should never have been true of an API.</para>
+    ///
+    /// <para>Spatial is the right setting for a game and the wrong one for an ordinary application,
+    /// where arrows are expected to move a caret and step through a radio group. Whichever is chosen,
+    /// <c>Tab</c> is unaffected, and so is arrow behaviour that belongs to a CONTROL rather than to
+    /// navigation — a slider still nudges, a radio group still follows the ARIA pattern, a date
+    /// picker still takes the arrows for its grid.</para>
+    /// </summary>
+    public NavigationMode ArrowKeyNavigation { get; set; } = NavigationMode.Sequential;
+
+    /// <summary>
+    /// Whether the keyboard navigates at all: <c>Tab</c>, the arrows, <c>Enter</c>/<c>Space</c> to
+    /// activate, and <c>Escape</c> to dismiss. <see cref="InputRoute.Navigate"/> by default.
+    ///
+    /// <para>Set it to <see cref="InputRoute.Consume"/> when the application decides what is selected
+    /// and wants the engine to keep its hands off — the keys are reported as handled, so the host
+    /// does not apply its own fallback either. <see cref="InputRoute.Ignore"/> is the same refusal
+    /// without that claim, leaving the host free to act.</para>
+    ///
+    /// <para><b>Only while no text field has focus.</b> Typing is not navigation: inside a field the
+    /// arrows move a caret, Enter submits and Tab leaves, and an application saying "I navigate, not
+    /// you" is not asking for its text boxes to stop working.</para>
+    ///
+    /// <para>This exists because there was no way to say it. An integration that drove its own focus
+    /// had to register no-op handlers on eight keys — left, right, up, down, tab, enter, space,
+    /// escape — to stop the engine acting, which is a workaround the engine should have made
+    /// unnecessary.</para>
+    /// </summary>
+    public InputRoute KeyboardNavigation { get; set; } = InputRoute.Navigate;
+
+    /// <summary>Spatial arrow navigation, as a boolean.</summary>
+    [Obsolete("Use ArrowKeyNavigation. The boolean cannot say 'off': false means Sequential, not " +
+              "Disabled, which is the state an application driving its own focus actually wants.")]
+    public bool ArrowNavigation
+    {
+        get => ArrowKeyNavigation == NavigationMode.Spatial;
+        set => ArrowKeyNavigation = value ? NavigationMode.Spatial : NavigationMode.Sequential;
+    }
 
     /// <summary>
     /// Treat two arrows pressed TOGETHER as one move to the corner. Off by default, and only has any
@@ -4137,7 +4190,10 @@ public sealed partial class CupriDocument : IDisposable
         // The one place where the answer would otherwise be "the next focusable in document order",
         // which is the answer ArrowNavigation exists to replace. Up and Left are both dir = -1, so
         // the axis has to be passed in: document order has no axes.
-        if (!ArrowNavigation) return MoveFocus(dir);
+        // Disabled stops NAVIGATION, not the control-level arrow behaviour above: a radio group is
+        // part of its control, as a slider's nudge is, and both are decided before this.
+        if (ArrowKeyNavigation == NavigationMode.Disabled) return false;
+        if (ArrowKeyNavigation == NavigationMode.Sequential) return MoveFocus(dir);
         if (!DiagonalNavigation) return MoveFocus(nav);
         return ReportsKeyUp ? HeldDirectional(nav) : QueueDirectional(nav);
     }
@@ -4665,6 +4721,12 @@ public sealed partial class CupriDocument : IDisposable
         // Normalize pasted/typed line endings to '\n' (a textarea's internal newline). Windows
         // clipboards deliver "\r\n"; the stray '\r' would otherwise render as a collapsed empty line.
         if (text is { } t && t.IndexOf('\r') >= 0) text = t.Replace("\r\n", "\n").Replace('\r', '\n');
+
+        // An application that navigates for itself. Checked before any of it — Tab and Escape are
+        // decided above the no-text-field guard — but only WHEN no text field has focus, because
+        // typing is not navigation and "I steer, not you" is not a request to break text boxes.
+        if (_focusKey is null && KeyboardNavigation != InputRoute.Navigate && IsNavigationKey(key))
+            return KeyboardNavigation == InputRoute.Consume;
 
         if (key == EditKey.Escape) return HandleEscape(mods);
         // Tab moves keyboard focus regardless of edit state (trapped within an open overlay).

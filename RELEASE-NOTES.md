@@ -215,6 +215,21 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   neutral sample continuously; every one of them did the work of a push that never happened and wrote
   a line to the diagnostic log. All four hosts now suppress a reading identical to the last.
 
+- **`doc.ArrowKeyNavigation` replaces the `ArrowNavigation` boolean**, which had three meaningful
+  states and could express two. `ArrowNavigation = false` read as "arrows off" and **meant "arrows
+  move in document order"** — so an application driving focus through its own model found the engine
+  moving the selection underneath it, and worked around it by registering handlers that did nothing.
+  `NavigationMode.Disabled` is the state that could not be asked for. `Sequential` is the default and
+  the old meaning of `false`; `Spatial` is the old `true`. The boolean still works and is marked
+  obsolete rather than removed. `Disabled` stops navigation and not a control's own arrows: a focused
+  slider still nudges, a radio group still follows the ARIA pattern.
+
+- **`doc.KeyboardNavigation` — whether the keyboard navigates at all.** `Tab`, the arrows,
+  `Enter`/`Space` and `Escape`, as one switch: `Navigate` (the default), `Consume` (do nothing, and
+  report handled so the host does not fall back either) or `Ignore` (do nothing, and say so). Only
+  while no text field has focus — typing is not navigation. This replaces having to register no-op
+  handlers on eight keys, which is what an integration had to do to drive its own focus.
+
 ### Fixed
 
 - **A focus move arriving between frames is no longer swallowed.** Directional navigation reads where
