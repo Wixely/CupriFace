@@ -200,7 +200,7 @@ with no window at all.
 wraps because a form is a loop; a grid is not), and the `false` it returns at the boundary is your
 hook for paging across instead; **the first press enters from the edge it travels from**, so Down
 lands on the topmost control rather than on whatever is first in the markup; and **focus on a button
-is only visible in the accessibility tree** — `data-focus` is for an editable field, so assert with
+is visible both as `[data-focus]` in CSS and in the accessibility tree** — for a test, assert with
 `BuildAccessibilityTree(w, h)` (`TestDoc.FocusedName()`) rather than looking for an attribute that
 will never be there. `tests/CupriFace.Tests/DirectionalFocusTests.cs` is a worked example.
 
@@ -293,12 +293,20 @@ it** — the whole row jitters as a controller moves the selection. Two correct 
 :root { --cupri-focus: #8b5cf6; }
 
 /* or your own, with outline: painted OUTSIDE the box, never laid out */
-[data-focus] { outline: 2px solid #8b5cf6; outline-offset: 2px; }
+:focus { outline: 2px solid #8b5cf6; outline-offset: 2px; }
+
+/* or style it however the design wants, and take the engine's ring off */
+.tile:focus { background: #584e35; box-shadow: inset 0 0 0 3px #f3ce7c; outline: none; }
 ```
 
-**The hook is `[data-focus]`, not `:focus`.** The engine marks the focused element with an attribute;
-`:focus` matches nothing and fails silently. If you set your own `outline`, the built-in ring steps
-aside so you do not get two.
+**`:focus` and `:focus-visible` work, and so does `[data-focus]`** — the first two are rewritten to
+the third, which is what the engine actually marks. A game that wants selection to look like
+selection rather than like a form field should reach for the third example: **`outline: none` is what
+takes the built-in ring off**, exactly as on the web, and one `[data-focus] { outline: none }` does it
+document-wide. Setting your own `outline` also replaces the ring, so you never get two.
+
+The engine marks the focused control itself; an EDITABLE field's `data-focus` means something
+narrower — the caret is in it — which is what lets a combobox reveal its list while being typed into.
 
 ### 3. Pin anything whose text changes.
 

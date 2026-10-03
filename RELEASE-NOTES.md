@@ -230,6 +230,21 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   while no text field has focus — typing is not navigation. This replaces having to register no-op
   handlers on eight keys, which is what an integration had to do to drive its own focus.
 
+- **`:focus` can style a focused BUTTON — it never could before.** The selector is rewritten to
+  `[data-focus]`, and that attribute was set only on an editable field, so `button:focus { … }` was a
+  rule that could never match, with nothing to say so. The keyboard-focused control now carries it,
+  which is the hook an application needs to make selection look like selection rather than like a form
+  field. `:focus-visible` is understood too; it was not recognised at all.
+
+- **`outline: none` now takes the engine's focus ring off**, the same idiom as on the web — and
+  `[data-focus] { outline: none }` does it document-wide. Previously "none" was indistinguishable from
+  never mentioning outline, so the universal way to say "I style focus myself" left the blue ring
+  drawn on top of whatever the author had done.
+
+  An editable field's `data-focus` keeps its narrower meaning (the caret is in it): a combobox reveals
+  its list with `.cupri-cb-input:focus ~ .cupri-cb-popup`, and marking a field merely because the
+  selection rests there would hold the list open after the user had picked from it.
+
 ### Fixed
 
 - **A focus move arriving between frames is no longer swallowed.** Directional navigation reads where
