@@ -168,13 +168,15 @@ member. Every dispatch rebuilds the render tree, so a reader thread calling inpu
 it underneath layout and paint; the reproduction crashes the process rather than failing cleanly.
 `pad.PostStick(x, y)` is the same thing for a controller.
 
-**For a game, `doc.ArrowNavigation = true` makes the ARROW KEYS a D-pad** — off by default,
+**For a game, `doc.ArrowKeyNavigation = NavigationMode.Spatial` makes the ARROW KEYS a D-pad** — off by default,
 because an ordinary application's arrows are expected to move a caret, scroll, and step through a
 radio group, and quietly repurposing them would fight every habit a user has. Turning it on takes
 nothing away: a focused text field still moves its caret, a slider still nudges, a radio group still
 follows the ARIA pattern, and Tab still follows the document. It only changes what an arrow does
 when the answer would otherwise be "the next focusable in document order". It is also how you
-develop a controller UI without a controller — `samples/SpatialNav` is 30 scattered boxes and an M
+develop a controller UI without a controller. `NavigationMode.Disabled` is how an app that drives
+focus itself stops the engine moving the selection too, and `doc.KeyboardNavigation = InputRoute.Consume`
+extends that to Tab, Enter, Space and Escape. `samples/SpatialNav` is 30 scattered boxes and an M
 key that flips the mode live, so you can watch the same keypress do two different things.
 
 **`doc.DiagonalNavigation = true` makes two arrows pressed together one move to the corner.** Also
