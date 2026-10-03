@@ -188,6 +188,12 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   recognised gamepad is connected, since a recognised one raises both families and acting on both
   would move the selection twice per push.
 
+- **Posted work now wakes a sleeping host.** `doc.Post` drains inside a frame, and a
+  render-on-demand window draws only when something says it must — so posted work was waiting for a
+  frame that was itself waiting for a reason to happen, and an idle window never received it. It
+  worked in every test (which render unconditionally) and did nothing in front of a user. A pending
+  post is now reported through `HasActiveAnimations`, the signal every host polls.
+
 ### Fixed
 
 - **A focus move arriving between frames is no longer swallowed.** Directional navigation reads where

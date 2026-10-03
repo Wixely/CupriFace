@@ -112,6 +112,30 @@ public class PostedWorkTests
         Assert.NotEqual("", t.FocusedName());
     }
 
+    /// <summary>
+    /// POSTING WAKES A SLEEPING HOST. The queue is drained inside a frame, and a render-on-demand
+    /// window draws only when something says it must — so without this the posted work waits for a
+    /// frame that is itself waiting for a reason to happen, and an idle window never receives it at
+    /// all. It would work in every test (which render unconditionally) and do nothing in front of a
+    /// user, which is the worst combination available.
+    ///
+    /// <para><c>HasActiveAnimations</c> is the signal every host polls to decide whether to draw —
+    /// desktop's <c>NeedsRender</c>, Android's frame request, the web host's drive gate.</para>
+    /// </summary>
+    [Fact]
+    public void A_pending_post_wakes_a_render_on_demand_host()
+    {
+        using var t = new TestDoc(Html, Css, width: 400, height: 300);
+        Assert.False(t.Doc.HasActiveAnimations, "nothing is pending yet");
+
+        t.Doc.Post(() => { });
+        Assert.True(t.Doc.HasActiveAnimations,
+            "a host polls THIS to decide whether to draw; without it the queue is never reached");
+
+        t.Layout();
+        Assert.False(t.Doc.HasActiveAnimations, "and goes quiet once drained");
+    }
+
     /// <summary>Posting from a thread is only useful if the work actually arrives. A sample posted
     /// before any frame is queued, not dropped.</summary>
     [Fact]

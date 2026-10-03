@@ -1256,7 +1256,7 @@ public sealed partial class CupriDocument : IDisposable
     /// set only changes when the tree does), so a host may poll it every frame for free. Also true
     /// while a masked field peeks its last-typed char (see <see cref="HasActiveTransitions"/>),
     /// and while any live surface (a playing video) is producing frames.</summary>
-    public bool HasActiveAnimations => (_hasActiveAnim && _animRunning) || _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || Surfaces.AnyTicking || FlingActive || OverscrollActive || _pendingNav is not null;
+    public bool HasActiveAnimations => (_hasActiveAnim && _animRunning) || _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || Surfaces.AnyTicking || FlingActive || OverscrollActive || _pendingNav is not null || !_posted.IsEmpty;
     private bool _hasActiveAnim;
     private bool _animRunning = true;
 
@@ -3707,6 +3707,12 @@ public sealed partial class CupriDocument : IDisposable
     /// // on the reader thread
     /// doc.Post(() => pad.Stick(x, y));
     /// </code>
+    ///
+    /// <para><b>Posting wakes a sleeping host.</b> A render-on-demand window draws only when something
+    /// says it must, and the queue is drained inside a frame — so without this, posted work would wait
+    /// for a frame that was itself waiting for a reason to happen, and an idle window would simply
+    /// never receive it. A pending post is reported through <see cref="HasActiveAnimations"/>, which
+    /// is the signal every host polls to decide whether to draw at all.</para>
     ///
     /// <para>Queued work runs in the order it was posted, before the frame lays out — so anything it
     /// changes is visible in that same frame rather than the one after. An exception thrown by posted
