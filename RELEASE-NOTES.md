@@ -250,6 +250,23 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   its list with `.cupri-cb-input:focus ~ .cupri-cb-popup`, and marking a field merely because the
   selection rests there would hold the list open after the user had picked from it.
 
+- **A binding inside a `data-repeat` can see the model the list came from.** The item used to be the
+  only context, so a name the item did not have resolved to nothing — silently — and an author
+  wanting a model-level flag in a list had to copy it onto every item or find an element outside the
+  list to hang it on. Names now resolve innermost-first: the item, then each enclosing repeat, then
+  the model.
+
+  This is also what the syntax promises. `{{…}}` is Mustache, and the engine already borrows `{{.}}`
+  from it; Mustache resolves against a stack of contexts. The expectation arrives with the syntax and
+  the engine was quietly not meeting it.
+
+  The item still wins where both have a name, or every row would show the same value. An item
+  property that exists and is *null* does not stop the search — "no such name" and "that name is
+  null" are indistinguishable for a model using the generated accessor, and a rule that varied by how
+  a model opted into binding would be the worse trap. `CupriDoctor`'s CF0060 needed no change and is
+  now exactly right rather than deliberately lenient: its "exists in any scope" rule and the binder's
+  scope chain are the same rule.
+
 ### Fixed
 
 - **A focus move arriving between frames is no longer swallowed.** Directional navigation reads where

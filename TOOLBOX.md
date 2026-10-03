@@ -1267,6 +1267,22 @@ windows do this — the GL one through Silk.NET's `IGamepad` (with Silk's own de
 `GamepadDeadzone` is the only one that applies), the software fallback through SDL's controller
 events. Pads connected after launch work on both.
 
+**Inside a `data-repeat`, a binding can still see the model the list came from.** Names resolve
+innermost-first — the item, then whatever it is nested in, then the model — so a row can reference a
+model-level flag without it being copied onto every item:
+
+```html
+<body class="{{Theme}}">
+  <div class="row" data-repeat="Rows">{{Name}} — {{Theme}}</div>
+</body>
+```
+
+The item wins where both have a name, or every row would show the same value. One sharp edge: an item
+property that exists and is *null* does not stop the search, so an outer name answers instead —
+telling "no such name" from "that name is null" is impossible for a model using the generated
+accessor, and a rule that behaved differently depending on how a model opted into binding would be
+the worse trap.
+
 **Style the selection yourself with `:focus`.** A focused control carries `data-focus`, and
 `:focus` and `:focus-visible` are rewritten to it — so `.tile:focus { … }` styles whatever the
 selection is, which for a game is usually a fill and an inset edge rather than a ring:
