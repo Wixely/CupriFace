@@ -169,6 +169,25 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   now published as a prerelease, which is exactly what semver calls one and what NuGet already uses
   to keep such a package out of a default `dotnet add package`.
 
+- **`doc.Post(Action)` — the one member of a document safe to call from another thread**, plus
+  `GamepadDriver.PostStick` / `PostPress` / `PostConfirm`. Every dispatch rebuilds the render tree, so
+  an input source on its own thread — a Linux evdev reader, a HID device — was replacing the tree
+  underneath layout and paint with no exception at the call site. The test that reproduces it does not
+  fail, it **crashes the host** with `NullReferenceException` and `ArgumentOutOfRangeException` thrown
+  from several threads at once. Posted work runs on the rendering thread at the start of the next
+  frame, in order, before layout, so its effects paint in that same frame.
+
+- **`doc.WasdNavigation` — W A S D as a D-pad**, off by default. For Steam rather than for keyboards:
+  Steam Input maps a thumbstick to WASD for games with no controller support, so a push arrives as a
+  letter and nothing else. Only acts while no text field has focus, so typing is never stolen.
+
+- **A controller the platform does not recognise now works on the desktop.** GLFW calls a device a
+  gamepad only if it has a mapping for it, and SDL likewise; anything else raises plain joystick
+  events, which both desktop windows dropped — so an unusual or virtual pad did nothing at all, with
+  nothing said about it. Both now fall back to the joystick's axes and hat, and only while no
+  recognised gamepad is connected, since a recognised one raises both families and acting on both
+  would move the selection twice per push.
+
 ### Fixed
 
 - **A focus move arriving between frames is no longer swallowed.** Directional navigation reads where

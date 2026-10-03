@@ -1692,6 +1692,9 @@ public sealed partial class CupriDocument : IDisposable
         // every test speaking one coordinate space.
         float width = hostWidth / _zoom, height = hostHeight / _zoom;
         var t0 = Stopwatch.GetTimestamp();
+        // Anything another thread handed us, run HERE: on the render thread, before layout, so it is
+        // indistinguishable from input that arrived on this thread and its effects paint this frame.
+        DrainPosted();
         // @media and viewport units both depend on the viewport size — re-resolve styles when
         // either axis changes (height-qualified queries are how phone landscape and a desktop
         // window are told apart; vh/vw are resolved to px at style time and must be re-folded).
@@ -3684,6 +3687,46 @@ public sealed partial class CupriDocument : IDisposable
         return false;   // a release moves nothing on its own
     }
 
+    private readonly System.Collections.Concurrent.ConcurrentQueue<Action> _posted = new();
+
+    /// <summary>
+    /// Run <paramref name="work"/> on the thread that renders, at the start of the next frame. The
+    /// ONLY member of this class safe to call from another thread.
+    ///
+    /// <para><b>A document is not thread-safe, and the ways it is unsafe are not obvious.</b>
+    /// Dispatching input rebuilds the render tree — the whole tree, replaced — so a background
+    /// thread calling <c>DispatchKey</c>, <c>MoveFocus</c> or a <see cref="Interaction.GamepadDriver"/>
+    /// is swapping the tree out from under layout and paint. The failure is not an exception at the
+    /// call site; it is sporadic corruption somewhere else, which is the expensive kind.</para>
+    ///
+    /// <para>This is the seam for anything that arrives on its own thread: a Linux evdev reader, a
+    /// network message, a file watcher, a device that notifies. Post it, and it happens where every
+    /// other input happens.</para>
+    ///
+    /// <code>
+    /// // on the reader thread
+    /// doc.Post(() => pad.Stick(x, y));
+    /// </code>
+    ///
+    /// <para>Queued work runs in the order it was posted, before the frame lays out — so anything it
+    /// changes is visible in that same frame rather than the one after. An exception thrown by posted
+    /// work propagates out of the frame rather than being swallowed: it is application code, and a
+    /// silently dropped exception here would be invisible in a way the engine is already criticised
+    /// for. Work posted to a document that never renders again never runs.</para>
+    /// </summary>
+    public void Post(Action work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        _posted.Enqueue(work);
+    }
+
+    /// <summary>Run everything posted from other threads. First thing in a frame, so posted work is
+    /// indistinguishable from input that arrived on this thread.</summary>
+    private void DrainPosted()
+    {
+        while (_posted.TryDequeue(out var work)) work();
+    }
+
     /// <summary>
     /// How far a thumbstick must travel from centre before it counts as pushed, 0..1. Default 0.5.
     ///
@@ -3726,6 +3769,15 @@ public sealed partial class CupriDocument : IDisposable
         _navOriginKey = null;
         _navOriginIndex = -1;
     }
+
+    private static NavigationDirection? WasdDirection(char c) => char.ToLowerInvariant(c) switch
+    {
+        'w' => NavigationDirection.Up,
+        'a' => NavigationDirection.Left,
+        's' => NavigationDirection.Down,
+        'd' => NavigationDirection.Right,
+        _ => null,
+    };
 
     private static NavigationDirection? Arrow(EditKey key) => key switch
     {
@@ -3787,6 +3839,28 @@ public sealed partial class CupriDocument : IDisposable
     /// call <c>Animate</c> itself, exactly as it must after a fling.</para>
     /// </summary>
     public bool DiagonalNavigation { get; set; }
+
+    /// <summary>
+    /// Let <b>W A S D</b> navigate, the way the arrow keys do under
+    /// <see cref="ArrowNavigation"/>. Off by default.
+    ///
+    /// <para>This exists because of Steam, not because of keyboards. Steam Input maps a thumbstick to
+    /// WASD for games with no controller support, so on a Steam Deck or through the Steam overlay a
+    /// stick push can arrive as the letter "w" and nothing else — no gamepad, no axis, just text. An
+    /// app that wants a pad to work in that configuration has no other way to see it.</para>
+    ///
+    /// <para><b>Only while no text field has focus</b>, which is the same guard the arrows use — so
+    /// typing "sword" into a search box types it rather than steering. That is also why this is
+    /// opt-in: in an application with any text entry at all, silently stealing four letters would be
+    /// indefensible.</para>
+    ///
+    /// <para>No corner moves here, deliberately. <see cref="DiagonalNavigation"/> decides a pair from
+    /// keys being held, and a letter arriving as text has no release to hold — a diagonal push mapped
+    /// to WASD arrives as "w" and "d" repeating against each other, which no amount of coalescing
+    /// turns back into one intent.</para>
+    /// </summary>
+    public bool WasdNavigation { get; set; }
+
 
     /// <summary>
     /// How long a directional press waits for a partner on the other axis, in seconds. Default 0.08.
@@ -4569,6 +4643,13 @@ public sealed partial class CupriDocument : IDisposable
             // Tree: →/← expand/collapse a focused tree item (ARIA tree pattern).
             if (focused?.Element?.ClassList.Contains("cupri-tree-twist") == true && key is EditKey.Left or EditKey.Right)
                 return TreeExpand(focused, key == EditKey.Right);
+
+            // Steam maps a stick to WASD for games with no pad support, so a push can arrive as a
+            // LETTER. Checked here, inside the "no text field focused" guard, so it cannot eat a
+            // keystroke meant for a search box. Straight to geometry: the only reason to turn this on
+            // is that something is pretending to be a keyboard on a controller's behalf.
+            if (WasdNavigation && text is { Length: 1 } && WasdDirection(text[0]) is { } wasd)
+                return MoveFocus(wasd);
 
             switch (key)
             {
