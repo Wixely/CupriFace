@@ -92,6 +92,9 @@ public static partial class CssParser
             {
                 // Interaction pseudo-classes are matched via marker attributes toggled at runtime.
                 var sel = selRaw.Replace(":hover", "[data-hover]").Replace(":active", "[data-active]")
+                                // Before ":focus", which is a prefix of it — replacing the shorter
+                                // one first would leave ":focus-visible" as "[data-focus]-visible".
+                                .Replace(":focus-visible", "[data-focus]")
                                 .Replace(":focus", "[data-focus]")
                                 // Files being dragged over a .cupri-drop target. CSS has no standard
                                 // pseudo for this (only a -moz- prefixed one), but an author reaching

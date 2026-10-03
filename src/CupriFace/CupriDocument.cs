@@ -61,6 +61,7 @@ public sealed partial class CupriDocument : IDisposable
 
     // Hover + drag + text-focus state
     private readonly List<IElement> _hoverChain = new();
+    private IElement? _focusMarked;   // the element currently carrying data-focus for keyboard focus
     private readonly List<IElement> _activeChain = new(); // :active — the pressed element + ancestors
     private string? _focusKey;  // the focused field's bound path (survives rebuilds)
     private string _focusInputMode = "", _focusEnterHint = "", _focusPlaceholder = "";
@@ -1695,6 +1696,11 @@ public sealed partial class CupriDocument : IDisposable
         // Anything another thread handed us, run HERE: on the render thread, before layout, so it is
         // indistinguishable from input that arrived on this thread and its effects paint this frame.
         DrainPosted();
+        // Then publish which control is focused, as an ATTRIBUTE, so `:focus` can reach it. Done
+        // here rather than at each of the dozen places focus moves: one spot catches a press, a
+        // click, a controller, an accessibility client and an overlay opening, and cannot be
+        // forgotten by the next thing that moves focus.
+        if (ApplyFocusAttribute()) ReStyle();
         // @media and viewport units both depend on the viewport size — re-resolve styles when
         // either axis changes (height-qualified queries are how phone landscape and a desktop
         // window are told apart; vh/vw are resolved to px at style time and must be re-folded).
@@ -2298,7 +2304,10 @@ public sealed partial class CupriDocument : IDisposable
         // is wrong in most palettes. Before the --cupri-focus variable below existed, an author who
         // wanted a ring in their own colour had no way to ask for one, so they drew it with `border`
         // instead and the layout moved every time the selection did. That is the bug this is for.
-        if (node.Style.HasOutline) return;
+        // …and so does `outline: none`, which is the web's way of saying "I style focus myself".
+        // Both leave nothing for the paint pass to draw, so only the explicit `none` distinguishes
+        // "I have my own" from "I never mentioned it".
+        if (node.Style.HasOutline || node.Style.OutlineSuppressed) return;
 
         var (x, y, w, h) = HitTesting.AbsoluteBox(node);
         const float t = 2f, pad = 2f;                 // ring thickness + gap outside the border box
@@ -6377,6 +6386,46 @@ public sealed partial class CupriDocument : IDisposable
             _virtualScroll[repeatPath] = compensated;         // the next bind windows against this
             _pendingVirtualScroll[repeatPath] = compensated;  // …and the rebuilt node starts here
         }
+    }
+
+    /// <summary>
+    /// Mark the keyboard-focused control with <c>data-focus</c>, which is what <c>:focus</c> and
+    /// <c>:focus-visible</c> are rewritten to. Returns true when it moved, so the caller can
+    /// re-resolve styles — the same restyle-not-rebuild that hover does, and for the same reason:
+    /// which element is focused is decided from the RENDER tree, and CSS can only see the DOM.
+    ///
+    /// <para><b>Before this, <c>button:focus</c> could never match anything.</b> The attribute was set
+    /// only on an editable field — the one whose binding path is being typed into — so an author
+    /// styling a focused button wrote a rule that was dead on arrival, with nothing to say so. At
+    /// least one application worked around it by tracking the selection itself and styling a class of
+    /// its own.</para>
+    ///
+    /// <para>Set whenever there IS keyboard focus, not only when the ring is showing: that matches
+    /// what <c>:focus</c> means on the web, where a control focused by a click is still focused. The
+    /// RING stays conditional on having arrived by keyboard, which is the <c>:focus-visible</c>
+    /// distinction — an author who wants that difference can draw their own and suppress ours with
+    /// <c>outline: none</c>.</para>
+    /// </summary>
+    private bool ApplyFocusAttribute()
+    {
+        var want = _kbIndex >= 0 ? CurrentFocusNode()?.Element : null;
+        // An EDITABLE field is not ours to mark. Its data-focus already means something more precise
+        // — the caret is in it — set from the binding path being typed, and components rely on that
+        // reading: a combobox reveals its dropdown with `.cupri-cb-input:focus ~ .cupri-cb-popup`, so
+        // marking the field merely because the selection rests there holds the list open after the
+        // user has picked from it. Keyboard focus on a field already implies the caret (MoveFocus
+        // hands a textbox to UpdateFocus), so nothing is lost by standing aside.
+        if (want?.GetAttribute("role") is "textbox" or "spinbutton") want = null;
+        if (ReferenceEquals(want, _focusMarked)) return false;
+
+        // The old element may be from a tree that no longer exists; removing an attribute from an
+        // orphan is harmless, and cheaper than checking whether it is still in the document.
+        _focusMarked?.RemoveAttribute("data-focus");
+        _focusMarked = want;
+        // An editable field already carries this from the rebuild (keyed by its binding path), and
+        // setting it twice is the same attribute with the same value.
+        want?.SetAttribute("data-focus", "");
+        return true;
     }
 
     // Toggle data-hover on the hovered element + ancestors, then re-resolve styles (no full rebuild).

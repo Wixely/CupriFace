@@ -139,6 +139,15 @@ public sealed class ComputedStyle
     public bool HasOutline =>
         OutlineWidth > 0 && OutlineColor.Alpha > 0 && OutlineStyle != BorderLineStyle.None;
 
+    /// <summary>The author wrote <c>outline: none</c> — as opposed to not mentioning outline at all.
+    ///
+    /// <para>Both leave nothing to paint, so <see cref="HasOutline"/> cannot tell them apart, and the
+    /// difference is the whole of what <c>:focus { outline: none }</c> means on the web: "I am styling
+    /// this myself, stop drawing your ring". Without it the engine's ring was drawn on top of an
+    /// author's own focus styling and the universal idiom for suppressing it did nothing.</para>
+    /// </summary>
+    public bool OutlineSuppressed;
+
 
     /// <summary>Per corner and per axis, and unresolved: a percentage is a fraction of the BOX, so it
     /// becomes a number only when there is a box to measure it against. <see cref="BorderRadiusSpec.Resolve"/>.</summary>
