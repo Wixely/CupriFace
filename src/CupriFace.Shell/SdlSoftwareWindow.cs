@@ -105,6 +105,7 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
 
     // SDL sends one axis per event; the vector is only whole once both halves are remembered.
     private float _stickX, _stickY;
+    private int _controllers;   // recognised controllers open — the joystick fallback defers to them
 
     /// <summary>A controller's D-pad and face buttons as the keys they stand for, so a pad inherits
     /// everything the keyboard already has rather than getting a parallel path that could come to
@@ -725,8 +726,36 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                     // joystick nobody is listening to.
                     case EventType.Controllerdeviceadded:
                         _sdl.GameControllerOpen(e.Cdevice.Which);
+                        _controllers++;
                         KeyDiag.Log($"sdl gamepad connected: index {e.Cdevice.Which}");
                         break;
+                    case EventType.Controllerdeviceremoved:
+                        if (_controllers > 0) _controllers--;
+                        break;
+                    // A device SDL does NOT recognise as a game controller never produces the
+                    // controller events above — it produces these instead, and they were dropped, so
+                    // an unusual or virtual pad did nothing at all with nothing said about it. Opened
+                    // only while no recognised controller is present: a recognised one raises BOTH
+                    // families, and acting on both would move the selection twice per push.
+                    case EventType.Joydeviceadded:
+                        if (_controllers == 0 && _sdl.IsGameController(e.Jdevice.Which) == SdlBool.False)
+                        {
+                            _sdl.JoystickOpen(e.Jdevice.Which);
+                            KeyDiag.Log($"sdl joystick connected (NOT a recognised controller): index {e.Jdevice.Which}");
+                        }
+                        break;
+                    case EventType.Joyaxismotion:
+                    {
+                        if (_controllers > 0) break;
+                        // Axes 0 and 1 are a convention on an unmapped device, not a promise. This is
+                        // a fallback for a pad that would otherwise be invisible, not a second path.
+                        if (e.Jaxis.Axis == 0) _stickX = e.Jaxis.Value / 32767f;
+                        else if (e.Jaxis.Axis == 1) _stickY = e.Jaxis.Value / 32767f;
+                        else break;
+                        KeyDiag.Log($"sdl joystick axis x={_stickX:F2} y={_stickY:F2}");
+                        GamepadStick?.Invoke(_stickX, _stickY);
+                        break;
+                    }
                     case EventType.Controllerbuttondown:
                     {
                         var ek = ToEditKey((GameControllerButton)e.Cbutton.Button);

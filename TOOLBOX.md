@@ -1267,6 +1267,27 @@ windows do this — the GL one through Silk.NET's `IGamepad` (with Silk's own de
 `GamepadDeadzone` is the only one that applies), the software fallback through SDL's controller
 events. Pads connected after launch work on both.
 
+**Input from your own thread goes through `doc.Post`.** A document is not thread-safe, and the way
+it is unsafe is not obvious: every dispatch REBUILDS the render tree, so a reader thread calling
+`GamepadDriver.Stick` is replacing the tree underneath layout and paint. There is no exception at the
+call site — the test for this crashes the host with `NullReferenceException` and
+`ArgumentOutOfRangeException` from several threads at once. `doc.Post(() => …)` runs the work on the
+rendering thread at the start of the next frame, and `pad.PostStick(x, y)` / `PostPress` /
+`PostConfirm` are the same thing for a pad. That is the seam for a Linux evdev reader, a HID device,
+or anything else that arrives on its own thread.
+
+**`doc.WasdNavigation` is for Steam, not for keyboards.** Steam Input maps a thumbstick to WASD for
+games with no controller support, so a stick push can arrive as the letter `w` and nothing else — no
+gamepad, no axis, just text. Off by default, and only ever acts while no text field has focus, so
+typing "sword" into a search box types it. No corner moves: a letter has no release to hold.
+
+**A pad the platform does not recognise still works.** GLFW only calls a device a gamepad if it has a
+mapping for it, and SDL likewise — anything else is a plain joystick whose events both desktop
+windows used to drop, so an unusual or virtual pad did nothing at all, silently. Both now fall back
+to the joystick's axes 0/1 and its hat, but **only while no recognised gamepad is connected**: a
+recognised device raises both families of event, and acting on both moves the selection twice per
+push.
+
 **On the web the page polls.** The Gamepad API has no events for buttons or axes, so the poll lives
 in the frame loop rather than beside the keyboard listeners. Same mapping as everywhere else — D-pad
 and A/B become keys, the stick feeds a `GamepadDriver` — and because a poll always sees a button go

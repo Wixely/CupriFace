@@ -158,6 +158,11 @@ pad.Stick(0f, 0f);                            // …until it comes back to centr
 pad.Confirm();                                // A / OK — the same path Enter takes
 ```
 
+**Input from another thread must go through `doc.Post(() => …)`** — it is the only thread-safe
+member. Every dispatch rebuilds the render tree, so a reader thread calling input directly replaces
+it underneath layout and paint; the reproduction crashes the process rather than failing cleanly.
+`pad.PostStick(x, y)` is the same thing for a controller.
+
 **For a game, `doc.ArrowNavigation = true` makes the ARROW KEYS a D-pad** — off by default,
 because an ordinary application's arrows are expected to move a caret, scroll, and step through a
 radio group, and quietly repurposing them would fight every habit a user has. Turning it on takes

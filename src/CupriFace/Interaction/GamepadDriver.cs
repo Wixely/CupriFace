@@ -24,6 +24,10 @@ namespace CupriFace.Interaction;
 /// <see cref="CupriDocument.MoveFocus(NavigationDirection)"/> lays the tree out on entry, because a
 /// held D-pad autorepeats faster than a frame and a swallowed press is not an acceptable failure.</para>
 ///
+/// <para><b>Call these on the thread that renders.</b> A press ends in a dispatch that rebuilds the
+/// document's tree, so a reader thread calling <see cref="Stick"/> directly races layout and paint.
+/// An input source of your own should use <see cref="PostStick"/> and friends, which marshal.</para>
+///
 /// <para>Three things that bite if you drive
 /// <see cref="CupriDocument.MoveFocus(NavigationDirection)"/> by hand instead. <b>A held stick moves
 /// once</b>, not once per frame — holding right should not race across the panel, and
@@ -79,6 +83,33 @@ public sealed class GamepadDriver(CupriDocument doc, float? deadzone = null, Act
     /// <summary>A / OK / Enter — activate the focused control, exactly as the keyboard does, so a
     /// controller and a keyboard cannot come to disagree about what "activate" means.</summary>
     public bool Confirm() => Frame(doc.DispatchKey("", EditKey.Enter, KeyMods.None));
+
+    // ---- from another thread -------------------------------------------------------------------
+
+    /// <summary>
+    /// <b>None of the members above are thread-safe</b>, and the reason is worth knowing rather than
+    /// guessing at: each ends in a dispatch that REBUILDS the document's render tree. Called from a
+    /// reader thread, that swaps the tree out from under layout and paint. There is no exception at
+    /// the call site — just sporadic corruption somewhere else.
+    ///
+    /// <para>These three take the same input from any thread and run it on the one that renders, at
+    /// the start of the next frame. They are what an input source of your own — a Linux evdev reader,
+    /// a HID device, a pad over the network — should call.</para>
+    ///
+    /// <code>
+    /// pad.PostStick(x, y);   // on the evdev thread
+    /// </code>
+    ///
+    /// <para>They return nothing, necessarily: whether the selection moved is not known until that
+    /// frame runs, and inventing an answer now would be a lie.</para>
+    /// </summary>
+    public void PostStick(float x, float y) => doc.Post(() => Stick(x, y));
+
+    /// <inheritdoc cref="PostStick"/>
+    public void PostPress(NavigationDirection direction) => doc.Post(() => Press(direction));
+
+    /// <inheritdoc cref="PostStick"/>
+    public void PostConfirm() => doc.Post(() => Confirm());
 
     /// <summary>
     /// Which way the stick is pointing, or null when it is at rest.

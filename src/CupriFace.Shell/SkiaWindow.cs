@@ -305,6 +305,52 @@ public sealed class SkiaWindow : IDisposable
         };
     }
 
+    /// <summary>
+    /// A device GLFW did not recognise as a gamepad.
+    ///
+    /// <para>GLFW only calls something a gamepad if it has a mapping for it in its controller
+    /// database; everything else is a plain joystick with numbered axes and no agreed meaning. Those
+    /// never reached <see cref="_input"/>'s <c>Gamepads</c>, so an unusual pad — or a virtual one —
+    /// produced nothing at all, silently, which is the failure this engine is already too good at.
+    /// </para>
+    ///
+    /// <para>Only honoured while NO gamepad is connected. A recognised device appears in both lists,
+    /// and handling it twice would move the selection two squares per push. "No gamepad" is also the
+    /// only situation in which guessing at axis 0 and 1 is defensible: on an unmapped device they are
+    /// a convention, not a promise, so this is a fallback rather than a second supported path.</para>
+    /// </summary>
+    private void WireJoystick(IJoystick stick)
+    {
+        KeyDiag.Log($"gl joystick connected (NOT a recognised gamepad): {stick.Name}");
+        stick.AxisMoved += (js, axis) =>
+        {
+            if (_input is { Gamepads.Count: > 0 }) return;      // a real gamepad is driving
+            if (axis.Index is 0) _joyX = axis.Position;
+            else if (axis.Index is 1) _joyY = axis.Position;
+            else return;
+            KeyDiag.Log($"gl joystick axis x={_joyX:F2} y={_joyY:F2}");
+            GamepadStick?.Invoke(_joyX, _joyY);
+        };
+        // A joystick's hat is what a D-pad usually is on an unmapped device.
+        stick.HatMoved += (js, hat) =>
+        {
+            if (_input is { Gamepads.Count: > 0 }) return;
+            foreach (var ek in HatKeys(hat.Position)) EditKeyPressed?.Invoke(ek, KeyMods.None);
+        };
+    }
+
+    private float _joyX, _joyY;
+
+    /// <summary>A hat position as the arrow keys it stands for — a diagonal is both of them, which is
+    /// also how the engine wants a corner expressed.</summary>
+    private static IEnumerable<EditKey> HatKeys(Position2D p)
+    {
+        if (p is Position2D.Up or Position2D.UpLeft or Position2D.UpRight) yield return EditKey.Up;
+        if (p is Position2D.Down or Position2D.DownLeft or Position2D.DownRight) yield return EditKey.Down;
+        if (p is Position2D.Left or Position2D.UpLeft or Position2D.DownLeft) yield return EditKey.Left;
+        if (p is Position2D.Right or Position2D.UpRight or Position2D.DownRight) yield return EditKey.Right;
+    }
+
     private static EditKey? ToEditKey(ButtonName b) => b switch
     {
         ButtonName.DPadUp => EditKey.Up,
@@ -637,9 +683,12 @@ public sealed class SkiaWindow : IDisposable
         // Controllers, including any plugged in later — a pad connected after launch is the normal
         // case, not an edge one.
         foreach (var pad in _input.Gamepads) WireGamepad(pad);
+        foreach (var stick in _input.Joysticks) WireJoystick(stick);
         _input.ConnectionChanged += (device, connected) =>
         {
-            if (connected && device is IGamepad pad) WireGamepad(pad);
+            if (!connected) return;
+            if (device is IGamepad pad) WireGamepad(pad);
+            else if (device is IJoystick stick) WireJoystick(stick);
         };
 
         foreach (var mouse in _input.Mice)
