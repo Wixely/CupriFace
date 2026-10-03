@@ -194,6 +194,27 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   worked in every test (which render unconditionally) and did nothing in front of a user. A pending
   post is now reported through `HasActiveAnimations`, the signal every host polls.
 
+- **`doc.Gamepad` — one navigation driver per document, shared by the host and by the application.**
+  A driver holds which direction is currently held, so two of them turn one stick push into two moves;
+  an app with its own evdev reader had to switch one path off to avoid it. Shared, the duplicate
+  collapses by itself — the second source reports a direction the first already claimed. Every host
+  now uses it instead of making its own, so deadzone and corner policy are one answer rather than
+  several.
+
+- **`doc.HostGamepadNavigation = false`** lets an application with its own input source be the only
+  one, without modifying a host. It silences the host's PAD and not the keyboard — which is why a
+  controller's D-pad now travels on its own event inside each host rather than sharing the keyboard's,
+  even though it stands for the same keys.
+
+- **`doc.GamepadConnected` / `GamepadDisconnected`** report a pad as an event: its name, which backend
+  opened it, and whether the platform **recognised** it (false meaning it arrived through the joystick
+  fallback, so its axes are a guess). Previously the only thing that knew any of this was the
+  `CUPRIFACE_KEY_DEBUG` log — a file, written for a human, that an application cannot branch on.
+
+- **Unchanged stick samples are no longer forwarded.** A Steam Virtual Gamepad emits a near-identical
+  neutral sample continuously; every one of them did the work of a push that never happened and wrote
+  a line to the diagnostic log. All four hosts now suppress a reading identical to the last.
+
 ### Fixed
 
 - **A focus move arriving between frames is no longer swallowed.** Directional navigation reads where

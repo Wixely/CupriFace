@@ -104,6 +104,9 @@ public static unsafe partial class Interop
     [UnmanagedCallersOnly(EntryPoint = "GamepadStick")]
     public static void GamepadStick(double x, double y) => Guard("GamepadStick", () => WebHostCore.GamepadStick(x, y));
 
+    [UnmanagedCallersOnly(EntryPoint = "GamepadKey")]
+    public static void GamepadKey(int code, int down) => Guard("GamepadKey", () => WebHostCore.GamepadKey(code, down));
+
     [UnmanagedCallersOnly(EntryPoint = "ReleaseAllKeys")]
     public static void ReleaseAllKeys() => Guard("ReleaseAllKeys", WebHostCore.ReleaseAllKeys);
 
@@ -151,6 +154,13 @@ public static unsafe partial class Interop
 
     [UnmanagedCallersOnly(EntryPoint = "PasteText")]
     public static void PasteText(int len) => Guard("PasteText", () => WebHostCore.KeyChar(In(len)));
+
+    /// <summary>A pad connected. Its NAME comes through the shared buffer, like every other string
+    /// on this host — the C ABI has none — so the page fills TextBuffer first and passes the length.
+    /// </summary>
+    [UnmanagedCallersOnly(EntryPoint = "GamepadConnected")]
+    public static void GamepadConnected(int len, int standard) =>
+        Guard("GamepadConnected", () => WebHostCore.GamepadConnected(In(len), standard));
 
     // ---- files dropped on the canvas -----------------------------------------------------------
     // Strings reuse the shared char buffer above (name, then type, then the file itself), so a drop

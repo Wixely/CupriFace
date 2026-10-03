@@ -103,9 +103,29 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     public event Action? FocusLost;                         // every held key is now someone else's
     public event Action<float, float>? GamepadStick;        // left stick, -1..1, y DOWN positive
 
+    // Separate from EditKeyPressed even though they stand for the same keys: an application that owns
+    // its own input source switches the host's PAD off and keeps its keyboard, and one event cannot
+    // be half-ignored. (down: true = pressed, false = released.)
+    public event Action<EditKey, bool>? GamepadKey;
+    public event Action<GamepadInfo>? GamepadConnected;
+    public event Action<GamepadInfo>? GamepadDisconnected;
+
     // SDL sends one axis per event; the vector is only whole once both halves are remembered.
     private float _stickX, _stickY;
     private int _controllers;   // recognised controllers open — the joystick fallback defers to them
+    private float _lastStickX = float.NaN, _lastStickY = float.NaN;
+
+    /// <summary>Forward the stick only when it CHANGED. A Steam Virtual Gamepad emits a near-identical
+    /// neutral sample continuously, so without this every one does the work of a push that never
+    /// happened and fills the diagnostic log with a stick nobody touched.</summary>
+    private void PublishStick(string what)
+    {
+        if (_stickX == _lastStickX && _stickY == _lastStickY) return;
+        _lastStickX = _stickX; _lastStickY = _stickY;
+        // The sign cannot be checked without hardware: push down and this must read y > 0.
+        KeyDiag.Log($"{what} stick x={_stickX:F2} y={_stickY:F2}");
+        GamepadStick?.Invoke(_stickX, _stickY);
+    }
 
     /// <summary>A controller's D-pad and face buttons as the keys they stand for, so a pad inherits
     /// everything the keyboard already has rather than getting a parallel path that could come to
@@ -725,12 +745,17 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                     // Opening it is what makes SDL deliver its events; without the open it stays a
                     // joystick nobody is listening to.
                     case EventType.Controllerdeviceadded:
-                        _sdl.GameControllerOpen(e.Cdevice.Which);
+                    {
+                        var handle = _sdl.GameControllerOpen(e.Cdevice.Which);
                         _controllers++;
-                        KeyDiag.Log($"sdl gamepad connected: index {e.Cdevice.Which}");
+                        var name = Marshal.PtrToStringUTF8((IntPtr)_sdl.GameControllerName(handle)) ?? "controller";
+                        KeyDiag.Log($"sdl gamepad connected: {name} (index {e.Cdevice.Which})");
+                        GamepadConnected?.Invoke(new GamepadInfo(name, "sdl", Recognised: true));
                         break;
+                    }
                     case EventType.Controllerdeviceremoved:
                         if (_controllers > 0) _controllers--;
+                        GamepadDisconnected?.Invoke(new GamepadInfo("controller", "sdl", true));
                         break;
                     // A device SDL does NOT recognise as a game controller never produces the
                     // controller events above — it produces these instead, and they were dropped, so
@@ -742,6 +767,8 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                         {
                             _sdl.JoystickOpen(e.Jdevice.Which);
                             KeyDiag.Log($"sdl joystick connected (NOT a recognised controller): index {e.Jdevice.Which}");
+                            GamepadConnected?.Invoke(
+                                new GamepadInfo($"joystick {e.Jdevice.Which}", "sdl", Recognised: false));
                         }
                         break;
                     case EventType.Joyaxismotion:
@@ -752,21 +779,20 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                         if (e.Jaxis.Axis == 0) _stickX = e.Jaxis.Value / 32767f;
                         else if (e.Jaxis.Axis == 1) _stickY = e.Jaxis.Value / 32767f;
                         else break;
-                        KeyDiag.Log($"sdl joystick axis x={_stickX:F2} y={_stickY:F2}");
-                        GamepadStick?.Invoke(_stickX, _stickY);
+                        PublishStick("sdl joystick");
                         break;
                     }
                     case EventType.Controllerbuttondown:
                     {
                         var ek = ToEditKey((GameControllerButton)e.Cbutton.Button);
                         KeyDiag.Log($"sdl gamepad down {(GameControllerButton)e.Cbutton.Button} -> {ek}");
-                        if (ek != EditKey.None) EditKeyPressed?.Invoke(ek, KeyMods.None);
+                        if (ek != EditKey.None) GamepadKey?.Invoke(ek, true);
                         break;
                     }
                     case EventType.Controllerbuttonup:
                     {
                         var ek = ToEditKey((GameControllerButton)e.Cbutton.Button);
-                        if (ek != EditKey.None) EditKeyReleased?.Invoke(ek);
+                        if (ek != EditKey.None) GamepadKey?.Invoke(ek, false);
                         break;
                     }
                     case EventType.Controlleraxismotion:
@@ -778,10 +804,7 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                         if (axis == GameControllerAxis.ControllerAxisLeftx) _stickX = e.Caxis.Value / 32767f;
                         else if (axis == GameControllerAxis.ControllerAxisLefty) _stickY = e.Caxis.Value / 32767f;
                         else break;
-                        // The sign is the one thing that cannot be checked without hardware: push
-                        // the stick down and this must read y > 0, or navigation runs upside down.
-                        KeyDiag.Log($"sdl gamepad stick x={_stickX:F2} y={_stickY:F2}");
-                        GamepadStick?.Invoke(_stickX, _stickY);
+                        PublishStick("sdl gamepad");
                         break;
                     }
                     case EventType.Keyup:

@@ -523,6 +523,7 @@ try {
     // overlay dismissal rather than getting a path of its own that could drift from the keyboard's.
     const PAD_KEYS = { 12: "ArrowUp", 13: "ArrowDown", 14: "ArrowLeft", 15: "ArrowRight", 0: "Enter", 1: "Escape" };
     const padHeld = new Map();   // "padIndex:button" -> was it down last frame
+    let padAx = NaN, padAy = NaN;   // last stick reading forwarded
 
     // A tab that loses focus never sees the release of anything held: that event goes to
     // whoever gains focus. A direction left marked as held would make the next press read
@@ -534,6 +535,16 @@ try {
     // all (no permission, no gesture yet, unsupported mapping), or it sees it and maps it
     // wrongly. Connection is always announced; add ?padlog=1 for the per-event stream.
     const padLog = new URLSearchParams(location.search).has("padlog");
+    window.addEventListener("gamepadconnected", (e) => {
+        // The app, not just the console: a fallback reader needs to know whether to start. The name
+        // rides the shared text buffer, which is how every string reaches this host.
+        try {
+            const id = e.gamepad.id;
+            const p = M._TextBuffer(id.length);
+            for (let i = 0; i < id.length; i++) M.HEAPU16[(p >> 1) + i] = id.charCodeAt(i);
+            M._GamepadConnected(id.length, e.gamepad.mapping === "standard" ? 1 : 0);
+        } catch { }
+    });
     window.addEventListener("gamepadconnected", (e) => console.log(
         "[cupriface] gamepad connected:", e.gamepad.id,
         "mapping=" + (e.gamepad.mapping || "(non-standard)"),
@@ -559,7 +570,7 @@ try {
                 if (down !== (padHeld.get(key) === true)) {
                     if (padLog) console.log("[cupriface] pad button", index,
                         PAD_KEYS[index], down ? "down" : "up");
-                    if (down) M._EditKeyPress(code, 0); else M._EditKeyRelease(code);
+                    M._GamepadKey(code, down ? 1 : 0);
                     padHeld.set(key, down);
                 }
             }
@@ -570,7 +581,10 @@ try {
             // controller support that cannot be checked without hardware.
             if (padLog && (pad.axes[0] || pad.axes[1]))
                 console.log("[cupriface] pad stick", pad.axes[0].toFixed(2), pad.axes[1].toFixed(2));
-            M._GamepadStick(pad.axes[0] || 0, pad.axes[1] || 0);
+            // Only when it CHANGED: a Steam Virtual Gamepad emits a near-identical neutral
+            // sample every frame, and forwarding each one does the work of a push nobody made.
+            const ax = pad.axes[0] || 0, ay = pad.axes[1] || 0;
+            if (ax !== padAx || ay !== padAy) { padAx = ax; padAy = ay; M._GamepadStick(ax, ay); }
         }
     }
 

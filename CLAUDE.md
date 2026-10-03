@@ -158,6 +158,11 @@ pad.Stick(0f, 0f);                            // …until it comes back to centr
 pad.Confirm();                                // A / OK — the same path Enter takes
 ```
 
+**`doc.Gamepad` is the one driver** — a host and an app sharing it is what stops one stick push
+becoming two moves. `doc.HostGamepadNavigation = false` when your app owns its own input source and
+wants to be the only one (it silences the pad, not the keyboard), and `doc.GamepadConnected` tells you
+a pad exists and whether the platform recognised it.
+
 **Input from another thread must go through `doc.Post(() => …)`** — it is the only thread-safe
 member. Every dispatch rebuilds the render tree, so a reader thread calling input directly replaces
 it underneath layout and paint; the reproduction crashes the process rather than failing cleanly.
