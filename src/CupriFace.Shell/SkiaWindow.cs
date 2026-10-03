@@ -286,22 +286,20 @@ public sealed class SkiaWindow : IDisposable
         pad.Deadzone = new Deadzone(0f, DeadzoneMethod.Traditional);
 
         KeyDiag.Log($"gl gamepad connected: {pad.Name}");
+        GamepadConnected?.Invoke(new GamepadInfo(pad.Name, "glfw", Recognised: true));
         pad.ButtonDown += (_, b) =>
         {
             KeyDiag.Log($"gl gamepad down {b.Name} -> {ToEditKey(b.Name)?.ToString() ?? "(unmapped)"}");
-            if (ToEditKey(b.Name) is { } ek) EditKeyPressed?.Invoke(ek, KeyMods.None);
+            if (ToEditKey(b.Name) is { } ek) GamepadKey?.Invoke(ek, true);
         };
-        pad.ButtonUp += (_, b) => { if (ToEditKey(b.Name) is { } ek) EditKeyReleased?.Invoke(ek); };
+        pad.ButtonUp += (_, b) => { if (ToEditKey(b.Name) is { } ek) GamepadKey?.Invoke(ek, false); };
         // Thumbstick 0 is the left stick. Y is DOWN-positive here, matching the engine's own
         // coordinate space: Silk's GLFW backend passes GLFW_GAMEPAD_AXIS_LEFT_Y straight through,
         // and GLFW defines -1 as up.
         pad.ThumbstickMoved += (_, stick) =>
         {
             if (stick.Index != 0) return;
-            // Logged because the SIGN is the one thing here that cannot be checked without hardware:
-            // push the stick down and this must read y > 0, or navigation runs upside down.
-            KeyDiag.Log($"gl gamepad stick x={stick.X:F2} y={stick.Y:F2}");
-            GamepadStick?.Invoke(stick.X, stick.Y);
+            PublishStick(stick.X, stick.Y, "gl gamepad");
         };
     }
 
@@ -322,24 +320,50 @@ public sealed class SkiaWindow : IDisposable
     private void WireJoystick(IJoystick stick)
     {
         KeyDiag.Log($"gl joystick connected (NOT a recognised gamepad): {stick.Name}");
+        GamepadConnected?.Invoke(new GamepadInfo(stick.Name, "glfw", Recognised: false));
         stick.AxisMoved += (js, axis) =>
         {
             if (_input is { Gamepads.Count: > 0 }) return;      // a real gamepad is driving
             if (axis.Index is 0) _joyX = axis.Position;
             else if (axis.Index is 1) _joyY = axis.Position;
             else return;
-            KeyDiag.Log($"gl joystick axis x={_joyX:F2} y={_joyY:F2}");
-            GamepadStick?.Invoke(_joyX, _joyY);
+            PublishStick(_joyX, _joyY, "gl joystick");
         };
-        // A joystick's hat is what a D-pad usually is on an unmapped device.
+        // A joystick's hat is what a D-pad usually is on an unmapped device. It reports a POSITION,
+        // not presses, so the keys it no longer includes have to be released explicitly — otherwise
+        // every direction the hat ever visited stays held for the rest of the session, and held state
+        // is what decides whether two presses were a corner.
         stick.HatMoved += (js, hat) =>
         {
             if (_input is { Gamepads.Count: > 0 }) return;
-            foreach (var ek in HatKeys(hat.Position)) EditKeyPressed?.Invoke(ek, KeyMods.None);
+            var now = HatKeys(hat.Position).ToArray();
+            foreach (var was in _hatHeld) if (!now.Contains(was)) GamepadKey?.Invoke(was, false);
+            foreach (var ek in now) if (!_hatHeld.Contains(ek)) GamepadKey?.Invoke(ek, true);
+            _hatHeld = now;
         };
     }
 
     private float _joyX, _joyY;
+    private EditKey[] _hatHeld = [];
+    private float _lastStickX = float.NaN, _lastStickY = float.NaN;
+
+    /// <summary>Forward a stick reading — but only when it CHANGED.
+    ///
+    /// <para>A Steam Virtual Gamepad emits a near-identical neutral sample continuously, so without
+    /// this every frame does the work of a push that never happened and the diagnostic log fills with
+    /// a stick nobody touched. Comparing exactly is right: these arrive as the same float until the
+    /// stick actually moves, and a tolerance would only invent a threshold that
+    /// <see cref="CupriDocument.GamepadDeadzone"/> already owns.</para>
+    /// </summary>
+    private void PublishStick(float x, float y, string what)
+    {
+        if (x == _lastStickX && y == _lastStickY) return;
+        _lastStickX = x; _lastStickY = y;
+        // The SIGN is the one thing here that cannot be checked without hardware: push the stick down
+        // and this must read y > 0, or navigation runs upside down.
+        KeyDiag.Log($"{what} stick x={x:F2} y={y:F2}");
+        GamepadStick?.Invoke(x, y);
+    }
 
     /// <summary>A hat position as the arrow keys it stands for — a diagonal is both of them, which is
     /// also how the engine wants a corner expressed.</summary>
@@ -385,6 +409,14 @@ public sealed class SkiaWindow : IDisposable
     public event Action<EditKey>? EditKeyReleased;          // the same key let go; see kb.KeyUp
     public event Action? FocusLost;                         // every held key is now someone else's
     public event Action<float, float>? GamepadStick;        // left stick, -1..1, y DOWN positive
+
+    // A controller's D-pad and face buttons, SEPARATE from EditKeyPressed even though they stand for
+    // the same keys. The host has to be able to tell them apart: an application that owns its own
+    // input source switches the host's PAD off and keeps its keyboard, and a single event cannot be
+    // half-ignored. (down: true = pressed, false = released.)
+    public event Action<EditKey, bool>? GamepadKey;
+    public event Action<GamepadInfo>? GamepadConnected;
+    public event Action<GamepadInfo>? GamepadDisconnected;
     public event Action<char, KeyMods>? Shortcut;           // Ctrl/Cmd + letter (a/c/x/v …) or =/-/0 (zoom)
 
     /// <summary>
@@ -686,9 +718,14 @@ public sealed class SkiaWindow : IDisposable
         foreach (var stick in _input.Joysticks) WireJoystick(stick);
         _input.ConnectionChanged += (device, connected) =>
         {
-            if (!connected) return;
-            if (device is IGamepad pad) WireGamepad(pad);
-            else if (device is IJoystick stick) WireJoystick(stick);
+            if (connected)
+            {
+                if (device is IGamepad pad) WireGamepad(pad);
+                else if (device is IJoystick stick) WireJoystick(stick);
+                return;
+            }
+            if (device is IGamepad gone) GamepadDisconnected?.Invoke(new GamepadInfo(gone.Name, "glfw", true));
+            else if (device is IJoystick js) GamepadDisconnected?.Invoke(new GamepadInfo(js.Name, "glfw", false));
         };
 
         foreach (var mouse in _input.Mice)

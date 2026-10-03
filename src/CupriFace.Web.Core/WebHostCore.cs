@@ -26,7 +26,6 @@ public static class WebHostCore
     private static IWebBridge _js = null!;
     private static CupriApp _app = null!;
     private static CupriDocument _doc = null!;
-    private static GamepadDriver? _pad;
     private static TouchInput _touch = null!;
     private static WebVideoBackend? _video;
     private static WebUnderlays? _underlays;
@@ -120,7 +119,7 @@ public static class WebHostCore
         // navigation can decide a corner from what is still HELD rather than from how fast two
         // presses arrived. See CupriDocument.DiagonalNavigation.
         _doc.ReportsKeyUp = true;
-        _pad = new GamepadDriver(_doc, onFrame: () => _dirty = true);
+
         configure?.Invoke(_doc);
         _touch = new TouchInput(_doc);
 
@@ -684,7 +683,27 @@ public static class WebHostCore
     /// already reports, so nothing is flipped on the way in. Safe to call every frame: the driver
     /// edge-detects, so a stick held over moves the selection once rather than once per frame.</summary>
     public static void GamepadStick(double x, double y)
-    { if (_pad?.Stick((float)x, (float)y) == true) _dirty = true; }
+    {
+        if (_doc is null || !_doc.HostGamepadNavigation) return;   // the app's reader is the only one
+        if (_doc.Gamepad.Stick((float)x, (float)y)) _dirty = true;
+    }
+
+    /// <summary>A controller's D-pad or face button — separate from <see cref="EditKeyPress"/> even
+    /// though it stands for the same key, so an app that owns its own input source can silence the
+    /// host's pad while keeping its keyboard.</summary>
+    public static void GamepadKey(int code, int down)
+    {
+        if (_doc is null || !_doc.HostGamepadNavigation) return;
+        var handled = down != 0
+            ? _doc.DispatchKey(null, (EditKey)code)
+            : _doc.DispatchKeyUp((EditKey)code);
+        if (handled) _dirty = true;
+    }
+
+    /// <summary>The page saw a pad connect. <paramref name="standard"/> is whether the browser gave
+    /// it the standard mapping — false means the button indices below are a guess.</summary>
+    public static void GamepadConnected(string name, int standard) =>
+        _doc?.ReportGamepadConnected(new GamepadInfo(name, "web", Recognised: standard != 0));
 
     /// <summary>Every held key forgotten — the page calls this when the tab loses focus, because the
     /// release of anything down at that moment is delivered to whoever has focus next and never to

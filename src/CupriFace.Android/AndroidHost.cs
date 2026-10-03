@@ -143,8 +143,6 @@ public sealed class AndroidHost : IDisposable
         // nothing has been released when the first arrow of a session is pressed, so inferring it
         // would make the first corner behave differently from every later one.
         doc.ReportsKeyUp = true;
-        // Diagonals follow whatever the APP asked for — the host has no business overruling it.
-        _pad = new GamepadDriver(doc, onFrame: MarkDirty);
 
         // External links go to the OS; internal ones are the app's routing concern. Fires on the
         // GL thread (inside a dispatch), so hop to the UI thread for the Intent.
@@ -609,8 +607,28 @@ public sealed class AndroidHost : IDisposable
     /// a diagonal: "down and right" arrives as one reading rather than as two presses to correlate.
     /// The driver edge-detects, so a stick held over does not race the selection across the panel.
     /// </summary>
-    internal void Stick(float x, float y) => _pad?.Stick(x, y);
-    private GamepadDriver? _pad;
+    internal void Stick(float x, float y)
+    {
+        if (!_doc.HostGamepadNavigation) return;      // the app's own reader is the only source
+        // A pad emits a near-identical neutral sample continuously; without this every one does the
+        // work of a push that never happened.
+        if (x == _lastStickX && y == _lastStickY) return;
+        _lastStickX = x; _lastStickY = y;
+        if (_doc.Gamepad.Stick(x, y)) MarkDirty();
+    }
+    private float _lastStickX = float.NaN, _lastStickY = float.NaN;
+
+    /// <summary>A controller's D-pad or face button, kept SEPARATE from <see cref="Key"/> even though
+    /// it stands for the same key: an app that owns its own input source switches the host's pad off
+    /// and keeps its keyboard.</summary>
+    internal void PadKey(EditKey key, bool down)
+    {
+        if (!_doc.HostGamepadNavigation) return;
+        if (down ? _doc.DispatchKey(null, key) : _doc.DispatchKeyUp(key)) MarkDirty();
+    }
+
+    internal void PadConnected(string name) =>
+        _doc.ReportGamepadConnected(new GamepadInfo(name, "android", Recognised: true));
 
     internal void KeyText(string text)
     { if (_doc.DispatchKey(text, EditKey.None)) MarkDirty(); }

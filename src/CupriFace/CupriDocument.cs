@@ -1256,7 +1256,7 @@ public sealed partial class CupriDocument : IDisposable
     /// set only changes when the tree does), so a host may poll it every frame for free. Also true
     /// while a masked field peeks its last-typed char (see <see cref="HasActiveTransitions"/>),
     /// and while any live surface (a playing video) is producing frames.</summary>
-    public bool HasActiveAnimations => (_hasActiveAnim && _animRunning) || _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || Surfaces.AnyTicking || FlingActive || OverscrollActive || _pendingNav is not null;
+    public bool HasActiveAnimations => (_hasActiveAnim && _animRunning) || _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || Surfaces.AnyTicking || FlingActive || OverscrollActive || _pendingNav is not null || !_posted.IsEmpty;
     private bool _hasActiveAnim;
     private bool _animRunning = true;
 
@@ -3708,6 +3708,12 @@ public sealed partial class CupriDocument : IDisposable
     /// doc.Post(() => pad.Stick(x, y));
     /// </code>
     ///
+    /// <para><b>Posting wakes a sleeping host.</b> A render-on-demand window draws only when something
+    /// says it must, and the queue is drained inside a frame — so without this, posted work would wait
+    /// for a frame that was itself waiting for a reason to happen, and an idle window would simply
+    /// never receive it. A pending post is reported through <see cref="HasActiveAnimations"/>, which
+    /// is the signal every host polls to decide whether to draw at all.</para>
+    ///
     /// <para>Queued work runs in the order it was posted, before the frame lays out — so anything it
     /// changes is visible in that same frame rather than the one after. An exception thrown by posted
     /// work propagates out of the frame rather than being swallowed: it is application code, and a
@@ -3726,6 +3732,57 @@ public sealed partial class CupriDocument : IDisposable
     {
         while (_posted.TryDequeue(out var work)) work();
     }
+
+    private Interaction.GamepadDriver? _gamepad;
+
+    /// <summary>
+    /// <b>The</b> controller for this document — one driver, shared by the host and by any input
+    /// source of the application's own.
+    ///
+    /// <para>It has to be one. A driver holds the state that turns a continuous axis into discrete
+    /// moves: which direction is currently held, and therefore whether the next sample is a new push
+    /// or the same one still going. Two drivers hold that state twice, so a stick seen by both the
+    /// host and an evdev reader moves the selection two squares per push — which is why an
+    /// application with its own reader has had to switch one of them off.</para>
+    ///
+    /// <para>Shared, the duplicate collapses on its own: the second source reports the direction the
+    /// first already claimed, and <see cref="Interaction.GamepadDriver.Stick"/> says so by returning
+    /// false. Deadzone and corner policy come from this document, so every source agrees about those
+    /// too rather than by convention.</para>
+    ///
+    /// <code>
+    /// doc.Gamepad.PostStick(x, y);     // from your own reader, on any thread
+    /// </code>
+    /// </summary>
+    public Interaction.GamepadDriver Gamepad => _gamepad ??= new Interaction.GamepadDriver(this);
+
+    /// <summary>
+    /// Whether the HOST's own controller handling drives navigation. True by default.
+    ///
+    /// <para>Set it false when the application has an input source of its own and wants to be the
+    /// only one — a Linux evdev reader, a proprietary HID device, a pad arriving over a network. The
+    /// host stops feeding its gamepad into <see cref="Gamepad"/>, and
+    /// <see cref="Interaction.GamepadDriver.PostStick"/> becomes the single way in.</para>
+    ///
+    /// <para>It silences the HOST's pad, not the keyboard: arrow keys, Enter and Escape are unchanged,
+    /// because a person at a keyboard is not the thing being arbitrated.</para>
+    /// </summary>
+    public bool HostGamepadNavigation { get; set; } = true;
+
+    /// <summary>A controller appeared. Hosts raise it; an application listens to decide whether its
+    /// own fallback reader is needed — which previously meant parsing a diagnostic LOG, since the
+    /// only way to know was <c>CUPRIFACE_KEY_DEBUG</c>.</summary>
+    public event Action<Interaction.GamepadInfo>? GamepadConnected;
+
+    /// <summary>A controller went away.</summary>
+    public event Action<Interaction.GamepadInfo>? GamepadDisconnected;
+
+    /// <summary>Called by a HOST when it opens a controller. Not for applications — an app that wants
+    /// to announce its own device is announcing something this document cannot see.</summary>
+    public void ReportGamepadConnected(Interaction.GamepadInfo pad) => GamepadConnected?.Invoke(pad);
+
+    /// <inheritdoc cref="ReportGamepadConnected"/>
+    public void ReportGamepadDisconnected(Interaction.GamepadInfo pad) => GamepadDisconnected?.Invoke(pad);
 
     /// <summary>
     /// How far a thumbstick must travel from centre before it counts as pushed, 0..1. Default 0.5.

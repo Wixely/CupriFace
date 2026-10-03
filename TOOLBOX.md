@@ -1267,6 +1267,25 @@ windows do this — the GL one through Silk.NET's `IGamepad` (with Silk's own de
 `GamepadDeadzone` is the only one that applies), the software fallback through SDL's controller
 events. Pads connected after launch work on both.
 
+**`doc.Gamepad` is THE driver — share it, don't make another.** A driver holds which direction is
+currently held, which is what turns a continuous axis into discrete moves. Two drivers hold that
+twice, so a stick seen by both the host and an app's own reader moves the selection two squares per
+push. Shared, the duplicate collapses on its own: the second source reports a direction the first
+already claimed and `Stick` returns false. Deadzone and corner policy come from the document, so
+every source agrees about them by construction.
+
+**`doc.HostGamepadNavigation = false`** when your app owns its input — a Linux evdev reader, a HID
+device, a pad over a network — and wants to be the only source. It silences the HOST's pad, never the
+keyboard: arrows, Enter and Escape are unchanged, because a person at a keyboard is not the thing
+being arbitrated. That is also why a pad's D-pad travels on its own event inside each host rather
+than sharing the keyboard's.
+
+**`doc.GamepadConnected` / `GamepadDisconnected`** tell an application what previously only a
+diagnostic log knew: that a pad exists, which backend opened it (`glfw`, `sdl`, `android`, `web`),
+and whether the platform actually **recognised** it. `Recognised: false` means it came in through the
+joystick fallback — the axes are a guess — and is the signal for an app with its own device knowledge
+to prefer its own reader. A log file cannot be branched on; this can.
+
 **Input from your own thread goes through `doc.Post`.** A document is not thread-safe, and the way
 it is unsafe is not obvious: every dispatch REBUILDS the render tree, so a reader thread calling
 `GamepadDriver.Stick` is replacing the tree underneath layout and paint. There is no exception at the

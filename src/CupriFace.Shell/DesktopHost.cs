@@ -315,12 +315,22 @@ public static class DesktopHost
             doc.ReportsKeyUp = true;   // this host forwards releases; see DiagonalNavigation
             window.EditKeyReleased += k => Mark(doc.DispatchKeyUp(k));
             window.FocusLost += doc.ReleaseAllKeys;
-            // A controller's D-pad and buttons already arrive as EditKeys above, so only the STICK
-            // needs anything of its own: it is an axis rather than a press, and the driver is what
-            // turns a continuous reading into one move per push. Deadzone and whether a corner is a
-            // corner both come from the document, so the app's settings govern a pad as well.
-            var gamepad = new GamepadDriver(doc, onFrame: () => Mark(true));
-            window.GamepadStick += (x, y) => Mark(gamepad.Stick(x, y));
+            // The controller. doc.Gamepad rather than a driver of this host's own: a driver holds
+            // which direction is currently held, so two of them turn one push into two moves — which
+            // is exactly what an application with its own evdev reader had to work around by
+            // switching one path off. Shared, the duplicate collapses by itself.
+            //
+            // HostGamepadNavigation is how an app says "my reader is the only one". It silences the
+            // pad, never the keyboard, which is why these are separate events from EditKeyPressed
+            // even though a D-pad stands for the same keys.
+            window.GamepadStick += (x, y) => { if (doc.HostGamepadNavigation) Mark(doc.Gamepad.Stick(x, y)); };
+            window.GamepadKey += (k, down) =>
+            {
+                if (!doc.HostGamepadNavigation) return;
+                Mark(down ? doc.DispatchKey(null, k, KeyMods.None) : doc.DispatchKeyUp(k));
+            };
+            window.GamepadConnected += doc.ReportGamepadConnected;
+            window.GamepadDisconnected += doc.ReportGamepadDisconnected;
             window.Shortcut += (ch, mods) => { Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             doc.ContextRequested += cmd => { ContextAction(doc, cmd, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             // A copy button (data-cupri-copy) supplies its own text rather than copying a selection.
@@ -540,12 +550,22 @@ public static class DesktopHost
             doc.ReportsKeyUp = true;   // this host forwards releases; see DiagonalNavigation
             window.EditKeyReleased += k => Mark(doc.DispatchKeyUp(k));
             window.FocusLost += doc.ReleaseAllKeys;
-            // A controller's D-pad and buttons already arrive as EditKeys above, so only the STICK
-            // needs anything of its own: it is an axis rather than a press, and the driver is what
-            // turns a continuous reading into one move per push. Deadzone and whether a corner is a
-            // corner both come from the document, so the app's settings govern a pad as well.
-            var gamepad = new GamepadDriver(doc, onFrame: () => Mark(true));
-            window.GamepadStick += (x, y) => Mark(gamepad.Stick(x, y));
+            // The controller. doc.Gamepad rather than a driver of this host's own: a driver holds
+            // which direction is currently held, so two of them turn one push into two moves — which
+            // is exactly what an application with its own evdev reader had to work around by
+            // switching one path off. Shared, the duplicate collapses by itself.
+            //
+            // HostGamepadNavigation is how an app says "my reader is the only one". It silences the
+            // pad, never the keyboard, which is why these are separate events from EditKeyPressed
+            // even though a D-pad stands for the same keys.
+            window.GamepadStick += (x, y) => { if (doc.HostGamepadNavigation) Mark(doc.Gamepad.Stick(x, y)); };
+            window.GamepadKey += (k, down) =>
+            {
+                if (!doc.HostGamepadNavigation) return;
+                Mark(down ? doc.DispatchKey(null, k, KeyMods.None) : doc.DispatchKeyUp(k));
+            };
+            window.GamepadConnected += doc.ReportGamepadConnected;
+            window.GamepadDisconnected += doc.ReportGamepadDisconnected;
             window.Shortcut += (ch, mods) => { Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             doc.ContextRequested += cmd => { ContextAction(doc, cmd, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             // A copy button (data-cupri-copy) supplies its own text rather than copying a selection.

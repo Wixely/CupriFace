@@ -453,7 +453,11 @@ public sealed class CupriHostView : SKGLSurfaceView
         var key = ToEditKey(keyCode, shift);
         if (key != EditKey.None)
         {
-            QueueEvent(() => _host.Key(key, mods));
+            // A controller's D-pad arrives as the same keycodes an arrow key does, so the SOURCE is
+            // the only way to tell them apart — and telling them apart is what lets an app with its
+            // own reader silence the host's pad without losing its keyboard.
+            if (IsFromGamepad(e)) QueueEvent(() => _host.PadKey(key, down: true));
+            else QueueEvent(() => _host.Key(key, mods));
             return true;
         }
 
@@ -503,7 +507,8 @@ public sealed class CupriHostView : SKGLSurfaceView
         if (e is null) return base.OnKeyUp(keyCode, e);
         var key = ToEditKey(keyCode, shift: false);
         if (key == EditKey.None) return base.OnKeyUp(keyCode, e);
-        QueueEvent(() => _host.KeyUp(key));
+        if (IsFromGamepad(e)) QueueEvent(() => _host.PadKey(key, down: false));
+        else QueueEvent(() => _host.KeyUp(key));
         return true;
     }
 
@@ -535,8 +540,21 @@ public sealed class CupriHostView : SKGLSurfaceView
         // left stick only on the hat axes. Falling back costs nothing and covers both.
         if (x == 0f && y == 0f) { x = e.GetAxisValue(Axis.HatX); y = e.GetAxisValue(Axis.HatY); }
 
+        if (!_announced) { _announced = true; var n = e.Device?.Name ?? "controller"; QueueEvent(() => _host.PadConnected(n)); }
         QueueEvent(() => _host.Stick(x, y));
         return true;
+    }
+
+    private bool _announced;
+
+    /// <summary>Did this key come from a controller rather than a keyboard? Android reports a pad's
+    /// D-pad as the same <c>Dpad*</c> keycodes an arrow key produces, so only the source separates
+    /// them — and a <c>Dpad*</c> code from a non-gamepad device is a keyboard arrow.</summary>
+    private static bool IsFromGamepad(KeyEvent e)
+    {
+        var sources = e.Device?.Sources ?? 0;
+        return (sources & InputSourceType.Gamepad) == InputSourceType.Gamepad
+            || (sources & InputSourceType.Joystick) == InputSourceType.Joystick;
     }
 
     public override bool OnTouchEvent(MotionEvent? e)
