@@ -116,6 +116,55 @@ public class GamepadArbiterTests
         Assert.Equal("a3", t.FocusedName());
     }
 
+    /// <summary>
+    /// CONFIRM IS NOT A KEYPRESS. A controller's confirm used to be dispatched as an Enter key, which
+    /// was tidy until <c>KeyboardNavigation</c> existed: an application that had said "I navigate, not
+    /// you" then found its own confirm swallowed by its own setting, because nothing distinguished
+    /// the pad from the keyboard it was borrowing.
+    ///
+    /// <para>Reported from a real integration, and its evidence named the cause: moving the selection
+    /// kept working while confirm did nothing. <c>Press</c> calls <c>MoveFocus</c> directly;
+    /// <c>Confirm</c> went through the gate. That asymmetry is the whole diagnosis.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(InputRoute.Navigate)]
+    [InlineData(InputRoute.Consume)]
+    [InlineData(InputRoute.Ignore)]
+    public void Confirm_activates_whatever_the_keyboard_is_allowed_to_do(InputRoute route)
+    {
+        using var t = Open();
+        var clicks = 0;
+        t.Doc.OnClick(".b", _ => clicks++);
+        t.Doc.KeyboardNavigation = route;
+
+        t.Doc.Gamepad.Press(NavigationDirection.Down);     // never went through the gate
+        t.Layout();
+        Assert.Equal("a1", t.FocusedName());
+
+        Assert.True(t.Doc.Gamepad.Confirm(), "the pad activated the control");
+        Assert.Equal(1, clicks);
+    }
+
+    /// <summary>And the keyboard's own Enter still obeys the route — silencing the keyboard was the
+    /// point, and the fix must not have handed it back.</summary>
+    [Fact]
+    public void A_keyboard_enter_still_obeys_the_route()
+    {
+        using var t = Open();
+        var clicks = 0;
+        t.Doc.OnClick(".b", _ => clicks++);
+        t.Doc.Gamepad.Press(NavigationDirection.Down);
+        t.Layout();
+
+        t.Doc.KeyboardNavigation = InputRoute.Consume;
+        t.Doc.DispatchKey(null, EditKey.Enter);
+        Assert.Equal(0, clicks);                          // the keyboard is still silenced
+
+        t.Doc.KeyboardNavigation = InputRoute.Navigate;
+        t.Doc.DispatchKey(null, EditKey.Enter);
+        Assert.Equal(1, clicks);
+    }
+
     /// <summary>Connection events reach the application, which previously could only find this out by
     /// reading a diagnostic LOG FILE — unusable for deciding whether to start a fallback reader.</summary>
     [Fact]

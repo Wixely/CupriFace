@@ -243,6 +243,20 @@ public sealed class LayoutEngine
         else contentH = usedH;
         contentH = ClampH(s, contentH, cbH);
 
+        // A min-height that made the box TALLER than its content leaves a flex container's items
+        // aligned against the smaller height, with the box growing underneath them — so
+        // `align-items:center` puts everything at the top and looks ignored. (An explicit `height`
+        // never showed it, because that IS known before the items are placed, which is why swapping
+        // one for the other appeared to fix it.)
+        //
+        // Laid out again against the height the box actually ended up with. Only when the clamp
+        // actually bit: content taller than the minimum never reaches here, so the common case pays
+        // nothing, and LayoutFlex positions from scratch rather than accumulating, so a second pass
+        // is a correction and not an addition.
+        if (s.IsFlexContainer && !s.Height.IsDefinite && forceContentH is null
+            && contentH > usedH + 0.01f)
+            LayoutFlex(node, contentW, contentH, heightKnown: true);
+
         node.Width = contentW + node.HorizontalInsets;
         node.Height = contentH + node.VerticalInsets;
 

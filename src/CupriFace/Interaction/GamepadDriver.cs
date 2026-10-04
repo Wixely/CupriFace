@@ -80,9 +80,17 @@ public sealed class GamepadDriver(CupriDocument doc, float? deadzone = null, Act
     /// to say what it means.</summary>
     public void Release() => _held = null;
 
-    /// <summary>A / OK / Enter — activate the focused control, exactly as the keyboard does, so a
-    /// controller and a keyboard cannot come to disagree about what "activate" means.</summary>
-    public bool Confirm() => Frame(doc.DispatchKey("", EditKey.Enter, KeyMods.None));
+    /// <summary>
+    /// A / OK — activate the focused control. The same thing Enter does, reached without going
+    /// through the keyboard.
+    ///
+    /// <para>It used to be dispatched AS an Enter key, which was tidy until
+    /// <see cref="CupriDocument.KeyboardNavigation"/> existed: an application that had said "I
+    /// navigate, not you" then found its own confirm swallowed by its own setting, because nothing
+    /// distinguished the pad from the keyboard it was borrowing. <see cref="Press"/> never broke,
+    /// calling MoveFocus directly — and that asymmetry is what identified it.</para>
+    /// </summary>
+    public bool Confirm() => Frame(doc.Activate());
 
     // ---- from another thread -------------------------------------------------------------------
 
