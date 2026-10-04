@@ -15,7 +15,46 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ## Unreleased
 
+### Changed
+
+- **A controller is no longer routed as the keyboard it arrives as.** Every host delivers a D-pad and
+  its face buttons as the `EditKey`s they stand for, and the document could not tell the two apart.
+  Two consequences, both of them wrong and both fixed:
+
+  **`KeyboardNavigation` no longer silences the pad.** An application that said "I navigate, not you"
+  about the keyboard also silenced the controller in the player's hands — the same shape as the
+  `Confirm` bug fixed in v0.33.0-alpha.6, surviving in the one path that still had it.
+  `HostGamepadInput` is a pad's off switch; `KeyboardNavigation` is the keyboard's.
+
+  **A pad navigates by geometry whatever `ArrowKeyNavigation` says.** That setting exists because
+  repurposing the arrow keys fights habits a user arrived with, and a D-pad has no such habit —
+  there is nothing else for it to mean. Left to the keyboard's setting, a host D-pad moved in
+  *document order* by default while the stick beside it moved by geometry: one pad disagreeing with
+  itself. **This changes behaviour** for an app using the host's D-pad on the default
+  `ArrowKeyNavigation`, which is the point.
+
+  A hat still pairs two simultaneous directions into one corner move — a D-pad press is still
+  delivered as a key, and the held-key path is untouched.
+
+  Hosts now call `doc.DispatchGamepadKey(key, down)` and `doc.DispatchGamepadStick(x, y)` instead of
+  `DispatchKey`; the policy lives in the document rather than being re-derived by four hosts that
+  could come to disagree about it.
+
 ### Added
+
+- **`doc.HostGamepadInput` — the host's pad, one capability at a time** (`HostGamepad.Stick`,
+  `.Dpad`, `.Buttons`, `.All`, `.None`). `HostGamepadNavigation` is obsolete; it still works and
+  still means None/All.
+
+  ```csharp
+  doc.HostGamepadInput = HostGamepad.Dpad | HostGamepad.Buttons;   // my reader owns the sticks
+  ```
+
+  The capabilities are independent because that is the shape an application with its own input source
+  actually has: it usually owns the **sticks**, because it wants the raw axes for something else, and
+  would still like the host's D-pad and buttons to work. One boolean made that all-or-nothing, so
+  such an app switched the host off entirely and then reimplemented the half it never meant to take
+  over. It narrows the HOST's pad only — never the keyboard, and never `doc.Gamepad`.
 
 - **`doc.InputObserved` — every input event, and what the engine made of it.** A dispatch returns one
   bool, and across the seam between an integration's input code and the engine's that bool has to
