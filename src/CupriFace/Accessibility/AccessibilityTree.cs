@@ -339,7 +339,9 @@ public static class AccessibilityTree
         if (el.GetAttribute("aria-expanded") is ("true" or "false") and var exp) sem.Expanded = exp == "true";
     }
 
-    private static string? AccessibleName(RenderNode render, IElement el, string role)
+    // internal: CupriDocument's InputObserved names the control it reports the same way, so a
+    // diagnostic line and an accessibility assertion cannot disagree about what a control is called.
+    internal static string? AccessibleName(RenderNode render, IElement el, string role)
     {
         var label = el.GetAttribute("aria-label");
         if (label is { Length: > 0 }) return label;

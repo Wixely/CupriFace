@@ -58,7 +58,25 @@ public sealed class GamepadDriver(CupriDocument doc, float? deadzone = null, Act
 
     /// <summary>A D-pad press: exactly one move. Digital, so no deadzone and no edge to track —
     /// a press is an event in a way a stick position is not.</summary>
-    public bool Press(NavigationDirection direction) => Frame(doc.MoveFocus(direction));
+    public bool Press(NavigationDirection direction) => Press(direction, InputSource.Gamepad);
+
+    /// <summary>
+    /// The same press, reported to <see cref="CupriDocument.InputObserved"/> as the HOST's rather
+    /// than the application's. For hosts; an application has no use for it.
+    ///
+    /// <para>It changes nothing about what happens — the point is that it is otherwise unknowable.
+    /// The host's pad wiring and an application's own reader meet in this one shared driver, which is
+    /// what stops a push counting twice, and which also means a document cannot tell them apart. An
+    /// integration asking the only question that matters while bringing a controller up — "is the
+    /// engine finding my pad at all, or am I seeing my own reader?" — had nothing to read.</para>
+    /// </summary>
+    public bool HostPress(NavigationDirection direction) => Press(direction, InputSource.HostGamepad);
+
+    private bool Press(NavigationDirection direction, InputSource source)
+    {
+        doc.AttributeInputTo(source);
+        return Frame(doc.MoveFocus(direction));
+    }
 
     /// <summary>
     /// A thumbstick at (<paramref name="x"/>, <paramref name="y"/>), each −1..1 with y DOWN
@@ -67,12 +85,21 @@ public sealed class GamepadDriver(CupriDocument doc, float? deadzone = null, Act
     /// <para>Moves once when the stick crosses the deadzone into a new direction, and not again until
     /// it returns inside it or changes direction. Returns true when a move happened.</para>
     /// </summary>
-    public bool Stick(float x, float y)
+    public bool Stick(float x, float y) => Stick(x, y, InputSource.Gamepad);
+
+    /// <inheritdoc cref="HostPress"/>
+    public bool HostStick(float x, float y) => Stick(x, y, InputSource.HostGamepad);
+
+    private bool Stick(float x, float y, InputSource source)
     {
         var direction = Resolve(x, y);
         if (direction is null) { _held = null; return false; }   // back to centre: re-arm
         if (direction == _held) return false;                     // still held: already moved
         _held = direction;
+        // The READING, not the direction it resolved to: a log that says "Up" cannot show that the
+        // host handed us an inverted y, which is the one thing about controller support that no test
+        // without hardware can check.
+        doc.AttributeInputTo(source, $"stick {x:0.00},{y:0.00}");
         return Frame(doc.MoveFocus(direction.Value));
     }
 
@@ -90,7 +117,16 @@ public sealed class GamepadDriver(CupriDocument doc, float? deadzone = null, Act
     /// distinguished the pad from the keyboard it was borrowing. <see cref="Press"/> never broke,
     /// calling MoveFocus directly — and that asymmetry is what identified it.</para>
     /// </summary>
-    public bool Confirm() => Frame(doc.Activate());
+    public bool Confirm() => Confirm(InputSource.Gamepad);
+
+    /// <inheritdoc cref="HostPress"/>
+    public bool HostConfirm() => Confirm(InputSource.HostGamepad);
+
+    private bool Confirm(InputSource source)
+    {
+        doc.AttributeInputTo(source);
+        return Frame(doc.Activate());
+    }
 
     // ---- from another thread -------------------------------------------------------------------
 

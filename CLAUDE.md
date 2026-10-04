@@ -245,6 +245,21 @@ In the browser the equivalent is the console: a connected pad is always announce
 whether the browser gave it the standard mapping), and `?padlog=1` on the URL adds the per-event
 stream of buttons and stick readings.
 
+**`doc.InputObserved` is the headless version of all of that**, and it needs no window:
+
+```csharp
+doc.InputObserved += o => output.WriteLine(o.ToString());
+// HostGamepad stick 0.00,0.90 -> Navigate "Library" handled
+// Keyboard Enter -> Swallowed route=Consume handled
+```
+
+Reach for it the moment input "does nothing", because one returned bool cannot tell **nothing
+arrived** from **arrived and meant nothing** from **ignored because you asked for that** — and the
+three have different fixes. It names the source (`HostGamepad` is the host's own wiring, `Gamepad` an
+app's own reader), the action, the routing policy that applied, and the control involved. A stick
+reports its READING rather than the direction it resolved to, which is the only way the sign of y is
+visible without hardware. It reports and cannot veto; unobserved it costs one null check.
+
 For the WASM/browser host, drive the canvas with the Playwright MCP.
 
 ---

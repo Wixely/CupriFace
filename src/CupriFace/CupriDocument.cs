@@ -2933,7 +2933,11 @@ public sealed partial class CupriDocument : IDisposable
     /// toggle, slider set) and user handlers along the bubble path, write back to the
     /// bound model, and refresh. Returns true if anything handled it (→ needs repaint).
     /// </summary>
-    public bool DispatchClick(float x, float y, int clickCount = 1) => Bump(DispatchClickCore(Zc(x), Zc(y), clickCount));
+    public bool DispatchClick(float x, float y, int clickCount = 1) =>
+        Outermost
+            ? Observe(Interaction.InputSource.Pointer, $"click {x:0},{y:0}", Interaction.InputRoute.Navigate,
+                      () => Bump(DispatchClickCore(Zc(x), Zc(y), clickCount)))
+            : Bump(DispatchClickCore(Zc(x), Zc(y), clickCount));
     private bool DispatchClickCore(float x, float y, int clickCount, float adjustRadius = 0f)
     {
         EnsureLaidOut();
@@ -3005,7 +3009,9 @@ public sealed partial class CupriDocument : IDisposable
         _focusVisible = false;
 
         // Built-in behaviour first (steppers, toggles, buttons, user handlers).
+        var label = Observing ? ControlName(hit) : null;
         var handled = ActivateFrom(hit, x, y);
+        if (handled) Note(Interaction.InputAction.Activate, label);
 
         // Clicking a checkbox/radio/switch's text label toggles the control (like <label>).
         if (!handled && ActivateLabel(hit) is { } labelled)
@@ -3688,7 +3694,13 @@ public sealed partial class CupriDocument : IDisposable
     /// should also call <see cref="ReleaseAllKeys"/> when the window loses focus, or a key released
     /// while unfocused is remembered as held for ever.</para>
     /// </summary>
-    public bool DispatchKeyUp(EditKey key)
+    public bool DispatchKeyUp(EditKey key) =>
+        Outermost
+            ? Observe(TakeSource(Interaction.InputSource.Keyboard), TakeInput(key + " up"),
+                      KeyboardNavigation, () => DispatchKeyUpCore(key))
+            : DispatchKeyUpCore(key);
+
+    private bool DispatchKeyUpCore(EditKey key)
     {
         if (Arrow(key) is not { } direction) return false;
         _heldNav.Remove(direction);
@@ -3792,6 +3804,151 @@ public sealed partial class CupriDocument : IDisposable
 
     /// <inheritdoc cref="ReportGamepadConnected"/>
     public void ReportGamepadDisconnected(Interaction.GamepadInfo pad) => GamepadDisconnected?.Invoke(pad);
+
+    // ---- input diagnostics -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Every input event the engine was given, and what it made of it — source, what arrived, the
+    /// action taken, the routing policy in force, and whether anything changed.
+    ///
+    /// <para><b>Why.</b> An integration owns one half of its input path and the engine owns the
+    /// other, and a dispatch returns one bool across that seam. So "the host never found the pad",
+    /// "the engine saw it and had no use for it" and "the engine ignored it because I told it to"
+    /// are a single <c>false</c>, indistinguishable. Two integrations have now lost time to exactly
+    /// that, one of them attributing a bug in its own evdev code to CupriFace.</para>
+    ///
+    /// <code>
+    /// doc.InputObserved += o => Console.WriteLine(o);
+    /// // HostGamepad Down -> Navigate "Library" handled
+    /// // Keyboard Enter -> Swallowed route=Consume handled
+    /// </code>
+    ///
+    /// <para>Raised SYNCHRONOUSLY on the dispatching thread, after the engine has finished with the
+    /// event. It reports and cannot veto — an input filter is a different feature with different
+    /// risks, and this one is safe to leave attached.</para>
+    ///
+    /// <para><b>What it covers:</b> keys (down and up), directional navigation, confirm/activate,
+    /// clicks and the wheel. Pointer MOVES are deliberately excluded — at mouse rate they would bury
+    /// everything else, and a stream nobody can read is not a diagnostic. An unobserved document
+    /// pays one null check per event.</para>
+    /// </summary>
+    public event Action<Interaction.InputObservation>? InputObserved;
+
+    // Set by GamepadDriver immediately before it calls in, so a pad's MoveFocus is not reported as
+    // application code having called MoveFocus itself — which is the one distinction the whole
+    // diagnostic exists to make. Consumed by the next outermost entry point.
+    private Interaction.InputSource? _obsAttrib;
+    private string? _obsInput;
+    private int _obsDepth;
+    private Interaction.InputAction _obsAction;
+    private string? _obsTarget;
+
+    /// <summary>
+    /// Attribute the NEXT dispatch to <paramref name="source"/> in <see cref="InputObserved"/>, with
+    /// <paramref name="input"/> in place of the engine's own description of what arrived. Changes
+    /// nothing about what happens. <b>For hosts</b> — an application has no use for it.
+    ///
+    /// <para>Every host delivers a controller's D-pad and face buttons as KEYS, because they stand
+    /// for the same keys and an app that silences the host's pad must keep its keyboard. Correct, and
+    /// it leaves a diagnostic unable to tell a player's keyboard from the pad in their hands, which is
+    /// the first thing anyone bringing a controller up needs to know. This says which it was.</para>
+    ///
+    /// <para>Consumed by the next entry point, and ignored entirely when nothing is observing — so a
+    /// host may call it unconditionally.</para>
+    /// </summary>
+    public void AttributeInputTo(Interaction.InputSource source, string? input = null)
+    {
+        _obsAttrib = source;
+        _obsInput = input;
+    }
+
+    // The guard every instrumented path checks first. Nested entry points (a key that reaches
+    // MoveFocus) see a depth above zero and only NOTE, so one event is one observation.
+    private bool Observing => InputObserved is not null;
+
+    // Clearing the attribution here as well is what stops it leaking: a host calls AttributeInputTo
+    // unconditionally, so with nothing listening the value would sit there and be picked up by
+    // whatever event came next after someone attached a listener.
+    private bool Outermost
+    {
+        get
+        {
+            if (InputObserved is not null && _obsDepth == 0) return true;
+            if (_obsDepth == 0) { _obsAttrib = null; _obsInput = null; }
+            return false;
+        }
+    }
+
+    private Interaction.InputSource TakeSource(Interaction.InputSource fallback)
+    {
+        var source = _obsAttrib ?? fallback;
+        _obsAttrib = null;
+        return source;
+    }
+
+    private string TakeInput(string fallback)
+    {
+        var input = _obsInput ?? fallback;
+        _obsInput = null;
+        return input;
+    }
+
+    // What the engine DID, recorded by the site that knows rather than guessed at from the outside.
+    // First note wins: a keystroke that moved focus has navigated, whatever else follows.
+    private void Note(Interaction.InputAction action, string? target = null)
+    {
+        if (!Observing || _obsAction != Interaction.InputAction.None) return;
+        _obsAction = action;
+        _obsTarget = target ?? FocusLabel();
+    }
+
+    private string? ControlName(RenderNode? node) =>
+        node is { Element: { } el }
+            ? Accessibility.AccessibilityTree.AccessibleName(node, el, el.GetAttribute("role") ?? "")
+            : null;
+
+    private string? FocusLabel() => ControlName(CurrentFocusNode());
+
+    private void Raise(Interaction.InputSource source, string input, Interaction.InputRoute route, bool handled) =>
+        InputObserved?.Invoke(new Interaction.InputObservation(
+            source, input, _obsAction, route, handled, _obsTarget ?? FocusLabel()));
+
+    private bool Observe(Interaction.InputSource source, string input, Interaction.InputRoute route, Func<bool> run)
+    {
+        _obsDepth++;
+        _obsAction = Interaction.InputAction.None;
+        _obsTarget = null;
+        bool handled;
+        try { handled = run(); }
+        finally { _obsDepth--; }
+        Raise(source, input, route, handled);
+        return handled;
+    }
+
+    // A keystroke, which needs one thing the others do not: nothing INSIDE owns "text went into a
+    // field", so it is named from the outside when nothing deeper claimed the event.
+    private bool ObserveKey(string? text, EditKey key, KeyMods mods)
+    {
+        _obsDepth++;
+        _obsAction = Interaction.InputAction.None;
+        _obsTarget = null;
+        bool handled;
+        try { handled = Bump(DispatchKeyCore(text, key, mods)); }
+        finally { _obsDepth--; }
+        if (_obsAction == Interaction.InputAction.None && handled && text is { Length: > 0 })
+            _obsAction = Interaction.InputAction.Text;
+        Raise(TakeSource(Interaction.InputSource.Keyboard), TakeInput(Describe(text, key, mods)),
+              KeyboardNavigation, handled);
+        return handled;
+    }
+
+    // The ENUM's spelling, not NameOf's: that table is the one shortcuts are looked up in and is
+    // lower-cased for matching, which reads as a typo in a log beside "HostGamepad" and "Navigate".
+    private static string Describe(string? text, EditKey key, KeyMods mods)
+    {
+        var name = key != EditKey.None ? key.ToString() : text is { Length: > 0 } ? text : "None";
+        return mods == KeyMods.None ? name : $"{mods}+{name}";
+    }
 
     /// <summary>
     /// How far a thumbstick must travel from centre before it counts as pushed, 0..1. Default 0.5.
@@ -4014,7 +4171,13 @@ public sealed partial class CupriDocument : IDisposable
     /// travelling FROM — pressing Down lands on the topmost control, not on whatever happens to be
     /// first in the markup.</para>
     /// </summary>
-    public bool MoveFocus(NavigationDirection direction)
+    public bool MoveFocus(NavigationDirection direction) =>
+        Outermost
+            ? Observe(TakeSource(Interaction.InputSource.Application), TakeInput(direction.ToString()),
+                      Interaction.InputRoute.Navigate, () => MoveFocusCore(direction))
+            : MoveFocusCore(direction);
+
+    private bool MoveFocusCore(NavigationDirection direction)
     {
         // This navigates by WHERE CONTROLS ARE, so it is a geometry entry point like hit-testing, and
         // needs the same guard: a focus change rebuilds the tree, so a second press arriving before
@@ -4034,6 +4197,7 @@ public sealed partial class CupriDocument : IDisposable
         var el = f[_kbIndex].Element;
         UpdateFocus(el?.GetAttribute("role") is "textbox" or "spinbutton" ? el : null);
         Refresh();
+        Note(Interaction.InputAction.Navigate, ControlName(f[_kbIndex]));
         return true;
     }
 
@@ -4191,15 +4355,20 @@ public sealed partial class CupriDocument : IDisposable
     /// never broke, since that calls <see cref="MoveFocus(Interaction.NavigationDirection)"/>
     /// directly — which is exactly the asymmetry that identified the bug.</para>
     /// </summary>
-    public bool Activate() => ActivateFocused();
+    public bool Activate() =>
+        Outermost
+            ? Observe(TakeSource(Interaction.InputSource.Application), TakeInput("Confirm"),
+                      Interaction.InputRoute.Navigate, ActivateFocused)
+            : ActivateFocused();
 
     private bool ActivateFocused()
     {
         var f = Focusables();
         if (_kbIndex < 0 || _kbIndex >= f.Count) return false;
         var (bx, by, bw, bh) = HitTesting.AbsoluteBox(f[_kbIndex]);
+        var label = Observing ? ControlName(f[_kbIndex]) : null;
         var handled = ActivateFrom(f[_kbIndex], bx + bw / 2, by + bh / 2);
-        if (handled) { Refresh(); ReconcileScope(); }
+        if (handled) { Refresh(); ReconcileScope(); Note(Interaction.InputAction.Activate, label); }
         return handled;
     }
 
@@ -4215,7 +4384,7 @@ public sealed partial class CupriDocument : IDisposable
         // the axis has to be passed in: document order has no axes.
         // Disabled stops NAVIGATION, not the control-level arrow behaviour above: a radio group is
         // part of its control, as a slider's nudge is, and both are decided before this.
-        if (ArrowKeyNavigation == NavigationMode.Disabled) return false;
+        if (ArrowKeyNavigation == NavigationMode.Disabled) { Note(Interaction.InputAction.Swallowed); return false; }
         if (ArrowKeyNavigation == NavigationMode.Sequential) return MoveFocus(dir);
         if (!DiagonalNavigation) return MoveFocus(nav);
         return ReportsKeyUp ? HeldDirectional(nav) : QueueDirectional(nav);
@@ -4702,7 +4871,8 @@ public sealed partial class CupriDocument : IDisposable
     /// Feed a keystroke to the focused text field: printable text via <paramref name="text"/>,
     /// or an editing key (backspace/arrows/…). Edits the bound string and refreshes.
     /// </summary>
-    public bool DispatchKey(string? text, EditKey key, KeyMods mods = KeyMods.None) => Bump(DispatchKeyCore(text, key, mods));
+    public bool DispatchKey(string? text, EditKey key, KeyMods mods = KeyMods.None) =>
+        Outermost ? ObserveKey(text, key, mods) : Bump(DispatchKeyCore(text, key, mods));
     private bool DispatchKeyCore(string? text, EditKey key, KeyMods mods)
     {
         // An in-flight IME composition owns the next keystroke: Escape abandons the preedit and is
@@ -4734,7 +4904,8 @@ public sealed partial class CupriDocument : IDisposable
             // Refresh: the handler almost certainly mutated the model (open a palette, toggle a panel) —
             // without the rebuild the change only became visible on the NEXT event's ReconcileScope,
             // which desktop's constant mouse-moves masked and the web host's quiet keyboard didn't.
-            if (_shortcuts.TryGetValue(ShortcutKey(mods, chord), out var shortcut)) { shortcut(); Refresh(); ReconcileScope(); return true; }
+            if (_shortcuts.TryGetValue(ShortcutKey(mods, chord), out var shortcut))
+            { Note(Interaction.InputAction.Shortcut); shortcut(); Refresh(); ReconcileScope(); return true; }
             // Never insert a Ctrl/Cmd + letter as text. Only text can be inserted, so an unbound Ctrl +
             // named key must fall through to its ordinary handling below rather than be swallowed here —
             // Ctrl+Enter still activates a focused control when nothing bound it.
@@ -4749,7 +4920,10 @@ public sealed partial class CupriDocument : IDisposable
         // decided above the no-text-field guard — but only WHEN no text field has focus, because
         // typing is not navigation and "I steer, not you" is not a request to break text boxes.
         if (_focusKey is null && KeyboardNavigation != InputRoute.Navigate && IsNavigationKey(key))
+        {
+            Note(Interaction.InputAction.Swallowed);
             return KeyboardNavigation == InputRoute.Consume;
+        }
 
         if (key == EditKey.Escape) return HandleEscape(mods);
         // Tab moves keyboard focus regardless of edit state (trapped within an open overlay).
@@ -6171,13 +6345,24 @@ public sealed partial class CupriDocument : IDisposable
     }
 
     /// <summary>Scroll wheel: scroll the nearest scrollable element under the pointer by pixels.</summary>
-    public bool DispatchWheel(float x, float y, float pixelDelta) => Bump(DispatchWheelCore(Zc(x), Zc(y), pixelDelta, 0f));
+    public bool DispatchWheel(float x, float y, float pixelDelta) => DispatchWheel(x, y, pixelDelta, 0f);
 
     /// <summary>Scroll under the pointer, on either axis. <paramref name="horizontalDelta"/> is
     /// positive-right, matching the vertical convention (positive-down); a touch drag supplies both
     /// so a box that overflows diagonally follows the finger.</summary>
     public bool DispatchWheel(float x, float y, float pixelDelta, float horizontalDelta) =>
-        Bump(DispatchWheelCore(Zc(x), Zc(y), pixelDelta, horizontalDelta));
+        Outermost
+            ? Observe(Interaction.InputSource.Pointer, $"wheel {pixelDelta:0}", Interaction.InputRoute.Navigate,
+                      () => WheelObserved(x, y, pixelDelta, horizontalDelta))
+            : Bump(DispatchWheelCore(Zc(x), Zc(y), pixelDelta, horizontalDelta));
+
+    // A handled wheel scrolled something; no single site inside owns that, so it is named here.
+    private bool WheelObserved(float x, float y, float pixelDelta, float horizontalDelta)
+    {
+        var handled = Bump(DispatchWheelCore(Zc(x), Zc(y), pixelDelta, horizontalDelta));
+        if (handled) Note(Interaction.InputAction.Scroll);
+        return handled;
+    }
 
     /// <summary>Scroll the scrollers CAPTURED at gesture start (from <see cref="ScrollTargetAt"/>)
     /// rather than whatever currently lies under the finger.

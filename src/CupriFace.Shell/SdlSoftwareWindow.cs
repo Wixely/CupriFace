@@ -18,6 +18,12 @@ namespace CupriFace.Shell;
 internal static class KeyDiag
 {
     private static readonly string? LogPath = Environment.GetEnvironmentVariable("CUPRIFACE_KEY_DEBUG");
+
+    /// <summary>Whether anything is being written, so a caller can skip SUBSCRIBING rather than
+    /// subscribe and discard — the engine's input diagnostics cost nothing while unobserved, and
+    /// attaching a listener that throws its lines away would spend that for nothing.</summary>
+    public static bool Enabled => LogPath is not null;
+
     public static void Log(string line)
     {
         if (LogPath is null) return;

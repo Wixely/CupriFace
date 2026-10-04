@@ -323,14 +323,23 @@ public static class DesktopHost
             // HostGamepadNavigation is how an app says "my reader is the only one". It silences the
             // pad, never the keyboard, which is why these are separate events from EditKeyPressed
             // even though a D-pad stands for the same keys.
-            window.GamepadStick += (x, y) => { if (doc.HostGamepadNavigation) Mark(doc.Gamepad.Stick(x, y)); };
+            window.GamepadStick += (x, y) => { if (doc.HostGamepadNavigation) Mark(doc.Gamepad.HostStick(x, y)); };
             window.GamepadKey += (k, down) =>
             {
                 if (!doc.HostGamepadNavigation) return;
+                // Attribute it, which changes nothing about what happens: a D-pad is delivered
+                // as the keys it stands for, and without this a diagnostic cannot tell a pad
+                // in the player's hands from the keyboard beside them.
+                doc.AttributeInputTo(InputSource.HostGamepad);
                 Mark(down ? doc.DispatchKey(null, k, KeyMods.None) : doc.DispatchKeyUp(k));
             };
             window.GamepadConnected += doc.ReportGamepadConnected;
             window.GamepadDisconnected += doc.ReportGamepadDisconnected;
+            // The ENGINE's verdict, into the same file the window writes what it RECEIVED into.
+            // Side by side they answer different questions, and the pair is what makes a controller
+            // bring-up readable: a window line with no engine line after it means the event never
+            // reached the document, which until now looked exactly like one the document ignored.
+            if (KeyDiag.Enabled) doc.InputObserved += o => KeyDiag.Log("engine " + o);
             window.Shortcut += (ch, mods) => { Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             doc.ContextRequested += cmd => { ContextAction(doc, cmd, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             // A copy button (data-cupri-copy) supplies its own text rather than copying a selection.
@@ -558,14 +567,23 @@ public static class DesktopHost
             // HostGamepadNavigation is how an app says "my reader is the only one". It silences the
             // pad, never the keyboard, which is why these are separate events from EditKeyPressed
             // even though a D-pad stands for the same keys.
-            window.GamepadStick += (x, y) => { if (doc.HostGamepadNavigation) Mark(doc.Gamepad.Stick(x, y)); };
+            window.GamepadStick += (x, y) => { if (doc.HostGamepadNavigation) Mark(doc.Gamepad.HostStick(x, y)); };
             window.GamepadKey += (k, down) =>
             {
                 if (!doc.HostGamepadNavigation) return;
+                // Attribute it, which changes nothing about what happens: a D-pad is delivered
+                // as the keys it stands for, and without this a diagnostic cannot tell a pad
+                // in the player's hands from the keyboard beside them.
+                doc.AttributeInputTo(InputSource.HostGamepad);
                 Mark(down ? doc.DispatchKey(null, k, KeyMods.None) : doc.DispatchKeyUp(k));
             };
             window.GamepadConnected += doc.ReportGamepadConnected;
             window.GamepadDisconnected += doc.ReportGamepadDisconnected;
+            // The ENGINE's verdict, into the same file the window writes what it RECEIVED into.
+            // Side by side they answer different questions, and the pair is what makes a controller
+            // bring-up readable: a window line with no engine line after it means the event never
+            // reached the document, which until now looked exactly like one the document ignored.
+            if (KeyDiag.Enabled) doc.InputObserved += o => KeyDiag.Log("engine " + o);
             window.Shortcut += (ch, mods) => { Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             doc.ContextRequested += cmd => { ContextAction(doc, cmd, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             // A copy button (data-cupri-copy) supplies its own text rather than copying a selection.

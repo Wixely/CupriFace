@@ -93,6 +93,7 @@ public sealed class SpatialNavApp : CupriApp
               <span class="diag" style="color:{{DiagColor}}">{{DiagLabel}}</span>
               <span class="diag" style="color:#9AA3B5">{{FocusLabel}}</span>
             </div>
+            <div class="obs">engine: {{LastInput}}</div>
             <div class="hint">{{ModeHint}}</div>
             <div class="keys">↑ ↓ ← →  move  ·  Enter  activate  ·  Tab  document order  ·  M  mode  ·  D  diagonals  ·  F  focus style  ·  [ ]  window ±20ms  ·  R  reset</div>
           </div>
@@ -112,7 +113,8 @@ public sealed class SpatialNavApp : CupriApp
         :root { --cupri-focus: #E39B52; }
         body { margin:0; background:#14161C; font-family:sans-serif; position:relative; }
 
-        .hud { height:96px; box-sizing:border-box; padding:14px 24px; background:#1B1F28; }
+        .hud { height:118px; box-sizing:border-box; padding:14px 24px; background:#1B1F28; }
+        .obs { margin-top:5px; font-size:12px; color:#8FB8D8; font-family:monospace; }
         .hudtop { display:flex; align-items:center; justify-content:space-between; }
         .h { color:#F2F4F8; font-size:20px; font-weight:bold; }
         .last { color:#9AA3B5; font-size:13px; }
@@ -145,6 +147,16 @@ public sealed class SpatialNavApp : CupriApp
     {
         doc.ArrowNavigation = _startMode;
         Apply(doc);   // …and the HUD must describe that mode before the first frame is drawn
+
+        // What the engine made of each event, on screen. This is doc.InputObserved, which exists
+        // because a dispatch returns ONE bool: "nothing arrived", "arrived and meant nothing" and
+        // "ignored because you said so" were the same answer. Press an arrow with M on and then off
+        // and the line changes while the keypress does not.
+        //
+        // Refreshed here deliberately: the observation is raised AFTER the engine's own refresh, so
+        // without this the HUD would always show the PREVIOUS event — which looks exactly like a
+        // diagnostic dropping the one you care about.
+        doc.InputObserved += o => { _model.LastInput = o.ToString(); doc.Refresh(); };
 
         // M switches the mode. This is the whole demo: the same arrow keys, two behaviours, live.
         doc.OnShortcut(KeyMods.None, "m", () =>
@@ -240,6 +252,7 @@ public sealed class NavModel
     public string FocusLabel { get; set; } = "";
     public string DiagColor { get; set; } = "#5F6879";
     public string Last { get; set; } = "—";
+    public string LastInput { get; set; } = "—";
 }
 
 public sealed class Box

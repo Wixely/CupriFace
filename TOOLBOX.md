@@ -1403,6 +1403,55 @@ at rest**, which every real controller needs or the selection creeps while nobod
 and a **diagonal push picks the dominant axis**, because moving two squares for one flick feels
 broken. `new GamepadDriver(doc, deadzone: …)` moves the threshold.
 
+### Why did nothing happen? `doc.InputObserved`
+
+Every dispatch returns one bool, and across the seam between your input code and the engine's that
+bool has to carry three completely different answers: **the event never arrived**, **it arrived and
+meant nothing here**, and **it was deliberately ignored because you asked for that**. They are
+indistinguishable, and each has a different fix. Attach a listener and the engine says which:
+
+```csharp
+doc.InputObserved += o => Console.WriteLine(o);
+
+// HostGamepad stick 0.00,0.90 -> Navigate "Library" handled
+// Keyboard Enter -> Swallowed route=Consume handled
+// Gamepad Confirm -> Activate "Play" handled
+// Keyboard Backspace -> None unhandled
+```
+
+Each observation carries the `Source`, the `Input` as it arrived, the `Action` the engine took, the
+`Route` policy in force, whether it was `Handled`, and the `Target` control — named the way the
+accessibility tree names it, so a log line and a test assertion agree.
+
+**Three things it is built to answer.**
+
+**"Is the engine finding my pad at all?"** `HostGamepad` is the host's own wiring — GLFW, SDL,
+Android, the browser's Gamepad API — and `Gamepad` is your own reader calling `PostStick`. They meet
+in one shared driver, which is what stops a push counting twice and is also why nothing else can tell
+them apart. A host D-pad arrives as the *keys* it stands for, so hosts call
+`doc.AttributeInputTo(InputSource.HostGamepad)` first; the routing is unchanged, only the reporting.
+
+**"Is my own setting doing this?"** `Route=Consume` or `Action=Swallowed` names
+`KeyboardNavigation` / `ArrowKeyNavigation` as the reason. This is the single most common support
+question about controller support, and it was previously unanswerable from outside.
+
+**"Is y the right way up?"** A stick reports the **reading**, not the direction it resolved to —
+`stick 0.00,0.90` rather than `Down`. The sign of y on a desktop or Android pad cannot be verified
+without hardware, and a log saying "Down" is perfectly consistent with an inverted axis. Push down:
+y must be positive.
+
+It is a **diagnostic, not a hook** — raised synchronously after the engine has acted, and it cannot
+veto. An unobserved document pays one null check per event, so it is free to leave unattached. It
+covers keys (down and up), directional navigation, confirm, clicks and the wheel; pointer *moves* are
+deliberately excluded, since at mouse rate they bury everything else.
+
+On desktop, `CUPRIFACE_KEY_DEBUG=keys.log` writes these lines automatically, interleaved with what
+the *window* received — and the pair is what makes a controller bring-up readable, because a window
+line with no engine line after it means the event never reached the document.
+
+`samples/SpatialNav` puts the live line in its HUD: press an arrow with `M` on and then off and watch
+the verdict change while the keypress does not.
+
 ### Multi-touch: `doc.OnPointer`
 
 The engine's own gestures — tap, scroll, fling, long-press, and the drag surfaces on sliders,
