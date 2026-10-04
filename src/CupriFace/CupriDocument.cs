@@ -3694,11 +3694,19 @@ public sealed partial class CupriDocument : IDisposable
     /// should also call <see cref="ReleaseAllKeys"/> when the window loses focus, or a key released
     /// while unfocused is remembered as held for ever.</para>
     /// </summary>
-    public bool DispatchKeyUp(EditKey key) =>
-        Outermost
-            ? Observe(TakeSource(Interaction.InputSource.Keyboard), TakeInput(key + " up"),
-                      KeyboardNavigation, () => DispatchKeyUpCore(key))
-            : DispatchKeyUpCore(key);
+    public bool DispatchKeyUp(EditKey key)
+    {
+        var outer = _eventSource;
+        _eventSource = TakeSource(Interaction.InputSource.Keyboard);
+        try
+        {
+            return Outermost
+                ? Observe(_eventSource, TakeInput(key + " up"), KeyboardNavigation,
+                          () => DispatchKeyUpCore(key))
+                : DispatchKeyUpCore(key);
+        }
+        finally { _eventSource = outer; }
+    }
 
     private bool DispatchKeyUpCore(EditKey key)
     {
@@ -3778,17 +3786,65 @@ public sealed partial class CupriDocument : IDisposable
     public Interaction.GamepadDriver Gamepad => _gamepad ??= new Interaction.GamepadDriver(this);
 
     /// <summary>
-    /// Whether the HOST's own controller handling drives navigation. True by default.
+    /// Which parts of the HOST's own controller handling drive this document. Everything, by default.
     ///
-    /// <para>Set it false when the application has an input source of its own and wants to be the
-    /// only one — a Linux evdev reader, a proprietary HID device, a pad arriving over a network. The
-    /// host stops feeding its gamepad into <see cref="Gamepad"/>, and
-    /// <see cref="Interaction.GamepadDriver.PostStick"/> becomes the single way in.</para>
+    /// <para>Narrow it when the application has an input source of its own — a Linux evdev reader, a
+    /// proprietary HID device, a pad arriving over a network. The capabilities are independent
+    /// because that is how such an application is actually shaped: it usually owns the STICKS,
+    /// because it wants the raw axes for something else, and would still like the host's D-pad and
+    /// buttons to work.</para>
     ///
-    /// <para>It silences the HOST's pad, not the keyboard: arrow keys, Enter and Escape are unchanged,
-    /// because a person at a keyboard is not the thing being arbitrated.</para>
+    /// <code>
+    /// doc.HostGamepadInput = HostGamepad.Dpad | HostGamepad.Buttons;   // my reader owns the sticks
+    /// doc.HostGamepadInput = HostGamepad.None;                         // …and everything else too
+    /// </code>
+    ///
+    /// <para>It narrows the HOST's pad, not the keyboard: arrow keys, Enter and Escape are unchanged,
+    /// because a person at a keyboard is not the thing being arbitrated. Nor does it affect
+    /// <see cref="Gamepad"/>, which is how the application's own source gets in.</para>
     /// </summary>
-    public bool HostGamepadNavigation { get; set; } = true;
+    public Interaction.HostGamepad HostGamepadInput { get; set; } = Interaction.HostGamepad.All;
+
+    /// <summary>Whether the HOST's own controller handling drives navigation.</summary>
+    [Obsolete("Use HostGamepadInput. The boolean cannot say 'the host keeps the D-pad, I take the " +
+              "sticks', which is the shape an application with its own input source actually has — " +
+              "so saying false and re-implementing the half it did not mean to take over was the " +
+              "only option. false still means None and true still means All.")]
+    public bool HostGamepadNavigation
+    {
+        get => HostGamepadInput != Interaction.HostGamepad.None;
+        set => HostGamepadInput = value ? Interaction.HostGamepad.All : Interaction.HostGamepad.None;
+    }
+
+    /// <summary>
+    /// A thumbstick reading from the HOST's own pad, −1..1 with y DOWN positive. Returns true when
+    /// the selection moved. Safe to call every frame — the driver edge-detects.
+    ///
+    /// <para><b>For hosts.</b> It applies <see cref="HostGamepadInput"/> and attributes the event, so
+    /// the policy lives here rather than being re-derived by four hosts that could come to disagree
+    /// about it.</para>
+    /// </summary>
+    public bool DispatchGamepadStick(float x, float y) =>
+        HostGamepadInput.HasFlag(Interaction.HostGamepad.Stick) && Gamepad.HostStick(x, y);
+
+    /// <summary>
+    /// A D-pad or face button from the HOST's own pad, as the <see cref="EditKey"/> it stands for.
+    ///
+    /// <para><b>For hosts</b>, and it decides two things a host should not: which capability the key
+    /// belongs to — a direction is <see cref="Interaction.HostGamepad.Dpad"/>, anything else is
+    /// <see cref="Interaction.HostGamepad.Buttons"/> — and that the event is a PAD event, which is
+    /// what keeps <see cref="KeyboardNavigation"/> from applying to a controller.</para>
+    /// </summary>
+    public bool DispatchGamepadKey(EditKey key, bool down)
+    {
+        var capability = Arrow(key) is not null
+            ? Interaction.HostGamepad.Dpad
+            : Interaction.HostGamepad.Buttons;
+        if (!HostGamepadInput.HasFlag(capability)) return false;
+
+        AttributeInputTo(Interaction.InputSource.HostGamepad);
+        return down ? DispatchKey(null, key) : DispatchKeyUp(key);
+    }
 
     /// <summary>A controller appeared. Hosts raise it; an application listens to decide whether its
     /// own fallback reader is needed — which previously meant parsing a diagnostic LOG, since the
@@ -3839,6 +3895,16 @@ public sealed partial class CupriDocument : IDisposable
     // diagnostic exists to make. Consumed by the next outermost entry point.
     private Interaction.InputSource? _obsAttrib;
     private string? _obsInput;
+
+    // The source of the event being dispatched RIGHT NOW. Set whether or not anything is observing,
+    // because it decides routing as well as reporting: a pad's D-pad arrives as the key it stands
+    // for, and a document that could not tell the two apart applied the KEYBOARD's policy to a
+    // controller. Saved and restored rather than cleared, so a shortcut handler that dispatches a
+    // key of its own cannot strand the outer event's source.
+    private Interaction.InputSource _eventSource = Interaction.InputSource.Keyboard;
+
+    private bool FromPad =>
+        _eventSource is Interaction.InputSource.Gamepad or Interaction.InputSource.HostGamepad;
     private int _obsDepth;
     private Interaction.InputAction _obsAction;
     private string? _obsTarget;
@@ -3937,8 +4003,8 @@ public sealed partial class CupriDocument : IDisposable
         finally { _obsDepth--; }
         if (_obsAction == Interaction.InputAction.None && handled && text is { Length: > 0 })
             _obsAction = Interaction.InputAction.Text;
-        Raise(TakeSource(Interaction.InputSource.Keyboard), TakeInput(Describe(text, key, mods)),
-              KeyboardNavigation, handled);
+        Raise(_eventSource, TakeInput(Describe(text, key, mods)),
+              FromPad ? Interaction.InputRoute.Navigate : KeyboardNavigation, handled);
         return handled;
     }
 
@@ -4384,8 +4450,22 @@ public sealed partial class CupriDocument : IDisposable
         // the axis has to be passed in: document order has no axes.
         // Disabled stops NAVIGATION, not the control-level arrow behaviour above: a radio group is
         // part of its control, as a slider's nudge is, and both are decided before this.
+        // A PAD navigates by geometry, always. ArrowKeyNavigation is a statement about the arrow
+        // KEYS — whether repurposing them would fight the habits a user arrived with — and a
+        // controller has no such habit to fight: there is nothing else for a D-pad to mean. Left to
+        // the keyboard's setting, a host D-pad moved in DOCUMENT ORDER by default while the stick
+        // beside it moved by geometry, which is the same pad disagreeing with itself.
+        if (FromPad) return Directional(nav);
+
         if (ArrowKeyNavigation == NavigationMode.Disabled) { Note(Interaction.InputAction.Swallowed); return false; }
         if (ArrowKeyNavigation == NavigationMode.Sequential) return MoveFocus(dir);
+        return Directional(nav);
+    }
+
+    // Spatial navigation, with corners if they are on. Shared so a pad and the arrow keys cannot
+    // drift apart on the one thing they genuinely do identically.
+    private bool Directional(NavigationDirection nav)
+    {
         if (!DiagonalNavigation) return MoveFocus(nav);
         return ReportsKeyUp ? HeldDirectional(nav) : QueueDirectional(nav);
     }
@@ -4871,8 +4951,13 @@ public sealed partial class CupriDocument : IDisposable
     /// Feed a keystroke to the focused text field: printable text via <paramref name="text"/>,
     /// or an editing key (backspace/arrows/…). Edits the bound string and refreshes.
     /// </summary>
-    public bool DispatchKey(string? text, EditKey key, KeyMods mods = KeyMods.None) =>
-        Outermost ? ObserveKey(text, key, mods) : Bump(DispatchKeyCore(text, key, mods));
+    public bool DispatchKey(string? text, EditKey key, KeyMods mods = KeyMods.None)
+    {
+        var outer = _eventSource;
+        _eventSource = TakeSource(Interaction.InputSource.Keyboard);
+        try { return Outermost ? ObserveKey(text, key, mods) : Bump(DispatchKeyCore(text, key, mods)); }
+        finally { _eventSource = outer; }
+    }
     private bool DispatchKeyCore(string? text, EditKey key, KeyMods mods)
     {
         // An in-flight IME composition owns the next keystroke: Escape abandons the preedit and is
@@ -4919,7 +5004,12 @@ public sealed partial class CupriDocument : IDisposable
         // An application that navigates for itself. Checked before any of it — Tab and Escape are
         // decided above the no-text-field guard — but only WHEN no text field has focus, because
         // typing is not navigation and "I steer, not you" is not a request to break text boxes.
-        if (_focusKey is null && KeyboardNavigation != InputRoute.Navigate && IsNavigationKey(key))
+        // …and it is about the KEYBOARD. A controller is not one, however it arrives: every host
+        // delivers a D-pad and its face buttons as the keys they stand for, so an application that
+        // said "I navigate, not you" about the keyboard silenced the pad in the player's hands as
+        // well — the same shape as the confirm bug fixed in v0.33.0-alpha.6, in the one path that
+        // still had it. HostGamepadInput is a pad's off switch; this is not.
+        if (_focusKey is null && !FromPad && KeyboardNavigation != InputRoute.Navigate && IsNavigationKey(key))
         {
             Note(Interaction.InputAction.Swallowed);
             return KeyboardNavigation == InputRoute.Consume;

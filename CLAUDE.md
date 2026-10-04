@@ -159,9 +159,18 @@ pad.Confirm();                                // A / OK — the same path Enter 
 ```
 
 **`doc.Gamepad` is the one driver** — a host and an app sharing it is what stops one stick push
-becoming two moves. `doc.HostGamepadNavigation = false` when your app owns its own input source and
-wants to be the only one (it silences the pad, not the keyboard), and `doc.GamepadConnected` tells you
-a pad exists and whether the platform recognised it.
+becoming two moves. `doc.HostGamepadInput` narrows what the HOST's pad contributes, per capability:
+`HostGamepad.Dpad | HostGamepad.Buttons` when your own reader owns the sticks, `HostGamepad.None`
+when it owns everything. It never silences the keyboard. `doc.GamepadConnected` tells you a pad
+exists and whether the platform recognised it.
+
+**A pad is routed as a pad, not as the keys it arrives as.** Every host delivers a D-pad and its face
+buttons as `EditKey`s, so hosts call `doc.DispatchGamepadKey` / `DispatchGamepadStick` rather than
+`DispatchKey` — those apply `HostGamepadInput` and mark the event as a controller's. Two consequences
+worth knowing: **`KeyboardNavigation` does not apply to a pad** (it is a statement about the
+keyboard; `HostGamepadInput` is a pad's off switch), and **a pad navigates by geometry whatever
+`ArrowKeyNavigation` says** — there is no habit to protect, because there is nothing else for a D-pad
+to mean.
 
 **Input from another thread must go through `doc.Post(() => …)`** — it is the only thread-safe
 member. Every dispatch rebuilds the render tree, so a reader thread calling input directly replaces

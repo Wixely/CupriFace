@@ -1334,11 +1334,42 @@ push. Shared, the duplicate collapses on its own: the second source reports a di
 already claimed and `Stick` returns false. Deadzone and corner policy come from the document, so
 every source agrees about them by construction.
 
-**`doc.HostGamepadNavigation = false`** when your app owns its input — a Linux evdev reader, a HID
-device, a pad over a network — and wants to be the only source. It silences the HOST's pad, never the
-keyboard: arrows, Enter and Escape are unchanged, because a person at a keyboard is not the thing
-being arbitrated. That is also why a pad's D-pad travels on its own event inside each host rather
-than sharing the keyboard's.
+**`doc.HostGamepadInput` narrows the HOST's pad, one capability at a time** — for an app with its
+own input source: a Linux evdev reader, a HID device, a pad over a network.
+
+```csharp
+doc.HostGamepadInput = HostGamepad.Dpad | HostGamepad.Buttons;   // my reader owns the sticks
+doc.HostGamepadInput = HostGamepad.None;                         // …and everything else too
+```
+
+They are independent because that is the shape such an app actually has: it usually owns the
+**sticks**, because it wants the raw axes for something else, and would still like the host's D-pad
+and buttons to work. The old boolean could not say that, so an app took over everything and then
+reimplemented the half it never meant to. (`HostGamepadNavigation` still works and still means
+None/All; it is obsolete.)
+
+It narrows the HOST's pad, never the keyboard: arrows, Enter and Escape are unchanged, because a
+person at a keyboard is not the thing being arbitrated. And it never touches `doc.Gamepad`, which is
+how your own source gets in.
+
+**A pad is ROUTED as a pad**, which matters because of how one arrives. Every host delivers a D-pad
+and its face buttons as the `EditKey`s they stand for — correct, and for a while it meant the
+document could not tell a controller from the keyboard beside it. Hosts call
+`doc.DispatchGamepadKey(key, down)` and `doc.DispatchGamepadStick(x, y)`, which apply
+`HostGamepadInput` and mark the event as a controller's, so the policy lives in the document rather
+than being re-derived by four hosts that could come to disagree. Two consequences:
+
+- **`KeyboardNavigation` does not apply to a pad.** "I navigate, not you" is a statement about the
+  keyboard. It used to silence the controller too, which is the same bug as the confirm one fixed in
+  v0.33.0-alpha.6, in the one path that still had it.
+- **A pad navigates by geometry whatever `ArrowKeyNavigation` says.** That setting exists because
+  repurposing the arrow keys fights habits a user arrived with; a D-pad has no such habit, there
+  being nothing else for it to mean. Left to the keyboard's setting, a host D-pad moved in *document
+  order* by default while the stick beside it moved by geometry — one pad disagreeing with itself.
+
+A hat still pairs two simultaneous directions into one corner move, because a D-pad press is still
+*delivered* as a key and the held-key path is untouched. Routing it through the driver instead would
+have lost that silently.
 
 **`doc.GamepadConnected` / `GamepadDisconnected`** tell an application what previously only a
 diagnostic log knew: that a pad exists, which backend opened it (`glfw`, `sdl`, `android`, `web`),

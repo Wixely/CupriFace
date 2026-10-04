@@ -320,19 +320,13 @@ public static class DesktopHost
             // is exactly what an application with its own evdev reader had to work around by
             // switching one path off. Shared, the duplicate collapses by itself.
             //
-            // HostGamepadNavigation is how an app says "my reader is the only one". It silences the
-            // pad, never the keyboard, which is why these are separate events from EditKeyPressed
-            // even though a D-pad stands for the same keys.
-            window.GamepadStick += (x, y) => { if (doc.HostGamepadNavigation) Mark(doc.Gamepad.HostStick(x, y)); };
-            window.GamepadKey += (k, down) =>
-            {
-                if (!doc.HostGamepadNavigation) return;
-                // Attribute it, which changes nothing about what happens: a D-pad is delivered
-                // as the keys it stands for, and without this a diagnostic cannot tell a pad
-                // in the player's hands from the keyboard beside them.
-                doc.AttributeInputTo(InputSource.HostGamepad);
-                Mark(down ? doc.DispatchKey(null, k, KeyMods.None) : doc.DispatchKeyUp(k));
-            };
+            // These go through the document's own pad entry points rather than DispatchKey, and the
+            // reason is not tidiness: they apply HostGamepadInput (an app may take the sticks and
+            // leave the D-pad) and mark the event as a PAD event, which is what stops
+            // KeyboardNavigation applying to a controller. Four hosts deriving that themselves is
+            // four chances to disagree about it.
+            window.GamepadStick += (x, y) => Mark(doc.DispatchGamepadStick(x, y));
+            window.GamepadKey += (k, down) => Mark(doc.DispatchGamepadKey(k, down));
             window.GamepadConnected += doc.ReportGamepadConnected;
             window.GamepadDisconnected += doc.ReportGamepadDisconnected;
             // The ENGINE's verdict, into the same file the window writes what it RECEIVED into.
@@ -564,19 +558,13 @@ public static class DesktopHost
             // is exactly what an application with its own evdev reader had to work around by
             // switching one path off. Shared, the duplicate collapses by itself.
             //
-            // HostGamepadNavigation is how an app says "my reader is the only one". It silences the
-            // pad, never the keyboard, which is why these are separate events from EditKeyPressed
-            // even though a D-pad stands for the same keys.
-            window.GamepadStick += (x, y) => { if (doc.HostGamepadNavigation) Mark(doc.Gamepad.HostStick(x, y)); };
-            window.GamepadKey += (k, down) =>
-            {
-                if (!doc.HostGamepadNavigation) return;
-                // Attribute it, which changes nothing about what happens: a D-pad is delivered
-                // as the keys it stands for, and without this a diagnostic cannot tell a pad
-                // in the player's hands from the keyboard beside them.
-                doc.AttributeInputTo(InputSource.HostGamepad);
-                Mark(down ? doc.DispatchKey(null, k, KeyMods.None) : doc.DispatchKeyUp(k));
-            };
+            // These go through the document's own pad entry points rather than DispatchKey, and the
+            // reason is not tidiness: they apply HostGamepadInput (an app may take the sticks and
+            // leave the D-pad) and mark the event as a PAD event, which is what stops
+            // KeyboardNavigation applying to a controller. Four hosts deriving that themselves is
+            // four chances to disagree about it.
+            window.GamepadStick += (x, y) => Mark(doc.DispatchGamepadStick(x, y));
+            window.GamepadKey += (k, down) => Mark(doc.DispatchGamepadKey(k, down));
             window.GamepadConnected += doc.ReportGamepadConnected;
             window.GamepadDisconnected += doc.ReportGamepadDisconnected;
             // The ENGINE's verdict, into the same file the window writes what it RECEIVED into.
