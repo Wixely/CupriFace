@@ -614,7 +614,7 @@ public sealed class AndroidHost : IDisposable
         // work of a push that never happened.
         if (x == _lastStickX && y == _lastStickY) return;
         _lastStickX = x; _lastStickY = y;
-        if (_doc.Gamepad.Stick(x, y)) MarkDirty();
+        if (_doc.Gamepad.HostStick(x, y)) MarkDirty();
     }
     private float _lastStickX = float.NaN, _lastStickY = float.NaN;
 
@@ -624,6 +624,10 @@ public sealed class AndroidHost : IDisposable
     internal void PadKey(EditKey key, bool down)
     {
         if (!_doc.HostGamepadNavigation) return;
+        // Attribute it, which changes nothing about what happens: a D-pad is delivered
+        // as the keys it stands for, and without this a diagnostic cannot tell a pad
+        // in the player's hands from the keyboard beside them.
+        _doc.AttributeInputTo(InputSource.HostGamepad);
         if (down ? _doc.DispatchKey(null, key) : _doc.DispatchKeyUp(key)) MarkDirty();
     }
 

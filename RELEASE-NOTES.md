@@ -17,6 +17,42 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **`doc.InputObserved` — every input event, and what the engine made of it.** A dispatch returns one
+  bool, and across the seam between an integration's input code and the engine's that bool has to
+  carry three different answers: the event never arrived, it arrived and meant nothing, or it was
+  deliberately ignored because the application asked for that. They were indistinguishable, and each
+  has a different fix. Two integrations have now lost time to it — one of them attributing a bug in
+  its own evdev code to CupriFace.
+
+  ```csharp
+  doc.InputObserved += o => Console.WriteLine(o);
+  // HostGamepad stick 0.00,0.90 -> Navigate "Library" handled
+  // Keyboard Enter -> Swallowed route=Consume handled
+  ```
+
+  Each observation carries the source, the input as it arrived, the action taken, the routing policy
+  in force, whether it was handled, and the control involved — named the way the accessibility tree
+  names it, so a log line and a test assertion agree. It covers keys (down and up), directional
+  navigation, confirm, clicks and the wheel; pointer moves are excluded, since at mouse rate they
+  bury everything else. A diagnostic, not a hook: raised after the engine has acted, and it cannot
+  veto. Unobserved it costs one null check per event.
+
+  **`InputSource.HostGamepad` vs `Gamepad` is the distinction it exists for.** The host's own pad
+  wiring and an application's reader meet in one shared driver — which is what stops a push counting
+  twice, and is also why nothing could tell them apart. "Is the engine finding my pad at all, or am I
+  only seeing my own reader?" is the first question anyone bringing a controller up asks, and it had
+  no answer. Hosts call the new `GamepadDriver.HostStick` / `HostPress` / `HostConfirm`; a host
+  delivering a D-pad as the keys it stands for calls `doc.AttributeInputTo(InputSource.HostGamepad)`
+  first, which changes the reporting and nothing else.
+
+  **A stick reports its READING, not the direction it resolved to** — `stick 0.00,0.90`, not `Down`.
+  The sign of y on a desktop or Android pad cannot be checked without hardware, and a log saying
+  "Down" is perfectly consistent with an inverted axis. Push down: y must be positive.
+
+  On desktop `CUPRIFACE_KEY_DEBUG` writes these lines automatically, interleaved with what the
+  *window* received — a window line with no engine line after it means the event never reached the
+  document. `samples/SpatialNav` shows the live line in its HUD.
+
 - **Directional focus navigation — `doc.MoveFocus(NavigationDirection.Up)`.** A D-pad, a thumbstick,
   or the arrow keys on a page laid out as a grid rather than as a form. Tab order cannot answer "what
   is above this": it is one-dimensional and follows the document, so on a panel in two columns "down"

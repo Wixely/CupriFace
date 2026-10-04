@@ -685,7 +685,7 @@ public static class WebHostCore
     public static void GamepadStick(double x, double y)
     {
         if (_doc is null || !_doc.HostGamepadNavigation) return;   // the app's reader is the only one
-        if (_doc.Gamepad.Stick((float)x, (float)y)) _dirty = true;
+        if (_doc.Gamepad.HostStick((float)x, (float)y)) _dirty = true;
     }
 
     /// <summary>A controller's D-pad or face button — separate from <see cref="EditKeyPress"/> even
@@ -694,6 +694,10 @@ public static class WebHostCore
     public static void GamepadKey(int code, int down)
     {
         if (_doc is null || !_doc.HostGamepadNavigation) return;
+        // Attribute it, which changes nothing about what happens: a D-pad is delivered
+        // as the keys it stands for, and without this a diagnostic cannot tell a pad
+        // in the player's hands from the keyboard beside them.
+        _doc.AttributeInputTo(InputSource.HostGamepad);
         var handled = down != 0
             ? _doc.DispatchKey(null, (EditKey)code)
             : _doc.DispatchKeyUp((EditKey)code);
