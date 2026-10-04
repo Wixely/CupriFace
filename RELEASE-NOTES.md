@@ -267,6 +267,21 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   now exactly right rather than deliberately lenient: its "exists in any scope" rule and the binder's
   scope chain are the same rule.
 
+- **A flex box sized by `min-height` now centres its children in the height it ends up with** (#251).
+  `min-height` was applied AFTER the items were placed, so they were aligned against the content
+  height and the box grew underneath them: `align-items:center` looked ignored, everything sat at the
+  top, and the border and background were the right size — which is what made it confusing. An
+  explicit `height` never showed it, because that is known before the items are placed, so swapping
+  one for the other appeared to be the fix. The items are laid out again when, and only when, the
+  minimum actually raised the height.
+
+- **A controller's confirm is no longer swallowed by `KeyboardNavigation`.** `GamepadDriver.Confirm`
+  dispatched an Enter KEY, which was tidy until that setting existed — an application that had said
+  "I navigate, not you" then found its own confirm silenced by its own setting, because nothing
+  distinguished the pad from the keyboard it was borrowing. It now calls `doc.Activate()`, which is
+  public for exactly this reason. Moving the selection never broke, since that calls `MoveFocus`
+  directly, and that asymmetry is what identified it.
+
 ### Fixed
 
 - **A focus move arriving between frames is no longer swallowed.** Directional navigation reads where

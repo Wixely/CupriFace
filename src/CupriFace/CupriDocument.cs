@@ -4179,6 +4179,20 @@ public sealed partial class CupriDocument : IDisposable
     }
 
     // Activate the keyboard-focused control (Enter/Space) as if clicked at its centre.
+    /// <summary>
+    /// Activate whatever currently has keyboard focus — the same thing Enter or Space does, reached
+    /// without going through the keyboard at all.
+    ///
+    /// <para>That distinction is the whole point of it being public. A controller's confirm used to
+    /// be dispatched AS an Enter key, which was tidy until <see cref="KeyboardNavigation"/> existed:
+    /// an application that had said "I navigate, not you" then found its own
+    /// <see cref="Interaction.GamepadDriver.Confirm"/> swallowed by its own setting, because the
+    /// engine could not tell the controller from the keyboard it was borrowing. Moving the selection
+    /// never broke, since that calls <see cref="MoveFocus(Interaction.NavigationDirection)"/>
+    /// directly — which is exactly the asymmetry that identified the bug.</para>
+    /// </summary>
+    public bool Activate() => ActivateFocused();
+
     private bool ActivateFocused()
     {
         var f = Focusables();
