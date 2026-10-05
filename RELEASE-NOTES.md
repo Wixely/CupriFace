@@ -13,63 +13,214 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
-## Unreleased
+## v0.33.0
 
-### Fixed
+A controller, end to end: directional navigation, all four hosts, the policy to decide who owns the
+pad — and the diagnostics to say why a controller appears to be doing nothing, which turned out to
+matter more than any of it.
 
-- **A host pad event turned away by `HostGamepadInput` is reported rather than silently dropped**
-  (#255). `DispatchGamepadKey` and `DispatchGamepadStick` returned at the capability check, before
-  raising `InputObserved` — so a policy-rejected event and an event that never reached the document
-  were the same silence. That is precisely the distinction `InputObserved` exists to draw, and it
-  bit hardest where the capabilities are most used: an application whose own reader owns the
-  controller sets `HostGamepad.None`, so *every* host pad event took that path and the log it was
-  reading said nothing at all. Reported against v0.33.0-alpha.7 from a real integration.
+Built over eight prereleases against a real integration driving a Steam Machine from a sofa, and
+most of the list below started as one of their bug reports: a confirm silenced by the application's
+own setting, a focus ring that could not be styled, a flex box that ignored `align-items`, a binding
+that could not see past its own row. Two of their reports were against a prerelease of this very
+work, including one where the diagnostic undid itself by staying silent about events it had
+deliberately refused.
 
-  They now report `Swallowed route=Ignore` — not acted on and not consumed, so the event remains the
-  host's to use. A turned-away stick reports **once per push** rather than once per sample, matching
-  what an accepted stick produces: a host polls the stick every frame, and sixty lines a second
-  would bury the log it is meant to clarify.
+**Minor rather than patch, for one behaviour change and one layout fix.** A CONTROLLER IS NO LONGER
+ROUTED AS THE KEYBOARD IT ARRIVES AS: every host delivers a D-pad as the arrow keys it stands for,
+and the engine could not tell the two apart, so `KeyboardNavigation` silenced the pad and a host
+D-pad moved in *document order* while the stick beside it moved by geometry. Anything driving the
+host's D-pad on the default `ArrowKeyNavigation` moves differently now. And A FLEX BOX SIZED BY
+`min-height` NOW CENTRES ITS CHILDREN rather than stacking them at the top, which is a layout change
+for any box that was relying on — or working around — the old behaviour.
 
-### Changed
-
-- **A controller is no longer routed as the keyboard it arrives as.** Every host delivers a D-pad and
-  its face buttons as the `EditKey`s they stand for, and the document could not tell the two apart.
-  Two consequences, both of them wrong and both fixed:
-
-  **`KeyboardNavigation` no longer silences the pad.** An application that said "I navigate, not you"
-  about the keyboard also silenced the controller in the player's hands — the same shape as the
-  `Confirm` bug fixed in v0.33.0-alpha.6, surviving in the one path that still had it.
-  `HostGamepadInput` is a pad's off switch; `KeyboardNavigation` is the keyboard's.
-
-  **A pad navigates by geometry whatever `ArrowKeyNavigation` says.** That setting exists because
-  repurposing the arrow keys fights habits a user arrived with, and a D-pad has no such habit —
-  there is nothing else for it to mean. Left to the keyboard's setting, a host D-pad moved in
-  *document order* by default while the stick beside it moved by geometry: one pad disagreeing with
-  itself. **This changes behaviour** for an app using the host's D-pad on the default
-  `ArrowKeyNavigation`, which is the point.
-
-  A hat still pairs two simultaneous directions into one corner move — a D-pad press is still
-  delivered as a key, and the held-key path is untouched.
-
-  Hosts now call `doc.DispatchGamepadKey(key, down)` and `doc.DispatchGamepadStick(x, y)` instead of
-  `DispatchKey`; the policy lives in the document rather than being re-derived by four hosts that
-  could come to disagree about it.
+Still not verified on hardware by anyone: whether the engine's own desktop and Android pad
+DISCOVERY finds a controller, because the integration that has used one in anger feeds input from
+its own reader. The stick axis convention is settled and documented (TOOLBOX.md §Stick axes); the
+discovery path is not.
 
 ### Added
 
-- **`doc.HostGamepadInput` — the host's pad, one capability at a time** (`HostGamepad.Stick`,
-  `.Dpad`, `.Buttons`, `.All`, `.None`). `HostGamepadNavigation` is obsolete; it still works and
-  still means None/All.
+- **Directional focus navigation — `doc.MoveFocus(NavigationDirection.Up)`.** A D-pad, a thumbstick,
+  or the arrow keys on a page laid out as a grid rather than as a form. Tab order cannot answer "what
+  is above this": it is one-dimensional and follows the document, so on a panel in two columns "down"
+  and "next" are different controls and only one of them is what the user pointed the stick at. Every
+  controller-driven CupriFace app so far wrote this itself, reading geometry back out of the
+  accessibility tree because the engine offered nothing else.
+
+  Candidates are scored by a 45-degree cone, then a preference for anything whose span overlaps the
+  focused control, then distance along the travel axis. The middle test is what keeps a column a
+  column on a staggered layout, where the next control down this column is further away than
+  something level with the gap in the next one.
+
+  **It does not wrap**, unlike Tab: a stick held right stops at the right-hand edge rather than
+  reappearing on the left, and the `false` it returns there is the host's hook for paging across
+  instead. With nothing focused yet, the first press enters from the edge it travels from — Down
+  lands on the topmost control, not on whatever comes first in the markup.
+
+- **`doc.ArrowKeyNavigation` — the arrow keys as a D-pad, and the ways to switch that off.** Three
+  states, and the default is unchanged behaviour:
 
   ```csharp
-  doc.HostGamepadInput = HostGamepad.Dpad | HostGamepad.Buttons;   // my reader owns the sticks
+  doc.ArrowKeyNavigation = NavigationMode.Sequential;   // default: arrows follow the document
+  doc.ArrowKeyNavigation = NavigationMode.Spatial;      // a game: arrows move by GEOMETRY
+  doc.ArrowKeyNavigation = NavigationMode.Disabled;     // I drive focus myself: arrows move nothing
   ```
 
-  The capabilities are independent because that is the shape an application with its own input source
-  actually has: it usually owns the **sticks**, because it wants the raw axes for something else, and
-  would still like the host's D-pad and buttons to work. One boolean made that all-or-nothing, so
-  such an app switched the host off entirely and then reimplemented the half it never meant to take
-  over. It narrows the HOST's pad only — never the keyboard, and never `doc.Gamepad`.
+  `Spatial` is off by default on purpose: arrow keys in an ordinary application are expected to move
+  a caret, scroll a view and step through a radio group, and silently repurposing them would fight
+  every habit a user arrived with. `Tab` is what moves focus there, in every mode. On is for a game,
+  or anything driven from a sofa — and it is how a controller UI gets built without a controller,
+  since a pad and a keyboard then navigate the same panel the same way.
+
+  Turning it on takes nothing away. A focused text field still moves its caret, a slider still
+  nudges, a radio group still follows the ARIA pattern, a date picker still takes the arrows for day
+  navigation, a tree still expands and a reorder grip still moves its row — each is decided before
+  this is reached. It only changes what an arrow does when the answer would otherwise have been
+  "move to the next focusable in document order".
+
+  **`Disabled` is the state a boolean could not express**, and the reason this is an enum. An
+  application driving focus through its own model needs "arrows move nothing"; off read as
+  "arrows move in document order", so the engine moved the selection underneath such an app, which
+  worked around it by registering handlers that did nothing. `Disabled` stops navigation and not a
+  control's own arrows: a focused slider still nudges.
+
+  (`doc.ArrowNavigation`, the boolean, exists as an obsolete alias — `false` is `Sequential` and
+  `true` is `Spatial`. It never appeared in a released version.)
+
+- **`doc.DiagonalNavigation` — two arrows pressed together as one move to the corner.** Off by
+  default. Without it the two presses are two moves, and **which control you land on depends on
+  which key the hardware reported first**: on a staggered two-column layout Right-then-Down and
+  Down-then-Right disagree, and neither is the control actually on the diagonal.
+
+  The cost is latency and it cannot be avoided — to know whether a second key is coming, the first
+  has to wait. `DiagonalWindowSeconds` (default 0.08) is exactly that wait, and it applies to every
+  arrow press while the flag is on — and it is the one number to turn when corners seem not to work,
+  because two keys a hand meant to press together are routinely 50–100 ms apart. The held press is released on a clock, so this needs a host that
+  calls `Animate`: both `HasActiveAnimations` (which every host polls to decide whether to draw a
+  frame at all) and `HasActiveTransitions` (which decides whether to call `Animate` within it) now
+  report true while a press is waiting. A test must call `Animate` itself, as it must after a fling.
+
+  A thumbstick needs none of it: it reports a vector, so `new GamepadDriver(doc, diagonals: true)`
+  resolves a corner from one reading, eight sectors, no window. `NavigationDirection` gains
+  `UpLeft`, `UpRight`, `DownLeft` and `DownRight`; a diagonal is scored over the whole quadrant by
+  straight-line distance rather than through the cone-and-beam rule, which names a lane a corner
+  does not have.
+
+- **Key releases reach the engine: `doc.DispatchKeyUp`, `ReleaseAllKeys` and `ReportsKeyUp`.** The
+  engine previously saw only presses, so "were these two arrows meant together?" could only be
+  inferred from how close together they arrived — which is what `DiagonalWindowSeconds` is, and why
+  it needed tuning per person and keyboard. With releases the question is answered exactly: is the
+  first key still physically down? That holds at any gap, **delays nothing**, and has no number to
+  tune. The desktop host forwards releases on both its GL and SDL paths and sets `ReportsKeyUp`; a
+  host that does not keeps the timing fallback unchanged.
+
+  Hosts forwarding releases must also call `ReleaseAllKeys()` on focus loss — the key-up for
+  anything held when a window loses focus goes to whoever gains it, so the key would otherwise be
+  remembered as held for the rest of the session. Both desktop windows now raise `FocusLost` for
+  this, and the key→`EditKey` mapping each had inline is now one shared method per window rather
+  than a copy that could drift between press and release.
+
+- **`GamepadDriver` — a controller, scripted**, alongside `TouchDriver` and `DropDriver` in
+  `CupriFace.Interaction`. A stick is not a keyboard, so testing it as one tests the wrong code: a
+  thumbstick delivers a continuous axis, and turning that into "one move left" needs a deadzone, an
+  edge, and a rule about returning to centre. A held stick moves once rather than once per frame,
+  drift inside the deadzone is at rest, and a diagonal push picks the dominant axis.
+
+- **`doc.Gamepad` — one navigation driver per document, shared by the host and by the application.**
+  A driver holds which direction is currently held, so two of them turn one stick push into two moves;
+  an app with its own evdev reader had to switch one path off to avoid it. Shared, the duplicate
+  collapses by itself — the second source reports a direction the first already claimed. Every host
+  now uses it instead of making its own, so deadzone and corner policy are one answer rather than
+  several.
+
+- **`doc.GamepadDeadzone` — the stick deadzone, set by the app rather than the host.** Default 0.5,
+  clamped to 0.05–0.95, read per call so it can be retuned at runtime. The host builds the driver
+  (on Android the view owns it, being what receives the motion events), so a deadzone fixed at
+  construction was one an integrating developer could not reach. Pads differ in travel and in how
+  much they drift once worn, and a menu wants a different answer from a cursor — so this is not a
+  number the engine can be right about on its own.
+
+- **`GamepadDriver` follows the document's `DiagonalNavigation` by default.** `diagonals` is now
+  nullable and unset means "ask the document". A host should not have to answer a question the app
+  has already answered — and if it did, it could disagree, giving a stick corners in a UI whose
+  keyboard refuses them.
+
+- **A game controller works on the desktop host.** The D-pad and face buttons are wired to the
+  keyboard's own events — `EditKeyPressed`/`EditKeyReleased`, with A as Enter and B as Escape — so a
+  pad inherits directional navigation, corner moves decided from held state, activation and overlay
+  dismissal rather than getting a parallel path that could drift from the keyboard's. Only the stick
+  needs its own handling, being an axis rather than a press; it feeds a `GamepadDriver` that takes
+  both its deadzone and its corner policy from the document.
+
+  Done on **both** windows: the GL one through Silk.NET's `IGamepad` (whose own deadzone is turned
+  off so `GamepadDeadzone` is the only one that applies), the software fallback through SDL's
+  controller events, with `SDL_INIT_GAMECONTROLLER` added — without that subsystem SDL produces no
+  controller events at all and a pad does nothing, silently. Pads connected after launch work on
+  both.
+
+  `CUPRIFACE_KEY_DEBUG` now records controller buttons and stick readings too. Controller support is
+  the part of this engine that cannot be verified without hardware, so the window being able to
+  testify about what it received is the difference between a five-minute answer and a blind hunt.
+
+- **A game controller works on Android.** Three gaps closed at once. **Analog sticks were dropped
+  entirely** — nothing in the repo read `OnGenericMotionEvent`, which is how Android delivers stick
+  and hat axes; the view now reads them and feeds a `GamepadDriver`, so a stick produces a direction
+  (and a corner, with no timing window, because a stick reports a vector rather than two presses).
+  **Releases are forwarded**, so directional navigation uses held state rather than guessing a
+  corner from arrival times, and focus loss clears what is held. **`ButtonA` activates and `ButtonB`
+  cancels**, mapping to Enter and Escape so a pad goes through exactly the paths a keyboard already
+  does.
+
+  A controller D-pad needs nothing special: Android reports it as the same `Dpad*` keycodes a
+  keyboard's arrow keys produce, so whether arrows move a caret or the selection stays one app-level
+  decision (`ArrowNavigation`) that means the same thing for both.
+
+- **A game controller works in the browser** — the last of the four hosts. The Gamepad API has no
+  events for buttons or axes, so the page polls in its existing frame loop; the D-pad and face
+  buttons are sent as the keys they stand for, and the stick feeds a `GamepadDriver`. Because a poll
+  always sees a button go up, the web host reports releases too (`EditKeyRelease`), so corners are
+  decided from held state rather than from arrival times here as well. A tab losing focus clears
+  what it thought was held — that release is delivered to whoever gains focus, never to us.
+
+- **A controller the platform does not recognise now works on the desktop.** GLFW calls a device a
+  gamepad only if it has a mapping for it, and SDL likewise; anything else raises plain joystick
+  events, which both desktop windows dropped — so an unusual or virtual pad did nothing at all, with
+  nothing said about it. Both now fall back to the joystick's axes and hat, and only while no
+  recognised gamepad is connected, since a recognised one raises both families and acting on both
+  would move the selection twice per push.
+
+- **`doc.GamepadConnected` / `GamepadDisconnected`** report a pad as an event: its name, which backend
+  opened it, and whether the platform **recognised** it (false meaning it arrived through the joystick
+  fallback, so its axes are a guess). Previously the only thing that knew any of this was the
+  `CUPRIFACE_KEY_DEBUG` log — a file, written for a human, that an application cannot branch on.
+
+- **`doc.HostGamepadInput` — how much of the HOST's pad drives this document**, as independent
+  capabilities:
+
+  ```csharp
+  doc.HostGamepadInput = HostGamepad.All;                          // default
+  doc.HostGamepadInput = HostGamepad.Dpad | HostGamepad.Buttons;   // my reader owns the sticks
+  doc.HostGamepadInput = HostGamepad.None;                         // …and everything else too
+  ```
+
+  For an application with an input source of its own — a Linux evdev reader, a HID device, a pad
+  over a network. They are independent because that is the shape such an application actually has:
+  it usually owns the **sticks**, because it wants the raw axes for something else, and would still
+  like the host's D-pad and buttons to work. All-or-nothing meant taking over everything and then
+  reimplementing the half it never meant to.
+
+  It narrows the HOST's pad only — never the keyboard, because a person at a keyboard is not the
+  thing being arbitrated, and never `doc.Gamepad`, which is how your own source gets in.
+
+  (`doc.HostGamepadNavigation`, the boolean, exists as an obsolete alias for `All`/`None`. It never
+  appeared in a released version.)
+
+- **`doc.KeyboardNavigation` — whether the keyboard navigates at all.** `Tab`, the arrows,
+  `Enter`/`Space` and `Escape`, as one switch: `Navigate` (the default), `Consume` (do nothing, and
+  report handled so the host does not fall back either) or `Ignore` (do nothing, and say so). Only
+  while no text field has focus — typing is not navigation. This replaces having to register no-op
+  handlers on eight keys, which is what an integration had to do to drive its own focus.
 
 - **`doc.InputObserved` — every input event, and what the engine made of it.** A dispatch returns one
   bool, and across the seam between an integration's input code and the engine's that bool has to
@@ -107,158 +258,6 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   *window* received — a window line with no engine line after it means the event never reached the
   document. `samples/SpatialNav` shows the live line in its HUD.
 
-- **Directional focus navigation — `doc.MoveFocus(NavigationDirection.Up)`.** A D-pad, a thumbstick,
-  or the arrow keys on a page laid out as a grid rather than as a form. Tab order cannot answer "what
-  is above this": it is one-dimensional and follows the document, so on a panel in two columns "down"
-  and "next" are different controls and only one of them is what the user pointed the stick at. Every
-  controller-driven CupriFace app so far wrote this itself, reading geometry back out of the
-  accessibility tree because the engine offered nothing else.
-
-  Candidates are scored by a 45-degree cone, then a preference for anything whose span overlaps the
-  focused control, then distance along the travel axis. The middle test is what keeps a column a
-  column on a staggered layout, where the next control down this column is further away than
-  something level with the gap in the next one.
-
-  **It does not wrap**, unlike Tab: a stick held right stops at the right-hand edge rather than
-  reappearing on the left, and the `false` it returns there is the host's hook for paging across
-  instead. With nothing focused yet, the first press enters from the edge it travels from — Down
-  lands on the topmost control, not on whatever comes first in the markup.
-
-- **`GamepadDriver` — a controller, scripted**, alongside `TouchDriver` and `DropDriver` in
-  `CupriFace.Interaction`. A stick is not a keyboard, so testing it as one tests the wrong code: a
-  thumbstick delivers a continuous axis, and turning that into "one move left" needs a deadzone, an
-  edge, and a rule about returning to centre. A held stick moves once rather than once per frame,
-  drift inside the deadzone is at rest, and a diagonal push picks the dominant axis.
-
-- **`doc.ArrowNavigation` — the arrow keys as a D-pad, off by default.** Off is deliberate: arrow
-  keys in an ordinary application are expected to move a caret, scroll a view and step through a
-  radio group, and silently repurposing them would fight every habit a user arrived with. `Tab` is
-  what moves focus there, in both modes. On is for a game, or anything driven from a sofa — the
-  arrows become a keyboard D-pad, so a controller and a keyboard navigate the same panel the same
-  way and a controller UI can be built without a controller.
-
-  Turning it on takes nothing away. A focused text field still moves its caret, a slider still
-  nudges, a radio group still follows the ARIA pattern, a date picker still takes the arrows for
-  day navigation, a tree still expands and a reorder grip still moves its row — each of those is
-  decided before this is reached. It only changes what an arrow does when the answer would otherwise
-  have been "move to the next focusable in document order".
-
-  `samples/SpatialNav` is a worked example: 30 scattered boxes and an `M` key that switches the mode
-  live, so the same keypress can be watched doing two different things.
-
-- **`doc.DiagonalNavigation` — two arrows pressed together as one move to the corner.** Off by
-  default. Without it the two presses are two moves, and **which control you land on depends on
-  which key the hardware reported first**: on a staggered two-column layout Right-then-Down and
-  Down-then-Right disagree, and neither is the control actually on the diagonal.
-
-  The cost is latency and it cannot be avoided — to know whether a second key is coming, the first
-  has to wait. `DiagonalWindowSeconds` (default 0.08) is exactly that wait, and it applies to every
-  arrow press while the flag is on — and it is the one number to turn when corners seem not to work,
-  because two keys a hand meant to press together are routinely 50–100 ms apart. The held press is released on a clock, so this needs a host that
-  calls `Animate`: both `HasActiveAnimations` (which every host polls to decide whether to draw a
-  frame at all) and `HasActiveTransitions` (which decides whether to call `Animate` within it) now
-  report true while a press is waiting. A test must call `Animate` itself, as it must after a fling.
-
-  A thumbstick needs none of it: it reports a vector, so `new GamepadDriver(doc, diagonals: true)`
-  resolves a corner from one reading, eight sectors, no window. `NavigationDirection` gains
-  `UpLeft`, `UpRight`, `DownLeft` and `DownRight`; a diagonal is scored over the whole quadrant by
-  straight-line distance rather than through the cone-and-beam rule, which names a lane a corner
-  does not have.
-
-- **Key releases reach the engine: `doc.DispatchKeyUp`, `ReleaseAllKeys` and `ReportsKeyUp`.** The
-  engine previously saw only presses, so "were these two arrows meant together?" could only be
-  inferred from how close together they arrived — which is what `DiagonalWindowSeconds` is, and why
-  it needed tuning per person and keyboard. With releases the question is answered exactly: is the
-  first key still physically down? That holds at any gap, **delays nothing**, and has no number to
-  tune. The desktop host forwards releases on both its GL and SDL paths and sets `ReportsKeyUp`; a
-  host that does not keeps the timing fallback unchanged.
-
-  Hosts forwarding releases must also call `ReleaseAllKeys()` on focus loss — the key-up for
-  anything held when a window loses focus goes to whoever gains it, so the key would otherwise be
-  remembered as held for the rest of the session. Both desktop windows now raise `FocusLost` for
-  this, and the key→`EditKey` mapping each had inline is now one shared method per window rather
-  than a copy that could drift between press and release.
-
-- **A game controller works on Android.** Three gaps closed at once. **Analog sticks were dropped
-  entirely** — nothing in the repo read `OnGenericMotionEvent`, which is how Android delivers stick
-  and hat axes; the view now reads them and feeds a `GamepadDriver`, so a stick produces a direction
-  (and a corner, with no timing window, because a stick reports a vector rather than two presses).
-  **Releases are forwarded**, so directional navigation uses held state rather than guessing a
-  corner from arrival times, and focus loss clears what is held. **`ButtonA` activates and `ButtonB`
-  cancels**, mapping to Enter and Escape so a pad goes through exactly the paths a keyboard already
-  does.
-
-  A controller D-pad needs nothing special: Android reports it as the same `Dpad*` keycodes a
-  keyboard's arrow keys produce, so whether arrows move a caret or the selection stays one app-level
-  decision (`ArrowNavigation`) that means the same thing for both.
-
-- **`doc.GamepadDeadzone` — the stick deadzone, set by the app rather than the host.** Default 0.5,
-  clamped to 0.05–0.95, read per call so it can be retuned at runtime. The host builds the driver
-  (on Android the view owns it, being what receives the motion events), so a deadzone fixed at
-  construction was one an integrating developer could not reach. Pads differ in travel and in how
-  much they drift once worn, and a menu wants a different answer from a cursor — so this is not a
-  number the engine can be right about on its own.
-
-- **`GamepadDriver` follows the document's `DiagonalNavigation` by default.** `diagonals` is now
-  nullable and unset means "ask the document". A host should not have to answer a question the app
-  has already answered — and if it did, it could disagree, giving a stick corners in a UI whose
-  keyboard refuses them.
-
-- **Keyboard focus no longer slides onto a different control when the page rebuilds.** Focus was an
-  index into the focusable list, and that list is rebuilt from scratch on every rebuild — every
-  keystroke, every model change, every `:hover` restyle. While the tree kept its shape the index
-  happened to still point at the right thing, which is why this was easy to miss; the moment a
-  control appeared or disappeared **anywhere earlier**, every index after it slid by one and the
-  selection was silently on something the user was not looking at. A controller UI is where it bites
-  hardest, being driven entirely by the selection and exactly the kind of UI whose contents change.
-
-  Focus is now carried across a rebuild as an identity: `data-bind-value`/`id` where the author gave
-  one — the same key text focus has always used — and otherwise the control's label, used only when
-  exactly one focusable carries it (two buttons reading "Delete" identify nothing). Carried on both
-  rebuild paths, `Rebuild` and `ReStyle`.
-
-  A structural path is deliberately not part of this, though the engine has one and scroll
-  restoration uses it: a path is a position, and positions are the thing that shifts. When a control
-  appears above the focused one the path slides exactly as the index does, so resolving it returns
-  the neighbour with every appearance of confidence.
-
-- **A game controller works on the desktop host.** The D-pad and face buttons are wired to the
-  keyboard's own events — `EditKeyPressed`/`EditKeyReleased`, with A as Enter and B as Escape — so a
-  pad inherits directional navigation, corner moves decided from held state, activation and overlay
-  dismissal rather than getting a parallel path that could drift from the keyboard's. Only the stick
-  needs its own handling, being an axis rather than a press; it feeds a `GamepadDriver` that takes
-  both its deadzone and its corner policy from the document.
-
-  Done on **both** windows: the GL one through Silk.NET's `IGamepad` (whose own deadzone is turned
-  off so `GamepadDeadzone` is the only one that applies), the software fallback through SDL's
-  controller events, with `SDL_INIT_GAMECONTROLLER` added — without that subsystem SDL produces no
-  controller events at all and a pad does nothing, silently. Pads connected after launch work on
-  both.
-
-  `CUPRIFACE_KEY_DEBUG` now records controller buttons and stick readings too. Controller support is
-  the part of this engine that cannot be verified without hardware, so the window being able to
-  testify about what it received is the difference between a five-minute answer and a blind hunt.
-
-- **A game controller works in the browser** — the last of the four hosts. The Gamepad API has no
-  events for buttons or axes, so the page polls in its existing frame loop; the D-pad and face
-  buttons are sent as the keys they stand for, and the stick feeds a `GamepadDriver`. Because a poll
-  always sees a button go up, the web host reports releases too (`EditKeyRelease`), so corners are
-  decided from held state rather than from arrival times here as well. A tab losing focus clears
-  what it thought was held — that release is delivered to whoever gains focus, never to us.
-
-- **The shipped samples can turn controller navigation on, so it can be tested.** A pad already
-  worked without this — a D-pad arrives as arrow keys and a stick navigates by geometry regardless —
-  but the arrows stepped through the markup rather than the screen, which is the half worth
-  watching. `Viewer --gamepad` on the desktop, and `adb shell am start -n <activity> --ez gamepad
-  true` on Android. Both opt-in for the same reason the engine's own default is off: these are
-  ordinary applications, where arrow keys are expected to move a caret.
-
-- **A prerelease tag publishes as a prerelease.** `gh release create` never passed `--prerelease`,
-  so a tag like `v0.33.0-alpha.1` would have been marked **Latest** — the download every visitor
-  gets, and the answer every "what is the newest release" check believes. Any tag with a hyphen is
-  now published as a prerelease, which is exactly what semver calls one and what NuGet already uses
-  to keep such a package out of a default `dotnet add package`.
-
 - **`doc.Post(Action)` — the one member of a document safe to call from another thread**, plus
   `GamepadDriver.PostStick` / `PostPress` / `PostConfirm`. Every dispatch rebuilds the render tree, so
   an input source on its own thread — a Linux evdev reader, a HID device — was replacing the tree
@@ -270,55 +269,6 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 - **`doc.WasdNavigation` — W A S D as a D-pad**, off by default. For Steam rather than for keyboards:
   Steam Input maps a thumbstick to WASD for games with no controller support, so a push arrives as a
   letter and nothing else. Only acts while no text field has focus, so typing is never stolen.
-
-- **A controller the platform does not recognise now works on the desktop.** GLFW calls a device a
-  gamepad only if it has a mapping for it, and SDL likewise; anything else raises plain joystick
-  events, which both desktop windows dropped — so an unusual or virtual pad did nothing at all, with
-  nothing said about it. Both now fall back to the joystick's axes and hat, and only while no
-  recognised gamepad is connected, since a recognised one raises both families and acting on both
-  would move the selection twice per push.
-
-- **Posted work now wakes a sleeping host.** `doc.Post` drains inside a frame, and a
-  render-on-demand window draws only when something says it must — so posted work was waiting for a
-  frame that was itself waiting for a reason to happen, and an idle window never received it. It
-  worked in every test (which render unconditionally) and did nothing in front of a user. A pending
-  post is now reported through `HasActiveAnimations`, the signal every host polls.
-
-- **`doc.Gamepad` — one navigation driver per document, shared by the host and by the application.**
-  A driver holds which direction is currently held, so two of them turn one stick push into two moves;
-  an app with its own evdev reader had to switch one path off to avoid it. Shared, the duplicate
-  collapses by itself — the second source reports a direction the first already claimed. Every host
-  now uses it instead of making its own, so deadzone and corner policy are one answer rather than
-  several.
-
-- **`doc.HostGamepadNavigation = false`** lets an application with its own input source be the only
-  one, without modifying a host. It silences the host's PAD and not the keyboard — which is why a
-  controller's D-pad now travels on its own event inside each host rather than sharing the keyboard's,
-  even though it stands for the same keys.
-
-- **`doc.GamepadConnected` / `GamepadDisconnected`** report a pad as an event: its name, which backend
-  opened it, and whether the platform **recognised** it (false meaning it arrived through the joystick
-  fallback, so its axes are a guess). Previously the only thing that knew any of this was the
-  `CUPRIFACE_KEY_DEBUG` log — a file, written for a human, that an application cannot branch on.
-
-- **Unchanged stick samples are no longer forwarded.** A Steam Virtual Gamepad emits a near-identical
-  neutral sample continuously; every one of them did the work of a push that never happened and wrote
-  a line to the diagnostic log. All four hosts now suppress a reading identical to the last.
-
-- **`doc.ArrowKeyNavigation` replaces the `ArrowNavigation` boolean**, which had three meaningful
-  states and could express two. `ArrowNavigation = false` read as "arrows off" and **meant "arrows
-  move in document order"** — so an application driving focus through its own model found the engine
-  moving the selection underneath it, and worked around it by registering handlers that did nothing.
-  `NavigationMode.Disabled` is the state that could not be asked for. `Sequential` is the default and
-  the old meaning of `false`; `Spatial` is the old `true`. The boolean still works and is marked
-  obsolete rather than removed. `Disabled` stops navigation and not a control's own arrows: a focused
-  slider still nudges, a radio group still follows the ARIA pattern.
-
-- **`doc.KeyboardNavigation` — whether the keyboard navigates at all.** `Tab`, the arrows,
-  `Enter`/`Space` and `Escape`, as one switch: `Navigate` (the default), `Consume` (do nothing, and
-  report handled so the host does not fall back either) or `Ignore` (do nothing, and say so). Only
-  while no text field has focus — typing is not navigation. This replaces having to register no-op
-  handlers on eight keys, which is what an integration had to do to drive its own focus.
 
 - **`:focus` can style a focused BUTTON — it never could before.** The selector is rewritten to
   `[data-focus]`, and that attribute was set only on an editable field, so `button:focus { … }` was a
@@ -339,6 +289,58 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   An editable field's `data-focus` keeps its narrower meaning (the caret is in it): a combobox reveals
   its list with `.cupri-cb-input:focus ~ .cupri-cb-popup`, and marking a field merely because the
   selection rests there would hold the list open after the user had picked from it.
+
+- **The shipped samples can turn controller navigation on, so it can be tested.** A pad already
+  worked without this — a D-pad arrives as arrow keys and a stick navigates by geometry regardless —
+  but the arrows stepped through the markup rather than the screen, which is the half worth
+  watching. `Viewer --gamepad` on the desktop, and `adb shell am start -n <activity> --ez gamepad
+  true` on Android. Both opt-in for the same reason the engine's own default is off: these are
+  ordinary applications, where arrow keys are expected to move a caret.
+
+### Changed
+
+- **A controller is no longer routed as the keyboard it arrives as.** Every host delivers a D-pad and
+  its face buttons as the `EditKey`s they stand for, and the document could not tell the two apart.
+  Two consequences, both of them wrong and both fixed:
+
+  **`KeyboardNavigation` no longer silences the pad.** An application that said "I navigate, not you"
+  about the keyboard also silenced the controller in the player's hands — the same shape as the
+  `Confirm` bug fixed in v0.33.0-alpha.6, surviving in the one path that still had it.
+  `HostGamepadInput` is a pad's off switch; `KeyboardNavigation` is the keyboard's.
+
+  **A pad navigates by geometry whatever `ArrowKeyNavigation` says.** That setting exists because
+  repurposing the arrow keys fights habits a user arrived with, and a D-pad has no such habit —
+  there is nothing else for it to mean. Left to the keyboard's setting, a host D-pad moved in
+  *document order* by default while the stick beside it moved by geometry: one pad disagreeing with
+  itself. **This changes behaviour** for an app using the host's D-pad on the default
+  `ArrowKeyNavigation`, which is the point.
+
+  A hat still pairs two simultaneous directions into one corner move — a D-pad press is still
+  delivered as a key, and the held-key path is untouched.
+
+  Hosts now call `doc.DispatchGamepadKey(key, down)` and `doc.DispatchGamepadStick(x, y)` instead of
+  `DispatchKey`; the policy lives in the document rather than being re-derived by four hosts that
+  could come to disagree about it.
+
+### Fixed
+
+- **Keyboard focus no longer slides onto a different control when the page rebuilds.** Focus was an
+  index into the focusable list, and that list is rebuilt from scratch on every rebuild — every
+  keystroke, every model change, every `:hover` restyle. While the tree kept its shape the index
+  happened to still point at the right thing, which is why this was easy to miss; the moment a
+  control appeared or disappeared **anywhere earlier**, every index after it slid by one and the
+  selection was silently on something the user was not looking at. A controller UI is where it bites
+  hardest, being driven entirely by the selection and exactly the kind of UI whose contents change.
+
+  Focus is now carried across a rebuild as an identity: `data-bind-value`/`id` where the author gave
+  one — the same key text focus has always used — and otherwise the control's label, used only when
+  exactly one focusable carries it (two buttons reading "Delete" identify nothing). Carried on both
+  rebuild paths, `Rebuild` and `ReStyle`.
+
+  A structural path is deliberately not part of this, though the engine has one and scroll
+  restoration uses it: a path is a position, and positions are the thing that shifts. When a control
+  appears above the focused one the path slides exactly as the index does, so resolving it returns
+  the neighbour with every appearance of confidence.
 
 - **A binding inside a `data-repeat` can see the model the list came from.** The item used to be the
   only context, so a name the item did not have resolved to nothing — silently — and an author
@@ -365,14 +367,21 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   one for the other appeared to be the fix. The items are laid out again when, and only when, the
   minimum actually raised the height.
 
-- **A controller's confirm is no longer swallowed by `KeyboardNavigation`.** `GamepadDriver.Confirm`
-  dispatched an Enter KEY, which was tidy until that setting existed — an application that had said
-  "I navigate, not you" then found its own confirm silenced by its own setting, because nothing
-  distinguished the pad from the keyboard it was borrowing. It now calls `doc.Activate()`, which is
-  public for exactly this reason. Moving the selection never broke, since that calls `MoveFocus`
-  directly, and that asymmetry is what identified it.
+- **A prerelease tag publishes as a prerelease.** `gh release create` never passed `--prerelease`,
+  so a tag like `v0.33.0-alpha.1` would have been marked **Latest** — the download every visitor
+  gets, and the answer every "what is the newest release" check believes. Any tag with a hyphen is
+  now published as a prerelease, which is exactly what semver calls one and what NuGet already uses
+  to keep such a package out of a default `dotnet add package`.
 
-### Fixed
+- **Unchanged stick samples are no longer forwarded.** A Steam Virtual Gamepad emits a near-identical
+  neutral sample continuously; every one of them did the work of a push that never happened and wrote
+  a line to the diagnostic log. All four hosts now suppress a reading identical to the last.
+
+- **Posted work now wakes a sleeping host.** `doc.Post` drains inside a frame, and a
+  render-on-demand window draws only when something says it must — so posted work was waiting for a
+  frame that was itself waiting for a reason to happen, and an idle window never received it. It
+  worked in every test (which render unconditionally) and did nothing in front of a user. A pending
+  post is now reported through `HasActiveAnimations`, the signal every host polls.
 
 - **A focus move arriving between frames is no longer swallowed.** Directional navigation reads where
   controls are, which makes it a geometry entry point like hit-testing — and a focus change rebuilds
@@ -381,6 +390,26 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   control. Hosts cannot avoid this (Android delivers key events when it likes, and a held D-pad
   autorepeats faster than a frame), so `MoveFocus` now lays the tree out on entry the way every other
   geometry entry point already did.
+
+- **A controller's confirm is no longer swallowed by `KeyboardNavigation`.** `GamepadDriver.Confirm`
+  dispatched an Enter KEY, which was tidy until that setting existed — an application that had said
+  "I navigate, not you" then found its own confirm silenced by its own setting, because nothing
+  distinguished the pad from the keyboard it was borrowing. It now calls `doc.Activate()`, which is
+  public for exactly this reason. Moving the selection never broke, since that calls `MoveFocus`
+  directly, and that asymmetry is what identified it.
+
+- **A host pad event turned away by `HostGamepadInput` is reported rather than silently dropped**
+  (#255). `DispatchGamepadKey` and `DispatchGamepadStick` returned at the capability check, before
+  raising `InputObserved` — so a policy-rejected event and an event that never reached the document
+  were the same silence. That is precisely the distinction `InputObserved` exists to draw, and it
+  bit hardest where the capabilities are most used: an application whose own reader owns the
+  controller sets `HostGamepad.None`, so *every* host pad event took that path and the log it was
+  reading said nothing at all. Reported against v0.33.0-alpha.7 from a real integration.
+
+  They now report `Swallowed route=Ignore` — not acted on and not consumed, so the event remains the
+  host's to use. A turned-away stick reports **once per push** rather than once per sample, matching
+  what an accepted stick produces: a host polls the stick every frame, and sixty lines a second
+  would bury the log it is meant to clarify.
 
 ## v0.32.0
 
