@@ -180,6 +180,15 @@ public sealed class ComputedStyle
     // Background gradient (CSS linear-gradient()/radial-gradient()); painted over Background. Not inherited.
     public Gradient? BackgroundGradient;
 
+    /// <summary><c>background-image: url(…)</c> — a raster image as the background layer, resolved
+    /// through the same store as <c>&lt;cupri-image&gt;</c>. Null when the layer is a gradient or
+    /// there is none. Not inherited.</summary>
+    public string? BackgroundImageSrc;
+
+    /// <summary>Where the image layer sits and how it tiles (<c>background-size</c>,
+    /// <c>-position</c>, <c>-repeat</c>) (#267). Not inherited.</summary>
+    public BackgroundGeometry BackgroundGeometry = BackgroundGeometry.Default;
+
     // Transform (applied around TransformOrigin within the border box at paint time)
     public bool HasTransform;
     public float TranslateX, TranslateY, RotateDeg;

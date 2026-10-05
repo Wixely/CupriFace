@@ -231,9 +231,9 @@ public sealed class Painter
         if (s.Background.Alpha > 0 && node.Width > 0)
             list.Add(new FillRect(absX, absY, node.Width, node.Height, radius, s.Background));
 
-        // Background gradient (CSS linear-/radial-gradient), painted over any solid background colour.
-        if (s.BackgroundGradient is { } grad && node.Width > 0)
-            list.Add(new GradientRect(absX, absY, node.Width, node.Height, radius, grad));
+        // The image layer (a gradient or a raster image), painted over any solid background colour,
+        // sized and tiled per background-size/-position/-repeat (#267).
+        PaintBackgroundLayer(list, s, absX, absY, node.Width, node.Height, radius);
 
         // Border frame.
         // ANY edge that has both a width and a visible colour. Testing one shared colour answered
@@ -268,8 +268,7 @@ public sealed class Painter
                 var fragRadius = s.BorderRadius.Resolve(f.W, f.H);
                 if (s.Background.Alpha > 0)
                     list.Add(new FillRect(absX + f.X, absY + f.Y, f.W, f.H, fragRadius, s.Background));
-                if (s.BackgroundGradient is { } g)
-                    list.Add(new GradientRect(absX + f.X, absY + f.Y, f.W, f.H, fragRadius, g));
+                PaintBackgroundLayer(list, s, absX + f.X, absY + f.Y, f.W, f.H, fragRadius);
                 if (hasBorder)
                     list.Add(BorderCmd(absX + f.X, absY + f.Y, f.W, f.H, fragRadius, node, s));
             }
@@ -472,6 +471,30 @@ public sealed class Painter
         if (transformed) list.Add(new PopTransform());
         if (faded) list.Add(new PopOpacity());
         if (filtered) list.Add(new PopFilter());
+    }
+
+    /// <summary>The background's image layer for one box: a gradient spanning the box when nothing
+    /// says otherwise (the fast path every pre-#267 document takes), else a tile sized and placed by
+    /// the geometry and repeated across the box. A raster image needs its pixels before the tile can
+    /// be sized — an image still loading paints nothing this frame, as it does for cupri-image.</summary>
+    private void PaintBackgroundLayer(DisplayList list, ComputedStyle s, float x, float y, float w, float h, CornerRadii radius)
+    {
+        if (w <= 0 || h <= 0) return;
+        var geom = s.BackgroundGeometry;
+        if (s.BackgroundGradient is { } grad)
+        {
+            if (geom.FillsBox(0, 0, w, h)) { list.Add(new GradientRect(x, y, w, h, radius, grad)); return; }
+            var (tx, ty, tw, th) = geom.Tile(0, 0, w, h);
+            if (tw <= 0 || th <= 0) return;
+            list.Add(new GradientRect(x, y, w, h, radius, grad, new BackgroundTile(x + tx, y + ty, tw, th, geom.RepeatX, geom.RepeatY)));
+            return;
+        }
+        if (s.BackgroundImageSrc is { Length: > 0 } src && _images?.Get(src) is { } img)
+        {
+            var (tx, ty, tw, th) = geom.Tile(img.Width, img.Height, w, h);
+            if (tw <= 0 || th <= 0) return;
+            list.Add(new TiledImage(x, y, w, h, radius, img, new BackgroundTile(x + tx, y + ty, tw, th, geom.RepeatX, geom.RepeatY)));
+        }
     }
 
     // A collected position:sticky node and the origin it was reached at (its parent's painted top-left).

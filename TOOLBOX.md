@@ -552,6 +552,18 @@ controls handle their own state.
   .bar  { background: linear-gradient(#5aa0e0, #2b5f92); }
   .glow { background: radial-gradient(#ffd39a, #B87333); }
   ```
+- **Background images and the image layer's geometry.** `background-image: url(…)` draws a raster
+  image (the same sources as `<cupri-image>`: embedded, file, `data:`, https), and
+  `background-size` / `background-position` / `background-repeat` size, place and tile the layer —
+  for a gradient as much as an image. The shorthand reads all of it in CSS's order: image, repeat,
+  position, then `/ size`. A gradient has no intrinsic size, so `cover`/`contain`/`auto` on one is
+  the box.
+  ```css
+  .photo    { background: url(hero.jpg) no-repeat center / cover; }
+  .progress { background-image: linear-gradient(90deg, #10b981, #10b981);
+              background-repeat: no-repeat; background-size: 60% 100%; }
+  .grid     { background-image: linear-gradient(90deg, #8884 8%, transparent 8%); background-size: 12px 100%; }
+  ```
 - **`box-shadow`.** `[inset] <x> <y> [blur] [spread] [color]`, comma‑separated for multiple layers —
   outset drop shadows (soft elevation) and `inset` inner shadows. The first‑party cards and overlays
   (dialog, drawer, shelf, menu, select, popover, tooltip, toast, pickers) ship with sensible shadows.

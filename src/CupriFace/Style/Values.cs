@@ -143,6 +143,88 @@ public readonly record struct GradientStop(SkiaSharp.SKColor Color, float Positi
 /// CSS angle (0 = to top, 90 = to right; ignored for radial).</summary>
 public sealed record Gradient(GradientKind Kind, float AngleDeg, IReadOnlyList<GradientStop> Stops);
 
+/// <summary>How <c>background-size</c> sizes the image layer's tile.</summary>
+public enum BackgroundSizeKind
+{
+    /// <summary>A gradient fills the box; a raster image keeps its own pixel size.</summary>
+    Auto,
+    /// <summary>Explicit <c>Width</c> × <c>Height</c>; an <c>auto</c> on one axis keeps a raster
+    /// image's aspect ratio (a gradient, having none, takes the box on that axis).</summary>
+    Length,
+    /// <summary>Scaled, keeping its ratio, to the smallest size that covers the whole box.</summary>
+    Cover,
+    /// <summary>Scaled, keeping its ratio, to the largest size that fits inside the box.</summary>
+    Contain,
+}
+
+/// <summary>
+/// Where the image layer of a background sits and how it tiles: <c>background-size</c>,
+/// <c>background-position</c> and <c>background-repeat</c> together (#267).
+///
+/// <para>Everything here was accepted and ignored before: the image or gradient filled the whole box
+/// whatever size it was given, so a gradient sized to a fraction of its box as a progress bar, a
+/// <c>cover</c> on a photo, and a small repeating tile all rendered as one stretched layer.</para>
+/// </summary>
+/// <param name="Size">The tile's size.</param>
+/// <param name="PosX">Where the tile sits. A percentage is of the SPARE room, as in CSS: <c>50%</c>
+/// centres the tile, and <c>100%</c> puts its far edge on the box's far edge.</param>
+/// <param name="RepeatX">Tile along the axis; otherwise the single tile is drawn once.</param>
+public readonly record struct BackgroundGeometry(
+    BackgroundSizeKind Size, Length Width, Length Height, Length PosX, Length PosY, bool RepeatX, bool RepeatY)
+{
+    /// <summary>CSS's initial values: <c>auto</c>, <c>0% 0%</c>, <c>repeat</c> — the box, filled.</summary>
+    public static readonly BackgroundGeometry Default = new(BackgroundSizeKind.Auto, Length.Auto, Length.Auto,
+        new Length(LengthUnit.Percent, 0f), new Length(LengthUnit.Percent, 0f), true, true);
+
+    /// <summary>A tile that is exactly the box, however it repeats — the pre-#267 result, and the
+    /// fast path.</summary>
+    public bool FillsBox(float intrinsicW, float intrinsicH, float boxW, float boxH)
+    {
+        var (x, y, w, h) = Tile(intrinsicW, intrinsicH, boxW, boxH);
+        return MathF.Abs(x) < 0.01f && MathF.Abs(y) < 0.01f
+            && MathF.Abs(w - boxW) < 0.01f && MathF.Abs(h - boxH) < 0.01f;
+    }
+
+    /// <summary>The tile's rectangle, relative to the box's top-left. <paramref name="intrinsicW"/>
+    /// and <paramref name="intrinsicH"/> are the image's own size; pass 0 for a gradient, which has
+    /// none and takes the box wherever a size is <c>auto</c>.</summary>
+    public (float X, float Y, float W, float H) Tile(float intrinsicW, float intrinsicH, float boxW, float boxH)
+    {
+        var hasIntrinsic = intrinsicW > 0 && intrinsicH > 0;
+        float w, h;
+        switch (Size)
+        {
+            case BackgroundSizeKind.Cover or BackgroundSizeKind.Contain when hasIntrinsic:
+            {
+                var sx = boxW / intrinsicW; var sy = boxH / intrinsicH;
+                var scale = Size == BackgroundSizeKind.Cover ? MathF.Max(sx, sy) : MathF.Min(sx, sy);
+                w = intrinsicW * scale; h = intrinsicH * scale;
+                break;
+            }
+            case BackgroundSizeKind.Length:
+            {
+                var wAuto = Width.IsAuto; var hAuto = Height.IsAuto;
+                w = wAuto ? 0 : Width.Resolve(boxW);
+                h = hAuto ? 0 : Height.Resolve(boxH);
+                if (wAuto && hAuto) { w = hasIntrinsic ? intrinsicW : boxW; h = hasIntrinsic ? intrinsicH : boxH; }
+                else if (wAuto) w = hasIntrinsic ? h * intrinsicW / intrinsicH : boxW;
+                else if (hAuto) h = hasIntrinsic ? w * intrinsicH / intrinsicW : boxH;
+                break;
+            }
+            default:
+                w = hasIntrinsic ? intrinsicW : boxW;
+                h = hasIntrinsic ? intrinsicH : boxH;
+                break;
+        }
+        w = MathF.Max(0f, w); h = MathF.Max(0f, h);
+        // A percentage position is of the room left over, so 50% centres and 100% right-aligns —
+        // which is the only reading under which `center` and `right` mean what they say.
+        var x = PosX.Unit == LengthUnit.Percent ? (boxW - w) * PosX.Value / 100f : PosX.Resolve(boxW - w);
+        var y = PosY.Unit == LengthUnit.Percent ? (boxH - h) * PosY.Value / 100f : PosY.Resolve(boxH - h);
+        return (x, y, w, h);
+    }
+}
+
 public static class Colors
 {
     private static readonly Dictionary<string, SKColor> Named = new(StringComparer.OrdinalIgnoreCase)

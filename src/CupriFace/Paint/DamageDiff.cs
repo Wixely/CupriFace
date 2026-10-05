@@ -206,6 +206,7 @@ public static class DamageDiff
     {
         FillRect c => SKRect.Create(c.X, c.Y, c.W, c.H),
         GradientRect c => SKRect.Create(c.X, c.Y, c.W, c.H),
+        TiledImage c => SKRect.Create(c.X, c.Y, c.W, c.H),
         BorderRect c => SKRect.Create(c.X, c.Y, c.W, c.H),
         ShadowRect c => Grow(SKRect.Create(c.X, c.Y, c.W, c.H),
             c.Spread + c.Blur * 2 + MathF.Max(MathF.Abs(c.Dx), MathF.Abs(c.Dy))),

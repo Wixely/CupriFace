@@ -27,8 +27,21 @@ public sealed record FillRect(float X, float Y, float W, float H, CornerRadii Ra
 public sealed record ShadowRect(float X, float Y, float W, float H, CornerRadii Radius,
     float Dx, float Dy, float Blur, float Spread, SKColor Color, bool Inset) : PaintCommand;
 
-/// <summary>Fill the (rounded) box (X,Y,W,H,Radius) with a CSS gradient (linear/radial).</summary>
-public sealed record GradientRect(float X, float Y, float W, float H, CornerRadii Radius, Gradient Gradient) : PaintCommand;
+/// <summary>One tile of a background's image layer, in absolute coordinates, and whether it repeats
+/// along each axis (#267). The gradient or image is drawn into the tile and the tile is laid across
+/// the box; a non-repeating axis leaves the rest of the box untouched.</summary>
+public readonly record struct BackgroundTile(float X, float Y, float W, float H, bool RepeatX, bool RepeatY);
+
+/// <summary>Fill the (rounded) box (X,Y,W,H,Radius) with a CSS gradient (linear/radial). With a
+/// <paramref name="Tile"/>, the gradient spans the tile rather than the box and is repeated or
+/// drawn once per the tile; without one it spans the box, which is CSS's initial value.</summary>
+public sealed record GradientRect(float X, float Y, float W, float H, CornerRadii Radius, Gradient Gradient,
+    BackgroundTile? Tile = null) : PaintCommand;
+
+/// <summary>A raster <c>background-image</c>: the image scaled into the tile and laid across the
+/// (rounded) box per the tile's repeat flags (#267).</summary>
+public sealed record TiledImage(float X, float Y, float W, float H, CornerRadii Radius, SKImage Image,
+    BackgroundTile Tile) : PaintCommand;
 
 /// <param name="Color">The TOP edge's colour, and the whole box's when the four agree — which is
 /// the ordinary case and the one the stroked fast path in the rasteriser needs.</param>

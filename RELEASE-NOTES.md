@@ -13,6 +13,41 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+A second set of conformance gaps from the same corpus survey (#265–#270), filed against 0.34.0.
+
+### Fixed
+
+- **A `background` shorthand with a keyword after the image now keeps the image (#265).**
+  `background: linear-gradient(…) no-repeat` painted NOTHING — not the gradient tiled, not the
+  gradient once — and no diagnostic named it. The shorthand was one call to the gradient parser on
+  the whole value and, failing that, one to the colour parser; a value that matched neither was
+  dropped entire. It is now read token by token, as CSS defines it: a colour, an image, repeat
+  keywords, a position, and a size after a `/`, in any order, across comma-separated layers (the
+  first layer with an image is the one painted). A token the engine does not implement (`fixed`, a
+  box keyword) is stepped over rather than costing the layer. Nothing to do.
+
+- **A `;` inside `url()` or a string no longer ends the declaration.** A `data:image/png;base64,…`
+  background was cut at its media type and never loaded. Declarations are split on the semicolons
+  between them only.
+
+### Added
+
+- **`background-size`, `background-position` and `background-repeat` (#267).** All three were
+  reported unsupported and ignored, so an image or gradient filled its whole box whatever it was
+  told. The image layer is now sized (lengths, percentages, `cover`, `contain`, a lone value with
+  `auto` height), placed (keywords, lengths, percentages of the spare room, so `center` and `right`
+  mean what they say) and tiled (`repeat`, `no-repeat`, `repeat-x`, `repeat-y`, or one word per
+  axis). The tile is recorded once and laid across the box as a picture shader, so a 4px dot grid
+  over a full frame is one fill rather than a hundred thousand. A gradient has no intrinsic size, so
+  `cover`, `contain` and `auto` on one are the box, as in CSS.
+
+- **`background-image: url(…)`.** A raster image as a background, resolved through the same store
+  as `<cupri-image>` (embedded, file, `data:`, https), tiled at its own size by default and sized
+  by the properties above. The issue's "cover on a photo background" now works. A remote image
+  paints nothing until it arrives, exactly as `<cupri-image>` does.
+
 ## v0.34.0
 
 Six conformance gaps, each found by rendering a designed composition beside a browser and measuring

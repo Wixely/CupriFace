@@ -474,12 +474,12 @@ public sealed class StyleResolver
                 case "border-bottom-right-radius": s.BorderRadius = WithCorner(s.BorderRadius, 2, v); break;
                 case "border-bottom-left-radius": s.BorderRadius = WithCorner(s.BorderRadius, 3, v); break;
 
-                case "background":
-                    if (ParseGradient(v) is { } bgGrad) { s.BackgroundGradient = bgGrad; s.Background = SKColors.Transparent; }
-                    else if (Colors.TryParse(v, out var bg)) { s.Background = bg; s.BackgroundGradient = null; }
-                    break;
-                case "background-image": s.BackgroundGradient = ParseGradient(v); break; // gradient over bg-color; 'none' clears
+                case "background": ParseBackgroundShorthand(s, v); break;
+                case "background-image": ParseBackgroundImage(s, v); break; // over bg-color; 'none' clears
                 case "background-color": if (Colors.TryParse(v, out var bgc)) s.Background = bgc; break;
+                case "background-size": s.BackgroundGeometry = WithSize(s.BackgroundGeometry, v); break;
+                case "background-position": s.BackgroundGeometry = WithPosition(s.BackgroundGeometry, v); break;
+                case "background-repeat": s.BackgroundGeometry = WithRepeat(s.BackgroundGeometry, v); break;
                 case "opacity": s.Opacity = Math.Clamp(ParseNum(v), 0f, 1f); break;
                 case "transform": ParseTransform(s, v); break;
                 case "transform-origin": ParseTransformOrigin(s, v); break;
@@ -1162,6 +1162,180 @@ public sealed class StyleResolver
     // transition: <prop|all> <duration> [timing] [delay] [, <prop> <duration> …]. A later `transition`
     // declaration replaces the whole list (CSS shorthand semantics). Splitting is paren-aware so a
     // cubic-bezier(...)'s inner commas/spaces don't split the list or tokens.
+    /// <summary>
+    /// The <c>background</c> shorthand, token by token.
+    ///
+    /// <para>It used to be one call to the gradient parser on the whole value and, failing that, one
+    /// to the colour parser — so <c>linear-gradient(…) no-repeat</c> matched neither, the whole
+    /// declaration was dropped, and the element painted NOTHING: not the gradient tiled, not the
+    /// gradient once, with no diagnostic (#265). The longhands worked, which is how it was found —
+    /// a probe for background-size wrote its control this way and the control went blank. 10 of 165
+    /// designed compositions in one corpus write a keyword after the image.</para>
+    ///
+    /// <para>As in CSS the shorthand resets every longhand first, then each comma-separated layer
+    /// is read: a colour, an image (gradient or <c>url()</c>), repeat keywords, a position, and a
+    /// size after a <c>/</c>. The image comes from the FIRST layer that has one and the colour from
+    /// whichever layer names it; a token the engine does not know (<c>fixed</c>, a box keyword) is
+    /// stepped over rather than costing the layer. Only one image layer is painted.</para>
+    /// </summary>
+    private static void ParseBackgroundShorthand(ComputedStyle s, string v)
+    {
+        s.Background = SKColors.Transparent;
+        s.BackgroundGradient = null;
+        s.BackgroundImageSrc = null;
+        s.BackgroundGeometry = BackgroundGeometry.Default;
+        var haveImage = false;
+        foreach (var layer in SplitTopLevel(v, ','))
+        {
+            var geom = BackgroundGeometry.Default;
+            var repeatSeen = false;
+            var position = new List<string>();
+            var size = new List<string>();
+            var inSize = false;
+            Gradient? gradient = null;
+            string? src = null;
+            foreach (var raw in SplitSlashes(SplitTopLevel(layer, ' ')))
+            {
+                if (raw == "/") { inSize = true; continue; }
+                var low = raw.ToLowerInvariant();
+                if (inSize) { size.Add(low); continue; }
+                if (ParseGradient(raw) is { } g) { gradient = g; continue; }
+                if (ParseUrl(raw) is { } u) { src = u; continue; }
+                if (Colors.TryParse(raw, out var c)) { s.Background = c; continue; }
+                if (low is "repeat" or "no-repeat" or "repeat-x" or "repeat-y" or "space" or "round")
+                {
+                    // The two-value form (`repeat no-repeat`) is per axis; one word is both.
+                    geom = repeatSeen ? WithRepeat(geom, (geom.RepeatX ? "repeat " : "no-repeat ") + low)
+                                      : WithRepeat(geom, low);
+                    repeatSeen = true;
+                    continue;
+                }
+                if (low is "left" or "right" or "top" or "bottom" or "center" or "centre" || IsLengthToken(low))
+                { position.Add(low); continue; }
+                // `fixed`, `scroll`, `local`, `border-box`, `padding-box`, `content-box`: attachment
+                // and the clip/origin boxes. Not implemented and not worth losing the layer over.
+            }
+            if (position.Count > 0) geom = WithPosition(geom, string.Join(' ', position));
+            if (size.Count > 0) geom = WithSize(geom, string.Join(' ', size));
+            if (!haveImage && (gradient is not null || src is not null))
+            {
+                haveImage = true;
+                s.BackgroundGradient = gradient;
+                s.BackgroundImageSrc = src;
+                s.BackgroundGeometry = geom;
+            }
+        }
+    }
+
+    /// <summary>`center/cover` and `center / cover` are the same thing: a size follows a slash, and
+    /// the slash may be glued to either neighbour. Splits it out as its own token.</summary>
+    private static IEnumerable<string> SplitSlashes(List<string> toks)
+    {
+        foreach (var t in toks)
+        {
+            if (t == "/" || t.IndexOf('/') < 0 || t.Contains('(')) { yield return t; continue; }
+            var i = t.IndexOf('/');
+            if (i > 0) yield return t[..i];
+            yield return "/";
+            if (i + 1 < t.Length) yield return t[(i + 1)..];
+        }
+    }
+
+    private static bool IsLengthToken(string low) =>
+        low.EndsWith('%') || low.EndsWith("px") || low.EndsWith("em") || low.StartsWith("calc(")
+        || (low.Length > 0 && (char.IsDigit(low[0]) || low[0] == '-' || low[0] == '.'));
+
+    private static void ParseBackgroundImage(ComputedStyle s, string v)
+    {
+        var t = v.Trim();
+        if (t.Equals("none", StringComparison.OrdinalIgnoreCase)) { s.BackgroundGradient = null; s.BackgroundImageSrc = null; return; }
+        // Several layers: the first is the one painted.
+        var first = SplitTopLevel(t, ',').FirstOrDefault() ?? t;
+        if (ParseGradient(first) is { } g) { s.BackgroundGradient = g; s.BackgroundImageSrc = null; }
+        else if (ParseUrl(first) is { } u) { s.BackgroundImageSrc = u; s.BackgroundGradient = null; }
+    }
+
+    /// <summary><c>url("x")</c>, <c>url('x')</c> or <c>url(x)</c> → <c>x</c>; null for anything else.</summary>
+    private static string? ParseUrl(string tok)
+    {
+        var t = tok.Trim();
+        if (!t.StartsWith("url(", StringComparison.OrdinalIgnoreCase) || !t.EndsWith(')')) return null;
+        var inner = t[4..^1].Trim().Trim(QuoteChars);
+        return inner.Length > 0 ? inner : null;
+    }
+
+    private static readonly char[] QuoteChars = ['"', (char)39];
+
+    /// <summary><c>background-size</c>: <c>cover</c>, <c>contain</c>, <c>auto</c>, or one or two
+    /// lengths/percentages (a lone value is the width; the height stays <c>auto</c>).</summary>
+    private static BackgroundGeometry WithSize(BackgroundGeometry g, string v)
+    {
+        var parts = v.Trim().ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length == 0) return g;
+        return parts[0] switch
+        {
+            "cover" => g with { Size = BackgroundSizeKind.Cover },
+            "contain" => g with { Size = BackgroundSizeKind.Contain },
+            "auto" when parts.Length == 1 || parts[1] == "auto" => g with { Size = BackgroundSizeKind.Auto },
+            _ => g with
+            {
+                Size = BackgroundSizeKind.Length,
+                Width = ParseLen(parts[0]),
+                Height = parts.Length > 1 ? ParseLen(parts[1]) : Length.Auto,
+            },
+        };
+    }
+
+    /// <summary><c>background-position</c>: the same grammar as <c>transform-origin</c> — edge
+    /// keywords in either order, <c>center</c>, lengths and percentages. The four-value offset form
+    /// (<c>right 10px bottom 5px</c>) reads as the keywords alone.</summary>
+    private static BackgroundGeometry WithPosition(BackgroundGeometry g, string v)
+    {
+        var parts = v.Trim().ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length == 0) return g;
+        var x = new Length(LengthUnit.Percent, 50f);
+        var y = new Length(LengthUnit.Percent, 50f);
+        var xs = new List<string>(); var ys = new List<string>(); var free = new List<string>();
+        foreach (var p in parts)
+        {
+            if (IsHorizontalKeyword(p)) xs.Add(p);
+            else if (IsVerticalKeyword(p)) ys.Add(p);
+            else if (p is "center" or "centre") free.Add(p);
+            else if (IsLengthToken(p)) free.Add(p);
+        }
+        if (xs.Count == 0 && ys.Count == 0)
+        {
+            // Positional: first is x, second is y; a lone value leaves y centred.
+            if (free.Count > 0) x = OriginComponent(free[0]);
+            if (free.Count > 1) y = OriginComponent(free[1]);
+        }
+        else
+        {
+            if (xs.Count > 0) x = OriginComponent(xs[0]);
+            if (ys.Count > 0) y = OriginComponent(ys[0]);
+            // A keyword on one axis and a free value: the free one is the other axis.
+            if (free.Count > 0) { if (xs.Count == 0) x = OriginComponent(free[0]); else if (ys.Count == 0) y = OriginComponent(free[0]); }
+        }
+        return g with { PosX = x, PosY = y };
+    }
+
+    /// <summary><c>background-repeat</c>: one word for both axes, or two, one per axis.
+    /// <c>space</c> and <c>round</c> are read as <c>repeat</c>.</summary>
+    private static BackgroundGeometry WithRepeat(BackgroundGeometry g, string v)
+    {
+        var parts = v.Trim().ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length == 0) return g;
+        if (parts.Length == 1)
+            return parts[0] switch
+            {
+                "no-repeat" => g with { RepeatX = false, RepeatY = false },
+                "repeat-x" => g with { RepeatX = true, RepeatY = false },
+                "repeat-y" => g with { RepeatX = false, RepeatY = true },
+                _ => g with { RepeatX = true, RepeatY = true },
+            };
+        return g with { RepeatX = parts[0] != "no-repeat", RepeatY = parts[1] != "no-repeat" };
+    }
+
     // linear-gradient([<angle>|to <side>], stop, stop, …) / radial-gradient([shape,] stop, …).
     // A stop is a colour with an optional position ("#f00 40%"). Returns null if v isn't a gradient.
     private static Gradient? ParseGradient(string v)
