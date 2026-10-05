@@ -1371,6 +1371,33 @@ A hat still pairs two simultaneous directions into one corner move, because a D-
 *delivered* as a key and the held-key path is untouched. Routing it through the driver instead would
 have lost that silently.
 
+#### Stick axes: y is DOWN-positive, and no host flips it
+
+Worth stating once, because it is the kind of thing that gets "fixed" by someone who assumes the
+opposite and inverts a sign that was never wrong. **Every platform CupriFace runs on already agrees
+with the engine's own coordinate space** — y increases downwards — so every host passes the raw axis
+straight through, and there is no negation anywhere in the pad path:
+
+| Host | Axis | What the platform defines |
+|---|---|---|
+| Desktop GL (`SkiaWindow`, GLFW) | `GLFW_GAMEPAD_AXIS_LEFT_Y` | gamepad mappings follow SDL's controller database: −1 up, +1 down |
+| Desktop software (`SdlSoftwareWindow`) | `SDL_CONTROLLER_AXIS_LEFTY` | −32768 up … +32767 down (scaled by 32767) |
+| Android | `MotionEvent.AXIS_Y` (and `AXIS_HAT_Y`) | normalised −1.0 (up) … 1.0 (down) |
+| Web | `pad.axes[1]`, standard mapping | −1.0 up, +1.0 down |
+
+So the convention is **spec-grounded, not guessed** — but note what that does and does not settle. It
+says the sign is right *if the events arrive*. Whether the host finds a pad at all is a separate
+question, and the engine's own desktop and Android discovery has still never run against physical
+hardware: the one integration that has used a controller in anger feeds input from its own reader,
+which enters past the host entirely. The unmapped-joystick fallback (`Recognised: false`) is the
+exception to the table — on a device GLFW has no mapping for, axes 0 and 1 are a convention rather
+than a promise, which is exactly why that case is reported rather than assumed.
+
+**To settle both at once with a pad in hand:** `CUPRIFACE_KEY_DEBUG=keys.log`, push the stick down,
+read the file. No lines at all means discovery failed; window lines with no engine line after them
+mean the events never reached the document; and a positive y in the stick lines means the axis is the
+right way up.
+
 **`doc.GamepadConnected` / `GamepadDisconnected`** tell an application what previously only a
 diagnostic log knew: that a pad exists, which backend opened it (`glfw`, `sdl`, `android`, `web`),
 and whether the platform actually **recognised** it. `Recognised: false` means it came in through the
@@ -1467,9 +1494,8 @@ them apart. A host D-pad arrives as the *keys* it stands for, so hosts call
 question about controller support, and it was previously unanswerable from outside.
 
 **"Is y the right way up?"** A stick reports the **reading**, not the direction it resolved to —
-`stick 0.00,0.90` rather than `Down`. The sign of y on a desktop or Android pad cannot be verified
-without hardware, and a log saying "Down" is perfectly consistent with an inverted axis. Push down:
-y must be positive.
+`stick 0.00,0.90` rather than `Down`. A log saying "Down" is perfectly consistent with an inverted
+axis; the numbers are not. Push down: **y must be positive**.
 
 **A capability you switched off still reports.** `HostGamepadInput` turning an event away produces
 `Swallowed route=Ignore`, not silence — silence would make "the host never delivered it"
