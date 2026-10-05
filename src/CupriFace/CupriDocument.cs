@@ -974,6 +974,9 @@ public sealed partial class CupriDocument : IDisposable
         }
         _rules = _cachedRules;
         _keyframes = _cachedKeyframes!;
+        // ::before / ::after get a real element to live in, on the expanded DOM so a component's
+        // own markup can carry one too; whether each becomes a box is the cascade's call (#261).
+        PseudoElements.Inject(dom, _rules);
         ApplyInputProfile(dom);
         Mark("parse-css");
 
@@ -6920,6 +6923,9 @@ public sealed partial class CupriDocument : IDisposable
                 return $"\"{t}\"";
             }
             var name = n.Tag.Length > 0 ? n.Tag : "?";
+            // A generated box reads as the pseudo-element it is, not as the engine's stand-in tag.
+            if (n.Tag == PseudoElements.Tag)
+                return (n.Parent?.Tag ?? "") + "::" + n.Element?.GetAttribute(PseudoElements.SideAttribute);
             if (n.Element?.Id is { Length: > 0 } id) name += "#" + id;
             if (n.Element?.GetAttribute("class") is { Length: > 0 } cls)
                 name += "." + cls.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0];

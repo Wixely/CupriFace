@@ -157,6 +157,16 @@ public sealed class ComputedStyle
     public SKColor Background = SKColors.Transparent;
     public float Opacity = 1f;
 
+    /// <summary><c>content</c>, decoded: the text a <c>::before</c>/<c>::after</c> box holds (often
+    /// <c>""</c>, a box with nothing in it), or null for <c>none</c>/<c>normal</c> — no box at all,
+    /// which is what a pseudo-element with no <c>content</c> declaration is. Read only on the
+    /// element standing in for a pseudo-element (#261); meaningless anywhere else, as in CSS.</summary>
+    public string? Content;
+
+    /// <summary><c>content: attr(name)</c> — the owner's attribute, read when the tree is built,
+    /// because the cascade has no element in hand.</summary>
+    public string? ContentAttr;
+
     // Filter (CSS filter chain — blur / colour-matrix / drop-shadow). Not inherited.
     public List<FilterOp>? Filter;
 

@@ -146,6 +146,26 @@ public sealed class StyleResolver
                     var tag = el.LocalName.ToLowerInvariant();
                     if (tag is "script" or "style" or "head" or "meta" or "link" or "title") continue;
                     var node = new RenderNode { Tag = tag, Element = el, WsBefore = pendingWs };
+                    if (tag == PseudoElements.Tag)
+                    {
+                        // Generated content (#261): the element exists so the cascade has
+                        // something to match, but it is a BOX only when `content` says so, and
+                        // its only child is that text. Resolved before it is added, so a
+                        // `content: none` leaves no trace in the tree.
+                        ResolveStyle(node, parentNode.Style);
+                        var generated = PseudoElements.ContentOf(node.Style, parentEl);
+                        if (generated is null) continue;
+                        parentNode.AddChild(node);
+                        if (generated.Length > 0)
+                        {
+                            var gen = new RenderNode { Tag = "#text", Text = NormalizeText(generated, node.Style.WhiteSpace) };
+                            node.AddChild(gen);
+                            gen.Style.InheritFrom(node.Style);
+                            gen.Style.Display = DisplayType.Inline;
+                        }
+                        prev = node; pendingWs = false;
+                        break;
+                    }
                     parentNode.AddChild(node);
                     ResolveStyle(node, parentNode.Style);
                     node.IconPath = el.GetAttribute("data-cupri-icon"); // set by icon-bearing components
@@ -275,6 +295,10 @@ public sealed class StyleResolver
                 or "code" or "kbd" or "samp" or "mark" or "abbr" or "cite" or "q"
                 or "sub" or "sup" or "time" or "u" or "s" or "del" or "ins" or "var":
                 s.Display = DisplayType.Inline; break;
+            // A pseudo-element is inline unless the author says otherwise, exactly as in CSS — so
+            // a `::after` given only a width and a height draws nothing there too; it takes
+            // `display:block`, `inline-block` or `position:absolute` to make a box of it.
+            case PseudoElements.Tag: s.Display = DisplayType.Inline; break;
             case "h1": s.Display = DisplayType.Block; s.FontSize = 32; s.FontWeight = 700; break;
             case "h2": s.Display = DisplayType.Block; s.FontSize = 24; s.FontWeight = 700; break;
             case "h3": s.Display = DisplayType.Block; s.FontSize = 19; s.FontWeight = 700; break;
@@ -468,6 +492,7 @@ public sealed class StyleResolver
                 case "overflow-wrap" or "word-wrap":
                     s.OverflowWrapBreak = v.Trim().ToLowerInvariant() is "break-word" or "anywhere"; break;
                 case "cursor": s.Cursor = ParseCursor(v); break;
+                case "content": PseudoElements.Parse(s, v, UnsupportedProperty); break;
                 case "font-style":
                     s.FontStyle = v.Trim().ToLowerInvariant() switch
                     {

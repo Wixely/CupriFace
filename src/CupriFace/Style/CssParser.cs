@@ -32,6 +32,14 @@ public sealed class CssRule
     /// An element is only tested against rules bucketed under its own tag/classes/id (plus the keyless
     /// bucket), so rules for components not on the page cost nothing. All null = test on every element.</summary>
     public string? KeyClass, KeyId, KeyTag;
+
+    /// <summary>For a rule written against <c>::before</c>/<c>::after</c>: which side, and the
+    /// compiled selector of the elements that OWN the generated child (interaction state removed —
+    /// see <see cref="PseudoElements.OwnerQuery"/>). <see cref="Selector"/> and
+    /// <see cref="Compiled"/> are then the rewritten form that matches the generated element
+    /// itself. Null on every ordinary rule.</summary>
+    public string? Pseudo;
+    public AngleSharp.Css.Dom.ISelector? PseudoOwner;
 }
 
 /// <summary>
@@ -100,14 +108,23 @@ public static partial class CssParser
                                 // pseudo for this (only a -moz- prefixed one), but an author reaching
                                 // for it is reaching for :hover's neighbour, so it is spelled like one.
                                 .Replace(":drop-over", "[data-drop-over]");
+                // A pseudo-element rule is rewritten to match the element that stands in for it
+                // (#261). The specificity is the author's selector's plus one type, which is what
+                // a pseudo-element counts for; the bucket key becomes the stand-in's tag, so the
+                // rule is only ever tested on generated elements.
+                var pseudo = PseudoElements.Split(sel);
+                var specificity = pseudo is { } p0 ? Specificity(p0.Base) + 1 : Specificity(sel);
+                if (pseudo is { } p1) sel = PseudoElements.SelectorFor(p1.Base, p1.Side);
                 var rule = new CssRule
                 {
                     Selector = sel,
-                    Specificity = Specificity(sel),
+                    Specificity = specificity,
                     Order = rules.Count,
                     Declarations = decls,
                     Media = media,
                     Compiled = SelectorParser.ParseSelector(sel),
+                    Pseudo = pseudo?.Side,
+                    PseudoOwner = pseudo is { } p2 ? SelectorParser.ParseSelector(PseudoElements.OwnerQuery(p2.Base)) : null,
                 };
                 (rule.KeyClass, rule.KeyId, rule.KeyTag) = RightmostKey(sel);
                 rules.Add(rule);

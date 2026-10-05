@@ -64,6 +64,24 @@ element was simply somewhere else, something else, or not there.
   A platform family with no bold face gains the same synthesis, which is what a browser does with it.
   `FontService.NeedsSyntheticBold(typeface, weight)` is the rule, public so a test can ask.
 
+### Added
+
+- **`::before` and `::after` (#261).** They were never generated: a solid, explicitly sized
+  `::after` on a sized, relative parent painted nothing, and 60 of 165 designed compositions in one
+  surveyed corpus use one — a glow along the bottom of a card, an underline that grows under a
+  title, a scrim over a photo. A pseudo-element now gets a real element to live in: on every
+  rebuild, each element matched by a rule naming `::before`/`::after` (or the legacy `:before`)
+  gains a `<cupri-pseudo data-pseudo="…">` child at that end, the rule is rewritten to match it,
+  and from there the cascade, layout, paint, hit-testing and `@keyframes` treat it as the element
+  it is. The one rule CSS has for them is kept: **it is a box only when `content` is set** —
+  `content: ""` is the box most designs want, a string is decoded (escapes, concatenation,
+  `open-quote`), `attr(name)` reads the owner's attribute, and `none` or no declaration generates
+  nothing. `counter()` and `url()` are reported (`CF0050`) and give an empty box. As in CSS it is
+  `display: inline` unless the author says otherwise, so a `::after` given only a width and a height
+  draws nothing in a browser and draws nothing here; `display:block`, `inline-block` or
+  `position:absolute` makes a box of it. `DumpTree` prints one as `div::after`. The doctor knows the
+  stand-in and does not report it.
+
 ## v0.33.0
 
 A controller, end to end: directional navigation, all four hosts, the policy to decide who owns the
