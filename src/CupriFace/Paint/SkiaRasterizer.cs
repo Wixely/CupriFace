@@ -331,6 +331,7 @@ public sealed class SkiaRasterizer
     private static void DrawVectorPath(SKCanvas canvas, VectorPath v)
     {
         if (v.ViewBox.Width <= 0 || v.ViewBox.Height <= 0 || v.Width <= 0 || v.Height <= 0) return;
+        if (v.Shape.Hidden) return;
         using var path = SKPath.ParseSvgPathData(v.Shape.PathData);
         if (path is null) return;
         path.FillType = v.Shape.EvenOdd ? SKPathFillType.EvenOdd : SKPathFillType.Winding;
@@ -602,7 +603,7 @@ public sealed class SkiaRasterizer
         for (var i = 0; i < runs.Count; i++)
         {
             var (segment, tf) = runs[i];
-            var font = _fonts.GetFont(tf, primaryFont.Size);
+            var font = _fonts.GetFont(tf, primaryFont.Size, weight);
             var shaper = _fonts.GetShaper(tf);
             // The untracked path is left exactly as it was — every document that sets no
             // letter-spacing takes the same single DrawShapedText call it always has, and none of

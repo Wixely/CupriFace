@@ -146,10 +146,33 @@ public sealed class StyleResolver
                     var tag = el.LocalName.ToLowerInvariant();
                     if (tag is "script" or "style" or "head" or "meta" or "link" or "title") continue;
                     var node = new RenderNode { Tag = tag, Element = el, WsBefore = pendingWs };
+                    if (tag == PseudoElements.Tag)
+                    {
+                        // Generated content (#261): the element exists so the cascade has
+                        // something to match, but it is a BOX only when `content` says so, and
+                        // its only child is that text. Resolved before it is added, so a
+                        // `content: none` leaves no trace in the tree.
+                        ResolveStyle(node, parentNode.Style);
+                        var generated = PseudoElements.ContentOf(node.Style, parentEl);
+                        if (generated is null) continue;
+                        parentNode.AddChild(node);
+                        if (generated.Length > 0)
+                        {
+                            var gen = new RenderNode { Tag = "#text", Text = NormalizeText(generated, node.Style.WhiteSpace) };
+                            node.AddChild(gen);
+                            gen.Style.InheritFrom(node.Style);
+                            gen.Style.Display = DisplayType.Inline;
+                        }
+                        prev = node; pendingWs = false;
+                        break;
+                    }
                     parentNode.AddChild(node);
                     ResolveStyle(node, parentNode.Style);
                     node.IconPath = el.GetAttribute("data-cupri-icon"); // set by icon-bearing components
                     node.VectorKey = el.GetAttribute("data-cupri-vector"); // set by CupriFace.Svg
+                    if (el.GetAttribute("data-cupri-shape") is { } shapeIdx                  // …and which of its shapes this element is
+                        && int.TryParse(shapeIdx, NumberStyles.Integer, CultureInfo.InvariantCulture, out var si))
+                        node.VectorShapeIndex = si;
                     node.ImageSrc = el.GetAttribute("data-cupri-image"); // set by <cupri-image> (and video posters)
                     node.SurfaceKey = el.GetAttribute("data-cupri-surface"); // set by <cupri-video> (live frames)
                     node.ChartLine = el.GetAttribute("data-cupri-line"); // set by <cupri-line-chart>/<cupri-sparkline>
@@ -250,12 +273,43 @@ public sealed class StyleResolver
         if (inlineDecls is not null) CollectCustomProps(style, inlineDecls);
 
         // Pass 2: normal properties, with var() resolved against the final tokens.
+        //
+        // An SVG element's PRESENTATION ATTRIBUTES go first — `<rect fill="#f91880" opacity="0">`
+        // — because that is what the SVG specification says they are: author declarations of
+        // specificity zero, beneath every rule in the stylesheet. Reading them anywhere else was
+        // the bug: the drawing read them in place of the cascade, so a rule in the stylesheet did
+        // nothing to a shape and an attribute beat a rule that said otherwise (#262).
+        if (node.Element is { } svgEl && IsSvgElement(svgEl) && PresentationAttributes(svgEl) is { } attrs)
+            Apply(style, attrs, _viewportWidth, _viewportHeight);
         if (rules is not null)
             foreach (var rule in rules)
                 SawViewportUnit |= Apply(style, rule.Declarations, _viewportWidth, _viewportHeight);
         if (inlineDecls is not null)
             SawViewportUnit |= Apply(style, inlineDecls, _viewportWidth, _viewportHeight);
     }
+
+    private static bool IsSvgElement(IElement el) =>
+        el.NamespaceUri is { } ns && ns.EndsWith("svg", StringComparison.Ordinal);
+
+    /// <summary>The presentation attributes the engine's SVG painting understands, as a
+    /// declaration block — or null when the element carries none, which is the common case for
+    /// a <c>&lt;g&gt;</c> and costs nothing. <c>transform</c> is deliberately absent: the drawing
+    /// composes the attribute down its tree already, and a CSS <c>transform</c> on a shape is
+    /// applied on top of that (see <c>VectorStyling</c>).</summary>
+    private static Dictionary<string, string>? PresentationAttributes(IElement el)
+    {
+        Dictionary<string, string>? decls = null;
+        foreach (var name in SvgPresentationAttributes)
+            if (el.GetAttribute(name) is { Length: > 0 } v)
+                (decls ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase))[name] = v;
+        return decls;
+    }
+
+    private static readonly string[] SvgPresentationAttributes =
+    [
+        "fill", "stroke", "stroke-width", "stroke-dasharray", "stroke-dashoffset",
+        "fill-opacity", "stroke-opacity", "opacity", "display",
+    ];
 
     private static void CollectCustomProps(ComputedStyle style, Dictionary<string, string> decls)
     {
@@ -275,6 +329,10 @@ public sealed class StyleResolver
                 or "code" or "kbd" or "samp" or "mark" or "abbr" or "cite" or "q"
                 or "sub" or "sup" or "time" or "u" or "s" or "del" or "ins" or "var":
                 s.Display = DisplayType.Inline; break;
+            // A pseudo-element is inline unless the author says otherwise, exactly as in CSS — so
+            // a `::after` given only a width and a height draws nothing there too; it takes
+            // `display:block`, `inline-block` or `position:absolute` to make a box of it.
+            case PseudoElements.Tag: s.Display = DisplayType.Inline; break;
             case "h1": s.Display = DisplayType.Block; s.FontSize = 32; s.FontWeight = 700; break;
             case "h2": s.Display = DisplayType.Block; s.FontSize = 24; s.FontWeight = 700; break;
             case "h3": s.Display = DisplayType.Block; s.FontSize = 19; s.FontWeight = 700; break;
@@ -468,6 +526,21 @@ public sealed class StyleResolver
                 case "overflow-wrap" or "word-wrap":
                     s.OverflowWrapBreak = v.Trim().ToLowerInvariant() is "break-word" or "anywhere"; break;
                 case "cursor": s.Cursor = ParseCursor(v); break;
+                case "content": PseudoElements.Parse(s, v, UnsupportedProperty); break;
+
+                // ---- SVG paint: a shape inside an inline <svg> (#262) -----------------------
+                // `none` and a paint server (`url(#g)`) both become transparent here: the drawing
+                // cannot resolve a gradient, and painting the inherited colour in its place would
+                // be worse than painting nothing. `currentColor` is the text colour the cascade
+                // has reached so far, which is what it means.
+                case "fill": s.SvgFill = ParseSvgPaint(v, s.Color); break;
+                case "stroke": s.SvgStroke = ParseSvgPaint(v, s.Color); break;
+                case "stroke-width": s.SvgStrokeWidth = ParsePx(v); break;
+                case "stroke-dashoffset": s.SvgStrokeDashOffset = ParsePx(v); break;
+                case "stroke-dasharray": s.SvgStrokeDashArray = ParseDashArray(v); break;
+                case "fill-opacity": s.SvgFillOpacity = Math.Clamp(Amount(v), 0f, 1f); break;
+                case "stroke-opacity": s.SvgStrokeOpacity = Math.Clamp(Amount(v), 0f, 1f); break;
+                case "transform-box": s.TransformBoxFill = v.Trim().Equals("fill-box", StringComparison.OrdinalIgnoreCase); break;
                 case "font-style":
                     s.FontStyle = v.Trim().ToLowerInvariant() switch
                     {
@@ -1280,6 +1353,30 @@ public sealed class StyleResolver
         return ops.Count > 0 ? ops : null;
     }
 
+    /// <summary>An SVG paint: a colour, <c>none</c>, <c>currentColor</c>, or a paint server the
+    /// drawing cannot resolve (transparent — see the <c>fill</c> case). An unreadable value leaves
+    /// the cascade where it was, so a typo does not paint black.</summary>
+    private static SKColor? ParseSvgPaint(string v, SKColor currentColor)
+    {
+        v = v.Trim();
+        if (v.Equals("none", StringComparison.OrdinalIgnoreCase)) return SKColors.Transparent;
+        if (v.Equals("currentcolor", StringComparison.OrdinalIgnoreCase)) return currentColor;
+        if (v.StartsWith("url(", StringComparison.OrdinalIgnoreCase)) return SKColors.Transparent;
+        return Colors.TryParse(v, out var c) ? c : null;
+    }
+
+    /// <summary><c>stroke-dasharray</c>: <c>none</c> is an empty array (solid); a list is read in
+    /// user units, and an odd list is repeated to make it even, as SVG and Skia both require.</summary>
+    private static float[] ParseDashArray(string v)
+    {
+        if (v.Trim().Equals("none", StringComparison.OrdinalIgnoreCase)) return [];
+        var outp = new List<float>();
+        foreach (var part in v.Split([' ', ','], StringSplitOptions.RemoveEmptyEntries))
+            if (TryParsePx(part, out var n) && n >= 0) outp.Add(n);
+        if (outp.Count % 2 == 1) outp.AddRange(outp.ToArray());
+        return [.. outp];
+    }
+
     // A filter amount: bare number or percentage (100% → 1.0). Defaults to 1.0.
     private static float Amount(string v)
     {
@@ -1294,13 +1391,26 @@ public sealed class StyleResolver
         {
             var fn = m.Groups[1].Value.ToLowerInvariant();
             var args = m.Groups[2].Value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-            float A(int i) => i < args.Length ? ParsePx(args[i]) : 0f;
             float N(int i, float d) => i < args.Length && CssNumber.TryParse(args[i].TrimEnd('d', 'e', 'g'), out var n) ? n : d;
+            // A translate argument is a <length-percentage>: px and % are kept in SEPARATE fields,
+            // because the percentage is of the element's own box and that box does not exist yet.
+            // Reading it through the px parser turned `translate(-50%, -50%)` into no transform at
+            // all, with nothing to say so (#258).
+            (float Px, float Pct) T(int i)
+            {
+                if (i >= args.Length) return (0f, 0f);
+                var a = args[i].Trim();
+                if (a.EndsWith('%') && CssNumber.TryParse(a[..^1], out var pct)) return (0f, pct);
+                return (ParsePx(a), 0f);
+            }
             switch (fn)
             {
-                case "translate": s.TranslateX = A(0); s.TranslateY = A(1); s.HasTransform = true; break;
-                case "translatex": s.TranslateX = A(0); s.HasTransform = true; break;
-                case "translatey": s.TranslateY = A(0); s.HasTransform = true; break;
+                case "translate":
+                    (s.TranslateX, s.TranslateXPct) = T(0);
+                    (s.TranslateY, s.TranslateYPct) = T(1);
+                    s.HasTransform = true; break;
+                case "translatex": (s.TranslateX, s.TranslateXPct) = T(0); s.HasTransform = true; break;
+                case "translatey": (s.TranslateY, s.TranslateYPct) = T(0); s.HasTransform = true; break;
                 case "scale": s.ScaleX = N(0, 1); s.ScaleY = args.Length > 1 ? N(1, 1) : s.ScaleX; s.HasTransform = true; break;
                 case "scalex": s.ScaleX = N(0, 1); s.HasTransform = true; break;
                 case "scaley": s.ScaleY = N(0, 1); s.HasTransform = true; break;
@@ -1318,6 +1428,7 @@ public sealed class StyleResolver
     {
         var parts = v.ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (parts.Length == 0) return;
+        s.TransformOriginSet = true;
 
         // Keywords are legal in EITHER order (`top left` == `left top`, `bottom center` ==
         // `center bottom`), so detect a swapped pair before assigning positionally. The pair is

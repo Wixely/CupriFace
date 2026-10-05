@@ -388,6 +388,8 @@ public static partial class CupriDoctor
             var tag = el.LocalName;
             if (!tag.StartsWith("cupri-", StringComparison.OrdinalIgnoreCase)) continue;
             if (known.Contains(tag, StringComparer.OrdinalIgnoreCase)) continue;
+            // The engine's own stand-in for ::before / ::after — not a component, not the author's.
+            if (tag.Equals(PseudoElements.Tag, StringComparison.OrdinalIgnoreCase)) continue;
             // <cupri-option> inside <cupri-select>: the parent reads it and builds the list itself.
             // Data for a component, not a component — rendering nothing is its whole job (#145).
             if (InsideRegisteredComponent(el, registry)) continue;
@@ -570,7 +572,11 @@ public static partial class CupriDoctor
     /// <summary>Elements that legitimately draw nothing — structure, metadata, and the ones the
     /// engine consumes itself. Absent from the render tree by design, so never a finding.</summary>
     private static readonly HashSet<string> NotDrawnOnPurpose = new(StringComparer.OrdinalIgnoreCase)
-    { "html", "head", "meta", "title", "link", "style", "script", "base", "template", "br", "wbr" };
+    {
+        "html", "head", "meta", "title", "link", "style", "script", "base", "template", "br", "wbr",
+        // A ::before/::after stand-in whose `content` is none is dropped from the tree by design.
+        PseudoElements.Tag,
+    };
 
     /// <summary>Elements people reach for out of browser habit, and what to use instead. Each renders
     /// as empty space today with no message, which is exactly why they are worth naming.</summary>

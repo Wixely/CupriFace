@@ -13,6 +13,102 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+Six conformance gaps, each found by rendering a designed composition beside a browser and measuring
+the difference (#258–#263). All of them were silent: the markup laid out, nothing threw, and the
+element was simply somewhere else, something else, or not there.
+
+### Fixed
+
+- **A percentage `translate()` now moves the element by a fraction of its own box (#258).**
+  `transform: translate(-50%, -50%)` is the commonest centring idiom there is, and it was parsed as
+  0px and dropped — the element painted exactly where it would with no transform at all, in a
+  static declaration and inside `@keyframes` alike, and no diagnostic named it. The percentage part
+  is now kept apart from the px part, interpolated in its own unit the way a percentage width is,
+  and resolved against the border box at paint time. Hit-testing resolves it the same way, so a
+  centred card is clickable where it is drawn. Nothing to do; a document that had written the px
+  form by hand renders as before.
+
+- **An absolutely positioned element now resolves against its nearest POSITIONED ancestor, or the
+  root (#259).** It used to resolve against its direct parent whether or not that parent was
+  positioned, so `top: 50%` inside an unsized static wrapper was 50% of nothing and every centred
+  card in such a block sat at the top of the frame. Static wrappers in between are now walked
+  through, as a browser does; the root stands in for the initial containing block when nothing is
+  positioned. This is also what makes `position: relative` on a wrapper mean something.
+
+  **Check anything that leaned on the old behaviour.** An absolute child of a static, unpositioned
+  parent was placed against that parent; it is now placed against the nearest positioned ancestor,
+  which may be further out. Where the parent had an explicit size and no positioned ancestor of its
+  own the answer is usually the same, which is why the shipped components and samples needed no
+  change — but a layout that relied on a static parent being the containing block should give that
+  parent `position: relative`, which is the one-line fix and the browser's rule.
+
+  **The offsets are now measured from the containing block's PADDING box**, as CSS says, where
+  they used to be measured from its content box. A badge at `top:0; right:0` in a padded card sits
+  in the corner inside the border rather than a padding's width in from it, a glow at `bottom:-6px`
+  straddles the card's edge instead of sitting inside it, and a `width:50%` is half the padding
+  box. An absolute child of a PADDED positioned parent moves outward by that padding; the shipped
+  text field's floating label was the one component that leaned on the old box and now names the
+  field's own padding as its offset, which is what the rule had always meant.
+
+- **Margins now apply to an absolutely positioned element (#260).** They were resolved and then never
+  read on that path, so `margin-left: 80px` moved a static block and moved an absolute one nowhere,
+  and the other classic centring idiom — `top: 50%; left: 50%` with a negative half-size margin —
+  did nothing. The offsets place the margin edge and the margin moves the border box inside it,
+  exactly as in flow; `margin: auto` between two pinned edges on a sized box splits the free space,
+  so `inset: 0; margin: auto` centres. An absolute element that carried a margin it was not
+  expecting to see will move by it.
+
+- **A bold request on a face that cannot answer it bold is now synthesised (#263).** Google Fonts
+  answers a modern browser's request for `Inter:wght@400;700` with ONE variable file, declared once
+  per weight. Registered that way the engine resolved 700 to the same bytes as 400 and drew the two
+  pixel-identical, so every bold display name, title and kicker set in a face from that service was
+  lost. The SkiaSharp this engine builds against (3.116) cannot set a variation axis — that is
+  `SKFontArguments`, which arrived in SkiaSharp 4 — so until the dependency moves, a face lighter
+  than asked is thickened the way a browser's `font-synthesis: weight` thickens a family with no
+  bold file. The threshold is the browsers' (a request of 600 or more on a face below 600) and the
+  test is on the face's OWN weight, so a static Bold file declared at 700 is left exactly as it was.
+  **How heavy the synthesised weight comes out is Skia's own, and it differs per platform** — the
+  same face and size put on about 45% more ink on Windows than at 400, and noticeably less than
+  that on macOS. It is bolder everywhere; it is not the same bold everywhere, and a design that
+  needs one should ship a real bold file.
+  A platform family with no bold face gains the same synthesis, which is what a browser does with it.
+  `FontService.NeedsSyntheticBold(typeface, weight)` is the rule, public so a test can ask.
+
+- **The stylesheet and the animation engine now reach the elements inside an inline `<svg>`
+  (#262).** Only the `<svg>` root took CSS; a rule written against a `<rect>` did nothing, a
+  `@keyframes` on it parsed, ran and moved nothing, and a presentation attribute beat a stylesheet
+  rule that said otherwise. The elements inside a drawing were always nodes in the render tree —
+  the cascade and the keyframes already ran over them — but the drawing read its attributes in
+  place of the cascade. Now the presentation attributes enter the cascade as the lowest-priority
+  declarations the SVG specification says they are, each shape is bound to the node of the element
+  it came from, and the painter re-reads the shape from that node: `fill`, `stroke`,
+  `stroke-width`, `stroke-dasharray`, `stroke-dashoffset`, `fill-opacity`, `stroke-opacity`,
+  group `opacity` multiplied down, `display`, and a CSS `transform`. All of those animate, so a
+  heart fills, a path draws on, a ring scales. `transform-box: fill-box` and `transform-origin` are
+  honoured, and a shape's default origin is `0 0` of the viewBox as in a browser — say
+  `transform-box: fill-box; transform-origin: center` to spin a shape about itself. A drawing
+  styled by attributes alone paints exactly as before. See `CupriFace.Svg/SVG-SUPPORT.md`.
+
+### Added
+
+- **`::before` and `::after` (#261).** They were never generated: a solid, explicitly sized
+  `::after` on a sized, relative parent painted nothing, and 60 of 165 designed compositions in one
+  surveyed corpus use one — a glow along the bottom of a card, an underline that grows under a
+  title, a scrim over a photo. A pseudo-element now gets a real element to live in: on every
+  rebuild, each element matched by a rule naming `::before`/`::after` (or the legacy `:before`)
+  gains a `<cupri-pseudo data-pseudo="…">` child at that end, the rule is rewritten to match it,
+  and from there the cascade, layout, paint, hit-testing and `@keyframes` treat it as the element
+  it is. The one rule CSS has for them is kept: **it is a box only when `content` is set** —
+  `content: ""` is the box most designs want, a string is decoded (escapes, concatenation,
+  `open-quote`), `attr(name)` reads the owner's attribute, and `none` or no declaration generates
+  nothing. `counter()` and `url()` are reported (`CF0050`) and give an empty box. As in CSS it is
+  `display: inline` unless the author says otherwise, so a `::after` given only a width and a height
+  draws nothing in a browser and draws nothing here; `display:block`, `inline-block` or
+  `position:absolute` makes a box of it. `DumpTree` prints one as `div::after`. The doctor knows the
+  stand-in and does not report it.
+
 ## v0.33.0
 
 A controller, end to end: directional navigation, all four hosts, the policy to decide who owns the

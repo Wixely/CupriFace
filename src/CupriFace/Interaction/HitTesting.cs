@@ -50,8 +50,9 @@ public static class HitTesting
         {
             var s = node.Style;
             var (pivotX, pivotY) = s.TransformPivot(node.Width, node.Height);
+            var (tx, ty) = s.ResolvedTranslate(node.Width, node.Height);
             float cx = ax + pivotX, cy = ay + pivotY;
-            var local = SkiaSharp.SKMatrix.CreateTranslation(cx + s.TranslateX, cy + s.TranslateY);
+            var local = SkiaSharp.SKMatrix.CreateTranslation(cx + tx, cy + ty);
             local = local.PreConcat(SkiaSharp.SKMatrix.CreateRotationDegrees(s.RotateDeg));
             local = local.PreConcat(SkiaSharp.SKMatrix.CreateScale(s.ScaleX, s.ScaleY));
             local = local.PreConcat(SkiaSharp.SKMatrix.CreateTranslation(-cx, -cy));
@@ -242,8 +243,9 @@ public static class HitTesting
             if (!s.HasTransform) return;
             var (x, y, w, h) = ScreenBox(n);
             var (pivotX, pivotY) = s.TransformPivot(w, h);
+            var (tx, ty) = s.ResolvedTranslate(w, h);
             float cx = x + pivotX, cy = y + pivotY;
-            var local = SkiaSharp.SKMatrix.CreateTranslation(cx + s.TranslateX, cy + s.TranslateY);
+            var local = SkiaSharp.SKMatrix.CreateTranslation(cx + tx, cy + ty);
             local = local.PreConcat(SkiaSharp.SKMatrix.CreateRotationDegrees(s.RotateDeg));
             local = local.PreConcat(SkiaSharp.SKMatrix.CreateScale(s.ScaleX, s.ScaleY));
             local = local.PreConcat(SkiaSharp.SKMatrix.CreateTranslation(-cx, -cy));

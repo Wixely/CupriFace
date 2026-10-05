@@ -212,9 +212,12 @@ public sealed class Painter
         if (transformed)
         {
             var (pivotX, pivotY) = s.TransformPivot(node.Width, node.Height);
+            // A percentage translate is of THIS box, which is why it resolves here and not in the
+            // cascade (#258).
+            var (tx, ty) = s.ResolvedTranslate(node.Width, node.Height);
             list.Add(new PushTransform(
                 absX + pivotX, absY + pivotY,
-                s.TranslateX, s.TranslateY, s.ScaleX, s.ScaleY, s.RotateDeg));
+                tx, ty, s.ScaleX, s.ScaleY, s.RotateDeg));
         }
 
         // Box shadow: outset (drop) shadows paint BEHIND the background.
@@ -290,14 +293,23 @@ public sealed class Painter
         // command per shape, in paint order, each mapped from the drawing's viewBox into the content
         // box — so it rasterises at the resolution the frame is drawn at rather than at layout size,
         // and composes with the transform/clip/opacity already on the stack.
+        var isDrawing = false;
         if (_vectors?.Get(node.VectorKey) is { } drawing)
         {
+            isDrawing = true;
             var vw = node.Width - node.HorizontalInsets;
             var vh = node.Height - node.VerticalInsets;
             var vx = absX + node.ContentLeftInset;
             var vy = absY + node.ContentTopInset;
-            foreach (var shape in drawing.Shapes)
+            // Each shape bound to an element in the tree takes that element's cascaded paint,
+            // opacity and transform — a stylesheet rule or a keyframe on a <path> (#262).
+            var bound = VectorStyling.Bind(node, drawing.Shapes.Count);
+            for (var i = 0; i < drawing.Shapes.Count; i++)
+            {
+                var shape = drawing.Shapes[i];
+                if (bound?[i] is { } shapeNode) shape = VectorStyling.Apply(shape, shapeNode, node, drawing.ViewBox);
                 list.Add(new VectorPath(vx, vy, vw, vh, drawing.ViewBox, shape));
+            }
         }
 
         // Live surface (video, future 3D viewports): the current frame, if one exists. Falls
@@ -400,15 +412,18 @@ public sealed class Painter
         var childScrollTop = node.IsScrollable ? absY + node.BorderTopW : scrollTop;
 
         RenderNode? dragged = null; // the lifted reorder item — painted last so it sits on top of its siblings
-        foreach (var child in node.Children)
-        {
-            if (child.Style.Display == DisplayType.None) continue;
-            if (child.Dragging) { dragged = child; continue; }
-            // Sticky children are never culled — a stuck header's natural box may be scrolled out of band.
-            if (cull && !child.IsTopLayer && child.Style.Position != PositionType.Sticky
-                && (child.Y + child.Height < bandTop || child.Y > bandBottom)) continue;
-            PaintNode(list, child, absX - scrollX, absY - scrollY, topLayer, inTopLayer, childSticky, childScrollTop);
-        }
+        // The elements inside a drawing are its shapes, painted above as part of it. They have no
+        // boxes of their own, and walking them would push an opacity layer per hidden shape.
+        if (!isDrawing)
+            foreach (var child in node.Children)
+            {
+                if (child.Style.Display == DisplayType.None) continue;
+                if (child.Dragging) { dragged = child; continue; }
+                // Sticky children are never culled — a stuck header's natural box may be scrolled out of band.
+                if (cull && !child.IsTopLayer && child.Style.Position != PositionType.Sticky
+                    && (child.Y + child.Height < bandTop || child.Y > bandBottom)) continue;
+                PaintNode(list, child, absX - scrollX, absY - scrollY, topLayer, inTopLayer, childSticky, childScrollTop);
+            }
         // Defer the lifted card to a single global layer (painted after everything, incl. other columns and
         // whatever sits below the board), so it floats on top instead of hiding behind a later-painted sibling.
         if (dragged is not null) { _dragCard = dragged; _dragOx = absX - scrollX; _dragOy = absY - scrollY; }

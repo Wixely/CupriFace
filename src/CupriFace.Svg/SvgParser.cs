@@ -37,11 +37,44 @@ public static class SvgParser
         if (viewBox is not { Width: > 0, Height: > 0 } box) return null;
 
         var shapes = new List<VectorShape>();
+        var elements = new List<int>();
+        var index = new Dictionary<IElement, int>(ReferenceEqualityComparer.Instance);
+        var ordinal = 0;
+        foreach (var d in Descendants(svg)) index[d] = ordinal++;
         var root = new Inherited(SKColors.Black, SKColors.Transparent, 1f, 1f, 1f,
-                                 SKStrokeCap.Butt, SKStrokeJoin.Miter, null, 0f, false);
-        foreach (var child in svg.Children) Walk(child, root, SKMatrix.Identity, shapes);
+                                 SKStrokeCap.Butt, SKStrokeJoin.Miter, null, 0f, false, false);
+        foreach (var child in svg.Children) Walk(child, root, SKMatrix.Identity, shapes, elements, index);
 
-        return shapes.Count == 0 ? null : new SvgDrawing(box, natural, shapes);
+        return shapes.Count == 0 ? null : new SvgDrawing(box, natural, shapes, elements);
+    }
+
+    /// <summary>Every element under <paramref name="root"/>, pre-order — the ONE walk whose
+    /// numbering <see cref="SvgDrawing.ShapeElements"/> refers to, so it is also what
+    /// <see cref="Mark"/> walks.</summary>
+    internal static IEnumerable<IElement> Descendants(IElement root)
+    {
+        foreach (var c in root.Children)
+        {
+            yield return c;
+            foreach (var d in Descendants(c)) yield return d;
+        }
+    }
+
+    /// <summary>Mark each element that produced a shape with <c>data-cupri-shape="&lt;index&gt;"</c>,
+    /// on THIS rebuild's DOM, so the render tree can bind the node to the shape (#262). Cheap —
+    /// one walk, no parsing — which is what lets the drawing itself stay cached.</summary>
+    internal static void Mark(IElement svg, SvgDrawing drawing)
+    {
+        if (drawing.ShapeElements.Count == 0) return;
+        var byElement = new Dictionary<int, int>();
+        for (var i = 0; i < drawing.ShapeElements.Count; i++) byElement[drawing.ShapeElements[i]] = i;
+        var n = 0;
+        foreach (var d in Descendants(svg))
+        {
+            if (byElement.TryGetValue(n, out var shape))
+                d.SetAttribute("data-cupri-shape", shape.ToString(CultureInfo.InvariantCulture));
+            n++;
+        }
     }
 
     // What flows down the tree. SVG's presentation attributes inherit, so a <g fill="red"> colours
@@ -49,10 +82,10 @@ public static class SvgParser
     // drawn entirely in black.
     private readonly record struct Inherited(
         SKColor Fill, SKColor Stroke, float StrokeWidth, float Opacity, float FillOpacity,
-        SKStrokeCap Cap, SKStrokeJoin Join, float[]? Dash, float DashOffset, bool EvenOdd);
+        SKStrokeCap Cap, SKStrokeJoin Join, float[]? Dash, float DashOffset, bool EvenOdd, bool Hidden);
 
     private static void Walk(IElement el, Inherited inherited, SKMatrix parentTransform,
-                             List<VectorShape> outp)
+                             List<VectorShape> outp, List<int> elements, Dictionary<IElement, int> index)
     {
         if (el.NamespaceUri is not null && !el.NamespaceUri.EndsWith("svg", StringComparison.Ordinal)) return;
 
@@ -68,7 +101,7 @@ public static class SvgParser
         switch (el.LocalName.ToLowerInvariant())
         {
             case "g" or "svg":
-                foreach (var child in el.Children) Walk(child, state, transform, outp);
+                foreach (var child in el.Children) Walk(child, state, transform, outp, elements, index);
                 return;
 
             // Ignored on purpose rather than by omission: these carry no geometry of their own, and
@@ -77,7 +110,11 @@ public static class SvgParser
                 return;
 
             default:
-                if (PathDataFor(el) is { Length: > 0 } d) outp.Add(Shape(d, state, transform));
+                if (PathDataFor(el) is { Length: > 0 } d)
+                {
+                    outp.Add(Shape(d, state, transform));
+                    elements.Add(index[el]);
+                }
                 return;
         }
     }
@@ -93,7 +130,21 @@ public static class SvgParser
             DashOffset: s.DashOffset,
             Cap: s.Cap,
             Join: s.Join,
-            Transform: transform);
+            Transform: transform,
+            Bounds: BoundsOf(pathData),
+            Hidden: s.Hidden);
+
+    // The path's own tight bounds, for a `transform-box: fill-box` CSS transform. Parsed here, once
+    // per shape at parse time, so the painter never has to.
+    private static SKRect BoundsOf(string pathData)
+    {
+        try
+        {
+            using var path = SKPath.ParseSvgPathData(pathData);
+            return path?.TightBounds ?? SKRect.Empty;
+        }
+        catch { return SKRect.Empty; }
+    }
 
     // ---- shapes become paths --------------------------------------------------------------------
 
@@ -196,10 +247,17 @@ public static class SvgParser
             "nonzero" => false,
             _ => p.EvenOdd,
         };
-        if (string.Equals(Attr(el, "visibility"), "hidden", StringComparison.OrdinalIgnoreCase))
-            opacity = 0f;
+        // Hidden is its own flag rather than an opacity of zero, so a stylesheet that restores an
+        // attribute's opacity (`opacity="0"` beaten by `#r { opacity: 1 }`) does not un-hide a
+        // shape that was hidden by name. `visible` on a child un-hides it, as in SVG.
+        var hidden = Attr(el, "visibility") switch
+        {
+            "hidden" or "collapse" => true,
+            "visible" => false,
+            _ => p.Hidden,
+        };
 
-        return new Inherited(fill, stroke, width, opacity, fillOpacity, cap, join, dash, dashOffset, evenOdd);
+        return new Inherited(fill, stroke, width, opacity, fillOpacity, cap, join, dash, dashOffset, evenOdd, hidden);
     }
 
     /// <summary>A presentation attribute, or the same name out of an inline <c>style</c> — authors

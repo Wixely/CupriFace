@@ -157,6 +157,16 @@ public sealed class ComputedStyle
     public SKColor Background = SKColors.Transparent;
     public float Opacity = 1f;
 
+    /// <summary><c>content</c>, decoded: the text a <c>::before</c>/<c>::after</c> box holds (often
+    /// <c>""</c>, a box with nothing in it), or null for <c>none</c>/<c>normal</c> — no box at all,
+    /// which is what a pseudo-element with no <c>content</c> declaration is. Read only on the
+    /// element standing in for a pseudo-element (#261); meaningless anywhere else, as in CSS.</summary>
+    public string? Content;
+
+    /// <summary><c>content: attr(name)</c> — the owner's attribute, read when the tree is built,
+    /// because the cascade has no element in hand.</summary>
+    public string? ContentAttr;
+
     // Filter (CSS filter chain — blur / colour-matrix / drop-shadow). Not inherited.
     public List<FilterOp>? Filter;
 
@@ -175,12 +185,49 @@ public sealed class ComputedStyle
     public float TranslateX, TranslateY, RotateDeg;
     public float ScaleX = 1f, ScaleY = 1f;
 
+    /// <summary>The PERCENTAGE part of a translate, kept apart from the px part because it is a
+    /// fraction of a box that is only known at paint time: <c>translate(-50%, -50%)</c> means half
+    /// of the element's OWN border box, which is what makes it the commonest centring idiom there
+    /// is. It used to be parsed as 0px and silently dropped — the element painted exactly where it
+    /// would with no transform at all, and nothing reported it (#258). Interpolated in its own unit,
+    /// the way a percentage width is, and resolved by <see cref="ResolvedTranslate"/>.</summary>
+    public float TranslateXPct, TranslateYPct;
+
+    /// <summary>The translation in px for a border box of the given size: the px part plus the
+    /// percentage part of that box. Painting, hit-testing and the damage diff must all move the
+    /// element by the SAME amount, so each asks here rather than adding the two up itself.</summary>
+    public (float X, float Y) ResolvedTranslate(float width, float height) =>
+        (TranslateX + TranslateXPct / 100f * width, TranslateY + TranslateYPct / 100f * height);
+
     // transform-origin — the transform's fixed point, resolved against the border box. The CSS
     // initial value is `50% 50%`, so the default keeps the centre behaviour every transform had
     // before this was honoured. NOT inherited (deliberately absent from InheritFrom): an origin is
     // a property of one element's own box, and inheriting it would silently re-anchor children.
     public Length TransformOriginX = new(LengthUnit.Percent, 50f);
     public Length TransformOriginY = new(LengthUnit.Percent, 50f);
+
+    /// <summary>The author wrote a <c>transform-origin</c>, as opposed to the default above
+    /// standing in. An HTML box cannot tell the two apart and need not; an SVG shape can, because
+    /// ITS initial origin is <c>0 0</c> of the viewBox rather than its own centre (#262).</summary>
+    public bool TransformOriginSet;
+
+    /// <summary><c>transform-box: fill-box</c> — the transform's reference box is the shape's own
+    /// bounds rather than the viewBox, which is what "spin this icon about its centre" is spelled
+    /// as. Only an SVG shape reads it; an HTML box's reference is always its border box.</summary>
+    public bool TransformBoxFill;
+
+    // ---- SVG paint ------------------------------------------------------------------------------
+    //
+    // The presentation properties of a shape inside an inline <svg>, so that a stylesheet rule and
+    // a @keyframes stop reach a <path> the way they reach a <div> (#262). Null means "nothing in
+    // the cascade said" — the drawing's own parsed attributes then stand. Inherited, as they are
+    // in SVG: a <g fill="red"> colours every shape under it that does not say otherwise, and the
+    // presentation attributes themselves enter the cascade as the lowest-priority declarations
+    // (StyleResolver), so attribute, rule and inheritance resolve in the one place.
+    public SKColor? SvgFill, SvgStroke;
+    public float? SvgStrokeWidth, SvgStrokeDashOffset, SvgFillOpacity, SvgStrokeOpacity;
+    /// <summary><c>stroke-dasharray</c>: null when unset, EMPTY for <c>none</c> (a solid stroke).</summary>
+    public float[]? SvgStrokeDashArray;
 
     /// <summary>The transform's fixed point as an offset inside a border box of the given size.
     /// Painting and hit-testing must pivot about the SAME point — an element that paints anchored
@@ -282,6 +329,12 @@ public sealed class ComputedStyle
         // it. Without this line the flag was set on the div, read as false on its text, and
         // tabular-nums did precisely nothing while appearing to be supported.
         TabularNums = parent.TabularNums;
+        // SVG paint inherits down the tree the way text colour does — a group's fill is its
+        // children's fill until one of them says otherwise.
+        SvgFill = parent.SvgFill; SvgStroke = parent.SvgStroke;
+        SvgStrokeWidth = parent.SvgStrokeWidth; SvgStrokeDashOffset = parent.SvgStrokeDashOffset;
+        SvgFillOpacity = parent.SvgFillOpacity; SvgStrokeOpacity = parent.SvgStrokeOpacity;
+        SvgStrokeDashArray = parent.SvgStrokeDashArray;
     }
 
     public bool IsFlexContainer => Display == DisplayType.Flex;
