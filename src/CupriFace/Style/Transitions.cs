@@ -407,7 +407,8 @@ public sealed class TransitionEngine
         TransProp.Background => Channels(s.Background),
         TransProp.Color => Channels(s.Color),
         TransProp.BorderColor => Channels(s.BorderColor),
-        _ => [s.TranslateX, s.TranslateY, s.ScaleX, s.ScaleY, s.RotateDeg, s.TranslateXPct, s.TranslateYPct],
+        _ => [s.TranslateX, s.TranslateY, s.ScaleX, s.ScaleY, s.RotateDeg, s.TranslateXPct, s.TranslateYPct,
+              s.RotateXDeg, s.RotateYDeg, s.TranslateZ, s.PerspectiveFn],
     };
 
     private static void Write(ComputedStyle s, TransProp p, float[] v)
@@ -421,8 +422,9 @@ public sealed class TransitionEngine
             default:
                 s.TranslateX = v[0]; s.TranslateY = v[1]; s.ScaleX = v[2]; s.ScaleY = v[3]; s.RotateDeg = v[4];
                 s.TranslateXPct = v[5]; s.TranslateYPct = v[6];
+                s.RotateXDeg = v[7]; s.RotateYDeg = v[8]; s.TranslateZ = v[9]; s.PerspectiveFn = v[10];
                 s.HasTransform = v[0] != 0 || v[1] != 0 || v[2] != 1f || v[3] != 1f || v[4] != 0
-                              || v[5] != 0 || v[6] != 0;
+                              || v[5] != 0 || v[6] != 0 || v[7] != 0 || v[8] != 0 || v[9] != 0 || v[10] != 0;
                 break;
         }
     }

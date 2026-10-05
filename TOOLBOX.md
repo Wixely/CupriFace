@@ -552,6 +552,18 @@ controls handle their own state.
   .bar  { background: linear-gradient(#5aa0e0, #2b5f92); }
   .glow { background: radial-gradient(#ffd39a, #B87333); }
   ```
+- **Background images and the image layer's geometry.** `background-image: url(…)` draws a raster
+  image (the same sources as `<cupri-image>`: embedded, file, `data:`, https), and
+  `background-size` / `background-position` / `background-repeat` size, place and tile the layer —
+  for a gradient as much as an image. The shorthand reads all of it in CSS's order: image, repeat,
+  position, then `/ size`. A gradient has no intrinsic size, so `cover`/`contain`/`auto` on one is
+  the box.
+  ```css
+  .photo    { background: url(hero.jpg) no-repeat center / cover; }
+  .progress { background-image: linear-gradient(90deg, #10b981, #10b981);
+              background-repeat: no-repeat; background-size: 60% 100%; }
+  .grid     { background-image: linear-gradient(90deg, #8884 8%, transparent 8%); background-size: 12px 100%; }
+  ```
 - **`box-shadow`.** `[inset] <x> <y> [blur] [spread] [color]`, comma‑separated for multiple layers —
   outset drop shadows (soft elevation) and `inset` inner shadows. The first‑party cards and overlays
   (dialog, drawer, shelf, menu, select, popover, tooltip, toast, pickers) ship with sensible shadows.
@@ -566,6 +578,35 @@ controls handle their own state.
   overlay, which then paints sharp on top. Same function syntax as `filter` (typically just `blur()`).
   ```css
   .cupri-backdrop.blurred { background:#00000055; backdrop-filter: blur(9px); }
+  ```
+- **3D transforms.** `rotateX()`, `rotateY()`, `translateZ()`/`translate3d()`, `perspective()`,
+  and the `perspective`, `perspective-origin`, `transform-style: preserve-3d` and
+  `backface-visibility` properties. The flip card works the way it does in a browser: the
+  container preserves 3D and turns, both faces hide their backs, and the back face is pre-turned.
+  ```css
+  .scene { perspective: 800px; }
+  .card  { position: relative; transform-style: preserve-3d; transition: transform 600ms ease; }
+  .card.flipped { transform: rotateY(180deg); }
+  .face  { position: absolute; inset: 0; backface-visibility: hidden; }
+  .back  { transform: rotateY(180deg); }
+  ```
+  Children of a preserve-3d parent paint in document order rather than sorted by depth, so a
+  cuboid's overlapping faces may overdraw out of order; a flip card and a tilt never notice.
+- **`clip-path`.** The basic shapes — `inset(<edges> [round <radius>])`, `circle([r] [at <pos>])`,
+  `ellipse([rx ry] [at <pos>])`, `polygon(<points>)` — clip the element and everything in it, in
+  its own border box. The numbers animate between `@keyframes` stops of the same kind, which is
+  what a wipe, an iris or a mask reveal is.
+  ```css
+  .reveal  { animation: wipe 600ms ease-out forwards; }
+  @keyframes wipe { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+  .avatar  { clip-path: circle(50%); }
+  .slanted { clip-path: polygon(0 0, 100% 0, 100% 85%, 0 100%); }
+  ```
+- **`text-transform`.** `uppercase`, `lowercase` and `capitalize` change the case the text is DRAWN
+  in; the markup keeps what was typed. Inherited, so it goes on the label and reaches the text
+  inside it, and an inner element can say `none` to opt back out.
+  ```css
+  .kicker { text-transform: uppercase; letter-spacing: 0.12em; }   /* Live → LIVE, tracked for caps */
   ```
 - **`font-style` + `text-decoration`.** `font-style: normal | italic | oblique` selects a real slanted
   face (it measures and shapes in that face, so it composes with `font-weight` — bold italic is a

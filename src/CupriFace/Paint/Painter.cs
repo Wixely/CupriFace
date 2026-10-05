@@ -158,8 +158,11 @@ public sealed class Painter
             uniform ? null : s.BorderLeftColor);
     }
 
+    /// <param name="space">The 4×4 of a <c>transform-style: preserve-3d</c> parent, in absolute
+    /// coordinates, for this node to compose its own transform into (#269); null under a flat
+    /// parent, which is every parent unless it says otherwise.</param>
     private void PaintNode(DisplayList list, RenderNode node, float originX, float originY, List<RenderNode> topLayer, bool inTopLayer,
-        List<StickyItem>? stickyCollect = null, float scrollTop = float.NegativeInfinity)
+        List<StickyItem>? stickyCollect = null, float scrollTop = float.NegativeInfinity, float[]? space = null)
     {
         // Lift a top-layer (fixed) node out of the normal walk; paint it in the deferred pass.
         if (!inTopLayer && node.IsTopLayer)
@@ -192,6 +195,15 @@ public sealed class Painter
             return;
         }
 
+        // The transform the node paints through, in absolute coordinates: its own, about its
+        // transform-origin (a percentage translate is of THIS box, which is why it resolves here
+        // and not in the cascade, #258), seen through the perspective its parent lends, composed
+        // into a preserve-3d ancestor's space (#269). Decided before any layer is pushed, because
+        // a face turned away with its back hidden paints NOTHING — not its filter, not its opacity
+        // group, not its children.
+        var full = s.HasTransform || space is not null ? Transform3D.ForNode(node, absX, absY, space) : null;
+        if (full is not null && s.BackfaceHidden && Transform3D.IsBackFacing(full)) return;
+
         // Filter wraps the whole subtree (outermost — the filter sees the composited element). The layer
         // is bounded to the element's box grown by the filter's spread, so the offscreen stays small.
         var filtered = s.Filter is { Count: > 0 };
@@ -205,20 +217,17 @@ public sealed class Painter
         var faded = s.Opacity < 1f;
         if (faded) list.Add(new PushOpacity(Math.Clamp(s.Opacity, 0f, 1f), absX, absY, node.Width, node.Height));
 
-        // Transform wraps the node's whole subtree, applied around transform-origin — resolved
-        // against the BORDER box, which is what the origin's percentages refer to. The initial
-        // value is 50% 50%, so an element that says nothing still turns about its centre.
-        var transformed = s.HasTransform;
-        if (transformed)
-        {
-            var (pivotX, pivotY) = s.TransformPivot(node.Width, node.Height);
-            // A percentage translate is of THIS box, which is why it resolves here and not in the
-            // cascade (#258).
-            var (tx, ty) = s.ResolvedTranslate(node.Width, node.Height);
-            list.Add(new PushTransform(
-                absX + pivotX, absY + pivotY,
-                tx, ty, s.ScaleX, s.ScaleY, s.RotateDeg));
-        }
+        // Transform wraps the node's whole subtree (inside the opacity group, so the group is of
+        // the transformed image). The origin is resolved against the BORDER box, which is what its
+        // percentages refer to; the initial value is 50% 50%, so an element that says nothing still
+        // turns about its centre.
+        var transformed = full is not null;
+        if (transformed) list.Add(new PushTransform(Transform3D.Project(full!)));
+
+        // clip-path: everything this element paints — shadow, box, children — clipped to a shape
+        // in its own border box (#268). Inside the transform so the shape turns with the element.
+        var shaped = s.ClipPath is not null;
+        if (shaped) list.Add(new PushClipShape(absX, absY, node.Width, node.Height, s.ClipPath!));
 
         // Box shadow: outset (drop) shadows paint BEHIND the background.
         if (s.BoxShadow is { Count: > 0 } shadows)
@@ -231,9 +240,9 @@ public sealed class Painter
         if (s.Background.Alpha > 0 && node.Width > 0)
             list.Add(new FillRect(absX, absY, node.Width, node.Height, radius, s.Background));
 
-        // Background gradient (CSS linear-/radial-gradient), painted over any solid background colour.
-        if (s.BackgroundGradient is { } grad && node.Width > 0)
-            list.Add(new GradientRect(absX, absY, node.Width, node.Height, radius, grad));
+        // The image layer (a gradient or a raster image), painted over any solid background colour,
+        // sized and tiled per background-size/-position/-repeat (#267).
+        PaintBackgroundLayer(list, s, absX, absY, node.Width, node.Height, radius);
 
         // Border frame.
         // ANY edge that has both a width and a visible colour. Testing one shared colour answered
@@ -268,8 +277,7 @@ public sealed class Painter
                 var fragRadius = s.BorderRadius.Resolve(f.W, f.H);
                 if (s.Background.Alpha > 0)
                     list.Add(new FillRect(absX + f.X, absY + f.Y, f.W, f.H, fragRadius, s.Background));
-                if (s.BackgroundGradient is { } g)
-                    list.Add(new GradientRect(absX + f.X, absY + f.Y, f.W, f.H, fragRadius, g));
+                PaintBackgroundLayer(list, s, absX + f.X, absY + f.Y, f.W, f.H, fragRadius);
                 if (hasBorder)
                     list.Add(BorderCmd(absX + f.X, absY + f.Y, f.W, f.H, fragRadius, node, s));
             }
@@ -348,6 +356,12 @@ public sealed class Painter
                 node.Width - node.HorizontalInsets, node.Height - node.VerticalInsets,
                 img, ParseFit(node.Element?.GetAttribute("data-object-fit")), radius));
 
+        // A preserve-3d node hands its 4×4 to its children, each of which composes its own
+        // transform into it and pushes the product (#269) — so its own transform wraps only its
+        // own paint above, and is pushed again for the chrome drawn after the children.
+        var preserve = transformed && s.Preserve3D;
+        if (preserve) list.Add(new PopTransform());
+
         // Clip children if overflow is not visible.
         var clip = s.Overflow != OverflowMode.Visible;
         if (clip)
@@ -422,7 +436,8 @@ public sealed class Painter
                 // Sticky children are never culled — a stuck header's natural box may be scrolled out of band.
                 if (cull && !child.IsTopLayer && child.Style.Position != PositionType.Sticky
                     && (child.Y + child.Height < bandTop || child.Y > bandBottom)) continue;
-                PaintNode(list, child, absX - scrollX, absY - scrollY, topLayer, inTopLayer, childSticky, childScrollTop);
+                PaintNode(list, child, absX - scrollX, absY - scrollY, topLayer, inTopLayer, childSticky, childScrollTop,
+                    preserve ? full : null);
             }
         // Defer the lifted card to a single global layer (painted after everything, incl. other columns and
         // whatever sits below the board), so it floats on top instead of hiding behind a later-painted sibling.
@@ -435,6 +450,7 @@ public sealed class Painter
                 PaintSticky(list, it, childScrollTop, topLayer, inTopLayer);
 
         if (clip) list.Add(new PopClip());
+        if (preserve) list.Add(new PushTransform(Transform3D.Project(full!)));
 
         // Scrollbar (on top of content, inside the padding box). The geometry is Interaction's, not
         // the painter's: the hit-test asks the same question and the two answers used to be written
@@ -469,9 +485,34 @@ public sealed class Painter
             list.Add(new BorderRect(absX, absY, node.Width, node.Height, 0f, 1, 1, 1, 1,
                 node.IsScrollable ? _dbgScroll : _dbgBox));
 
+        if (shaped) list.Add(new PopClip());
         if (transformed) list.Add(new PopTransform());
         if (faded) list.Add(new PopOpacity());
         if (filtered) list.Add(new PopFilter());
+    }
+
+    /// <summary>The background's image layer for one box: a gradient spanning the box when nothing
+    /// says otherwise (the fast path every pre-#267 document takes), else a tile sized and placed by
+    /// the geometry and repeated across the box. A raster image needs its pixels before the tile can
+    /// be sized — an image still loading paints nothing this frame, as it does for cupri-image.</summary>
+    private void PaintBackgroundLayer(DisplayList list, ComputedStyle s, float x, float y, float w, float h, CornerRadii radius)
+    {
+        if (w <= 0 || h <= 0) return;
+        var geom = s.BackgroundGeometry;
+        if (s.BackgroundGradient is { } grad)
+        {
+            if (geom.FillsBox(0, 0, w, h)) { list.Add(new GradientRect(x, y, w, h, radius, grad)); return; }
+            var (tx, ty, tw, th) = geom.Tile(0, 0, w, h);
+            if (tw <= 0 || th <= 0) return;
+            list.Add(new GradientRect(x, y, w, h, radius, grad, new BackgroundTile(x + tx, y + ty, tw, th, geom.RepeatX, geom.RepeatY)));
+            return;
+        }
+        if (s.BackgroundImageSrc is { Length: > 0 } src && _images?.Get(src) is { } img)
+        {
+            var (tx, ty, tw, th) = geom.Tile(img.Width, img.Height, w, h);
+            if (tw <= 0 || th <= 0) return;
+            list.Add(new TiledImage(x, y, w, h, radius, img, new BackgroundTile(x + tx, y + ty, tw, th, geom.RepeatX, geom.RepeatY)));
+        }
     }
 
     // A collected position:sticky node and the origin it was reached at (its parent's painted top-left).

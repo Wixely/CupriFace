@@ -507,8 +507,25 @@ public static partial class CupriDoctor
             // which is worse than absent, because every automatic check says it is fine.
             // An <svg> the SVG package has claimed is drawn, so it is not a gap. The marker is put
             // there by UseSvg during the rebuild, which is why `configure:` matters above.
-            if (tag.Equals("svg", StringComparison.OrdinalIgnoreCase)
-                && el.HasAttribute("data-cupri-vector")) continue;
+            if (tag.Equals("svg", StringComparison.OrdinalIgnoreCase))
+            {
+                if (el.HasAttribute("data-cupri-vector")) continue;
+                // An <svg> with nothing drawable inside it stays empty with or without the
+                // package — the package claims a drawing, and there is none to claim. The old
+                // message sent the reader to install a package they had and call a method they
+                // had called (#270): 17 of 165 blocks in one corpus carried an <svg> that a
+                // script was going to fill, and every one was told to add CupriFace.Svg.
+                if (!HasDrawableContent(el))
+                {
+                    if (!reported.Add("svg:empty")) continue;
+                    findings.Add(new Finding(Severity.Warning, "CF0030",
+                        "<svg> has no drawable content in the markup — it lays out, and then stays empty.",
+                        "If a script was going to fill it at runtime, there is no script here: put the "
+                        + "shapes in the markup, or bind them. If it is a placeholder, this is expected.",
+                        LineOf(lines, "<" + tag, Occurrence(dom, el))));
+                    continue;
+                }
+            }
 
             if (Replacements.TryGetValue(tag, out var better))
             {
@@ -568,6 +585,19 @@ public static partial class CupriDoctor
         }
         return 0;
     }
+
+    /// <summary>Whether an <c>&lt;svg&gt;</c> holds anything the SVG package would draw — a shape, a
+    /// line, text, an image or a <c>&lt;use&gt;</c> — at any depth. A root with only
+    /// <c>&lt;defs&gt;</c>, a <c>&lt;g&gt;</c> or nothing at all does not.</summary>
+    private static bool HasDrawableContent(IElement svg)
+    {
+        foreach (var d in svg.QuerySelectorAll("*"))
+            if (SvgDrawables.Contains(d.LocalName)) return true;
+        return false;
+    }
+
+    private static readonly HashSet<string> SvgDrawables = new(StringComparer.OrdinalIgnoreCase)
+    { "path", "rect", "circle", "ellipse", "line", "polyline", "polygon", "text", "image", "use" };
 
     /// <summary>Elements that legitimately draw nothing — structure, metadata, and the ones the
     /// engine consumes itself. Absent from the render tree by design, so never a finding.</summary>
@@ -766,15 +796,10 @@ public static partial class CupriDoctor
         // a rotateY through a whole keyframe sequence with the timing, easing and stops all working
         // while the element never moved (#201). This is a 2D engine and these are the 3D ones, plus
         // the 2D forms it never implemented.
-        ("rotate3d(", "rotate3d", "This is a 2D engine. Use rotate() for a turn in the plane."),
-        ("rotatex(", "rotateX", "This is a 2D engine — an X-axis turn has no effect. rotate() turns in the plane."),
-        ("rotatey(", "rotateY", "This is a 2D engine — a Y-axis turn has no effect. rotate() turns in the plane."),
-        ("rotatez(", "rotateZ", "Use rotate(), which is the same turn in the plane."),
-        ("translate3d(", "translate3d", "Use translate(x, y) — the Z term cannot be drawn."),
-        ("translatez(", "translateZ", "This is a 2D engine; a Z translation has no effect."),
-        ("scale3d(", "scale3d", "Use scale(x, y) — the Z term cannot be drawn."),
-        ("scalez(", "scaleZ", "This is a 2D engine; a Z scale has no effect."),
-        ("matrix3d(", "matrix3d", "This is a 2D engine. matrix() is not implemented either — use translate/scale/rotate."),
+        // rotateX/rotateY/rotateZ, rotate3d about an axis, translate3d/translateZ, scale3d and
+        // perspective() are drawn since #269 and are no longer listed. scaleZ has no visible
+        // effect on a flat projection, in a browser or here.
+        ("matrix3d(", "matrix3d", "Not implemented — compose the effect from translate/scale/rotateX/rotateY/rotate."),
         ("matrix(", "matrix", "Not implemented — compose the effect from translate(), scale() and rotate()."),
         ("skew(", "skew", "Not implemented — there is no shear in the transform pipeline."),
         ("skewx(", "skewX", "Not implemented — there is no shear in the transform pipeline."),

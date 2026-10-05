@@ -35,9 +35,10 @@ public sealed class SkiaRasterizer
     }
 
     // Build a Skia gradient shader over the box (g.X,g.Y,g.W,g.H) from a CSS gradient.
-    private static SKShader BuildGradient(GradientRect g)
+    private static SKShader BuildGradient(GradientRect g) => BuildGradient(g.Gradient, g.X, g.Y, g.W, g.H);
+
+    private static SKShader BuildGradient(Gradient grad, float gX, float gY, float gW, float gH)
     {
-        var grad = g.Gradient;
         var colors = new SKColor[grad.Stops.Count];
         var pos = new float[grad.Stops.Count];
         var explicitPos = false;
@@ -52,8 +53,8 @@ public sealed class SkiaRasterizer
 
         if (grad.Kind == GradientKind.Radial)
         {
-            var center = new SKPoint(g.X + g.W / 2f, g.Y + g.H / 2f);
-            var radius = MathF.Sqrt(g.W * g.W + g.H * g.H) / 2f; // reach the farthest corner
+            var center = new SKPoint(gX + gW / 2f, gY + gH / 2f);
+            var radius = MathF.Sqrt(gW * gW + gH * gH) / 2f; // reach the farthest corner
             return SKShader.CreateRadialGradient(center, MathF.Max(1f, radius), colors, positions, SKShaderTileMode.Clamp);
         }
 
@@ -61,8 +62,8 @@ public sealed class SkiaRasterizer
         // covers the box so the end stops sit on the far edges.
         var rad = grad.AngleDeg * MathF.PI / 180f;
         float dx = MathF.Sin(rad), dy = -MathF.Cos(rad);
-        var len = MathF.Abs(g.W * dx) + MathF.Abs(g.H * dy);
-        float cx = g.X + g.W / 2f, cy = g.Y + g.H / 2f;
+        var len = MathF.Abs(gW * dx) + MathF.Abs(gH * dy);
+        float cx = gX + gW / 2f, cy = gY + gH / 2f;
         var start = new SKPoint(cx - dx * len / 2f, cy - dy * len / 2f);
         var end = new SKPoint(cx + dx * len / 2f, cy + dy * len / 2f);
         return SKShader.CreateLinearGradient(start, end, colors, positions, SKShaderTileMode.Clamp);
@@ -116,12 +117,41 @@ public sealed class SkiaRasterizer
                     DrawRect(canvas, fill, r.X, r.Y, r.W, r.H, r.Radius);
                     break;
 
-                case GradientRect g:
+                case GradientRect { Tile: null } g:
                 {
                     using var shader = BuildGradient(g);
                     fill.Shader = shader;
                     DrawRect(canvas, fill, g.X, g.Y, g.W, g.H, g.Radius);
                     fill.Shader = null; // reset for the next FillRect
+                    break;
+                }
+
+                case GradientRect { Tile: { } tile } g:
+                {
+                    // The tile is recorded once at its own size and laid across the box as a picture
+                    // shader: Repeat on an axis that tiles, Decal (transparent past the edge) on one
+                    // that does not. One fill whatever the tile count — a 4px dot grid over a full
+                    // frame is not a hundred thousand draws.
+                    using var rec = new SKPictureRecorder();
+                    var c = rec.BeginRecording(SKRect.Create(0, 0, tile.W, tile.H));
+                    using (var p = new SKPaint { IsAntialias = true })
+                    using (var sh = BuildGradient(g.Gradient, 0, 0, tile.W, tile.H))
+                    {
+                        p.Shader = sh;
+                        c.DrawRect(SKRect.Create(0, 0, tile.W, tile.H), p);
+                    }
+                    using var pic = rec.EndRecording();
+                    DrawTiled(canvas, fill, pic, g.X, g.Y, g.W, g.H, g.Radius, tile);
+                    break;
+                }
+
+                case TiledImage ti:
+                {
+                    using var rec = new SKPictureRecorder();
+                    var c = rec.BeginRecording(SKRect.Create(0, 0, ti.Tile.W, ti.Tile.H));
+                    c.DrawImage(ti.Image, SKRect.Create(0, 0, ti.Tile.W, ti.Tile.H), _imageSampling);
+                    using var pic = rec.EndRecording();
+                    DrawTiled(canvas, fill, pic, ti.X, ti.Y, ti.W, ti.H, ti.Radius, ti.Tile);
                     break;
                 }
 
@@ -174,6 +204,14 @@ public sealed class SkiaRasterizer
                     ClipRounded(canvas, new SKRect(c.X, c.Y, c.X + c.W, c.Y + c.H), c.Radius);
                     break;
 
+                case PushClipShape c:
+                {
+                    canvas.Save();
+                    using var path = c.Shape.ToPath(c.X, c.Y, c.W, c.H);
+                    canvas.ClipPath(path, SKClipOperation.Intersect, antialias: true);
+                    break;
+                }
+
                 case PopClip:
                     canvas.Restore();
                     break;
@@ -181,10 +219,7 @@ public sealed class SkiaRasterizer
                 case PushTransform t:
                 {
                     canvas.Save();
-                    var m = SKMatrix.CreateTranslation(t.CenterX + t.TranslateX, t.CenterY + t.TranslateY);
-                    m = m.PreConcat(SKMatrix.CreateRotationDegrees(t.RotateDeg));
-                    m = m.PreConcat(SKMatrix.CreateScale(t.ScaleX, t.ScaleY));
-                    m = m.PreConcat(SKMatrix.CreateTranslation(-t.CenterX, -t.CenterY));
+                    var m = t.Matrix;
                     canvas.Concat(in m);
                     break;
                 }
@@ -389,6 +424,21 @@ public sealed class SkiaRasterizer
         // eight-number shape, which also scales the radii down for us when they would overlap.
         if (radius.Uniform is { } r) canvas.DrawRoundRect(rect, r, r, paint);
         else { using var rr = radius.ToRoundRect(rect); canvas.DrawRoundRect(rr, paint); }
+    }
+
+    /// <summary>Lay a recorded tile across the (rounded) box: the picture becomes a shader anchored at
+    /// the tile's origin, repeating on the axes that tile and fading to nothing (Decal) on the ones
+    /// that do not, so a <c>no-repeat</c> axis shows the tile once and the box's own colour beside it.</summary>
+    private static void DrawTiled(SKCanvas canvas, SKPaint fill, SKPicture pic,
+                                  float x, float y, float w, float h, CornerRadii radius, BackgroundTile tile)
+    {
+        var mx = tile.RepeatX ? SKShaderTileMode.Repeat : SKShaderTileMode.Decal;
+        var my = tile.RepeatY ? SKShaderTileMode.Repeat : SKShaderTileMode.Decal;
+        using var shader = SKShader.CreatePicture(pic, mx, my, SKMatrix.CreateTranslation(tile.X, tile.Y),
+            SKRect.Create(0, 0, tile.W, tile.H));
+        fill.Shader = shader;
+        DrawRect(canvas, fill, x, y, w, h, radius);
+        fill.Shader = null;
     }
 
     /// <summary>Clip to a (possibly per-corner) rounded box.</summary>

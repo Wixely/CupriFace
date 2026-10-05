@@ -101,6 +101,181 @@ public enum WhiteSpaceMode { Normal, NoWrap, Pre, PreWrap, PreLine }
 /// falls back to whatever the platform matches (usually upright), the same as a browser.</summary>
 public enum FontSlant { Normal, Italic, Oblique }
 
+public enum ClipShapeKind { Inset, Circle, Ellipse, Polygon }
+
+/// <summary>
+/// A <c>clip-path</c> basic shape (#268): <c>inset()</c> with an optional <c>round</c>,
+/// <c>circle()</c>, <c>ellipse()</c> or <c>polygon()</c>, with every length still unresolved — a
+/// percentage is of the element's border box, which exists only at paint time.
+///
+/// <para>A wipe is an <c>inset()</c> animated from one edge; an iris is a <c>circle()</c> growing
+/// from a point; a diagonal cut is a <c>polygon()</c>. 40 of 165 designed compositions in one
+/// corpus use one, and with the property ignored every transition showed its final state from the
+/// first frame. Interpolable between two shapes of the same kind (and, for a polygon, the same
+/// number of points), which is what makes the transitions move rather than flip.</para>
+/// </summary>
+public sealed class ClipShape : IEquatable<ClipShape>
+{
+    public ClipShapeKind Kind;
+
+    // inset(): how far each edge is pulled in, and the corners of what is left.
+    public Length Top = Length.Zero, Right = Length.Zero, Bottom = Length.Zero, Left = Length.Zero;
+    public BorderRadiusSpec Round;
+
+    // circle()/ellipse(): radii (Auto = closest-side, or farthest-side when flagged) and centre.
+    public Length RX = Length.Auto, RY = Length.Auto;
+    public bool FarthestSide;
+    public Length CX = new(LengthUnit.Percent, 50f), CY = new(LengthUnit.Percent, 50f);
+
+    // polygon(): x0 y0 x1 y1 …, and its fill rule.
+    public Length[] Points = [];
+    public bool EvenOdd;
+
+    /// <summary>The shape as a path in absolute coordinates, for a border box at (x, y) of w × h.</summary>
+    public SKPath ToPath(float x, float y, float w, float h)
+    {
+        var path = new SKPath();
+        switch (Kind)
+        {
+            case ClipShapeKind.Inset:
+            {
+                var l = x + Left.Resolve(w); var t = y + Top.Resolve(h);
+                var r = x + w - Right.Resolve(w); var b = y + h - Bottom.Resolve(h);
+                var rect = new SKRect(l, t, MathF.Max(l, r), MathF.Max(t, b));
+                if (Round.IsZero) path.AddRect(rect);
+                else
+                {
+                    using var rr = Round.Resolve(rect.Width, rect.Height).ToRoundRect(rect);
+                    path.AddRoundRect(rr);
+                }
+                break;
+            }
+            case ClipShapeKind.Circle:
+            {
+                var cx = x + CX.Resolve(w); var cy = y + CY.Resolve(h);
+                float r;
+                if (RX.IsAuto) r = SideDistance(cx - x, x + w - cx, cy - y, y + h - cy);
+                // A percentage radius on a circle is of the box's diagonal over √2 — CSS's reference
+                // for the one length that has to serve both axes.
+                else if (RX.Unit == LengthUnit.Percent) r = RX.Value / 100f * MathF.Sqrt(w * w + h * h) / MathF.Sqrt(2f);
+                else r = RX.Resolve(w);
+                path.AddCircle(cx, cy, MathF.Max(0f, r));
+                break;
+            }
+            case ClipShapeKind.Ellipse:
+            {
+                var cx = x + CX.Resolve(w); var cy = y + CY.Resolve(h);
+                var rx = RX.IsAuto ? SideDistance(cx - x, x + w - cx) : RX.Resolve(w);
+                var ry = RY.IsAuto ? SideDistance(cy - y, y + h - cy) : RY.Resolve(h);
+                path.AddOval(new SKRect(cx - rx, cy - ry, cx + rx, cy + ry));
+                break;
+            }
+            case ClipShapeKind.Polygon:
+            {
+                var pts = new SKPoint[Points.Length / 2];
+                for (var i = 0; i < pts.Length; i++)
+                    pts[i] = new SKPoint(x + Points[2 * i].Resolve(w), y + Points[2 * i + 1].Resolve(h));
+                if (pts.Length >= 3) path.AddPoly(pts, close: true);
+                if (EvenOdd) path.FillType = SKPathFillType.EvenOdd;
+                break;
+            }
+        }
+        return path;
+    }
+
+    private float SideDistance(params float[] distances)
+    {
+        var d = distances[0];
+        foreach (var v in distances) d = FarthestSide ? MathF.Max(d, v) : MathF.Min(d, v);
+        return MathF.Max(0f, d);
+    }
+
+    /// <summary>The shape part-way between two: each length interpolated when the two shapes are of
+    /// the same kind with the same number of points, which is what CSS animates; otherwise the pair
+    /// is not interpolable and flips at the midpoint, as CSS does too.</summary>
+    public static ClipShape Lerp(ClipShape a, ClipShape b, float t)
+    {
+        if (a.Kind != b.Kind || a.Points.Length != b.Points.Length || a.FarthestSide != b.FarthestSide)
+            return t < 0.5f ? a : b;
+        var r = new ClipShape
+        {
+            Kind = a.Kind, FarthestSide = a.FarthestSide, EvenOdd = t < 0.5f ? a.EvenOdd : b.EvenOdd,
+            Top = L(a.Top, b.Top, t), Right = L(a.Right, b.Right, t), Bottom = L(a.Bottom, b.Bottom, t), Left = L(a.Left, b.Left, t),
+            Round = new BorderRadiusSpec(
+                R(a.Round.TopLeftX, b.Round.TopLeftX, t), R(a.Round.TopLeftY, b.Round.TopLeftY, t),
+                R(a.Round.TopRightX, b.Round.TopRightX, t), R(a.Round.TopRightY, b.Round.TopRightY, t),
+                R(a.Round.BottomRightX, b.Round.BottomRightX, t), R(a.Round.BottomRightY, b.Round.BottomRightY, t),
+                R(a.Round.BottomLeftX, b.Round.BottomLeftX, t), R(a.Round.BottomLeftY, b.Round.BottomLeftY, t)),
+            RX = L(a.RX, b.RX, t), RY = L(a.RY, b.RY, t), CX = L(a.CX, b.CX, t), CY = L(a.CY, b.CY, t),
+            Points = new Length[a.Points.Length],
+        };
+        for (var i = 0; i < r.Points.Length; i++) r.Points[i] = L(a.Points[i], b.Points[i], t);
+        return r;
+
+        static Length L(Length x, Length y, float t)
+        {
+            if (x.Unit == y.Unit && x.Unit is LengthUnit.Px or LengthUnit.Percent) return new Length(x.Unit, x.Value + (y.Value - x.Value) * t);
+            if (x.Unit == y.Unit && x.Unit == LengthUnit.Calc) return Length.Calc(x.Value + (y.Value - x.Value) * t, x.PercentPart + (y.PercentPart - x.PercentPart) * t);
+            // 0 is unitless in CSS and interpolates with anything.
+            if (x.Unit == LengthUnit.Px && x.Value == 0 && y.Unit == LengthUnit.Percent) return new Length(y.Unit, y.Value * t);
+            if (y.Unit == LengthUnit.Px && y.Value == 0 && x.Unit == LengthUnit.Percent) return new Length(x.Unit, x.Value * (1 - t));
+            return t < 0.5f ? x : y;
+        }
+        static RadiusLength R(RadiusLength x, RadiusLength y, float t) =>
+            x.IsPercent == y.IsPercent ? new RadiusLength(x.Value + (y.Value - x.Value) * t, x.IsPercent) : t < 0.5f ? x : y;
+    }
+
+    public bool Equals(ClipShape? o)
+    {
+        if (o is null) return false;
+        if (Kind != o.Kind || FarthestSide != o.FarthestSide || EvenOdd != o.EvenOdd) return false;
+        if (!Same(Top, o.Top) || !Same(Right, o.Right) || !Same(Bottom, o.Bottom) || !Same(Left, o.Left)) return false;
+        if (!Round.Equals(o.Round)) return false;
+        if (!Same(RX, o.RX) || !Same(RY, o.RY) || !Same(CX, o.CX) || !Same(CY, o.CY)) return false;
+        if (Points.Length != o.Points.Length) return false;
+        for (var i = 0; i < Points.Length; i++) if (!Same(Points[i], o.Points[i])) return false;
+        return true;
+
+        static bool Same(Length a, Length b) => a.Unit == b.Unit && a.Value == b.Value && a.PercentPart == b.PercentPart;
+    }
+    public override bool Equals(object? obj) => obj is ClipShape c && Equals(c);
+    public override int GetHashCode() => HashCode.Combine(Kind, Points.Length, Top.Value, Right.Value, RX.Value, CX.Value);
+}
+
+/// <summary>CSS <c>text-transform</c>: the case the text is DRAWN in, whatever case it was typed in.
+/// Applied when the render tree is built, after the cascade has resolved, so the markup keeps the
+/// author's text and a renderer that does it differently is handed the same document (#266).</summary>
+public enum TextTransform { None, Uppercase, Lowercase, Capitalize }
+
+public static class TextCase
+{
+    /// <summary><paramref name="text"/> in the case <paramref name="transform"/> asks for.
+    /// <c>capitalize</c> upper-cases the first letter of each word, a word being what follows
+    /// whitespace, as CSS defines it; the rest of the word is left as typed.</summary>
+    public static string Apply(string text, TextTransform transform)
+    {
+        switch (transform)
+        {
+            case TextTransform.Uppercase: return text.ToUpperInvariant();
+            case TextTransform.Lowercase: return text.ToLowerInvariant();
+            case TextTransform.Capitalize:
+            {
+                var chars = text.ToCharArray();
+                var atWordStart = true;
+                for (var i = 0; i < chars.Length; i++)
+                {
+                    var c = chars[i];
+                    if (char.IsWhiteSpace(c)) { atWordStart = true; continue; }
+                    if (atWordStart && char.IsLetter(c)) chars[i] = char.ToUpperInvariant(c);
+                    atWordStart = false;
+                }
+                return new string(chars);
+            }
+            default: return text;
+        }
+    }
+}
+
 /// <summary>CSS <c>text-decoration-line</c> — combinable, e.g. <c>underline line-through</c>.</summary>
 [Flags]
 public enum TextDecorations { None = 0, Underline = 1, LineThrough = 2, Overline = 4 }
@@ -142,6 +317,88 @@ public readonly record struct GradientStop(SkiaSharp.SKColor Color, float Positi
 /// <summary>A CSS <c>linear-gradient()</c> / <c>radial-gradient()</c> background. <c>AngleDeg</c> is the
 /// CSS angle (0 = to top, 90 = to right; ignored for radial).</summary>
 public sealed record Gradient(GradientKind Kind, float AngleDeg, IReadOnlyList<GradientStop> Stops);
+
+/// <summary>How <c>background-size</c> sizes the image layer's tile.</summary>
+public enum BackgroundSizeKind
+{
+    /// <summary>A gradient fills the box; a raster image keeps its own pixel size.</summary>
+    Auto,
+    /// <summary>Explicit <c>Width</c> × <c>Height</c>; an <c>auto</c> on one axis keeps a raster
+    /// image's aspect ratio (a gradient, having none, takes the box on that axis).</summary>
+    Length,
+    /// <summary>Scaled, keeping its ratio, to the smallest size that covers the whole box.</summary>
+    Cover,
+    /// <summary>Scaled, keeping its ratio, to the largest size that fits inside the box.</summary>
+    Contain,
+}
+
+/// <summary>
+/// Where the image layer of a background sits and how it tiles: <c>background-size</c>,
+/// <c>background-position</c> and <c>background-repeat</c> together (#267).
+///
+/// <para>Everything here was accepted and ignored before: the image or gradient filled the whole box
+/// whatever size it was given, so a gradient sized to a fraction of its box as a progress bar, a
+/// <c>cover</c> on a photo, and a small repeating tile all rendered as one stretched layer.</para>
+/// </summary>
+/// <param name="Size">The tile's size.</param>
+/// <param name="PosX">Where the tile sits. A percentage is of the SPARE room, as in CSS: <c>50%</c>
+/// centres the tile, and <c>100%</c> puts its far edge on the box's far edge.</param>
+/// <param name="RepeatX">Tile along the axis; otherwise the single tile is drawn once.</param>
+public readonly record struct BackgroundGeometry(
+    BackgroundSizeKind Size, Length Width, Length Height, Length PosX, Length PosY, bool RepeatX, bool RepeatY)
+{
+    /// <summary>CSS's initial values: <c>auto</c>, <c>0% 0%</c>, <c>repeat</c> — the box, filled.</summary>
+    public static readonly BackgroundGeometry Default = new(BackgroundSizeKind.Auto, Length.Auto, Length.Auto,
+        new Length(LengthUnit.Percent, 0f), new Length(LengthUnit.Percent, 0f), true, true);
+
+    /// <summary>A tile that is exactly the box, however it repeats — the pre-#267 result, and the
+    /// fast path.</summary>
+    public bool FillsBox(float intrinsicW, float intrinsicH, float boxW, float boxH)
+    {
+        var (x, y, w, h) = Tile(intrinsicW, intrinsicH, boxW, boxH);
+        return MathF.Abs(x) < 0.01f && MathF.Abs(y) < 0.01f
+            && MathF.Abs(w - boxW) < 0.01f && MathF.Abs(h - boxH) < 0.01f;
+    }
+
+    /// <summary>The tile's rectangle, relative to the box's top-left. <paramref name="intrinsicW"/>
+    /// and <paramref name="intrinsicH"/> are the image's own size; pass 0 for a gradient, which has
+    /// none and takes the box wherever a size is <c>auto</c>.</summary>
+    public (float X, float Y, float W, float H) Tile(float intrinsicW, float intrinsicH, float boxW, float boxH)
+    {
+        var hasIntrinsic = intrinsicW > 0 && intrinsicH > 0;
+        float w, h;
+        switch (Size)
+        {
+            case BackgroundSizeKind.Cover or BackgroundSizeKind.Contain when hasIntrinsic:
+            {
+                var sx = boxW / intrinsicW; var sy = boxH / intrinsicH;
+                var scale = Size == BackgroundSizeKind.Cover ? MathF.Max(sx, sy) : MathF.Min(sx, sy);
+                w = intrinsicW * scale; h = intrinsicH * scale;
+                break;
+            }
+            case BackgroundSizeKind.Length:
+            {
+                var wAuto = Width.IsAuto; var hAuto = Height.IsAuto;
+                w = wAuto ? 0 : Width.Resolve(boxW);
+                h = hAuto ? 0 : Height.Resolve(boxH);
+                if (wAuto && hAuto) { w = hasIntrinsic ? intrinsicW : boxW; h = hasIntrinsic ? intrinsicH : boxH; }
+                else if (wAuto) w = hasIntrinsic ? h * intrinsicW / intrinsicH : boxW;
+                else if (hAuto) h = hasIntrinsic ? w * intrinsicH / intrinsicW : boxH;
+                break;
+            }
+            default:
+                w = hasIntrinsic ? intrinsicW : boxW;
+                h = hasIntrinsic ? intrinsicH : boxH;
+                break;
+        }
+        w = MathF.Max(0f, w); h = MathF.Max(0f, h);
+        // A percentage position is of the room left over, so 50% centres and 100% right-aligns —
+        // which is the only reading under which `center` and `right` mean what they say.
+        var x = PosX.Unit == LengthUnit.Percent ? (boxW - w) * PosX.Value / 100f : PosX.Resolve(boxW - w);
+        var y = PosY.Unit == LengthUnit.Percent ? (boxH - h) * PosY.Value / 100f : PosY.Resolve(boxH - h);
+        return (x, y, w, h);
+    }
+}
 
 public static class Colors
 {

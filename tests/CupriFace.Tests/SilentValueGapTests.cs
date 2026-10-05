@@ -34,15 +34,10 @@ public class SilentValueGapTests(ITestOutputHelper output)
 
     // ---- the reported table ---------------------------------------------------------------------
 
-    /// <summary>Every 3D transform function, plus the 2D ones the switch never had a case for.
-    /// All of them parsed and did nothing.</summary>
+    /// <summary>The transform functions the switch has no case for: the matrices and the shears.
+    /// All of them parse and do nothing. (The 3D rotations and translations were in this table
+    /// until #269 drew them.)</summary>
     [Theory]
-    [InlineData("transform:rotateY(50deg)", "rotateY")]
-    [InlineData("transform:rotateX(50deg)", "rotateX")]
-    [InlineData("transform:rotate3d(1,1,0,45deg)", "rotate3d")]
-    [InlineData("transform:translate3d(60px,20px,0)", "translate3d")]
-    [InlineData("transform:translateZ(40px)", "translateZ")]
-    [InlineData("transform:scale3d(2,2,1)", "scale3d")]
     [InlineData("transform:matrix3d(1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1)", "matrix3d")]
     [InlineData("transform:matrix(1,0,0,1,10,10)", "matrix")]
     [InlineData("transform:skew(10deg)", "skew")]
@@ -56,14 +51,32 @@ public class SilentValueGapTests(ITestOutputHelper output)
         Assert.Contains(named, f.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>The 2D transforms that DO work stay quiet. A check that reported every transform
-    /// would pass the theory above and be useless.</summary>
+    /// <summary>A rotate3d about an axis that is not x, y or z alone cannot be kept as the three
+    /// rotations the engine interpolates, so it is reported — by the resolver, which is the only
+    /// place that can tell the two apart.</summary>
+    [Fact]
+    public void An_off_axis_rotate3d_is_reported()
+    {
+        var fs = Rule("transform:rotate3d(1,1,0,45deg)");
+        Assert.Contains(fs, f => f.Message.Contains("rotate3d", StringComparison.Ordinal));
+        Assert.Empty(Rule("transform:rotate3d(0,1,0,45deg)"));
+    }
+
+    /// <summary>The transforms that DO work stay quiet — the 2D ones, and since #269 the 3D
+    /// rotations, translations and scale. A check that reported every transform would pass the
+    /// theory above and be useless.</summary>
     [Theory]
     [InlineData("transform:rotate(10deg)")]
     [InlineData("transform:translate(10px,20px)")]
     [InlineData("transform:translateX(10px)")]
     [InlineData("transform:scale(2)")]
     [InlineData("transform:scaleY(1.5)")]
+    [InlineData("transform:rotateY(50deg)")]
+    [InlineData("transform:rotateX(50deg)")]
+    [InlineData("transform:translate3d(60px,20px,0)")]
+    [InlineData("transform:translateZ(40px)")]
+    [InlineData("transform:scale3d(2,2,1)")]
+    [InlineData("transform:perspective(400px) rotateY(20deg)")]
     public void A_transform_that_works_is_not_reported(string decl)
         => Assert.Empty(Rule(decl));
 
@@ -130,19 +143,20 @@ public class SilentValueGapTests(ITestOutputHelper output)
     [Fact]
     public void Two_gaps_on_one_element_are_both_reported()
     {
-        var fs = Rule("transform:rotateY(10deg);backdrop-filter:blur(2px)");
+        var fs = Rule("transform:skew(10deg);backdrop-filter:blur(2px)");
         Assert.Equal(2, fs.Count(f => f.Code == "CF0051"));
     }
 
-    /// <summary>An animated 3D transform is reported too. This is the case that made the silence
-    /// expensive: everything about the animation works except the part that moves.</summary>
+    /// <summary>An animated gap is reported too. This is the case that made the silence expensive:
+    /// everything about the animation works except the part that moves. (It was a rotateY until
+    /// #269 made that move; a matrix3d is what is left.)</summary>
     [Fact]
-    public void An_animated_three_d_transform_is_reported()
+    public void An_animated_gap_is_reported()
     {
         var fs = Gaps("<div class='p'>x</div>",
             ".p{width:50px;height:50px;animation:spin 2s linear infinite}"
-            + "@keyframes spin{from{transform:rotateY(0deg)}to{transform:rotateY(360deg)}}");
+            + "@keyframes spin{from{transform:matrix3d(1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1)}to{transform:matrix3d(1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1)}}");
         output.WriteLine(string.Join("\n", fs.Select(f => f.Code + ": " + f.Message)));
-        Assert.Contains(fs, f => f.Code == "CF0051" && f.Message.Contains("rotateY"));
+        Assert.Contains(fs, f => f.Code == "CF0051" && f.Message.Contains("matrix3d"));
     }
 }

@@ -216,7 +216,7 @@ public static partial class CssParser
     public static Dictionary<string, string> ParseDeclarations(string body)
     {
         var decls = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var part in body.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        foreach (var part in SplitDeclarations(body))
         {
             var colon = part.IndexOf(':');
             if (colon <= 0) continue;
@@ -226,6 +226,32 @@ public static partial class CssParser
                 decls[prop] = val;
         }
         return decls;
+    }
+
+    /// <summary>The declarations of a block, split on the semicolons BETWEEN them — not on one
+    /// inside parentheses or a string. A plain split cut <c>url(data:image/png;base64,…)</c> at
+    /// its media type, so an inline image as a background never loaded (#267).</summary>
+    private static IEnumerable<string> SplitDeclarations(string body)
+    {
+        var depth = 0;
+        var quote = '\0';
+        var start = 0;
+        for (var i = 0; i < body.Length; i++)
+        {
+            var ch = body[i];
+            if (quote != '\0') { if (ch == quote) quote = '\0'; continue; }
+            if (ch is '"' or '\'') quote = ch;
+            else if (ch == '(') depth++;
+            else if (ch == ')') { if (depth > 0) depth--; }
+            else if (ch == ';' && depth == 0)
+            {
+                var t = body[start..i].Trim();
+                if (t.Length > 0) yield return t;
+                start = i + 1;
+            }
+        }
+        var last = body[start..].Trim();
+        if (last.Length > 0) yield return last;
     }
 
     /// <summary>Rough CSS specificity: (#id, .class/[attr]/:pseudo, type) packed into one int.</summary>
