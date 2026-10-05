@@ -206,6 +206,29 @@ public sealed class ComputedStyle
     public Length TransformOriginX = new(LengthUnit.Percent, 50f);
     public Length TransformOriginY = new(LengthUnit.Percent, 50f);
 
+    /// <summary>The author wrote a <c>transform-origin</c>, as opposed to the default above
+    /// standing in. An HTML box cannot tell the two apart and need not; an SVG shape can, because
+    /// ITS initial origin is <c>0 0</c> of the viewBox rather than its own centre (#262).</summary>
+    public bool TransformOriginSet;
+
+    /// <summary><c>transform-box: fill-box</c> — the transform's reference box is the shape's own
+    /// bounds rather than the viewBox, which is what "spin this icon about its centre" is spelled
+    /// as. Only an SVG shape reads it; an HTML box's reference is always its border box.</summary>
+    public bool TransformBoxFill;
+
+    // ---- SVG paint ------------------------------------------------------------------------------
+    //
+    // The presentation properties of a shape inside an inline <svg>, so that a stylesheet rule and
+    // a @keyframes stop reach a <path> the way they reach a <div> (#262). Null means "nothing in
+    // the cascade said" — the drawing's own parsed attributes then stand. Inherited, as they are
+    // in SVG: a <g fill="red"> colours every shape under it that does not say otherwise, and the
+    // presentation attributes themselves enter the cascade as the lowest-priority declarations
+    // (StyleResolver), so attribute, rule and inheritance resolve in the one place.
+    public SKColor? SvgFill, SvgStroke;
+    public float? SvgStrokeWidth, SvgStrokeDashOffset, SvgFillOpacity, SvgStrokeOpacity;
+    /// <summary><c>stroke-dasharray</c>: null when unset, EMPTY for <c>none</c> (a solid stroke).</summary>
+    public float[]? SvgStrokeDashArray;
+
     /// <summary>The transform's fixed point as an offset inside a border box of the given size.
     /// Painting and hit-testing must pivot about the SAME point — an element that paints anchored
     /// to its bottom edge but tests as if anchored to its centre is clickable where it isn't drawn
@@ -306,6 +329,12 @@ public sealed class ComputedStyle
         // it. Without this line the flag was set on the div, read as false on its text, and
         // tabular-nums did precisely nothing while appearing to be supported.
         TabularNums = parent.TabularNums;
+        // SVG paint inherits down the tree the way text colour does — a group's fill is its
+        // children's fill until one of them says otherwise.
+        SvgFill = parent.SvgFill; SvgStroke = parent.SvgStroke;
+        SvgStrokeWidth = parent.SvgStrokeWidth; SvgStrokeDashOffset = parent.SvgStrokeDashOffset;
+        SvgFillOpacity = parent.SvgFillOpacity; SvgStrokeOpacity = parent.SvgStrokeOpacity;
+        SvgStrokeDashArray = parent.SvgStrokeDashArray;
     }
 
     public bool IsFlexContainer => Display == DisplayType.Flex;

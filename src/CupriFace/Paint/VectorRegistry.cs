@@ -21,6 +21,11 @@ namespace CupriFace.Paint;
 /// <param name="Cap">Stroke end cap.</param>
 /// <param name="Join">Stroke corner join.</param>
 /// <param name="Transform">The shape's own transform, already composed with its ancestors'.</param>
+/// <param name="Bounds">The path's tight bounds in its OWN coordinates (before <paramref name="Transform"/>),
+/// or empty when unknown — the reference box of a <c>transform-box: fill-box</c> CSS transform.</param>
+/// <param name="Hidden"><c>visibility: hidden</c>: the shape takes part in nothing and paints nothing.
+/// Kept apart from <paramref name="Opacity"/> so a stylesheet can restore an attribute's opacity
+/// without un-hiding what was hidden.</param>
 public readonly record struct VectorShape(
     string PathData,
     SKColor Fill,
@@ -32,7 +37,9 @@ public readonly record struct VectorShape(
     float DashOffset,
     SKStrokeCap Cap,
     SKStrokeJoin Join,
-    SKMatrix Transform);
+    SKMatrix Transform,
+    SKRect Bounds = default,
+    bool Hidden = false);
 
 /// <summary>
 /// A resolution-independent drawing an optional package has prepared for one element — what

@@ -18,10 +18,39 @@ on a diagram. Everything below "supported" is what those four need.
 | Stroking | `stroke-linecap`, `stroke-linejoin`, `stroke-dasharray`, `stroke-dashoffset` |
 | Transforms | `translate`, `scale`, `rotate` (incl. about a point), `skewX`, `skewY`, `matrix`, composed down the tree |
 | Hiding | `display:none`, `visibility:hidden` |
-| Where they come from | presentation attributes *and* an inline `style` — export tools emit both |
+| Where they come from | presentation attributes, an inline `style`, **and the document's stylesheet** — see below |
 
 Path data is parsed by Skia, so the whole `d` grammar works, arcs and smooth curves included.
 `preserveAspectRatio` behaves as the default `xMidYMid meet`: one uniform scale, centred.
+
+## The stylesheet reaches inside (#262)
+
+Every element inside the `<svg>` is also a node in the engine's render tree, and the cascade runs
+over it exactly as it runs over a `<div>`: a rule written against `#heart` or `.ring path` applies,
+`:hover` applies, and a `@keyframes` animation on the element runs. The presentation attributes are
+read into that same cascade as the lowest-priority declarations (which is what the SVG specification
+says they are), so `opacity="0"` on a shape loses to `#r { opacity: 1 }` in the stylesheet, and a
+`fill` on a `<g>` — attribute or rule — is inherited by the shapes under it until one says otherwise.
+
+What the cascade can set on a shape: `fill`, `stroke`, `stroke-width`, `stroke-dasharray`,
+`stroke-dashoffset`, `fill-opacity`, `stroke-opacity`, `opacity` (group opacity, multiplied down),
+`display`, and a CSS `transform`. The animation engine interpolates `fill`, `stroke`,
+`stroke-width`, `stroke-dashoffset`, `fill-opacity`, `stroke-opacity`, `opacity` and `transform` —
+a heart that fills, a path that draws on, a ring that scales.
+
+Two things about a CSS `transform` on a shape, both as in a browser:
+
+- Its origin defaults to `0 0` of the viewBox, not the shape's centre. A ring that should scale about
+  itself says so: `transform-box: fill-box; transform-origin: center`. A percentage in
+  `translate()` or the origin is of the same reference box (the viewBox, or the shape's own bounds
+  under `fill-box`).
+- Lengths are in user units, as they are in SVG: `translateX(600px)` on a `viewBox="0 0 24 24"`
+  moves the shape twenty-five viewBoxes to the right.
+
+Where the drawing and the cascade disagree on what a `transform` *attribute* means, the attribute
+is composed by the drawing and the CSS transform is applied on top of it, in the shape's local
+space. A browser replaces the attribute with the CSS transform instead; a shape that carries both
+is rare enough that the simpler composition was kept.
 
 ## Not supported, and what each would take
 

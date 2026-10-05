@@ -54,6 +54,12 @@ public sealed class RenderNode
     /// node; the engine knows how to draw the shapes and nothing about where they came from.</summary>
     public string? VectorKey;
 
+    /// <summary>For an element INSIDE a drawing: the index of the shape it produced, in the
+    /// drawing's <c>Shapes</c> (set from <c>data-cupri-shape</c>). The painter restyles that shape
+    /// from this node's computed style, which is how a stylesheet rule or a keyframe written
+    /// against a <c>&lt;path&gt;</c> reaches it (#262). -1 for everything else.</summary>
+    public int VectorShapeIndex = -1;
+
     // For image nodes (<cupri-image>): the source to decode + paint (resolved by ImageStore).
     public string? ImageSrc;
 

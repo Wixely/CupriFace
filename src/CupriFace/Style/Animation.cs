@@ -1,3 +1,4 @@
+using SkiaSharp;
 using System.Text.RegularExpressions;
 using CupriFace.Dom;
 
@@ -11,7 +12,9 @@ public sealed record Keyframe(float Offset, Dictionary<string, string> Declarati
 /// previous call's.</summary>
 internal sealed record AnimationBase(float Opacity, bool HasTransform, float TranslateX, float TranslateY,
     float RotateDeg, float ScaleX, float ScaleY, Length Width, Length Height,
-    float TranslateXPct = 0f, float TranslateYPct = 0f);
+    float TranslateXPct = 0f, float TranslateYPct = 0f,
+    SKColor? SvgFill = null, SKColor? SvgStroke = null, float? SvgStrokeWidth = null,
+    float? SvgStrokeDashOffset = null, float? SvgFillOpacity = null, float? SvgStrokeOpacity = null);
 
 /// <summary>
 /// Parses <c>@keyframes</c> blocks and applies time-sampled animation overrides to the
@@ -122,12 +125,15 @@ public static partial class Animation
         s.TranslateX = b.TranslateX; s.TranslateY = b.TranslateY; s.RotateDeg = b.RotateDeg;
         s.TranslateXPct = b.TranslateXPct; s.TranslateYPct = b.TranslateYPct;
         s.ScaleX = b.ScaleX; s.ScaleY = b.ScaleY; s.Width = b.Width; s.Height = b.Height;
+        s.SvgFill = b.SvgFill; s.SvgStroke = b.SvgStroke; s.SvgStrokeWidth = b.SvgStrokeWidth;
+        s.SvgStrokeDashOffset = b.SvgStrokeDashOffset; s.SvgFillOpacity = b.SvgFillOpacity; s.SvgStrokeOpacity = b.SvgStrokeOpacity;
     }
 
     private static void ApplyFrame(ComputedStyle s, List<Keyframe> frames, float progress)
     {
         s.AnimBase ??= new AnimationBase(s.Opacity, s.HasTransform, s.TranslateX, s.TranslateY, s.RotateDeg, s.ScaleX, s.ScaleY, s.Width, s.Height,
-                                         s.TranslateXPct, s.TranslateYPct);
+                                         s.TranslateXPct, s.TranslateYPct,
+                                         s.SvgFill, s.SvgStroke, s.SvgStrokeWidth, s.SvgStrokeDashOffset, s.SvgFillOpacity, s.SvgStrokeOpacity);
         // Find bracketing keyframes.
         Keyframe a = frames[0], b = frames[^1];
         for (var i = 0; i < frames.Count - 1; i++)
@@ -180,7 +186,30 @@ public static partial class Animation
             s.Width = LerpLength(from.Width, to.Width, local);
         if (a.Declarations.ContainsKey("height") || b.Declarations.ContainsKey("height"))
             s.Height = LerpLength(from.Height, to.Height, local);
+
+        // SVG paint on a shape inside an inline <svg> (#262): a heart that fills, a path that
+        // draws on through its dash offset. A stop that names only one end of a pair holds the
+        // element's own value at the other, the way the opacity above does with the base style.
+        if (Declared(a, b, "fill")) s.SvgFill = LerpColor(from.SvgFill ?? s.AnimBase.SvgFill, to.SvgFill ?? s.AnimBase.SvgFill, local);
+        if (Declared(a, b, "stroke")) s.SvgStroke = LerpColor(from.SvgStroke ?? s.AnimBase.SvgStroke, to.SvgStroke ?? s.AnimBase.SvgStroke, local);
+        if (Declared(a, b, "stroke-width")) s.SvgStrokeWidth = Lerp(from.SvgStrokeWidth ?? s.AnimBase.SvgStrokeWidth ?? 1f, to.SvgStrokeWidth ?? s.AnimBase.SvgStrokeWidth ?? 1f, local);
+        if (Declared(a, b, "stroke-dashoffset")) s.SvgStrokeDashOffset = Lerp(from.SvgStrokeDashOffset ?? s.AnimBase.SvgStrokeDashOffset ?? 0f, to.SvgStrokeDashOffset ?? s.AnimBase.SvgStrokeDashOffset ?? 0f, local);
+        if (Declared(a, b, "fill-opacity")) s.SvgFillOpacity = Lerp(from.SvgFillOpacity ?? s.AnimBase.SvgFillOpacity ?? 1f, to.SvgFillOpacity ?? s.AnimBase.SvgFillOpacity ?? 1f, local);
+        if (Declared(a, b, "stroke-opacity")) s.SvgStrokeOpacity = Lerp(from.SvgStrokeOpacity ?? s.AnimBase.SvgStrokeOpacity ?? 1f, to.SvgStrokeOpacity ?? s.AnimBase.SvgStrokeOpacity ?? 1f, local);
     }
+
+    private static bool Declared(Keyframe a, Keyframe b, string prop) =>
+        a.Declarations.ContainsKey(prop) || b.Declarations.ContainsKey(prop);
+
+    private static SKColor? LerpColor(SKColor? a, SKColor? b, float t)
+    {
+        if (a is not { } x) return b;
+        if (b is not { } y) return a;
+        return new SKColor(
+            Byte(x.Red + (y.Red - x.Red) * t), Byte(x.Green + (y.Green - x.Green) * t),
+            Byte(x.Blue + (y.Blue - x.Blue) * t), Byte(x.Alpha + (y.Alpha - x.Alpha) * t));
+    }
+    private static byte Byte(float f) => (byte)Math.Clamp((int)MathF.Round(f), 0, 255);
 
     // Same-unit px or % pairs interpolate; anything else — auto (an endpoint that omitted the
     // property), mixed units — flips at the midpoint, which is CSS's behaviour for a

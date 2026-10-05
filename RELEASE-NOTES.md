@@ -64,6 +64,21 @@ element was simply somewhere else, something else, or not there.
   A platform family with no bold face gains the same synthesis, which is what a browser does with it.
   `FontService.NeedsSyntheticBold(typeface, weight)` is the rule, public so a test can ask.
 
+- **The stylesheet and the animation engine now reach the elements inside an inline `<svg>`
+  (#262).** Only the `<svg>` root took CSS; a rule written against a `<rect>` did nothing, a
+  `@keyframes` on it parsed, ran and moved nothing, and a presentation attribute beat a stylesheet
+  rule that said otherwise. The elements inside a drawing were always nodes in the render tree —
+  the cascade and the keyframes already ran over them — but the drawing read its attributes in
+  place of the cascade. Now the presentation attributes enter the cascade as the lowest-priority
+  declarations the SVG specification says they are, each shape is bound to the node of the element
+  it came from, and the painter re-reads the shape from that node: `fill`, `stroke`,
+  `stroke-width`, `stroke-dasharray`, `stroke-dashoffset`, `fill-opacity`, `stroke-opacity`,
+  group `opacity` multiplied down, `display`, and a CSS `transform`. All of those animate, so a
+  heart fills, a path draws on, a ring scales. `transform-box: fill-box` and `transform-origin` are
+  honoured, and a shape's default origin is `0 0` of the viewBox as in a browser — say
+  `transform-box: fill-box; transform-origin: center` to spin a shape about itself. A drawing
+  styled by attributes alone paints exactly as before. See `CupriFace.Svg/SVG-SUPPORT.md`.
+
 ### Added
 
 - **`::before` and `::after` (#261).** They were never generated: a solid, explicitly sized

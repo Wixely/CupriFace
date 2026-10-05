@@ -12,9 +12,16 @@ namespace CupriFace.Svg;
 /// actually drawn at.</para>
 /// </summary>
 public sealed class SvgDrawing(SKRect viewBox, (float W, float H)? naturalSize,
-                               IReadOnlyList<VectorShape> shapes) : IVectorDrawing
+                               IReadOnlyList<VectorShape> shapes, IReadOnlyList<int>? shapeElements = null) : IVectorDrawing
 {
     public SKRect ViewBox { get; } = viewBox;
+
+    /// <summary>For each shape, the pre-order index (among the <c>&lt;svg&gt;</c>'s descendant
+    /// elements) of the element it was read from. A position rather than an element reference,
+    /// because the DOM is rebuilt and the drawing is not: the same markup walked the same way gives
+    /// the same numbers, which is how <see cref="SvgExtensions.UseSvg"/> re-finds each shape's
+    /// element on every rebuild and marks it, so the cascade can reach the shape (#262).</summary>
+    public IReadOnlyList<int> ShapeElements { get; } = shapeElements ?? [];
 
     /// <summary>The drawing's own <c>width</c>/<c>height</c> when it states them in absolute units,
     /// so an inline icon sizes itself the way an image does. Null when it gives only a viewBox, or
