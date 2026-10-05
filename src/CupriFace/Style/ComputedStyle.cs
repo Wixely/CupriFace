@@ -175,6 +175,20 @@ public sealed class ComputedStyle
     public float TranslateX, TranslateY, RotateDeg;
     public float ScaleX = 1f, ScaleY = 1f;
 
+    /// <summary>The PERCENTAGE part of a translate, kept apart from the px part because it is a
+    /// fraction of a box that is only known at paint time: <c>translate(-50%, -50%)</c> means half
+    /// of the element's OWN border box, which is what makes it the commonest centring idiom there
+    /// is. It used to be parsed as 0px and silently dropped — the element painted exactly where it
+    /// would with no transform at all, and nothing reported it (#258). Interpolated in its own unit,
+    /// the way a percentage width is, and resolved by <see cref="ResolvedTranslate"/>.</summary>
+    public float TranslateXPct, TranslateYPct;
+
+    /// <summary>The translation in px for a border box of the given size: the px part plus the
+    /// percentage part of that box. Painting, hit-testing and the damage diff must all move the
+    /// element by the SAME amount, so each asks here rather than adding the two up itself.</summary>
+    public (float X, float Y) ResolvedTranslate(float width, float height) =>
+        (TranslateX + TranslateXPct / 100f * width, TranslateY + TranslateYPct / 100f * height);
+
     // transform-origin — the transform's fixed point, resolved against the border box. The CSS
     // initial value is `50% 50%`, so the default keeps the centre behaviour every transform had
     // before this was honoured. NOT inherited (deliberately absent from InheritFrom): an origin is

@@ -13,6 +13,23 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+Six conformance gaps, each found by rendering a designed composition beside a browser and measuring
+the difference (#258–#263). All of them were silent: the markup laid out, nothing threw, and the
+element was simply somewhere else, something else, or not there.
+
+### Fixed
+
+- **A percentage `translate()` now moves the element by a fraction of its own box (#258).**
+  `transform: translate(-50%, -50%)` is the commonest centring idiom there is, and it was parsed as
+  0px and dropped — the element painted exactly where it would with no transform at all, in a
+  static declaration and inside `@keyframes` alike, and no diagnostic named it. The percentage part
+  is now kept apart from the px part, interpolated in its own unit the way a percentage width is,
+  and resolved against the border box at paint time. Hit-testing resolves it the same way, so a
+  centred card is clickable where it is drawn. Nothing to do; a document that had written the px
+  form by hand renders as before.
+
 ## v0.33.0
 
 A controller, end to end: directional navigation, all four hosts, the policy to decide who owns the

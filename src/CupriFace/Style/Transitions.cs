@@ -407,7 +407,7 @@ public sealed class TransitionEngine
         TransProp.Background => Channels(s.Background),
         TransProp.Color => Channels(s.Color),
         TransProp.BorderColor => Channels(s.BorderColor),
-        _ => [s.TranslateX, s.TranslateY, s.ScaleX, s.ScaleY, s.RotateDeg],
+        _ => [s.TranslateX, s.TranslateY, s.ScaleX, s.ScaleY, s.RotateDeg, s.TranslateXPct, s.TranslateYPct],
     };
 
     private static void Write(ComputedStyle s, TransProp p, float[] v)
@@ -420,7 +420,9 @@ public sealed class TransitionEngine
             case TransProp.BorderColor: s.BorderColor = Color(v); break;
             default:
                 s.TranslateX = v[0]; s.TranslateY = v[1]; s.ScaleX = v[2]; s.ScaleY = v[3]; s.RotateDeg = v[4];
-                s.HasTransform = v[0] != 0 || v[1] != 0 || v[2] != 1f || v[3] != 1f || v[4] != 0;
+                s.TranslateXPct = v[5]; s.TranslateYPct = v[6];
+                s.HasTransform = v[0] != 0 || v[1] != 0 || v[2] != 1f || v[3] != 1f || v[4] != 0
+                              || v[5] != 0 || v[6] != 0;
                 break;
         }
     }

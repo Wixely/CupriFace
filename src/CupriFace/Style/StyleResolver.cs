@@ -1294,13 +1294,26 @@ public sealed class StyleResolver
         {
             var fn = m.Groups[1].Value.ToLowerInvariant();
             var args = m.Groups[2].Value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-            float A(int i) => i < args.Length ? ParsePx(args[i]) : 0f;
             float N(int i, float d) => i < args.Length && CssNumber.TryParse(args[i].TrimEnd('d', 'e', 'g'), out var n) ? n : d;
+            // A translate argument is a <length-percentage>: px and % are kept in SEPARATE fields,
+            // because the percentage is of the element's own box and that box does not exist yet.
+            // Reading it through the px parser turned `translate(-50%, -50%)` into no transform at
+            // all, with nothing to say so (#258).
+            (float Px, float Pct) T(int i)
+            {
+                if (i >= args.Length) return (0f, 0f);
+                var a = args[i].Trim();
+                if (a.EndsWith('%') && CssNumber.TryParse(a[..^1], out var pct)) return (0f, pct);
+                return (ParsePx(a), 0f);
+            }
             switch (fn)
             {
-                case "translate": s.TranslateX = A(0); s.TranslateY = A(1); s.HasTransform = true; break;
-                case "translatex": s.TranslateX = A(0); s.HasTransform = true; break;
-                case "translatey": s.TranslateY = A(0); s.HasTransform = true; break;
+                case "translate":
+                    (s.TranslateX, s.TranslateXPct) = T(0);
+                    (s.TranslateY, s.TranslateYPct) = T(1);
+                    s.HasTransform = true; break;
+                case "translatex": (s.TranslateX, s.TranslateXPct) = T(0); s.HasTransform = true; break;
+                case "translatey": (s.TranslateY, s.TranslateYPct) = T(0); s.HasTransform = true; break;
                 case "scale": s.ScaleX = N(0, 1); s.ScaleY = args.Length > 1 ? N(1, 1) : s.ScaleX; s.HasTransform = true; break;
                 case "scalex": s.ScaleX = N(0, 1); s.HasTransform = true; break;
                 case "scaley": s.ScaleY = N(0, 1); s.HasTransform = true; break;

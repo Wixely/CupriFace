@@ -212,9 +212,12 @@ public sealed class Painter
         if (transformed)
         {
             var (pivotX, pivotY) = s.TransformPivot(node.Width, node.Height);
+            // A percentage translate is of THIS box, which is why it resolves here and not in the
+            // cascade (#258).
+            var (tx, ty) = s.ResolvedTranslate(node.Width, node.Height);
             list.Add(new PushTransform(
                 absX + pivotX, absY + pivotY,
-                s.TranslateX, s.TranslateY, s.ScaleX, s.ScaleY, s.RotateDeg));
+                tx, ty, s.ScaleX, s.ScaleY, s.RotateDeg));
         }
 
         // Box shadow: outset (drop) shadows paint BEHIND the background.

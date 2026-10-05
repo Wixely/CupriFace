@@ -10,7 +10,8 @@ public sealed record Keyframe(float Offset, Dictionary<string, string> Declarati
 /// forwards fill — puts these back, so seeking to any time gives that time's frame and never the
 /// previous call's.</summary>
 internal sealed record AnimationBase(float Opacity, bool HasTransform, float TranslateX, float TranslateY,
-    float RotateDeg, float ScaleX, float ScaleY, Length Width, Length Height);
+    float RotateDeg, float ScaleX, float ScaleY, Length Width, Length Height,
+    float TranslateXPct = 0f, float TranslateYPct = 0f);
 
 /// <summary>
 /// Parses <c>@keyframes</c> blocks and applies time-sampled animation overrides to the
@@ -119,12 +120,14 @@ public static partial class Animation
         if (s.AnimBase is not { } b) return;
         s.Opacity = b.Opacity; s.HasTransform = b.HasTransform;
         s.TranslateX = b.TranslateX; s.TranslateY = b.TranslateY; s.RotateDeg = b.RotateDeg;
+        s.TranslateXPct = b.TranslateXPct; s.TranslateYPct = b.TranslateYPct;
         s.ScaleX = b.ScaleX; s.ScaleY = b.ScaleY; s.Width = b.Width; s.Height = b.Height;
     }
 
     private static void ApplyFrame(ComputedStyle s, List<Keyframe> frames, float progress)
     {
-        s.AnimBase ??= new AnimationBase(s.Opacity, s.HasTransform, s.TranslateX, s.TranslateY, s.RotateDeg, s.ScaleX, s.ScaleY, s.Width, s.Height);
+        s.AnimBase ??= new AnimationBase(s.Opacity, s.HasTransform, s.TranslateX, s.TranslateY, s.RotateDeg, s.ScaleX, s.ScaleY, s.Width, s.Height,
+                                         s.TranslateXPct, s.TranslateYPct);
         // Find bracketing keyframes.
         Keyframe a = frames[0], b = frames[^1];
         for (var i = 0; i < frames.Count - 1; i++)
@@ -157,6 +160,11 @@ public static partial class Animation
             s.HasTransform = true;
             s.TranslateX = Lerp(from.TranslateX, to.TranslateX, local);
             s.TranslateY = Lerp(from.TranslateY, to.TranslateY, local);
+            // The percentage part interpolates in its own unit, as a width does, and resolves
+            // against the box at paint time — a stop written as `translateX(-50%)` used to be
+            // read as 0px, so the whole run slid to the wrong place (#258).
+            s.TranslateXPct = Lerp(from.TranslateXPct, to.TranslateXPct, local);
+            s.TranslateYPct = Lerp(from.TranslateYPct, to.TranslateYPct, local);
             s.RotateDeg = Lerp(from.RotateDeg, to.RotateDeg, local);
             s.ScaleX = Lerp(from.ScaleX, to.ScaleX, local);
             s.ScaleY = Lerp(from.ScaleY, to.ScaleY, local);
