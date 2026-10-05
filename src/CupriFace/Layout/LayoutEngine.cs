@@ -541,49 +541,110 @@ public sealed class LayoutEngine
         else if (n.Style.Bottom.IsDefinite) n.Y -= n.Style.Bottom.Resolve(cbH);
     }
 
-    /// <summary>Lay out absolutely-positioned children against this node's content box.</summary>
+    /// <summary>
+    /// Lay out the absolutely-positioned descendants whose CONTAINING BLOCK is this node, against
+    /// its content box.
+    ///
+    /// <para>The containing block of an absolutely positioned element is its nearest POSITIONED
+    /// ancestor — anything but <c>position: static</c> — or the root when there is none. It used
+    /// to be the direct parent, positioned or not, so <c>top: 50%</c> inside an unsized static
+    /// wrapper resolved against a wrapper with no height and came out 0, and the centred card it
+    /// described sat at the top of the frame (#259). Every static wrapper in between is walked
+    /// through here; a static node runs no absolute pass of its own.</para>
+    /// </summary>
     private void LayoutAbsoluteChildren(RenderNode node, float contentW, float contentH)
     {
-        foreach (var child in node.Children)
+        if (!IsContainingBlock(node)) return;
+        PlaceAbsoluteDescendants(node, node, contentW, contentH, 0f, 0f);
+    }
+
+    /// <summary>A box that absolutely positioned descendants resolve against: positioned, or the
+    /// root, which stands in for the initial containing block.</summary>
+    private static bool IsContainingBlock(RenderNode n) =>
+        n.Parent is null || n.Style.Position != PositionType.Static;
+
+    /// <summary>Walk <paramref name="parent"/>'s children: place the absolute ones against
+    /// <paramref name="cb"/>, and descend through the static in-flow ones, whose absolute children
+    /// belong to the same containing block. A positioned descendant is a containing block of its
+    /// own and is left to its own pass. (<paramref name="offX"/>, <paramref name="offY"/>) is where
+    /// the parent's border box sits relative to the containing block's — what converts a position
+    /// in the containing block into the parent-relative coordinates every node stores.</summary>
+    private void PlaceAbsoluteDescendants(RenderNode cb, RenderNode parent, float contentW, float contentH,
+                                          float offX, float offY)
+    {
+        foreach (var child in parent.Children)
         {
-            if (child.Style.Display == DisplayType.None || child.Style.Position != PositionType.Absolute) continue;
-            LayoutNode(child, contentW, contentH);
-
-            // OPPOSITE OFFSETS SIZE THE BOX. With both edges pinned and the size auto, the box
-            // stretches between them — which is what `top:0; right:0; bottom:0; left:0` means, and
-            // what `inset: 0` desugars to. Both were accepted and then sized to nothing, so the
-            // full-bleed overlay, backdrop or end card they describe covered nothing at all and the
-            // composition still rendered, leaving nothing to notice (#200).
-            //
-            // Laid out a SECOND time rather than computed up front: the margins, padding and border
-            // that go into the arithmetic are resolved by the first pass, and duplicating that
-            // resolution here is how the two would drift.
-            var cs = child.Style;
-            var stretchW = !cs.Width.IsDefinite && cs.Left.IsDefinite && cs.Right.IsDefinite;
-            var stretchH = !cs.Height.IsDefinite && cs.Top.IsDefinite && cs.Bottom.IsDefinite;
-            if (stretchW || stretchH)
+            if (child.Style.Display == DisplayType.None || child.IsText) continue;
+            if (child.Style.Position == PositionType.Absolute)
             {
-                float? fw = stretchW
-                    ? MathF.Max(0, contentW - cs.Left.Resolve(contentW) - cs.Right.Resolve(contentW)
-                                 - child.MarginLeft - child.MarginRight - child.HorizontalInsets)
-                    : null;
-                float? fh = stretchH
-                    ? MathF.Max(0, contentH - cs.Top.Resolve(contentH) - cs.Bottom.Resolve(contentH)
-                                 - child.MarginTop - child.MarginBottom - child.VerticalInsets)
-                    : null;
-                LayoutNode(child, contentW, contentH, fw, fh);
+                PlaceAbsolute(cb, parent, child, contentW, contentH, offX, offY);
+                continue;
             }
-
-            float x = child.Style.Left.IsDefinite ? child.Style.Left.Resolve(contentW)
-                : child.Style.Right.IsDefinite ? contentW - child.Style.Right.Resolve(contentW) - child.Width
-                : 0f;
-            float y = child.Style.Top.IsDefinite ? child.Style.Top.Resolve(contentH)
-                : child.Style.Bottom.IsDefinite ? contentH - child.Style.Bottom.Resolve(contentH) - child.Height
-                : 0f;
-
-            child.X = node.ContentLeftInset + x;
-            child.Y = node.ContentTopInset + y;
+            if (child.Style.Position != PositionType.Static) continue;
+            PlaceAbsoluteDescendants(cb, child, contentW, contentH, offX + child.X, offY + child.Y);
         }
+    }
+
+    private void PlaceAbsolute(RenderNode cb, RenderNode parent, RenderNode child,
+                               float contentW, float contentH, float offX, float offY)
+    {
+        LayoutNode(child, contentW, contentH);
+
+        // OPPOSITE OFFSETS SIZE THE BOX. With both edges pinned and the size auto, the box
+        // stretches between them — which is what `top:0; right:0; bottom:0; left:0` means, and
+        // what `inset: 0` desugars to. Both were accepted and then sized to nothing, so the
+        // full-bleed overlay, backdrop or end card they describe covered nothing at all and the
+        // composition still rendered, leaving nothing to notice (#200).
+        //
+        // Laid out a SECOND time rather than computed up front: the margins, padding and border
+        // that go into the arithmetic are resolved by the first pass, and duplicating that
+        // resolution here is how the two would drift.
+        var cs = child.Style;
+        var stretchW = !cs.Width.IsDefinite && cs.Left.IsDefinite && cs.Right.IsDefinite;
+        var stretchH = !cs.Height.IsDefinite && cs.Top.IsDefinite && cs.Bottom.IsDefinite;
+        if (stretchW || stretchH)
+        {
+            float? fw = stretchW
+                ? MathF.Max(0, contentW - cs.Left.Resolve(contentW) - cs.Right.Resolve(contentW)
+                             - child.MarginLeft - child.MarginRight - child.HorizontalInsets)
+                : null;
+            float? fh = stretchH
+                ? MathF.Max(0, contentH - cs.Top.Resolve(contentH) - cs.Bottom.Resolve(contentH)
+                             - child.MarginTop - child.MarginBottom - child.VerticalInsets)
+                : null;
+            LayoutNode(child, contentW, contentH, fw, fh);
+        }
+
+        // The offsets place the MARGIN edge, so the margin then moves the border box inside it —
+        // exactly as it does in normal flow. Margins were resolved and then never read on this
+        // path, which silently disabled the other classic centring idiom, `top:50%; left:50%` with
+        // a negative half-size margin (#260). With no offset on an axis the box takes its static
+        // position: the start of its own parent's content box, plus the margin.
+        //
+        // `margin: auto` between two pinned edges on a sized box splits the free space, which is
+        // what `left:0; right:0; margin:auto` means and the only way it can be read.
+        var m = cs.Margin;
+        var staticX = offX + parent.ContentLeftInset - cb.ContentLeftInset;
+        var staticY = offY + parent.ContentTopInset - cb.ContentTopInset;
+        float x;
+        if (cs.Left.IsDefinite && cs.Right.IsDefinite && cs.Width.IsDefinite && m.Left.IsAuto && m.Right.IsAuto)
+            x = cs.Left.Resolve(contentW)
+              + MathF.Max(0, contentW - cs.Left.Resolve(contentW) - cs.Right.Resolve(contentW) - child.Width) / 2f;
+        else if (cs.Left.IsDefinite) x = cs.Left.Resolve(contentW) + child.MarginLeft;
+        else if (cs.Right.IsDefinite) x = contentW - cs.Right.Resolve(contentW) - child.Width - child.MarginRight;
+        else x = staticX + child.MarginLeft;
+        float y;
+        if (cs.Top.IsDefinite && cs.Bottom.IsDefinite && cs.Height.IsDefinite && m.Top.IsAuto && m.Bottom.IsAuto)
+            y = cs.Top.Resolve(contentH)
+              + MathF.Max(0, contentH - cs.Top.Resolve(contentH) - cs.Bottom.Resolve(contentH) - child.Height) / 2f;
+        else if (cs.Top.IsDefinite) y = cs.Top.Resolve(contentH) + child.MarginTop;
+        else if (cs.Bottom.IsDefinite) y = contentH - cs.Bottom.Resolve(contentH) - child.Height - child.MarginBottom;
+        else y = staticY + child.MarginTop;
+
+        // From the containing block's content box into the parent's border-box space, which is
+        // the coordinate space every node's X/Y is stored in.
+        child.X = cb.ContentLeftInset + x - offX;
+        child.Y = cb.ContentTopInset + y - offY;
     }
 
     // ---- flex (multi-line / wrap) -------------------------------------------

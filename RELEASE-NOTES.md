@@ -30,6 +30,28 @@ element was simply somewhere else, something else, or not there.
   centred card is clickable where it is drawn. Nothing to do; a document that had written the px
   form by hand renders as before.
 
+- **An absolutely positioned element now resolves against its nearest POSITIONED ancestor, or the
+  root (#259).** It used to resolve against its direct parent whether or not that parent was
+  positioned, so `top: 50%` inside an unsized static wrapper was 50% of nothing and every centred
+  card in such a block sat at the top of the frame. Static wrappers in between are now walked
+  through, as a browser does; the root stands in for the initial containing block when nothing is
+  positioned. This is also what makes `position: relative` on a wrapper mean something.
+
+  **Check anything that leaned on the old behaviour.** An absolute child of a static, unpositioned
+  parent was placed against that parent; it is now placed against the nearest positioned ancestor,
+  which may be further out. Where the parent had an explicit size and no positioned ancestor of its
+  own the answer is usually the same, which is why the shipped components and samples needed no
+  change — but a layout that relied on a static parent being the containing block should give that
+  parent `position: relative`, which is the one-line fix and the browser's rule.
+
+- **Margins now apply to an absolutely positioned element (#260).** They were resolved and then never
+  read on that path, so `margin-left: 80px` moved a static block and moved an absolute one nowhere,
+  and the other classic centring idiom — `top: 50%; left: 50%` with a negative half-size margin —
+  did nothing. The offsets place the margin edge and the margin moves the border box inside it,
+  exactly as in flow; `margin: auto` between two pinned edges on a sized box splits the free space,
+  so `inset: 0; margin: auto` centres. An absolute element that carried a margin it was not
+  expecting to see will move by it.
+
 ## v0.33.0
 
 A controller, end to end: directional navigation, all four hosts, the policy to decide who owns the
