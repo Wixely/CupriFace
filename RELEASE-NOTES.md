@@ -13,7 +13,7 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
-## Unreleased
+## v0.35.0
 
 A second set of conformance gaps from the same corpus survey (#265–#270), filed against 0.34.0.
 
