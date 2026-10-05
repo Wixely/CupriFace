@@ -13,7 +13,7 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
-## Unreleased
+## v0.34.0
 
 Six conformance gaps, each found by rendering a designed composition beside a browser and measuring
 the difference (#258–#263). All of them were silent: the markup laid out, nothing threw, and the
