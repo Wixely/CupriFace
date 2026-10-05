@@ -15,6 +15,21 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ## Unreleased
 
+### Fixed
+
+- **A host pad event turned away by `HostGamepadInput` is reported rather than silently dropped**
+  (#255). `DispatchGamepadKey` and `DispatchGamepadStick` returned at the capability check, before
+  raising `InputObserved` — so a policy-rejected event and an event that never reached the document
+  were the same silence. That is precisely the distinction `InputObserved` exists to draw, and it
+  bit hardest where the capabilities are most used: an application whose own reader owns the
+  controller sets `HostGamepad.None`, so *every* host pad event took that path and the log it was
+  reading said nothing at all. Reported against v0.33.0-alpha.7 from a real integration.
+
+  They now report `Swallowed route=Ignore` — not acted on and not consumed, so the event remains the
+  host's to use. A turned-away stick reports **once per push** rather than once per sample, matching
+  what an accepted stick produces: a host polls the stick every frame, and sixty lines a second
+  would bury the log it is meant to clarify.
+
 ### Changed
 
 - **A controller is no longer routed as the keyboard it arrives as.** Every host delivers a D-pad and

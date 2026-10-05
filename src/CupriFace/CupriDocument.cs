@@ -3824,8 +3824,51 @@ public sealed partial class CupriDocument : IDisposable
     /// the policy lives here rather than being re-derived by four hosts that could come to disagree
     /// about it.</para>
     /// </summary>
-    public bool DispatchGamepadStick(float x, float y) =>
-        HostGamepadInput.HasFlag(Interaction.HostGamepad.Stick) && Gamepad.HostStick(x, y);
+    public bool DispatchGamepadStick(float x, float y)
+    {
+        if (HostGamepadInput.HasFlag(Interaction.HostGamepad.Stick))
+        {
+            _padStickDropped = false;
+            return Gamepad.HostStick(x, y);
+        }
+
+        // EDGE-LIMITED exactly as the driver would be, rather than reported per sample: a host polls
+        // the stick every frame, so a pad held over while the capability is off would file sixty
+        // lines a second and bury everything else. One report per push is what an ACCEPTED stick
+        // produces, and a rejected one should not be noisier than the thing it stands in for.
+        var pushed = MathF.Abs(x) >= GamepadDeadzone || MathF.Abs(y) >= GamepadDeadzone;
+        var edge = pushed && !_padStickDropped;
+        _padStickDropped = pushed;
+        return edge && RejectedPadInput($"stick {x:0.00},{y:0.00}");
+    }
+
+    private bool _padStickDropped;
+
+    /// <summary>
+    /// A host pad event that <see cref="HostGamepadInput"/> turned away — reported, then dropped.
+    ///
+    /// <para>Returning quietly was wrong, and wrong in the one way this diagnostic exists to prevent:
+    /// it made "the host never delivered the event" and "the host delivered it and you told me to
+    /// ignore it" the same silence. Reported from an integration whose own reader owns the controller,
+    /// so EVERY host pad event takes this path and the log it was reading said nothing at all.</para>
+    ///
+    /// <para><see cref="Interaction.InputRoute.Ignore"/> is the honest route: the engine did not act
+    /// and did not consume, so the host remains free to do something else with it.</para>
+    /// </summary>
+    private bool RejectedPadInput(string input)
+    {
+        if (InputObserved is not null)
+        {
+            _obsAction = Interaction.InputAction.Swallowed;
+            _obsTarget = null;
+            Raise(Interaction.InputSource.HostGamepad, input, Interaction.InputRoute.Ignore, handled: false);
+        }
+        // Nothing downstream ran, so nothing consumed these; left set they would attach themselves
+        // to whatever event came next.
+        _obsAttrib = null;
+        _obsInput = null;
+        return false;
+    }
 
     /// <summary>
     /// A D-pad or face button from the HOST's own pad, as the <see cref="EditKey"/> it stands for.
@@ -3840,7 +3883,8 @@ public sealed partial class CupriDocument : IDisposable
         var capability = Arrow(key) is not null
             ? Interaction.HostGamepad.Dpad
             : Interaction.HostGamepad.Buttons;
-        if (!HostGamepadInput.HasFlag(capability)) return false;
+        if (!HostGamepadInput.HasFlag(capability))
+            return RejectedPadInput(down ? key.ToString() : key + " up");
 
         AttributeInputTo(Interaction.InputSource.HostGamepad);
         return down ? DispatchKey(null, key) : DispatchKeyUp(key);

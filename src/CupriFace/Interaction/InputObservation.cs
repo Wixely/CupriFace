@@ -58,9 +58,11 @@ public enum InputAction
     /// <summary>A view scrolled.</summary>
     Scroll,
 
-    /// <summary>Swallowed deliberately by <see cref="CupriDocument.KeyboardNavigation"/> or
-    /// <see cref="CupriDocument.ArrowKeyNavigation"/> — the engine was told not to act on this.
-    /// <see cref="InputObservation.Route"/> says which setting.</summary>
+    /// <summary>Swallowed deliberately — by <see cref="CupriDocument.KeyboardNavigation"/>,
+    /// <see cref="CupriDocument.ArrowKeyNavigation"/>, or <see cref="CupriDocument.HostGamepadInput"/>
+    /// turning away a capability of the host's pad. The engine was told not to act on this.
+    /// <see cref="InputObservation.Route"/> distinguishes them: <see cref="InputRoute.Ignore"/> is a
+    /// host pad capability that is switched off, and the event is left for the host to use.</summary>
     Swallowed,
 }
 
