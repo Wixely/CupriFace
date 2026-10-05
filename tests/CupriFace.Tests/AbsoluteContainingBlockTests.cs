@@ -70,6 +70,28 @@ public class AbsoluteContainingBlockTests(ITestOutputHelper output)
         Assert.Equal(20 + 200 - 40, b.Y, 0.5);
     }
 
+    /// <summary>The offsets refer to the containing block's PADDING box, as in CSS: a badge at
+    /// <c>top:0; right:0</c> sits in the corner inside the border, not a padding's width in from
+    /// it, and a glow at <c>bottom:-6px</c> straddles the edge. Percentages are of that box too.</summary>
+    [Fact]
+    public void Offsets_are_measured_from_the_padding_box()
+    {
+        using var t = new TestDoc(
+            "<body><div class='frame'><div class='card'></div><div class='glow'></div><div class='half'></div></div></body>",
+            "body{margin:0} .frame{position:relative;width:200px;height:100px;padding:20px;border:5px solid #000;box-sizing:border-box}"
+            + " .card{position:absolute;top:0;right:0;width:30px;height:10px}"
+            + " .glow{position:absolute;left:0;right:0;bottom:-6px;height:12px}"
+            + " .half{position:absolute;top:0;left:0;width:50%;height:50%}",
+            width: 300, height: 200);
+        var card = Interaction.HitTesting.AbsoluteBox(t.FindClass("card"));
+        var glow = Interaction.HitTesting.AbsoluteBox(t.FindClass("glow"));
+        var half = Interaction.HitTesting.AbsoluteBox(t.FindClass("half"));
+        output.WriteLine(t.Doc.DumpTree(maxDepth: 2));
+        Assert.Equal((200 - 5 - 30f, 5f), (card.X, card.Y));          // inside the border, not the padding
+        Assert.Equal((5f, 190f, 100 - 5 - 6f), (glow.X, glow.W, glow.Y)); // spans the padding box; straddles the edge
+        Assert.Equal((95f, 45f), (half.W, half.H));                     // 50% of the 190x90 padding box
+    }
+
     /// <summary>With no offset on an axis the box keeps its static position — the start of its own
     /// parent's content box — so a badge that only says <c>right: 0</c> still sits at the top of
     /// the row it was written in.</summary>

@@ -44,6 +44,14 @@ element was simply somewhere else, something else, or not there.
   change — but a layout that relied on a static parent being the containing block should give that
   parent `position: relative`, which is the one-line fix and the browser's rule.
 
+  **The offsets are now measured from the containing block's PADDING box**, as CSS says, where
+  they used to be measured from its content box. A badge at `top:0; right:0` in a padded card sits
+  in the corner inside the border rather than a padding's width in from it, a glow at `bottom:-6px`
+  straddles the card's edge instead of sitting inside it, and a `width:50%` is half the padding
+  box. An absolute child of a PADDED positioned parent moves outward by that padding; the shipped
+  text field's floating label was the one component that leaned on the old box and now names the
+  field's own padding as its offset, which is what the rule had always meant.
+
 - **Margins now apply to an absolutely positioned element (#260).** They were resolved and then never
   read on that path, so `margin-left: 80px` moved a static block and moved an absolute one nowhere,
   and the other classic centring idiom — `top: 50%; left: 50%` with a negative half-size margin —

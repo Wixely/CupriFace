@@ -543,7 +543,10 @@ public sealed class LayoutEngine
 
     /// <summary>
     /// Lay out the absolutely-positioned descendants whose CONTAINING BLOCK is this node, against
-    /// its content box.
+    /// its PADDING box — the box CSS says an absolute offset refers to. It used to be the content
+    /// box, so a badge at <c>top:0; right:0</c> in a padded card sat a padding's width in from the
+    /// corner, and a glow at <c>bottom:-6px</c> sat inside the card rather than straddling its
+    /// edge; the offsets are measured from the border's inner edge now, as in a browser.
     ///
     /// <para>The containing block of an absolutely positioned element is its nearest POSITIONED
     /// ancestor — anything but <c>position: static</c> — or the root when there is none. It used
@@ -555,7 +558,9 @@ public sealed class LayoutEngine
     private void LayoutAbsoluteChildren(RenderNode node, float contentW, float contentH)
     {
         if (!IsContainingBlock(node)) return;
-        PlaceAbsoluteDescendants(node, node, contentW, contentH, 0f, 0f);
+        var padW = contentW + node.PadLeft + node.PadRight;
+        var padH = contentH + node.PadTop + node.PadBottom;
+        PlaceAbsoluteDescendants(node, node, padW, padH, 0f, 0f);
     }
 
     /// <summary>A box that absolutely positioned descendants resolve against: positioned, or the
@@ -569,7 +574,7 @@ public sealed class LayoutEngine
     /// own and is left to its own pass. (<paramref name="offX"/>, <paramref name="offY"/>) is where
     /// the parent's border box sits relative to the containing block's — what converts a position
     /// in the containing block into the parent-relative coordinates every node stores.</summary>
-    private void PlaceAbsoluteDescendants(RenderNode cb, RenderNode parent, float contentW, float contentH,
+    private void PlaceAbsoluteDescendants(RenderNode cb, RenderNode parent, float cbW, float cbH,
                                           float offX, float offY)
     {
         foreach (var child in parent.Children)
@@ -577,14 +582,15 @@ public sealed class LayoutEngine
             if (child.Style.Display == DisplayType.None || child.IsText) continue;
             if (child.Style.Position == PositionType.Absolute)
             {
-                PlaceAbsolute(cb, parent, child, contentW, contentH, offX, offY);
+                PlaceAbsolute(cb, parent, child, cbW, cbH, offX, offY);
                 continue;
             }
             if (child.Style.Position != PositionType.Static) continue;
-            PlaceAbsoluteDescendants(cb, child, contentW, contentH, offX + child.X, offY + child.Y);
+            PlaceAbsoluteDescendants(cb, child, cbW, cbH, offX + child.X, offY + child.Y);
         }
     }
 
+    // cbW/cbH: the containing block's padding box, which every offset and percentage below refers to.
     private void PlaceAbsolute(RenderNode cb, RenderNode parent, RenderNode child,
                                float contentW, float contentH, float offX, float offY)
     {
@@ -624,8 +630,8 @@ public sealed class LayoutEngine
         // `margin: auto` between two pinned edges on a sized box splits the free space, which is
         // what `left:0; right:0; margin:auto` means and the only way it can be read.
         var m = cs.Margin;
-        var staticX = offX + parent.ContentLeftInset - cb.ContentLeftInset;
-        var staticY = offY + parent.ContentTopInset - cb.ContentTopInset;
+        var staticX = offX + parent.ContentLeftInset - cb.BorderLeftW;
+        var staticY = offY + parent.ContentTopInset - cb.BorderTopW;
         float x;
         if (cs.Left.IsDefinite && cs.Right.IsDefinite && cs.Width.IsDefinite && m.Left.IsAuto && m.Right.IsAuto)
             x = cs.Left.Resolve(contentW)
@@ -641,10 +647,10 @@ public sealed class LayoutEngine
         else if (cs.Bottom.IsDefinite) y = contentH - cs.Bottom.Resolve(contentH) - child.Height - child.MarginBottom;
         else y = staticY + child.MarginTop;
 
-        // From the containing block's content box into the parent's border-box space, which is
+        // From the containing block's padding box into the parent's border-box space, which is
         // the coordinate space every node's X/Y is stored in.
-        child.X = cb.ContentLeftInset + x - offX;
-        child.Y = cb.ContentTopInset + y - offY;
+        child.X = cb.BorderLeftW + x - offX;
+        child.Y = cb.BorderTopW + y - offY;
     }
 
     // ---- flex (multi-line / wrap) -------------------------------------------
