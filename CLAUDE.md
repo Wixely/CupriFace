@@ -247,8 +247,12 @@ target — ground truth when a live window looks wrong but the document seems ri
 keys, focus changes, and **every controller button and stick reading**. Reach for it before
 theorising about a pad that "does nothing": it separates "no events arrive at all" (wrong subsystem,
 pad not opened) from "events arrive and are mapped wrongly", which look identical from the outside.
-The stick lines carry the signs, which is the one thing about controller support that cannot be
-checked without hardware — push down and `y` must be positive, or navigation runs upside down.
+The stick lines carry the readings, which is how you tell those apart for a pad: no lines at all
+means the host never found it. **y is DOWN-positive on every platform** (GLFW, SDL, Android and the
+Gamepad API all agree with the engine's own space, and no host negates it — TOOLBOX.md §Stick axes),
+so push down and `y` must be positive. What that does NOT settle is whether the host finds a pad in
+the first place: the engine's own desktop and Android discovery has never run against physical
+hardware, because the one integration using a controller in anger feeds input from its own reader.
 
 In the browser the equivalent is the console: a connected pad is always announced (with its id and
 whether the browser gave it the standard mapping), and `?padlog=1` on the URL adds the per-event
