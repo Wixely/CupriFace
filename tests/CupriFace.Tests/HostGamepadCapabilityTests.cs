@@ -231,6 +231,134 @@ public class HostGamepadCapabilityTests
         Assert.Equal("b2", t.FocusedName());                    // ONE move to the corner, not two
     }
 
+    // ---- a capability that is OFF is still SEEN ----------------------------------------------------
+
+    /// <summary>
+    /// THE DEFECT, reported against v0.33.0-alpha.7. A capability that is switched off returned
+    /// quietly, so the event produced no observation at all — which made "the host never delivered
+    /// it" and "the host delivered it and you told me to ignore it" the same silence. That is the
+    /// one distinction <c>InputObserved</c> exists to make, so the feature undid itself at exactly
+    /// the point it was most needed.
+    ///
+    /// <para>It bit hardest where the capabilities are most used: an application whose own reader
+    /// owns the controller sets <c>None</c>, so EVERY host pad event takes this path and the log it
+    /// was reading said nothing whatsoever.</para>
+    /// </summary>
+    [Fact]
+    public void A_pad_event_turned_away_by_policy_is_still_reported()
+    {
+        using var t = Open();
+        t.Doc.HostGamepadInput = HostGamepad.None;
+        var seen = new List<InputObservation>();
+        t.Doc.InputObserved += seen.Add;
+
+        t.Doc.DispatchGamepadKey(EditKey.Down, down: true);
+
+        var o = Assert.Single(seen);
+        Assert.Equal(InputSource.HostGamepad, o.Source);
+        Assert.Equal("Down", o.Input);
+        Assert.Equal(InputAction.Swallowed, o.Action);
+        Assert.Equal(InputRoute.Ignore, o.Route);   // not acted on, not consumed: still the host's
+        Assert.False(o.Handled);
+    }
+
+    /// <summary>A release is reported too, or a host checking that its presses arrive in pairs would
+    /// see half of them.</summary>
+    [Fact]
+    public void A_turned_away_release_is_reported_as_a_release()
+    {
+        using var t = Open();
+        t.Doc.HostGamepadInput = HostGamepad.None;
+        var seen = new List<InputObservation>();
+        t.Doc.InputObserved += seen.Add;
+
+        t.Doc.DispatchGamepadKey(EditKey.Down, down: false);
+
+        Assert.Equal("Down up", Assert.Single(seen).Input);
+    }
+
+    /// <summary>The stick too — and it carries its READING, so the one thing that cannot be checked
+    /// without hardware is visible even for an event the engine refused to act on.</summary>
+    [Fact]
+    public void A_turned_away_stick_is_reported_with_its_reading()
+    {
+        using var t = Open();
+        t.Doc.HostGamepadInput = HostGamepad.None;
+        var seen = new List<InputObservation>();
+        t.Doc.InputObserved += seen.Add;
+
+        t.Doc.DispatchGamepadStick(0f, 0.9f);
+
+        var o = Assert.Single(seen);
+        Assert.Equal("stick 0.00,0.90", o.Input);
+        Assert.Equal(InputAction.Swallowed, o.Action);
+        Assert.Equal(InputRoute.Ignore, o.Route);
+    }
+
+    /// <summary>
+    /// …once per PUSH, not once per sample. A host polls the stick every frame, so a pad held over
+    /// with the capability off would file sixty lines a second and bury everything else — and a
+    /// diagnostic nobody can read is the failure this whole feature exists to avoid. One report per
+    /// push is exactly what an ACCEPTED stick produces; a rejected one must not be noisier than the
+    /// thing it stands in for.
+    /// </summary>
+    [Fact]
+    public void A_turned_away_stick_is_reported_once_per_push_not_once_per_sample()
+    {
+        using var t = Open();
+        t.Doc.HostGamepadInput = HostGamepad.None;
+        var seen = new List<InputObservation>();
+        t.Doc.InputObserved += seen.Add;
+
+        t.Doc.DispatchGamepadStick(0f, 0.9f);     // a push
+        t.Doc.DispatchGamepadStick(0f, 0.9f);     // …still held
+        t.Doc.DispatchGamepadStick(0f, 0.88f);    // …still held
+        Assert.Single(seen);
+
+        t.Doc.DispatchGamepadStick(0f, 0f);       // back to centre: silent, and re-arms
+        Assert.Single(seen);
+
+        t.Doc.DispatchGamepadStick(0f, 0.9f);     // pushed again
+        Assert.Equal(2, seen.Count);
+    }
+
+    /// <summary>A capability that is ON is unaffected by any of that: the two paths must not start
+    /// reporting each other's events.</summary>
+    [Fact]
+    public void Only_the_capability_that_is_off_reports_a_rejection()
+    {
+        using var t = Open();
+        t.Doc.HostGamepadInput = HostGamepad.Dpad;        // directions in, buttons out
+        var seen = new List<InputObservation>();
+        t.Doc.InputObserved += seen.Add;
+
+        t.Doc.DispatchGamepadKey(EditKey.Down, down: true);
+        t.Doc.DispatchGamepadKey(EditKey.Enter, down: true);
+
+        Assert.Equal(InputAction.Navigate, seen[0].Action);
+        Assert.Equal(InputRoute.Navigate, seen[0].Route);
+        Assert.Equal(InputAction.Swallowed, seen[1].Action);
+        Assert.Equal(InputRoute.Ignore, seen[1].Route);
+    }
+
+    /// <summary>A rejection must not leave its attribution lying around for the NEXT event to pick
+    /// up — nothing downstream ran, so nothing consumed it.</summary>
+    [Fact]
+    public void A_rejection_does_not_leak_its_attribution_into_the_next_event()
+    {
+        using var t = Open();
+        t.Doc.HostGamepadInput = HostGamepad.None;
+        var seen = new List<InputObservation>();
+        t.Doc.InputObserved += seen.Add;
+
+        t.Doc.DispatchGamepadKey(EditKey.Down, down: true);   // turned away
+        t.Doc.DispatchKey(null, EditKey.Down);                // a real keyboard press
+
+        Assert.Equal(InputSource.HostGamepad, seen[0].Source);
+        Assert.Equal(InputSource.Keyboard, seen[1].Source);
+        Assert.Equal("Down", seen[1].Input);                  // not "stick …" or a stale description
+    }
+
     /// <summary>The pad's events are reported as the pad's, with the keyboard's routing no longer
     /// attached to them — the diagnostic and the routing have to tell the same story.</summary>
     [Fact]

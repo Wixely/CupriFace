@@ -1471,6 +1471,14 @@ question about controller support, and it was previously unanswerable from outsi
 without hardware, and a log saying "Down" is perfectly consistent with an inverted axis. Push down:
 y must be positive.
 
+**A capability you switched off still reports.** `HostGamepadInput` turning an event away produces
+`Swallowed route=Ignore`, not silence — silence would make "the host never delivered it"
+indistinguishable from "the host delivered it and you told me to ignore it", which is the one
+distinction this exists to draw. (It did exactly that in v0.33.0-alpha.7, reported by an integration
+whose own reader owns the pad, so *every* host event took that path and its log said nothing at all.)
+A turned-away stick reports **once per push** rather than once per sample, because a host polls it
+every frame.
+
 It is a **diagnostic, not a hook** — raised synchronously after the engine has acted, and it cannot
 veto. An unobserved document pays one null check per event, so it is free to leave unattached. It
 covers keys (down and up), directional navigation, confirm, clicks and the wheel; pointer *moves* are
