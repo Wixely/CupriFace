@@ -579,6 +579,35 @@ controls handle their own state.
   ```css
   .cupri-backdrop.blurred { background:#00000055; backdrop-filter: blur(9px); }
   ```
+- **3D transforms.** `rotateX()`, `rotateY()`, `translateZ()`/`translate3d()`, `perspective()`,
+  and the `perspective`, `perspective-origin`, `transform-style: preserve-3d` and
+  `backface-visibility` properties. The flip card works the way it does in a browser: the
+  container preserves 3D and turns, both faces hide their backs, and the back face is pre-turned.
+  ```css
+  .scene { perspective: 800px; }
+  .card  { position: relative; transform-style: preserve-3d; transition: transform 600ms ease; }
+  .card.flipped { transform: rotateY(180deg); }
+  .face  { position: absolute; inset: 0; backface-visibility: hidden; }
+  .back  { transform: rotateY(180deg); }
+  ```
+  Children of a preserve-3d parent paint in document order rather than sorted by depth, so a
+  cuboid's overlapping faces may overdraw out of order; a flip card and a tilt never notice.
+- **`clip-path`.** The basic shapes — `inset(<edges> [round <radius>])`, `circle([r] [at <pos>])`,
+  `ellipse([rx ry] [at <pos>])`, `polygon(<points>)` — clip the element and everything in it, in
+  its own border box. The numbers animate between `@keyframes` stops of the same kind, which is
+  what a wipe, an iris or a mask reveal is.
+  ```css
+  .reveal  { animation: wipe 600ms ease-out forwards; }
+  @keyframes wipe { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+  .avatar  { clip-path: circle(50%); }
+  .slanted { clip-path: polygon(0 0, 100% 0, 100% 85%, 0 100%); }
+  ```
+- **`text-transform`.** `uppercase`, `lowercase` and `capitalize` change the case the text is DRAWN
+  in; the markup keeps what was typed. Inherited, so it goes on the label and reaches the text
+  inside it, and an inner element can say `none` to opt back out.
+  ```css
+  .kicker { text-transform: uppercase; letter-spacing: 0.12em; }   /* Live → LIVE, tracked for caps */
+  ```
 - **`font-style` + `text-decoration`.** `font-style: normal | italic | oblique` selects a real slanted
   face (it measures and shapes in that face, so it composes with `font-weight` — bold italic is a
   genuine bold-italic face, not a synthesised slant). `text-decoration` (or `text-decoration-line`)

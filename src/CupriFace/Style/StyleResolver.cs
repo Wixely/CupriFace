@@ -162,6 +162,7 @@ public sealed class StyleResolver
                             node.AddChild(gen);
                             gen.Style.InheritFrom(node.Style);
                             gen.Style.Display = DisplayType.Inline;
+                            gen.Text = TextCase.Apply(gen.Text!, gen.Style.TextTransform);
                         }
                         prev = node; pendingWs = false;
                         break;
@@ -205,6 +206,9 @@ public sealed class StyleResolver
                     // Text inherits the parent's computed style directly.
                     textNode.Style.InheritFrom(parentNode.Style);
                     textNode.Style.Display = DisplayType.Inline;
+                    // The case it is drawn in is decided here, once the cascade has reached it: the
+                    // DOM keeps what the author typed, the render tree carries what is shown (#266).
+                    textNode.Text = TextCase.Apply(textNode.Text!, textNode.Style.TextTransform);
                     prev = textNode; pendingWs = false;
                     break;
             }
@@ -481,8 +485,23 @@ public sealed class StyleResolver
                 case "background-position": s.BackgroundGeometry = WithPosition(s.BackgroundGeometry, v); break;
                 case "background-repeat": s.BackgroundGeometry = WithRepeat(s.BackgroundGeometry, v); break;
                 case "opacity": s.Opacity = Math.Clamp(ParseNum(v), 0f, 1f); break;
+                case "clip-path": s.ClipPath = ParseClipPath(v, prop); break;
                 case "transform": ParseTransform(s, v); break;
                 case "transform-origin": ParseTransformOrigin(s, v); break;
+                // The 3D family (#269). `perspective` is lent to the CHILDREN, about the origin;
+                // `transform-style` and `backface-visibility` are read by the painter per node.
+                case "perspective":
+                    s.Perspective = v.Trim().Equals("none", StringComparison.OrdinalIgnoreCase) ? 0f : MathF.Max(0f, ParsePx(v));
+                    break;
+                case "perspective-origin":
+                {
+                    var origin = new ComputedStyle();
+                    ParseTransformOrigin(origin, v);
+                    s.PerspectiveOriginX = origin.TransformOriginX; s.PerspectiveOriginY = origin.TransformOriginY;
+                    break;
+                }
+                case "transform-style": s.Preserve3D = v.Trim().Equals("preserve-3d", StringComparison.OrdinalIgnoreCase); break;
+                case "backface-visibility": s.BackfaceHidden = v.Trim().Equals("hidden", StringComparison.OrdinalIgnoreCase); break;
                 case "animation": ParseAnimation(s, v); break;
                 case "animation-name": s.AnimationName = v; break;
                 case "animation-duration": s.AnimationDuration = ParseSeconds(v); break;
@@ -552,6 +571,20 @@ public sealed class StyleResolver
                 // Shorthand and longhand both land here: we only support the *line* part, so any
                 // colour/style words in the shorthand are ignored rather than mis-parsed.
                 case "text-decoration" or "text-decoration-line": s.Decorations = ParseDecorations(v); break;
+                // The case the text is drawn in (#266). 52 of 165 designed compositions in one
+                // corpus write it: the source says `Live` and the stylesheet makes it `LIVE`, with
+                // letter-spacing tuned for capitals. Rendered as typed, a lower third read as a
+                // caption. `full-width`/`full-size-kana` are not implemented and are reported.
+                case "text-transform":
+                    switch (v.Trim().ToLowerInvariant())
+                    {
+                        case "uppercase": s.TextTransform = TextTransform.Uppercase; break;
+                        case "lowercase": s.TextTransform = TextTransform.Lowercase; break;
+                        case "capitalize": s.TextTransform = TextTransform.Capitalize; break;
+                        case "none": s.TextTransform = TextTransform.None; break;
+                        default: UnsupportedProperty?.Invoke(prop, v); break;
+                    }
+                    break;
                 // Everything else is silently ignored, which is the right runtime behaviour — a
                 // stylesheet written for a browser must not throw here. But "silently" is exactly
                 // what makes a typo'd or unsupported property hard to find, so when a checker is
@@ -1163,6 +1196,99 @@ public sealed class StyleResolver
     // declaration replaces the whole list (CSS shorthand semantics). Splitting is paren-aware so a
     // cubic-bezier(...)'s inner commas/spaces don't split the list or tokens.
     /// <summary>
+    /// <c>clip-path</c>: the four basic shapes (#268). <c>none</c> clears; a reference
+    /// (<c>url(#mask)</c>), <c>path()</c> and a bare geometry box are reported as unsupported and
+    /// leave the element unclipped, which is what they did before.
+    /// </summary>
+    private static ClipShape? ParseClipPath(string v, string prop)
+    {
+        var t = v.Trim();
+        // A trailing geometry box (`inset(…) border-box`) names the reference box; the border box
+        // is the only one here, so the keyword is dropped rather than failing the shape.
+        foreach (var box in GeometryBoxes)
+            if (t.EndsWith(box, StringComparison.OrdinalIgnoreCase)) { t = t[..^box.Length].Trim(); break; }
+        if (t.Equals("none", StringComparison.OrdinalIgnoreCase)) return null;
+        var open = t.IndexOf('(');
+        if (open <= 0 || !t.EndsWith(')')) { UnsupportedProperty?.Invoke(prop, v); return null; }
+        var inner = t[(open + 1)..^1].Trim();
+        switch (t[..open].Trim().ToLowerInvariant())
+        {
+            case "inset": return ParseInset(inner);
+            case "circle": return ParseRound(inner, ClipShapeKind.Circle);
+            case "ellipse": return ParseRound(inner, ClipShapeKind.Ellipse);
+            case "polygon": return ParsePolygon(inner);
+            default: UnsupportedProperty?.Invoke(prop, v); return null;
+        }
+    }
+
+    private static readonly string[] GeometryBoxes =
+        ["margin-box", "border-box", "padding-box", "content-box", "fill-box", "stroke-box", "view-box"];
+
+    // inset( <length-percentage>{1,4} [ round <border-radius> ]? ) — the edges mirror as margin's do.
+    private static ClipShape ParseInset(string inner)
+    {
+        var toks = SplitTopLevel(inner, ' ');
+        var round = toks.FindIndex(x => x.Equals("round", StringComparison.OrdinalIgnoreCase));
+        var edges = (round < 0 ? toks : toks[..round]).Select(ParseLen).ToList();
+        var shape = new ClipShape { Kind = ClipShapeKind.Inset };
+        if (edges.Count > 0)
+        {
+            shape.Top = edges[0];
+            shape.Right = edges.Count > 1 ? edges[1] : edges[0];
+            shape.Bottom = edges.Count > 2 ? edges[2] : edges[0];
+            shape.Left = edges.Count > 3 ? edges[3] : shape.Right;
+        }
+        if (round >= 0 && round + 1 < toks.Count) shape.Round = ParseBorderRadius(string.Join(' ', toks[(round + 1)..]));
+        return shape;
+    }
+
+    // circle( [<radius>]? [ at <position> ]? ) / ellipse( [<rx> <ry>]? [ at <position> ]? ).
+    private static ClipShape ParseRound(string inner, ClipShapeKind kind)
+    {
+        var shape = new ClipShape { Kind = kind };
+        var at = inner.IndexOf(" at ", StringComparison.OrdinalIgnoreCase);
+        var radii = at < 0 ? inner : inner[..at];
+        var pos = at < 0 ? null : inner[(at + 4)..];
+        var toks = SplitTopLevel(radii, ' ');
+        if (toks.Count > 0) shape.RX = Radius(toks[0], shape);
+        shape.RY = kind == ClipShapeKind.Ellipse && toks.Count > 1 ? Radius(toks[1], shape) : shape.RX;
+        if (pos is { Length: > 0 })
+        {
+            var g = WithPosition(BackgroundGeometry.Default, pos);
+            shape.CX = g.PosX; shape.CY = g.PosY;
+        }
+        return shape;
+
+        static Length Radius(string tok, ClipShape shape)
+        {
+            switch (tok.ToLowerInvariant())
+            {
+                case "closest-side": return Length.Auto;
+                case "farthest-side": shape.FarthestSide = true; return Length.Auto;
+                default: return ParseLen(tok);
+            }
+        }
+    }
+
+    // polygon( [<fill-rule>,]? [<x> <y>]# )
+    private static ClipShape ParsePolygon(string inner)
+    {
+        var shape = new ClipShape { Kind = ClipShapeKind.Polygon };
+        var pts = new List<Length>();
+        foreach (var seg in SplitTopLevel(inner, ','))
+        {
+            var low = seg.ToLowerInvariant();
+            if (low == "evenodd") { shape.EvenOdd = true; continue; }
+            if (low == "nonzero") continue;
+            var xy = SplitTopLevel(seg, ' ');
+            if (xy.Count < 2) continue;
+            pts.Add(ParseLen(xy[0])); pts.Add(ParseLen(xy[1]));
+        }
+        shape.Points = [.. pts];
+        return shape;
+    }
+
+    /// <summary>
     /// The <c>background</c> shorthand, token by token.
     ///
     /// <para>It used to be one call to the gradient parser on the whole value and, failing that, one
@@ -1588,7 +1714,31 @@ public sealed class StyleResolver
                 case "scale": s.ScaleX = N(0, 1); s.ScaleY = args.Length > 1 ? N(1, 1) : s.ScaleX; s.HasTransform = true; break;
                 case "scalex": s.ScaleX = N(0, 1); s.HasTransform = true; break;
                 case "scaley": s.ScaleY = N(0, 1); s.HasTransform = true; break;
-                case "rotate": s.RotateDeg = N(0, 0); s.HasTransform = true; break;
+                case "rotate" or "rotatez": s.RotateDeg = N(0, 0); s.HasTransform = true; break;
+
+                // The third dimension (#269). These used to parse and paint nothing (#201).
+                case "rotatex": s.RotateXDeg = N(0, 0); s.HasTransform = true; break;
+                case "rotatey": s.RotateYDeg = N(0, 0); s.HasTransform = true; break;
+                case "rotate3d":
+                {
+                    // Only an axis-aligned vector maps onto the three rotations the engine keeps;
+                    // an arbitrary axis would need a matrix the cascade cannot interpolate.
+                    float ax = N(0, 0), ay = N(1, 0), az = N(2, 0), ang = N(3, 0);
+                    if (ax != 0 && ay == 0 && az == 0) s.RotateXDeg = ang * MathF.Sign(ax);
+                    else if (ay != 0 && ax == 0 && az == 0) s.RotateYDeg = ang * MathF.Sign(ay);
+                    else if (az != 0 && ax == 0 && ay == 0) s.RotateDeg = ang * MathF.Sign(az);
+                    else UnsupportedProperty?.Invoke("transform: rotate3d() about an axis that is not x, y or z", v);
+                    s.HasTransform = true; break;
+                }
+                case "translate3d":
+                    (s.TranslateX, s.TranslateXPct) = T(0);
+                    (s.TranslateY, s.TranslateYPct) = T(1);
+                    s.TranslateZ = args.Length > 2 ? ParsePx(args[2]) : 0f;
+                    s.HasTransform = true; break;
+                case "translatez": s.TranslateZ = ParsePx(args[0]); s.HasTransform = true; break;
+                case "scale3d": s.ScaleX = N(0, 1); s.ScaleY = N(1, 1); s.HasTransform = true; break;
+                case "scalez": break;   // no effect on a flat projection, as in a browser
+                case "perspective": s.PerspectiveFn = MathF.Max(0f, ParsePx(args[0])); s.HasTransform = true; break;
             }
         }
     }

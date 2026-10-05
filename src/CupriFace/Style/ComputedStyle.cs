@@ -189,10 +189,32 @@ public sealed class ComputedStyle
     /// <c>-position</c>, <c>-repeat</c>) (#267). Not inherited.</summary>
     public BackgroundGeometry BackgroundGeometry = BackgroundGeometry.Default;
 
+    /// <summary><c>clip-path</c>: a basic shape the element's paint — children, shadow and all —
+    /// is clipped to, in its own border box (#268). Null is <c>none</c>. Not inherited.</summary>
+    public ClipShape? ClipPath;
+
     // Transform (applied around TransformOrigin within the border box at paint time)
     public bool HasTransform;
     public float TranslateX, TranslateY, RotateDeg;
     public float ScaleX = 1f, ScaleY = 1f;
+
+    // ---- The third dimension (#269) ---------------------------------------------------------
+    //
+    // rotateX/rotateY, translateZ and perspective() are the element's own; `perspective` is the
+    // PROPERTY, which an element lends to its children about its perspective-origin; preserve-3d
+    // hands the element's 4x4 to its children rather than flattening them into its image; and
+    // backface-visibility: hidden culls a face whose front is turned away. None of them is
+    // inherited. Transform3D composes them.
+    public float RotateXDeg, RotateYDeg, TranslateZ;
+    /// <summary>The <c>perspective()</c> FUNCTION inside <c>transform</c>, in px; 0 = none.</summary>
+    public float PerspectiveFn;
+    /// <summary>The <c>perspective</c> PROPERTY: the viewer's distance for this element's children,
+    /// in px; 0 = <c>none</c>.</summary>
+    public float Perspective;
+    public Length PerspectiveOriginX = new(LengthUnit.Percent, 50f);
+    public Length PerspectiveOriginY = new(LengthUnit.Percent, 50f);
+    public bool Preserve3D;
+    public bool BackfaceHidden;
 
     /// <summary>The PERCENTAGE part of a translate, kept apart from the px part because it is a
     /// fraction of a box that is only known at paint time: <c>translate(-50%, -50%)</c> means half
@@ -315,6 +337,10 @@ public sealed class ComputedStyle
     // and it means `a { text-decoration: underline }` behaves as authors expect.
     public TextDecorations Decorations = TextDecorations.None;
 
+    /// <summary><c>text-transform</c> — inherited, like every text property, and applied to each
+    /// text node as the tree is built (#266).</summary>
+    public TextTransform TextTransform = TextTransform.None;
+
     /// <summary>Copy inherited properties down from a parent as the starting point.</summary>
     public void InheritFrom(ComputedStyle parent)
     {
@@ -333,6 +359,7 @@ public sealed class ComputedStyle
         FontStyle = parent.FontStyle;
         Decorations = parent.Decorations;
         LetterSpacing = parent.LetterSpacing;
+        TextTransform = parent.TextTransform;
         // Inherited, like every other font property here, and for a reason worth stating: the
         // declaration goes on the element, but the thing that gets MEASURED is the text node inside
         // it. Without this line the flag was set on the div, read as false on its text, and

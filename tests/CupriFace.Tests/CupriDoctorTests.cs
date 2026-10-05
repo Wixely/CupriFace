@@ -192,7 +192,7 @@ public class CupriDoctorTests(ITestOutputHelper output)
     [Theory]
     [InlineData("<body><video src='v.webm'></video></body>", "cupri-video")]
     [InlineData("<body><canvas></canvas></body>", "ISurfaceSource")]
-    [InlineData("<body><svg></svg></body>", "cupri-icon")]
+    [InlineData("<body><svg><rect width='1' height='1'/></svg></body>", "cupri-icon")]
     [InlineData("<body><iframe src='x'></iframe></body>", "embedded browser")]
     public void OtherBrowserElementsAreCaught(string html, string expectedInFix)
     {

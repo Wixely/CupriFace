@@ -13,8 +13,10 @@ public sealed record Keyframe(float Offset, Dictionary<string, string> Declarati
 internal sealed record AnimationBase(float Opacity, bool HasTransform, float TranslateX, float TranslateY,
     float RotateDeg, float ScaleX, float ScaleY, Length Width, Length Height,
     float TranslateXPct = 0f, float TranslateYPct = 0f,
+    float RotateXDeg = 0f, float RotateYDeg = 0f, float TranslateZ = 0f, float PerspectiveFn = 0f,
     SKColor? SvgFill = null, SKColor? SvgStroke = null, float? SvgStrokeWidth = null,
-    float? SvgStrokeDashOffset = null, float? SvgFillOpacity = null, float? SvgStrokeOpacity = null);
+    float? SvgStrokeDashOffset = null, float? SvgFillOpacity = null, float? SvgStrokeOpacity = null,
+    ClipShape? ClipPath = null);
 
 /// <summary>
 /// Parses <c>@keyframes</c> blocks and applies time-sampled animation overrides to the
@@ -125,15 +127,19 @@ public static partial class Animation
         s.TranslateX = b.TranslateX; s.TranslateY = b.TranslateY; s.RotateDeg = b.RotateDeg;
         s.TranslateXPct = b.TranslateXPct; s.TranslateYPct = b.TranslateYPct;
         s.ScaleX = b.ScaleX; s.ScaleY = b.ScaleY; s.Width = b.Width; s.Height = b.Height;
+        s.RotateXDeg = b.RotateXDeg; s.RotateYDeg = b.RotateYDeg; s.TranslateZ = b.TranslateZ; s.PerspectiveFn = b.PerspectiveFn;
         s.SvgFill = b.SvgFill; s.SvgStroke = b.SvgStroke; s.SvgStrokeWidth = b.SvgStrokeWidth;
         s.SvgStrokeDashOffset = b.SvgStrokeDashOffset; s.SvgFillOpacity = b.SvgFillOpacity; s.SvgStrokeOpacity = b.SvgStrokeOpacity;
+        s.ClipPath = b.ClipPath;
     }
 
     private static void ApplyFrame(ComputedStyle s, List<Keyframe> frames, float progress)
     {
         s.AnimBase ??= new AnimationBase(s.Opacity, s.HasTransform, s.TranslateX, s.TranslateY, s.RotateDeg, s.ScaleX, s.ScaleY, s.Width, s.Height,
                                          s.TranslateXPct, s.TranslateYPct,
-                                         s.SvgFill, s.SvgStroke, s.SvgStrokeWidth, s.SvgStrokeDashOffset, s.SvgFillOpacity, s.SvgStrokeOpacity);
+                                         s.RotateXDeg, s.RotateYDeg, s.TranslateZ, s.PerspectiveFn,
+                                         s.SvgFill, s.SvgStroke, s.SvgStrokeWidth, s.SvgStrokeDashOffset, s.SvgFillOpacity, s.SvgStrokeOpacity,
+                                         s.ClipPath);
         // Find bracketing keyframes.
         Keyframe a = frames[0], b = frames[^1];
         for (var i = 0; i < frames.Count - 1; i++)
@@ -174,6 +180,11 @@ public static partial class Animation
             s.RotateDeg = Lerp(from.RotateDeg, to.RotateDeg, local);
             s.ScaleX = Lerp(from.ScaleX, to.ScaleX, local);
             s.ScaleY = Lerp(from.ScaleY, to.ScaleY, local);
+            // A flip, a tilt, an orbit (#269).
+            s.RotateXDeg = Lerp(from.RotateXDeg, to.RotateXDeg, local);
+            s.RotateYDeg = Lerp(from.RotateYDeg, to.RotateYDeg, local);
+            s.TranslateZ = Lerp(from.TranslateZ, to.TranslateZ, local);
+            s.PerspectiveFn = Lerp(from.PerspectiveFn, to.PerspectiveFn, local);
         }
         if (a.Declarations.ContainsKey("opacity") || b.Declarations.ContainsKey("opacity"))
             s.Opacity = Lerp(from.Opacity, to.Opacity, local);
@@ -196,6 +207,16 @@ public static partial class Animation
         if (Declared(a, b, "stroke-dashoffset")) s.SvgStrokeDashOffset = Lerp(from.SvgStrokeDashOffset ?? s.AnimBase.SvgStrokeDashOffset ?? 0f, to.SvgStrokeDashOffset ?? s.AnimBase.SvgStrokeDashOffset ?? 0f, local);
         if (Declared(a, b, "fill-opacity")) s.SvgFillOpacity = Lerp(from.SvgFillOpacity ?? s.AnimBase.SvgFillOpacity ?? 1f, to.SvgFillOpacity ?? s.AnimBase.SvgFillOpacity ?? 1f, local);
         if (Declared(a, b, "stroke-opacity")) s.SvgStrokeOpacity = Lerp(from.SvgStrokeOpacity ?? s.AnimBase.SvgStrokeOpacity ?? 1f, to.SvgStrokeOpacity ?? s.AnimBase.SvgStrokeOpacity ?? 1f, local);
+
+        // A wipe, an iris, a mask reveal (#268): the shape's numbers interpolate between stops of
+        // the same kind. A stop that omits it holds the element's own shape, and `none` at either
+        // end is not interpolable, so the pair flips at the midpoint.
+        if (Declared(a, b, "clip-path"))
+        {
+            var ca = a.Declarations.ContainsKey("clip-path") ? from.ClipPath : s.AnimBase.ClipPath;
+            var cb = b.Declarations.ContainsKey("clip-path") ? to.ClipPath : s.AnimBase.ClipPath;
+            s.ClipPath = ca is null || cb is null ? (local < 0.5f ? ca : cb) : ClipShape.Lerp(ca, cb, local);
+        }
     }
 
     private static bool Declared(Keyframe a, Keyframe b, string prop) =>

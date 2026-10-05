@@ -63,7 +63,7 @@ public static class DamageDiff
         foreach (var cmd in cmds)
         {
             Track(cmd, ref m, stack);
-            if (cmd is PushClip or PopClip or PushTransform or PopTransform
+            if (cmd is PushClip or PushClipShape or PopClip or PushTransform or PopTransform
                     or PushOpacity or PopOpacity or PushFilter or PopFilter)
             {
                 kept.Add(cmd);                        // state/layer op — pruned in pass 2 if empty
@@ -86,7 +86,7 @@ public static class DamageDiff
         {
             switch (kept[i])
             {
-                case PushClip or PushTransform or PushOpacity or PushFilter:
+                case PushClip or PushClipShape or PushTransform or PushOpacity or PushFilter:
                     scopes.Add((i, false));
                     break;
                 case PopClip or PopTransform or PopOpacity or PopFilter when scopes.Count > 0:
@@ -146,7 +146,7 @@ public static class DamageDiff
         {
             switch (list[i])
             {
-                case PushClip: clip++; break;
+                case PushClip or PushClipShape: clip++; break;
                 case PopClip: if (--clip < 0) return false; break;
                 case PushTransform: transform++; break;
                 case PopTransform: if (--transform < 0) return false; break;
@@ -166,11 +166,7 @@ public static class DamageDiff
         {
             case PushTransform t:
                 stack.Add(m);
-                var local = SKMatrix.CreateTranslation(t.CenterX + t.TranslateX, t.CenterY + t.TranslateY);
-                local = local.PreConcat(SKMatrix.CreateRotationDegrees(t.RotateDeg));
-                local = local.PreConcat(SKMatrix.CreateScale(t.ScaleX, t.ScaleY));
-                local = local.PreConcat(SKMatrix.CreateTranslation(-t.CenterX, -t.CenterY));
-                m = m.PreConcat(local);
+                m = m.PreConcat(t.Matrix);
                 break;
             case PopTransform when stack.Count > 0:
                 m = stack[^1];

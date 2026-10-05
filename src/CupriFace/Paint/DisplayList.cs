@@ -75,12 +75,17 @@ public sealed record TextRun(
 
 public sealed record PushClip(float X, float Y, float W, float H, CornerRadii Radius) : PaintCommand;
 
+/// <summary>Clip to a <c>clip-path</c> basic shape in the border box (X,Y,W,H) (#268). Popped by
+/// <see cref="PopClip"/>, like the rounded-box clip.</summary>
+public sealed record PushClipShape(float X, float Y, float W, float H, ClipShape Shape) : PaintCommand;
+
 public sealed record PopClip : PaintCommand;
 
-/// <summary>Push a 2D transform applied around (CenterX, CenterY).</summary>
-public sealed record PushTransform(
-    float CenterX, float CenterY, float TranslateX, float TranslateY,
-    float ScaleX, float ScaleY, float RotateDeg) : PaintCommand;
+/// <summary>Concatenate a transform for the wrapped subtree: the element's CSS transform, already
+/// composed about its origin in absolute coordinates and projected to the plane — the perspective
+/// terms are what make a tilted face (#269) one matrix like a rotated one. Built by
+/// <see cref="Style.Transform3D"/>, which hit-testing shares.</summary>
+public sealed record PushTransform(SKMatrix Matrix) : PaintCommand;
 
 public sealed record PopTransform : PaintCommand;
 

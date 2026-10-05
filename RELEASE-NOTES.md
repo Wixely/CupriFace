@@ -32,6 +32,14 @@ A second set of conformance gaps from the same corpus survey (#265–#270), file
   background was cut at its media type and never loaded. Declarations are split on the semicolons
   between them only.
 
+- **CupriDoctor no longer tells a document that has CupriFace.Svg to add CupriFace.Svg when the
+  `<svg>` is simply empty (#270).** An `<svg>` with nothing drawable inside it — no shape, line,
+  text, image or `<use>` at any depth — stays empty with or without the package, so CF0030 now
+  says so: *"has no drawable content in the markup"*, with the advice that if a script was going to
+  fill it, there is no script here. The package advice is kept for an `<svg>` that HAS content and
+  was not claimed, which is the case it was written for. The empty case is a warning rather than
+  an error, since a placeholder is sometimes what was meant.
+
 ### Added
 
 - **`background-size`, `background-position` and `background-repeat` (#267).** All three were
@@ -47,6 +55,47 @@ A second set of conformance gaps from the same corpus survey (#265–#270), file
   as `<cupri-image>` (embedded, file, `data:`, https), tiled at its own size by default and sized
   by the properties above. The issue's "cover on a photo background" now works. A remote image
   paints nothing until it arrives, exactly as `<cupri-image>` does.
+
+- **`text-transform: uppercase | lowercase | capitalize` (#266).** The case the text is drawn in,
+  whatever case it was typed in — `Live` becomes `LIVE`, with the letter-spacing that was tuned
+  for capitals now applied to capitals. Inherited like every text property, and applied to each
+  text node as the render tree is built, once the cascade has reached it, so the DOM keeps the
+  author's text and anything reading the document back gets what was typed. The accessibility
+  tree and the laid-out lines carry what is shown. `full-width` and `full-size-kana` are reported
+  as before.
+
+- **`clip-path` basic shapes: `inset()` with `round`, `circle()`, `ellipse()`, `polygon()` (#268).**
+  The element's paint — its shadow, its box and its children — is clipped to the shape in its own
+  border box, inside its transform so the shape turns with it. Percentages resolve against the box
+  (a circle's radius against the diagonal over √2, as CSS says); `closest-side` and `farthest-side`
+  work; `at <position>` takes the same grammar as `background-position`. **The shape's numbers
+  animate between `@keyframes` stops** of the same kind — a wipe is an `inset()` moving from one
+  edge, an iris a `circle()` growing from a point, a polygon reveal moves every point — and a pair
+  of different kinds flips at the midpoint, as CSS does. `url(#mask)`, `path()` and a bare geometry
+  box are reported by CupriDoctor and leave the element unclipped, as before. Hit-testing does not
+  yet consult the clip: a clipped-away corner is still clickable.
+
+- **The 3D transform family (#269): `rotateX()`, `rotateY()`, `rotateZ()`, axis-aligned
+  `rotate3d()`, `translate3d()`, `translateZ()`, `scale3d()`, `perspective()`, and the
+  `perspective`, `perspective-origin`, `transform-style` and `backface-visibility` properties.**
+  The functions parsed and painted nothing (#201); the properties were reported unsupported. The
+  transform is now a 4×4 matrix projected to the plane at paint time, with the perspective terms
+  carried in Skia's own 3×3, so a tilted card costs one `Concat` like a rotated one. A parent's
+  `perspective` is lent to its children about its `perspective-origin`; `backface-visibility:
+  hidden` culls a face whose front is turned away, before any of its layers are pushed, so it paints
+  nothing at all; and **`transform-style: preserve-3d` is implemented**, not merely accepted — a
+  preserve-3d element hands its matrix to its children, each of which composes its own transform
+  into it, which is what makes the classic flip card (a rotating container, two faces with hidden
+  backs, the back pre-turned) show exactly one face at every angle. Without it the container
+  flattens and a half-turn shows the front mirrored, as in a browser. The 3D terms animate in
+  `@keyframes` and in `transition: transform`. Hit-testing follows the projection, and a hidden back
+  face cannot be hit.
+
+  Two limits, both named by the issue as "can come second": children of a preserve-3d parent paint
+  in document order, not sorted by depth, so a cuboid's faces can overdraw out of order where two
+  front-facing faces overlap; and `rotate3d()` about an axis that is not x, y or z alone is
+  reported rather than drawn. `matrix()`, `matrix3d()` and the shears are reported as before.
+  CupriDoctor no longer lists the 3D functions as value gaps, since they are drawn.
 
 ## v0.34.0
 

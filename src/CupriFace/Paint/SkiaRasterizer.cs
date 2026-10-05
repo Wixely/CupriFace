@@ -204,6 +204,14 @@ public sealed class SkiaRasterizer
                     ClipRounded(canvas, new SKRect(c.X, c.Y, c.X + c.W, c.Y + c.H), c.Radius);
                     break;
 
+                case PushClipShape c:
+                {
+                    canvas.Save();
+                    using var path = c.Shape.ToPath(c.X, c.Y, c.W, c.H);
+                    canvas.ClipPath(path, SKClipOperation.Intersect, antialias: true);
+                    break;
+                }
+
                 case PopClip:
                     canvas.Restore();
                     break;
@@ -211,10 +219,7 @@ public sealed class SkiaRasterizer
                 case PushTransform t:
                 {
                     canvas.Save();
-                    var m = SKMatrix.CreateTranslation(t.CenterX + t.TranslateX, t.CenterY + t.TranslateY);
-                    m = m.PreConcat(SKMatrix.CreateRotationDegrees(t.RotateDeg));
-                    m = m.PreConcat(SKMatrix.CreateScale(t.ScaleX, t.ScaleY));
-                    m = m.PreConcat(SKMatrix.CreateTranslation(-t.CenterX, -t.CenterY));
+                    var m = t.Matrix;
                     canvas.Concat(in m);
                     break;
                 }

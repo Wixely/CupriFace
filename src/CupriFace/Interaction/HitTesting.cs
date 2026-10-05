@@ -46,17 +46,15 @@ public static class HitTesting
         // can only be grabbed inside its original rectangle and a rotated one only near its
         // unrotated corners — it looks like the shape moved but its handle stayed behind. The
         // mapping is inherited by the subtree, because children paint through the same matrix.
+        // The same matrix the painter pushed (Transform3D), so the element is hit where it is
+        // drawn — a tilted card included (#269). A face turned away with its back hidden was not
+        // painted, so it cannot be hit either. A preserve-3d ancestor's space is not composed in
+        // here: its faces are tested through their own projection alone.
         if (node.Style.HasTransform)
         {
-            var s = node.Style;
-            var (pivotX, pivotY) = s.TransformPivot(node.Width, node.Height);
-            var (tx, ty) = s.ResolvedTranslate(node.Width, node.Height);
-            float cx = ax + pivotX, cy = ay + pivotY;
-            var local = SkiaSharp.SKMatrix.CreateTranslation(cx + tx, cy + ty);
-            local = local.PreConcat(SkiaSharp.SKMatrix.CreateRotationDegrees(s.RotateDeg));
-            local = local.PreConcat(SkiaSharp.SKMatrix.CreateScale(s.ScaleX, s.ScaleY));
-            local = local.PreConcat(SkiaSharp.SKMatrix.CreateTranslation(-cx, -cy));
-            if (local.TryInvert(out var inverse))
+            var full = Style.Transform3D.ForNode(node, ax, ay);
+            if (node.Style.BackfaceHidden && Style.Transform3D.IsBackFacing(full)) return null;
+            if (Style.Transform3D.Project(full).TryInvert(out var inverse))
             {
                 var p = inverse.MapPoint(x, y);
                 x = p.X;
@@ -239,17 +237,9 @@ public static class HitTesting
         void Accumulate(RenderNode n)
         {
             if (n.Parent is { } parent) Accumulate(parent);   // outermost transform applies first
-            var s = n.Style;
-            if (!s.HasTransform) return;
-            var (x, y, w, h) = ScreenBox(n);
-            var (pivotX, pivotY) = s.TransformPivot(w, h);
-            var (tx, ty) = s.ResolvedTranslate(w, h);
-            float cx = x + pivotX, cy = y + pivotY;
-            var local = SkiaSharp.SKMatrix.CreateTranslation(cx + tx, cy + ty);
-            local = local.PreConcat(SkiaSharp.SKMatrix.CreateRotationDegrees(s.RotateDeg));
-            local = local.PreConcat(SkiaSharp.SKMatrix.CreateScale(s.ScaleX, s.ScaleY));
-            local = local.PreConcat(SkiaSharp.SKMatrix.CreateTranslation(-cx, -cy));
-            m = m.PreConcat(local);
+            if (!n.Style.HasTransform) return;
+            var (x, y, _, _) = ScreenBox(n);
+            m = m.PreConcat(Style.Transform3D.Project(Style.Transform3D.ForNode(n, x, y)));
         }
     }
 }
