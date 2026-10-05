@@ -32,28 +32,63 @@ public class SyntheticBoldTests(ITestOutputHelper output)
         .t { font-family: "Inter"; font-size: 48px; color: #000; white-space: nowrap; }
         """;
 
-    private int Ink(string css, int weight)
+    private SKBitmap Draw(string css, int weight)
     {
         using var t = new TestDoc($"<body><div class='t' style='font-weight:{weight}'>Hyperframes</div></body>",
             css, width: 400, height: 100);
         t.Doc.FontPolicy = FontPolicy.RegisteredOnly;
-        using var bmp = t.Render();
-        var n = 0;
+        return t.Render();
+    }
+
+    /// <summary>
+    /// Total ink: the sum of how dark each pixel is, which is the glyph outlines' AREA.
+    ///
+    /// <para>Deliberately not a count of pixels past a darkness cutoff. That counts ANTIALIASING as
+    /// much as weight, and the two rasterisers disagree about it: macOS lays a regular face down
+    /// over 3382 such pixels where Windows uses 2678, so the same emboldening read as +48% on one
+    /// and +9% on the other and the gate failed on the machine where the feature was working. Area
+    /// is what thickening a stem actually changes, and a partly-covered pixel contributes its
+    /// coverage rather than a whole unit or nothing.</para>
+    /// </summary>
+    private long Ink(SKBitmap bmp)
+    {
+        long total = 0;
         for (var y = 0; y < bmp.Height; y++)
             for (var x = 0; x < bmp.Width; x++)
-                if (bmp.GetPixel(x, y).Red < 0x80) n++;
-        output.WriteLine($"weight {weight}: {n} px of ink");
-        return n;
+                total += 255 - bmp.GetPixel(x, y).Red;
+        return total;
+    }
+
+    private long Ink(string css, int weight)
+    {
+        using var bmp = Draw(css, weight);
+        var ink = Ink(bmp);
+        output.WriteLine($"weight {weight}: {ink} ink");
+        return ink;
     }
 
     [Fact]
     public void A_bold_request_on_a_regular_only_face_draws_heavier_than_regular()
     {
         var css = OneFileTwice(Regular);
-        var regular = Ink(css, 400);
-        var bold = Ink(css, 700);
-        Assert.True(regular > 500, "nothing drawn");
-        Assert.True(bold > regular * 1.15f, $"700 ({bold} px) is not heavier than 400 ({regular} px) — the bold was lost");
+        using var regular = Draw(css, 400);
+        using var bold = Draw(css, 700);
+        long a = Ink(regular), b = Ink(bold);
+        output.WriteLine($"400: {a} ink, 700: {b} ink (x{(double)b / a:F2})");
+
+        Assert.True(a > 50_000, "nothing drawn");
+        // Two claims, because either alone can pass while the feature is broken: that the flag
+        // reaches the rasteriser at all, and that what it did was make the text HEAVIER.
+        //
+        // The MAGNITUDE is deliberately not pinned tighter than "not a rounding error". How much
+        // ink Skia's fake-bold adds is its own business and differs per platform — Windows puts on
+        // ~45%, and the ratio is lower on macOS — whereas the bug this guards (#263) was output
+        // that was pixel-IDENTICAL to regular. Asserting a platform's number here is how the first
+        // version of this test failed on the one machine where the feature was working. The ratio
+        // is printed on every run so each platform's figure is on the record rather than assumed.
+        Assert.False(CupriFace.Diagnostics.ImageDiff.Compare(regular, bold).IsIdentical,
+            "700 drew the same pixels as 400 — the bold was lost");
+        Assert.True(b > a * 1.05, $"700 ({b} ink) is not meaningfully heavier than 400 ({a} ink)");
     }
 
     /// <summary>Medium is below the browsers' synthesis threshold: it is the regular face,

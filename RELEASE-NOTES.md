@@ -69,6 +69,10 @@ element was simply somewhere else, something else, or not there.
   than asked is thickened the way a browser's `font-synthesis: weight` thickens a family with no
   bold file. The threshold is the browsers' (a request of 600 or more on a face below 600) and the
   test is on the face's OWN weight, so a static Bold file declared at 700 is left exactly as it was.
+  **How heavy the synthesised weight comes out is Skia's own, and it differs per platform** — the
+  same face and size put on about 45% more ink on Windows than at 400, and noticeably less than
+  that on macOS. It is bolder everywhere; it is not the same bold everywhere, and a design that
+  needs one should ship a real bold file.
   A platform family with no bold face gains the same synthesis, which is what a browser does with it.
   `FontService.NeedsSyntheticBold(typeface, weight)` is the rule, public so a test can ask.
 
