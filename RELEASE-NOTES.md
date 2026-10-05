@@ -52,6 +52,18 @@ element was simply somewhere else, something else, or not there.
   so `inset: 0; margin: auto` centres. An absolute element that carried a margin it was not
   expecting to see will move by it.
 
+- **A bold request on a face that cannot answer it bold is now synthesised (#263).** Google Fonts
+  answers a modern browser's request for `Inter:wght@400;700` with ONE variable file, declared once
+  per weight. Registered that way the engine resolved 700 to the same bytes as 400 and drew the two
+  pixel-identical, so every bold display name, title and kicker set in a face from that service was
+  lost. The SkiaSharp this engine builds against (3.116) cannot set a variation axis — that is
+  `SKFontArguments`, which arrived in SkiaSharp 4 — so until the dependency moves, a face lighter
+  than asked is thickened the way a browser's `font-synthesis: weight` thickens a family with no
+  bold file. The threshold is the browsers' (a request of 600 or more on a face below 600) and the
+  test is on the face's OWN weight, so a static Bold file declared at 700 is left exactly as it was.
+  A platform family with no bold face gains the same synthesis, which is what a browser does with it.
+  `FontService.NeedsSyntheticBold(typeface, weight)` is the rule, public so a test can ask.
+
 ## v0.33.0
 
 A controller, end to end: directional navigation, all four hosts, the policy to decide who owns the

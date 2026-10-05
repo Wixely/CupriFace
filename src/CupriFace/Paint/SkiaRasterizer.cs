@@ -602,7 +602,7 @@ public sealed class SkiaRasterizer
         for (var i = 0; i < runs.Count; i++)
         {
             var (segment, tf) = runs[i];
-            var font = _fonts.GetFont(tf, primaryFont.Size);
+            var font = _fonts.GetFont(tf, primaryFont.Size, weight);
             var shaper = _fonts.GetShaper(tf);
             // The untracked path is left exactly as it was — every document that sets no
             // letter-spacing takes the same single DrawShapedText call it always has, and none of

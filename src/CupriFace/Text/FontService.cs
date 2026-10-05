@@ -58,7 +58,7 @@ public sealed class FontService : IDisposable
     private readonly Dictionary<(string, int, FontSlant), SKTypeface> _typefaces = new();
     private readonly Dictionary<(string, int, int, FontSlant), SKFont> _fonts = new();
     private readonly Dictionary<(string, int, FontSlant), SKShaper> _shapers = new();
-    private readonly Dictionary<(SKTypeface, int), SKFont> _fontsByTypeface = new();
+    private readonly Dictionary<(SKTypeface, int, bool), SKFont> _fontsByTypeface = new();
     private readonly Dictionary<SKTypeface, SKShaper> _shapersByTypeface = new();
     private readonly Dictionary<SKTypeface, SKFont> _probes = new();      // cached font per typeface for glyph checks
     private readonly Dictionary<int, SKTypeface?> _fallbackByCodepoint = new(); // fallback face per missing codepoint
@@ -232,10 +232,33 @@ public sealed class FontService : IDisposable
     {
         var key = (family.ToLowerInvariant(), weight, (int)MathF.Round(size * 4), slant); // 0.25px buckets
         if (_fonts.TryGetValue(key, out var f)) return f;
-        f = new SKFont(GetTypeface(family, weight, slant), size) { Edging = SKFontEdging.SubpixelAntialias, Subpixel = true };
+        var tf = GetTypeface(family, weight, slant);
+        f = new SKFont(tf, size)
+        {
+            Edging = SKFontEdging.SubpixelAntialias, Subpixel = true,
+            Embolden = NeedsSyntheticBold(tf, weight),
+        };
         _fonts[key] = f;
         return f;
     }
+
+    /// <summary>
+    /// Whether a bold request has to be SYNTHESISED on this face: the cascade asked for a bold
+    /// weight and the face that answered is not one.
+    ///
+    /// <para>Google Fonts answers a modern browser's request for <c>Inter:wght@400;700</c> with ONE
+    /// file — a variable face carrying a <c>wght</c> axis — declared twice. Registered that way the
+    /// engine resolved <c>font-weight: 700</c> to the same bytes as 400 and drew the two identically,
+    /// so every bold name, title and kicker set in a face from that service came out regular (#263).
+    /// The SkiaSharp this engine builds against (3.116) has no way to set a variation axis — that is
+    /// <c>SKFontArguments</c>, which arrived in SkiaSharp 4 — so until the dependency moves, a face
+    /// that is lighter than asked is thickened the way a browser's <c>font-synthesis: weight</c>
+    /// thickens a family with no bold file. The threshold is the browsers' (600), and the test is on
+    /// the FACE's own weight rather than the registration's: a static Bold file declared at 700 says
+    /// 700 of itself and is left alone; a variable file's default instance says 400 and is not.</para>
+    /// </summary>
+    public static bool NeedsSyntheticBold(SKTypeface tf, int weight) =>
+        weight >= 600 && tf.FontStyle.Weight < 600;
 
     /// <summary>A HarfBuzz shaper for the (family, weight, slant), cached per typeface.</summary>
     public SKShaper GetShaper(string family, int weight, FontSlant slant = FontSlant.Normal)
@@ -247,12 +270,15 @@ public sealed class FontService : IDisposable
         return sh;
     }
 
-    /// <summary>A font for a specific typeface + size (used for fallback runs), cached.</summary>
-    public SKFont GetFont(SKTypeface typeface, float size)
+    /// <summary>A font for a specific typeface + size (used for fallback runs), cached. The weight
+    /// is the one the cascade ASKED for, so a run drawn in a face that cannot answer it bold is
+    /// thickened the same way the primary face is (<see cref="NeedsSyntheticBold"/>).</summary>
+    public SKFont GetFont(SKTypeface typeface, float size, int weight = 400)
     {
-        var key = (typeface, (int)MathF.Round(size * 4));
+        var embolden = NeedsSyntheticBold(typeface, weight);
+        var key = (typeface, (int)MathF.Round(size * 4), embolden);
         if (_fontsByTypeface.TryGetValue(key, out var f)) return f;
-        f = new SKFont(typeface, size) { Edging = SKFontEdging.SubpixelAntialias, Subpixel = true };
+        f = new SKFont(typeface, size) { Edging = SKFontEdging.SubpixelAntialias, Subpixel = true, Embolden = embolden };
         _fontsByTypeface[key] = f;
         return f;
     }
@@ -366,7 +392,7 @@ public sealed class FontService : IDisposable
         var total = 0f;
         foreach (var (segment, tf) in SplitRuns(text, family, weight, slant))
         {
-            var font = GetFont(tf, size);
+            var font = GetFont(tf, size, weight);
             try
             {
                 var shaped = GetShaper(tf).Shape(segment, font);
