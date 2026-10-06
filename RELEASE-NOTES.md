@@ -13,6 +13,41 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- **A `min-height`/`max-height` clamp on a flex container now lays its items out again (#274).**
+  The items were measured against the container's DECLARED height and the clamp applied to the box
+  afterwards, so when the clamp bit, the box and its contents disagreed and only the contents were
+  wrong. A `max-height` that shrank a `height: 620px` column left a `flex: 1` child 520 tall inside
+  a 458 box — 162px of content hanging out of the bottom of a parent that measured as fitting,
+  which is exactly the case `max-height` exists for (bounding a fixed-size panel by the window).
+  A `min-height` that grew a declared height left the other half of the problem: 258px of empty box
+  with nothing in it.
+
+  The re-layout this needs was already there, added in 0.30 for a `min-height` that grew an
+  AUTO-height box, but its guard excluded every box with a declared `height` and every clamp that
+  shrank one. It now compares the height the items were actually measured against with the height
+  the box ended up with, which covers all four combinations and keeps the property that made the
+  original cheap: when the clamp changes nothing, the two agree and no second pass runs.
+
+  Two consequences worth knowing. A **user-dragged resize** (CSS `resize`) that makes a flex box
+  shorter now reflows its items too; before, only a drag that made an auto-height box taller did.
+  And a clamped **`overflow: scroll`** container now reports the extent its items ended at rather
+  than the pre-clamp one, so a box whose content was compressed to fit no longer claims to be
+  scrollable. The unclamped height is still what `transition: height` animates to.
+
+### Known gap, measured alongside
+
+- **A `flex: 1` item contributes nothing to the height of an auto-height column.** With no `height`
+  on the container, `display: flex; flex-direction: column` with a `flex: 1` child measures the
+  child at 0 and the container at the height of its other items. Chrome sizes the same document to
+  its content. This is independent of the clamp above and is why `max-height` ALONE on such a
+  container appears to do nothing: the content height never reaches the ceiling. Fixing it is the
+  intrinsic main-size algorithm (each item's max-content flex fraction), not a one-line change, so
+  it is recorded in `FlexClampReflowTests` at today's numbers rather than quietly altered.
+
 ## v0.35.0
 
 A second set of conformance gaps from the same corpus survey (#265–#270), filed against 0.34.0.
