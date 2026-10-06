@@ -207,6 +207,10 @@ public sealed class LayoutEngine
         }
 
         float usedH;
+        // The height a flex container's ITEMS were measured against, which is not always the height
+        // the box ends up with: a min-/max-height clamp applies after this and can move it either
+        // way. Kept so the clamp can tell whether the items need placing again (#274).
+        var flexLaidH = 0f;
         if (node.IsText)
             usedH = LayoutText(node, contentW).H;
         else if (s.IsFlexContainer)
@@ -214,6 +218,9 @@ public sealed class LayoutEngine
             var heightKnown = forceContentH.HasValue || s.Height.IsDefinite;
             var providedH = forceContentH ?? (s.Height.IsDefinite ? ContentH(s, s.Height, cbH) : 0f);
             usedH = LayoutFlex(node, contentW, providedH, heightKnown);
+            // Given a height, that is what they were laid out against; left to themselves, they
+            // settled at the extent they reported.
+            flexLaidH = heightKnown ? providedH : usedH;
         }
         else if (s.IsGridContainer)
         {
@@ -243,19 +250,30 @@ public sealed class LayoutEngine
         else contentH = usedH;
         contentH = ClampH(s, contentH, cbH);
 
-        // A min-height that made the box TALLER than its content leaves a flex container's items
-        // aligned against the smaller height, with the box growing underneath them — so
-        // `align-items:center` puts everything at the top and looks ignored. (An explicit `height`
-        // never showed it, because that IS known before the items are placed, which is why swapping
-        // one for the other appeared to fix it.)
+        // A clamp that BIT leaves a flex container's items measured against a height the box no
+        // longer has, so they are laid out again against the one it ended up with.
         //
-        // Laid out again against the height the box actually ended up with. Only when the clamp
-        // actually bit: content taller than the minimum never reaches here, so the common case pays
-        // nothing, and LayoutFlex positions from scratch rather than accumulating, so a second pass
-        // is a correction and not an addition.
-        if (s.IsFlexContainer && !s.Height.IsDefinite && forceContentH is null
-            && contentH > usedH + 0.01f)
-            LayoutFlex(node, contentW, contentH, heightKnown: true);
+        // This started (#251) as a min-height that made the box taller than its content: the items
+        // stayed aligned against the smaller height with the box growing underneath them, so
+        // `align-items:center` put everything at the top and looked ignored. The guard it was
+        // written with — auto height only, and only growth — excluded the other three ways a clamp
+        // can move the height, and the one it excluded most expensively was a max-height SHRINKING
+        // a box with a declared height: the container's own box came out honest while a `flex:1`
+        // child kept the size it was given and hung out of the bottom, 162px past a parent that
+        // measured as fitting (#274). Comparing against the height the items were actually measured
+        // against covers all four, and keeps the property that made the original cheap — when the
+        // clamp changes nothing the two agree and no second pass runs. LayoutFlex places from
+        // scratch rather than accumulating, so a second pass is a correction, not an addition.
+        //
+        // A user-dragged size (ResizeH) reaches here too, and deliberately: dragging a flex box
+        // shorter is the same correction as clamping it shorter, and it only ever ran before when
+        // the drag made an auto-height box taller.
+        if (s.IsFlexContainer && MathF.Abs(contentH - flexLaidH) > 0.01f)
+            // The extent the items NOW occupy — what `overflow: scroll` must scroll through. Taking
+            // the pre-clamp figure would report a box as scrollable whose content had since been
+            // compressed to fit it. ContentNaturalHeight is assigned above, before this, and so
+            // still reports the unclamped height a `transition: height` animates to.
+            usedH = LayoutFlex(node, contentW, contentH, heightKnown: true);
 
         node.Width = contentW + node.HorizontalInsets;
         node.Height = contentH + node.VerticalInsets;
