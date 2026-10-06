@@ -545,7 +545,8 @@ controls handle their own state.
   ```
 - **Gradients.** `background: linear-gradient([<angle>|to <side>], <stop>, …)` and
   `radial-gradient([shape,] <stop>, …)`, where a stop is a colour with an optional position
-  (`#4682B4 60%`). Angles are CSS (`0deg` = up, `90deg` = right); `to right`/`to bottom right`/… work
+  (`#4682B4 60%`, or a length: `#000 1px`, measured along the gradient line of the box the gradient
+  fills, which under `background-size` is the tile). Angles are CSS (`0deg` = up, `90deg` = right); `to right`/`to bottom right`/… work
   too. Paints over `background-color`; also settable via `background-image`.
   ```css
   .hero { background: linear-gradient(135deg, #B87333, #4682B4); }

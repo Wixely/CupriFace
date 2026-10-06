@@ -17,6 +17,17 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **A gradient stop's position can be a length (#273).** `radial-gradient(circle, #000 1.5px,
+  transparent 2px)` is a 1.5px dot; `linear-gradient(#0003 1px, transparent 1px)` is a 1px line.
+  Only a `%` position was ever read: a px position was dropped and the stop left unpositioned, so
+  both of those became a fade across the whole gradient box — invisible while the box was the
+  element, and a field of blobs once 0.35.0 tiled it at `background-size`. The px is now kept and
+  divided by the gradient line's length (a radial gradient's radius) over the box the gradient
+  fills, which under `background-size` is the tile. The stop fix-up is CSS's: the first and last
+  default to 0 and 1, a run of unpositioned stops spreads evenly between its positioned
+  neighbours, and a stop that would sit before the one above it is pulled up to it. The issue's
+  dot grid goes from 38.6% of the box dark to about half a percent.
+
 - **A `min-height`/`max-height` clamp on a flex container now lays its items out again (#274).**
   The items were measured against the container's DECLARED height and the clamp applied to the box
   afterwards, so when the clamp bit, the box and its contents disagreed and only the contents were

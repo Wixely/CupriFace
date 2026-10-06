@@ -1486,12 +1486,16 @@ public sealed class StyleResolver
         {
             SKColor? col = null;
             var pos = float.NaN;
+            var px = float.NaN;
             foreach (var p in SplitTopLevel(segs[i], ' '))
             {
                 if (Colors.TryParse(p, out var c)) col = c;
                 else if (p.EndsWith('%') && CssNumber.TryParse(p[..^1], out var pct)) pos = pct / 100f;
+                // A length position is kept as px and resolved against the gradient box at paint
+                // time (#273). Only `%` was read before; a px stop was silently unpositioned.
+                else if (TryParsePx(p, out var len)) px = len;
             }
-            if (col is { } cc) stops.Add(new GradientStop(cc, pos));
+            if (col is { } cc) stops.Add(new GradientStop(cc, pos, px));
         }
         return stops.Count >= 2 ? new Gradient(kind, angle, stops) : null;
     }
