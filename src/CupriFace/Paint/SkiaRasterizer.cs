@@ -39,23 +39,12 @@ public sealed class SkiaRasterizer
 
     private static SKShader BuildGradient(Gradient grad, float gX, float gY, float gW, float gH)
     {
-        var colors = new SKColor[grad.Stops.Count];
-        var pos = new float[grad.Stops.Count];
-        var explicitPos = false;
-        for (var i = 0; i < grad.Stops.Count; i++)
-        {
-            colors[i] = grad.Stops[i].Color;
-            var p = grad.Stops[i].Position;
-            if (float.IsNaN(p)) pos[i] = grad.Stops.Count == 1 ? 0f : (float)i / (grad.Stops.Count - 1);
-            else { pos[i] = Math.Clamp(p, 0f, 1f); explicitPos = true; }
-        }
-        var positions = explicitPos ? pos : null; // even distribution when none are specified
-
         if (grad.Kind == GradientKind.Radial)
         {
             var center = new SKPoint(gX + gW / 2f, gY + gH / 2f);
-            var radius = MathF.Sqrt(gW * gW + gH * gH) / 2f; // reach the farthest corner
-            return SKShader.CreateRadialGradient(center, MathF.Max(1f, radius), colors, positions, SKShaderTileMode.Clamp);
+            var radius = MathF.Max(1f, MathF.Sqrt(gW * gW + gH * gH) / 2f); // reach the farthest corner
+            var (rc, rp) = ResolveStops(grad.Stops, radius);
+            return SKShader.CreateRadialGradient(center, radius, rc, rp, SKShaderTileMode.Clamp);
         }
 
         // Linear: the CSS gradient line through the centre at the angle (0=up, clockwise); its length
@@ -66,7 +55,52 @@ public sealed class SkiaRasterizer
         float cx = gX + gW / 2f, cy = gY + gH / 2f;
         var start = new SKPoint(cx - dx * len / 2f, cy - dy * len / 2f);
         var end = new SKPoint(cx + dx * len / 2f, cy + dy * len / 2f);
+        var (colors, positions) = ResolveStops(grad.Stops, len);
         return SKShader.CreateLinearGradient(start, end, colors, positions, SKShaderTileMode.Clamp);
+    }
+
+    /// <summary>
+    /// The stops as fractions of the gradient line, the way CSS fixes them up: a px position is
+    /// divided by the line's length (<paramref name="lineLength"/>, which under
+    /// <c>background-size</c> is the TILE's — #273), the first and last default to 0 and 1, a run
+    /// of unpositioned stops is spread evenly between its positioned neighbours, and a stop that
+    /// would sit before the one above it is pulled up to it (a hard edge, not a reversal).
+    /// </summary>
+    private static (SKColor[] Colors, float[]? Positions) ResolveStops(IReadOnlyList<GradientStop> stops, float lineLength)
+    {
+        var n = stops.Count;
+        var colors = new SKColor[n];
+        var pos = new float[n];
+        var any = false;
+        for (var i = 0; i < n; i++)
+        {
+            colors[i] = stops[i].Color;
+            var s = stops[i];
+            if (!float.IsNaN(s.Position)) { pos[i] = s.Position; any = true; }
+            else if (!float.IsNaN(s.PositionPx)) { pos[i] = lineLength > 0 ? s.PositionPx / lineLength : 0f; any = true; }
+            else pos[i] = float.NaN;
+        }
+        if (!any) return (colors, null);            // Skia spaces them evenly itself
+
+        if (float.IsNaN(pos[0])) pos[0] = 0f;
+        if (float.IsNaN(pos[n - 1])) pos[n - 1] = 1f;
+        for (var i = 1; i < n - 1; i++)
+        {
+            if (!float.IsNaN(pos[i])) continue;
+            var j = i;
+            while (float.IsNaN(pos[j])) j++;        // the next positioned stop; the last always is
+            var from = pos[i - 1]; var to = pos[j];
+            var run = j - i + 1;
+            for (var k = i; k < j; k++) pos[k] = from + (to - from) * (k - i + 1) / run;
+            i = j;
+        }
+        var floor = 0f;
+        for (var i = 0; i < n; i++)
+        {
+            pos[i] = Math.Clamp(pos[i], 0f, 1f);
+            if (pos[i] < floor) pos[i] = floor; else floor = pos[i];
+        }
+        return (colors, pos);
     }
 
     // Append a chart line to <paramref name="path"/> (already moved to point 0): straight segments, or a

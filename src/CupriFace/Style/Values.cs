@@ -310,9 +310,15 @@ public readonly record struct BoxShadow(float Dx, float Dy, float Blur, float Sp
 
 public enum GradientKind { Linear, Radial }
 
-/// <summary>A gradient colour stop: its <c>Color</c> at <c>Position</c> (0..1), or <c>Position</c> NaN
-/// to auto-distribute it evenly.</summary>
-public readonly record struct GradientStop(SkiaSharp.SKColor Color, float Position);
+/// <summary>A gradient colour stop: its <c>Color</c> at <c>Position</c> (0..1), or at
+/// <c>PositionPx</c> px along the gradient line (a radial gradient's radius), or NaN for both to
+/// sit evenly between its positioned neighbours.
+///
+/// <para>A px position is kept as px, because what it is a fraction OF is only known when the
+/// gradient is built: the line length over the box it fills — which, under <c>background-size</c>,
+/// is the tile. It used to be dropped at parse time, so <c>#000 1.5px, transparent 2px</c> read as
+/// two unpositioned stops and a dot grid became a field of blobs (#273).</para></summary>
+public readonly record struct GradientStop(SkiaSharp.SKColor Color, float Position, float PositionPx = float.NaN);
 
 /// <summary>A CSS <c>linear-gradient()</c> / <c>radial-gradient()</c> background. <c>AngleDeg</c> is the
 /// CSS angle (0 = to top, 90 = to right; ignored for radial).</summary>
