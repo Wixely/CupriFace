@@ -341,6 +341,18 @@ public sealed class StyleResolver
             case "h2": s.Display = DisplayType.Block; s.FontSize = 24; s.FontWeight = 700; break;
             case "h3": s.Display = DisplayType.Block; s.FontSize = 19; s.FontWeight = 700; break;
         }
+        // The HTML `hidden` attribute is `display: none` in every browser's UA stylesheet, and the
+        // engine had no equivalent rule — so a hidden element rendered, and what a hidden element
+        // usually holds is data. A JSON island in `<div hidden>` was painted across the frame (#280).
+        //
+        // Applied at UA origin, which is this method: an author rule is matched after it, so
+        // `[hidden] { display: block }` still shows the element, as in a browser. The engine
+        // already believed the attribute everywhere EXCEPT here — keyboard focus skips a hidden
+        // element (IsHiddenFromFocus) and CupriDoctor counts one as hidden on purpose — so the
+        // painted pixels were also unreachable by Tab and exempt from the doctor's own check on
+        // elements that produced no output. Nothing reported them.
+        if (node.Element?.HasAttribute("hidden") == true) s.Display = DisplayType.None;
+
         if (node.Tag is "strong" or "b") s.FontWeight = 700;
         if (node.Tag is "code" or "kbd" or "samp" or "var") s.FontFamily = "monospace";
         if (node.Tag is "em" or "i" or "cite" or "address" or "dfn" or "var") s.FontStyle = FontSlant.Italic;
@@ -481,9 +493,9 @@ public sealed class StyleResolver
                 case "background": ParseBackgroundShorthand(s, v); break;
                 case "background-image": ParseBackgroundImage(s, v); break; // over bg-color; 'none' clears
                 case "background-color": if (Colors.TryParse(v, out var bgc)) s.Background = bgc; break;
-                case "background-size": s.BackgroundGeometry = WithSize(s.BackgroundGeometry, v); break;
-                case "background-position": s.BackgroundGeometry = WithPosition(s.BackgroundGeometry, v); break;
-                case "background-repeat": s.BackgroundGeometry = WithRepeat(s.BackgroundGeometry, v); break;
+                case "background-size": s.BackgroundGeometries = PerLayer(s.BackgroundGeometries, v, WithSize); break;
+                case "background-position": s.BackgroundGeometries = PerLayer(s.BackgroundGeometries, v, WithPosition); break;
+                case "background-repeat": s.BackgroundGeometries = PerLayer(s.BackgroundGeometries, v, WithRepeat); break;
                 case "opacity": s.Opacity = Math.Clamp(ParseNum(v), 0f, 1f); break;
                 case "clip-path": s.ClipPath = ParseClipPath(v, prop); break;
                 case "transform": ParseTransform(s, v); break;
@@ -1307,10 +1319,10 @@ public sealed class StyleResolver
     private static void ParseBackgroundShorthand(ComputedStyle s, string v)
     {
         s.Background = SKColors.Transparent;
-        s.BackgroundGradient = null;
-        s.BackgroundImageSrc = null;
-        s.BackgroundGeometry = BackgroundGeometry.Default;
-        var haveImage = false;
+        s.BackgroundLayers = null;
+        s.BackgroundGeometries = null;
+        List<BackgroundLayer>? layers = null;
+        List<BackgroundGeometry>? geometries = null;
         foreach (var layer in SplitTopLevel(v, ','))
         {
             var geom = BackgroundGeometry.Default;
@@ -1343,14 +1355,34 @@ public sealed class StyleResolver
             }
             if (position.Count > 0) geom = WithPosition(geom, string.Join(' ', position));
             if (size.Count > 0) geom = WithSize(geom, string.Join(' ', size));
-            if (!haveImage && (gradient is not null || src is not null))
+            // Every layer is kept, in the order written — the first ends up on top (#279). A layer
+            // that names only a colour (the last one usually does) contributes no image.
+            if (gradient is not null || src is not null)
             {
-                haveImage = true;
-                s.BackgroundGradient = gradient;
-                s.BackgroundImageSrc = src;
-                s.BackgroundGeometry = geom;
+                (layers ??= []).Add(new BackgroundLayer(gradient, src));
+                (geometries ??= []).Add(geom);
             }
         }
+        s.BackgroundLayers = layers;
+        s.BackgroundGeometries = geometries;
+    }
+
+    /// <summary>
+    /// Apply one geometry longhand across the layers: its comma-separated values pair with the
+    /// layers by index, and the shorter of the two lists repeats — which is what CSS does, and why
+    /// <c>background-size: 50%, cover</c> beside <c>background-position: left</c> gives two sized
+    /// layers that share one position (#279).
+    /// </summary>
+    private static List<BackgroundGeometry> PerLayer(List<BackgroundGeometry>? existing, string v,
+        Func<BackgroundGeometry, string, BackgroundGeometry> apply)
+    {
+        var parts = SplitTopLevel(v, ',');
+        var baseList = existing is { Count: > 0 } ? existing : [BackgroundGeometry.Default];
+        if (parts.Count == 0) return baseList;
+        var n = Math.Max(parts.Count, baseList.Count);
+        var result = new List<BackgroundGeometry>(n);
+        for (var i = 0; i < n; i++) result.Add(apply(baseList[i % baseList.Count], parts[i % parts.Count]));
+        return result;
     }
 
     /// <summary>`center/cover` and `center / cover` are the same thing: a size follows a slash, and
@@ -1371,14 +1403,19 @@ public sealed class StyleResolver
         low.EndsWith('%') || low.EndsWith("px") || low.EndsWith("em") || low.StartsWith("calc(")
         || (low.Length > 0 && (char.IsDigit(low[0]) || low[0] == '-' || low[0] == '.'));
 
+    /// <summary>The <c>background-image</c> longhand: a comma-separated list of layers, first on
+    /// top. It does NOT reset the geometry longhands, which keep pairing by index (#279).</summary>
     private static void ParseBackgroundImage(ComputedStyle s, string v)
     {
         var t = v.Trim();
-        if (t.Equals("none", StringComparison.OrdinalIgnoreCase)) { s.BackgroundGradient = null; s.BackgroundImageSrc = null; return; }
-        // Several layers: the first is the one painted.
-        var first = SplitTopLevel(t, ',').FirstOrDefault() ?? t;
-        if (ParseGradient(first) is { } g) { s.BackgroundGradient = g; s.BackgroundImageSrc = null; }
-        else if (ParseUrl(first) is { } u) { s.BackgroundImageSrc = u; s.BackgroundGradient = null; }
+        if (t.Equals("none", StringComparison.OrdinalIgnoreCase)) { s.BackgroundLayers = null; return; }
+        List<BackgroundLayer>? layers = null;
+        foreach (var seg in SplitTopLevel(t, ','))
+        {
+            if (ParseGradient(seg) is { } g) (layers ??= []).Add(new BackgroundLayer(g, null));
+            else if (ParseUrl(seg) is { } u) (layers ??= []).Add(new BackgroundLayer(null, u));
+        }
+        if (layers is not null) s.BackgroundLayers = layers;
     }
 
     /// <summary><c>url("x")</c>, <c>url('x')</c> or <c>url(x)</c> → <c>x</c>; null for anything else.</summary>
@@ -1478,8 +1515,11 @@ public sealed class StyleResolver
 
         var angle = 180f; // CSS default: to bottom
         var start = 0;
+        var radial = default(RadialSpec);
         if (kind == GradientKind.Linear && ParseAngle(segs[0]) is { } a) { angle = a; start = 1; }
-        else if (kind == GradientKind.Radial && !IsColorStop(segs[0])) start = 1; // skip shape/size prelude
+        // The prelude used to be stepped over entirely, so `at 18% 20%`, the shape and every size
+        // keyword did nothing (#278). A prelude is any first segment that is not a colour stop.
+        else if (kind == GradientKind.Radial && !IsColorStop(segs[0])) { radial = ParseRadialPrelude(segs[0]); start = 1; }
 
         var stops = new List<GradientStop>();
         for (var i = start; i < segs.Count; i++)
@@ -1497,7 +1537,58 @@ public sealed class StyleResolver
             }
             if (col is { } cc) stops.Add(new GradientStop(cc, pos, px));
         }
-        return stops.Count >= 2 ? new Gradient(kind, angle, stops) : null;
+        return stops.Count >= 2 ? new Gradient(kind, angle, stops, radial) : null;
+    }
+
+    /// <summary>
+    /// A radial gradient's prelude: <c>[ &lt;ending-shape&gt; || &lt;size&gt; ]? [ at &lt;position&gt; ]?</c>
+    /// — e.g. <c>circle at 18% 20%</c>, <c>ellipse closest-side</c>, <c>60px at left top</c> (#278).
+    ///
+    /// <para>The position takes the same grammar as <c>background-position</c>, so it is read by the
+    /// same helper; a percentage there is a fraction of the BOX rather than of the spare room, which
+    /// is the one difference, and it is applied where the centre is resolved.</para>
+    /// </summary>
+    private static RadialSpec ParseRadialPrelude(string prelude)
+    {
+        var spec = default(RadialSpec);
+        var t = prelude.Trim();
+
+        // `at` splits the shape/size half from the position half. Handled before tokenising because
+        // a bare `at left top` has no shape half at all.
+        string? position = null;
+        if (t.StartsWith("at ", StringComparison.OrdinalIgnoreCase)) { position = t[3..]; t = ""; }
+        else
+        {
+            var at = t.IndexOf(" at ", StringComparison.OrdinalIgnoreCase);
+            if (at >= 0) { position = t[(at + 4)..]; t = t[..at]; }
+        }
+
+        var radii = new List<Length>();
+        foreach (var tok in SplitTopLevel(t, ' '))
+            switch (tok.ToLowerInvariant())
+            {
+                case "circle": spec = spec with { Shape = RadialShape.Circle }; break;
+                case "ellipse": spec = spec with { Shape = RadialShape.Ellipse }; break;
+                case "closest-side": spec = spec with { Extent = RadialExtent.ClosestSide }; break;
+                case "closest-corner": spec = spec with { Extent = RadialExtent.ClosestCorner }; break;
+                case "farthest-side": spec = spec with { Extent = RadialExtent.FarthestSide }; break;
+                case "farthest-corner": spec = spec with { Extent = RadialExtent.FarthestCorner }; break;
+                default: if (ParseLen(tok) is { IsDefinite: true } len) radii.Add(len); break;
+            }
+
+        if (radii.Count > 0)
+        {
+            // One length sizes a circle; two size an ellipse. A sized gradient has no extent.
+            spec = spec with { RadiusX = radii[0], RadiusY = radii.Count > 1 ? radii[1] : radii[0] };
+            if (radii.Count > 1) spec = spec with { Shape = RadialShape.Ellipse };
+        }
+
+        if (position is { Length: > 0 })
+        {
+            var g = WithPosition(BackgroundGeometry.Default, position);
+            spec = spec with { CenterX = g.PosX, CenterY = g.PosY };
+        }
+        return spec;
     }
 
     private static bool IsColorStop(string seg)

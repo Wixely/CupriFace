@@ -505,7 +505,7 @@ public sealed class LayoutEngine
             node.PadTop = st.Padding.Top.Resolve(contentW); node.PadBottom = st.Padding.Bottom.Resolve(contentW);
             node.BorderLeftW = st.BorderLeft; node.BorderRightW = st.BorderRight;
             node.BorderTopW = st.BorderTop; node.BorderBottomW = st.BorderBottom;
-            var paints = st.Background.Alpha > 0 || st.BackgroundGradient is not null
+            var paints = st.Background.Alpha > 0 || st.HasBackgroundImage
                 || (st.BorderColor.Alpha > 0 && st.BorderStyle != BorderLineStyle.None
                     && node.BorderLeftW + node.BorderRightW + node.BorderTopW + node.BorderBottomW > 0);
 

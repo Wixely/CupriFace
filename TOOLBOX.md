@@ -553,6 +553,19 @@ controls handle their own state.
   .bar  { background: linear-gradient(#5aa0e0, #2b5f92); }
   .glow { background: radial-gradient(#ffd39a, #B87333); }
   ```
+- **Radial gradients take a prelude.** `radial-gradient([<shape>] [<size>] [at <position>], …)` —
+  `circle` or `ellipse`, an extent keyword (`closest-side`, `farthest-corner`, …) or explicit
+  radii, and a centre in percentages, lengths or keywords. The default is an `ellipse` reaching the
+  farthest corner, centred, which is CSS's. Several of them in one declaration is how a designed
+  background is lit.
+  ```css
+  .lit { background:
+      radial-gradient(circle 90px at 0% 0%,   #f0d3a6, transparent),
+      radial-gradient(circle 90px at 100% 0%, #a6d3f0, transparent), #101418; }
+  ```
+- **Backgrounds stack.** A `background` or `background-image` takes a comma-separated list of image
+  layers, painted back to front with the **first on top**. `background-size`, `-position` and
+  `-repeat` pair with the layers by index and repeat when shorter, as in CSS.
 - **Background images and the image layer's geometry.** `background-image: url(…)` draws a raster
   image (the same sources as `<cupri-image>`: embedded, file, `data:`, https), and
   `background-size` / `background-position` / `background-repeat` size, place and tile the layer —

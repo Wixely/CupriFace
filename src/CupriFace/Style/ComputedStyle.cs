@@ -177,17 +177,33 @@ public sealed class ComputedStyle
     // Box shadow layers (CSS box-shadow) — outset drop shadows and/or inset inner shadows. Not inherited.
     public List<BoxShadow>? BoxShadow;
 
-    // Background gradient (CSS linear-gradient()/radial-gradient()); painted over Background. Not inherited.
-    public Gradient? BackgroundGradient;
+    /// <summary>
+    /// The background's image layers, gradients and <c>url()</c> images alike, painted over
+    /// <see cref="Background"/>. <b>First is topmost</b>, as in CSS. Null or empty = no image layer.
+    ///
+    /// <para>A single layer until #279: a declaration with several comma-separated images kept only
+    /// the first, so a background built from two or three glows over a base colour — the normal way
+    /// a designed background is made, and 38 of 165 corpus compositions — lost all but one of its
+    /// lights.</para>
+    ///
+    /// <para>Not inherited.</para>
+    /// </summary>
+    public List<BackgroundLayer>? BackgroundLayers;
 
-    /// <summary><c>background-image: url(…)</c> — a raster image as the background layer, resolved
-    /// through the same store as <c>&lt;cupri-image&gt;</c>. Null when the layer is a gradient or
-    /// there is none. Not inherited.</summary>
-    public string? BackgroundImageSrc;
+    /// <summary>Where each image layer sits and how it tiles (<c>background-size</c>,
+    /// <c>-position</c>, <c>-repeat</c>) (#267). Paired with <see cref="BackgroundLayers"/> by
+    /// index, repeating when shorter — which is how CSS pairs the longhands with the layers, and
+    /// why they are a list of their own rather than a field on the layer. Not inherited.</summary>
+    public List<BackgroundGeometry>? BackgroundGeometries;
 
-    /// <summary>Where the image layer sits and how it tiles (<c>background-size</c>,
-    /// <c>-position</c>, <c>-repeat</c>) (#267). Not inherited.</summary>
-    public BackgroundGeometry BackgroundGeometry = BackgroundGeometry.Default;
+    /// <summary>The geometry for layer <paramref name="index"/>: the list repeats to cover the
+    /// layers, and an unset list is CSS's initial value throughout.</summary>
+    public BackgroundGeometry GeometryFor(int index) =>
+        BackgroundGeometries is { Count: > 0 } g ? g[index % g.Count] : BackgroundGeometry.Default;
+
+    /// <summary>True when anything would paint over the background colour — the layout pass's
+    /// "does this box draw" test, and the one place that only needs to know whether, not what.</summary>
+    public bool HasBackgroundImage => BackgroundLayers is { Count: > 0 };
 
     /// <summary><c>clip-path</c>: a basic shape the element's paint — children, shadow and all —
     /// is clipped to, in its own border box (#268). Null is <c>none</c>. Not inherited.</summary>

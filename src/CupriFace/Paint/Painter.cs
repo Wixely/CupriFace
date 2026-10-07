@@ -497,9 +497,16 @@ public sealed class Painter
     /// be sized — an image still loading paints nothing this frame, as it does for cupri-image.</summary>
     private void PaintBackgroundLayer(DisplayList list, ComputedStyle s, float x, float y, float w, float h, CornerRadii radius)
     {
-        if (w <= 0 || h <= 0) return;
-        var geom = s.BackgroundGeometry;
-        if (s.BackgroundGradient is { } grad)
+        if (w <= 0 || h <= 0 || s.BackgroundLayers is not { Count: > 0 } layers) return;
+        // Back to front: CSS lists the TOPMOST layer first, so the last one is painted first (#279).
+        for (var i = layers.Count - 1; i >= 0; i--)
+            PaintOneLayer(list, layers[i], s.GeometryFor(i), x, y, w, h, radius);
+    }
+
+    private void PaintOneLayer(DisplayList list, BackgroundLayer layer, BackgroundGeometry geom,
+                               float x, float y, float w, float h, CornerRadii radius)
+    {
+        if (layer.Gradient is { } grad)
         {
             if (geom.FillsBox(0, 0, w, h)) { list.Add(new GradientRect(x, y, w, h, radius, grad)); return; }
             var (tx, ty, tw, th) = geom.Tile(0, 0, w, h);
@@ -507,7 +514,7 @@ public sealed class Painter
             list.Add(new GradientRect(x, y, w, h, radius, grad, new BackgroundTile(x + tx, y + ty, tw, th, geom.RepeatX, geom.RepeatY)));
             return;
         }
-        if (s.BackgroundImageSrc is { Length: > 0 } src && _images?.Get(src) is { } img)
+        if (layer.ImageSrc is { Length: > 0 } src && _images?.Get(src) is { } img)
         {
             var (tx, ty, tw, th) = geom.Tile(img.Width, img.Height, w, h);
             if (tw <= 0 || th <= 0) return;

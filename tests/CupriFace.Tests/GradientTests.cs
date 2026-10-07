@@ -17,19 +17,19 @@ public class GradientTests
             "<div class='c' style='width:20px;height:20px;background:radial-gradient(#ffffff,#000000)'></div>" +
             "</body>", "", null, width: 200, height: 200);
 
-        var a = t.FindClass("a").Style.BackgroundGradient!;
+        var a = t.FindClass("a").Style.BackgroundLayers![0].Gradient!;
         Assert.Equal(GradientKind.Linear, a.Kind);
         Assert.Equal(90, a.AngleDeg, 1);
         Assert.Equal(2, a.Stops.Count);
         Assert.Equal(0xff, a.Stops[0].Color.Red);
         Assert.Equal(0xff, a.Stops[1].Color.Blue);
 
-        var b = t.FindClass("b").Style.BackgroundGradient!;
+        var b = t.FindClass("b").Style.BackgroundLayers![0].Gradient!;
         Assert.Equal(90, b.AngleDeg, 1);                 // "to right" → 90°
         Assert.Equal(0.25f, b.Stops[0].Position, 2);     // explicit stop positions
         Assert.Equal(0.75f, b.Stops[1].Position, 2);
 
-        Assert.Equal(GradientKind.Radial, t.FindClass("c").Style.BackgroundGradient!.Kind);
+        Assert.Equal(GradientKind.Radial, t.FindClass("c").Style.BackgroundLayers![0].Gradient!.Kind);
     }
 
     [Fact]
@@ -39,7 +39,7 @@ public class GradientTests
             "<body><div class='x' style='width:20px;height:20px;background:linear-gradient(#fff,#000);background:#123456'></div></body>",
             "", null);
         var x = t.FindClass("x").Style;
-        Assert.Null(x.BackgroundGradient);
+        Assert.True(x.BackgroundLayers is null or { Count: 0 });
         Assert.Equal(0x12, x.Background.Red);
     }
 

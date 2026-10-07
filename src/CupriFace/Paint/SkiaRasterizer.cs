@@ -41,10 +41,18 @@ public sealed class SkiaRasterizer
     {
         if (grad.Kind == GradientKind.Radial)
         {
-            var center = new SKPoint(gX + gW / 2f, gY + gH / 2f);
-            var radius = MathF.Max(1f, MathF.Sqrt(gW * gW + gH * gH) / 2f); // reach the farthest corner
-            var (rc, rp) = ResolveStops(grad.Stops, radius);
-            return SKShader.CreateRadialGradient(center, radius, rc, rp, SKShaderTileMode.Clamp);
+            var (rcx, rcy, rx, ry) = RadialGeometry(grad.Radial, gX, gY, gW, gH);
+            // Stop positions are fractions of the gradient ray, which runs from the centre to the
+            // ending shape — so a px stop divides by the horizontal radius, the space the circle
+            // below is built in.
+            var (rc, rp) = ResolveStops(grad.Stops, rx);
+            var center = new SKPoint(rcx, rcy);
+            if (MathF.Abs(rx - ry) < 0.01f)
+                return SKShader.CreateRadialGradient(center, rx, rc, rp, SKShaderTileMode.Clamp);
+            // An ellipse is a circle of the horizontal radius with the shader's own space scaled on
+            // y about the centre — Skia takes a local matrix rather than a second radius.
+            return SKShader.CreateRadialGradient(center, rx, rc, rp, SKShaderTileMode.Clamp,
+                SKMatrix.CreateScale(1f, ry / rx, rcx, rcy));
         }
 
         // Linear: the CSS gradient line through the centre at the angle (0=up, clockwise); its length
@@ -58,6 +66,78 @@ public sealed class SkiaRasterizer
         var (colors, positions) = ResolveStops(grad.Stops, len);
         return SKShader.CreateLinearGradient(start, end, colors, positions, SKShaderTileMode.Clamp);
     }
+
+    /// <summary>
+    /// A radial gradient's centre and radii in the box (gX, gY, gW, gH), from its prelude (#278).
+    ///
+    /// <para>The centre and the size are one calculation, not two: every extent keyword measures
+    /// FROM the centre, so moving it changes the radius as well. That is why the old constants were
+    /// self-consistent and still wrong — half the box diagonal is the farthest corner, but only
+    /// from the middle.</para>
+    ///
+    /// <para>A corner extent keeps the aspect ratio of the matching side extent and scales it until
+    /// the ellipse passes through that corner, which is what CSS specifies.</para>
+    /// </summary>
+    private static (float Cx, float Cy, float Rx, float Ry) RadialGeometry(RadialSpec spec, float gX, float gY, float gW, float gH)
+    {
+        var cx = gX + (spec.CenterX.IsAuto ? gW / 2f : spec.CenterX.Resolve(gW));
+        var cy = gY + (spec.CenterY.IsAuto ? gH / 2f : spec.CenterY.Resolve(gH));
+
+        float rx, ry;
+        if (!spec.RadiusX.IsAuto)
+        {
+            rx = spec.RadiusX.Resolve(gW);
+            ry = spec.RadiusY.IsAuto ? rx : spec.RadiusY.Resolve(gH);
+        }
+        else
+        {
+            // Distances from the centre to each side. Absolute, so a centre outside the box still
+            // gives a sane shape rather than a negative radius.
+            float dl = MathF.Abs(cx - gX), dr = MathF.Abs(gX + gW - cx);
+            float dt = MathF.Abs(cy - gY), db = MathF.Abs(gY + gH - cy);
+            var circle = spec.Shape == RadialShape.Circle;
+            var far = spec.Extent is RadialExtent.FarthestSide or RadialExtent.FarthestCorner;
+            var corner = spec.Extent is RadialExtent.ClosestCorner or RadialExtent.FarthestCorner;
+
+            if (circle)
+            {
+                if (!corner)
+                    rx = ry = far ? MathF.Max(MathF.Max(dl, dr), MathF.Max(dt, db))
+                                  : MathF.Min(MathF.Min(dl, dr), MathF.Min(dt, db));
+                else
+                {
+                    var best = far ? 0f : float.MaxValue;
+                    foreach (var (ddx, ddy) in Corners(dl, dr, dt, db))
+                    {
+                        var d = MathF.Sqrt(ddx * ddx + ddy * ddy);
+                        best = far ? MathF.Max(best, d) : MathF.Min(best, d);
+                    }
+                    rx = ry = best;
+                }
+            }
+            else
+            {
+                // The side ellipse, which a corner extent then scales up or down about the centre.
+                rx = far ? MathF.Max(dl, dr) : MathF.Min(dl, dr);
+                ry = far ? MathF.Max(dt, db) : MathF.Min(dt, db);
+                if (corner && rx > 0.01f && ry > 0.01f)
+                {
+                    var best = far ? 0f : float.MaxValue;
+                    foreach (var (ddx, ddy) in Corners(dl, dr, dt, db))
+                    {
+                        var k = MathF.Sqrt(ddx * ddx / (rx * rx) + ddy * ddy / (ry * ry));
+                        best = far ? MathF.Max(best, k) : MathF.Min(best, k);
+                    }
+                    rx *= best; ry *= best;
+                }
+            }
+        }
+        return (cx, cy, MathF.Max(1f, rx), MathF.Max(1f, ry));
+    }
+
+    // The four corners as (|dx|, |dy|) from the centre.
+    private static (float X, float Y)[] Corners(float dl, float dr, float dt, float db) =>
+        [(dl, dt), (dr, dt), (dl, db), (dr, db)];
 
     /// <summary>
     /// The stops as fractions of the gradient line, the way CSS fixes them up: a px position is

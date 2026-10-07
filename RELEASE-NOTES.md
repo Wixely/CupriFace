@@ -13,6 +13,52 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- **A `radial-gradient()`'s prelude is read (#278).** `at <position>`, `circle`/`ellipse` and every
+  size keyword did nothing: the parser stepped over the prelude and the rasteriser filled in a
+  centred circle reaching the farthest corner. So all 63 positioned gradients in one surveyed
+  corpus were drawn in the middle of their box, and a composition lit from two corners came out as
+  one dull blob in the centre. The centre and the size are now one calculation, because an extent
+  keyword measures FROM the centre: `at <position>` in percentages, lengths and keywords;
+  `closest-side`, `closest-corner`, `farthest-side`, `farthest-corner`; and explicit radii
+  (`circle 60px`, `ellipse 80px 40px`). A corner extent keeps the matching side extent's aspect
+  ratio and scales it to meet that corner, as CSS specifies.
+
+  **This changes gradients that were already written.** CSS's default ending shape is an ELLIPSE,
+  not a circle — Chrome confirms it by normalising the keyword away in a computed value while
+  keeping `circle` — so a bare `radial-gradient(…)` in a non-square box is now an ellipse where it
+  used to be a circle of half the box diagonal. In a 400x200 box that is 283 by 141 rather than
+  224 by 224. Write `circle` to keep the old shape. The engine's own component library and every
+  test were unaffected, but a document of your own with a bare radial gradient in a wide box will
+  look different, and correct.
+
+- **Every image layer of a background is painted (#279).** A `background` or `background-image`
+  with several comma-separated images painted exactly one of them, so a background built from two
+  or three glows over a base colour — the normal way a designed background is made, and 38 of 165
+  corpus compositions — kept one of its lights and lost the rest. The computed style now holds a
+  list of layers, painted back to front with the **first on top**, as in CSS. `background-size`,
+  `background-position` and `background-repeat` are per-layer lists paired with them by index, the
+  shorter one repeating, so `background-size: 50%, cover` beside `background-position: left` gives
+  two sized layers sharing one position. The shorthand still carries a size per layer after each
+  layer's `/`.
+
+  This and #278 only pay off together: the case both were reported from is four corner glows in one
+  declaration, where three were dropped here and the fourth was drawn in the centre.
+
+- **The HTML `hidden` attribute is honoured (#280).** `<div hidden>…</div>` rendered its contents,
+  so a hidden data island was painted across the frame — one corpus composition keeps its message
+  list in `<div hidden data-hf-primitive-data>{…}</div>` and the raw JSON was drawn in a line
+  across the top. It is now `display: none` at UA-stylesheet origin, as in every browser, so an
+  author rule or inline style that sets `display` still shows the element.
+
+  The engine already believed the attribute everywhere else: keyboard focus skipped a hidden
+  element and CupriDoctor counted one as hidden on purpose. The painted pixels were therefore
+  unreachable by Tab AND exempt from the check on elements that produce no output, which is why
+  nothing ever reported them.
+
 ## v0.36.0
 
 ### Fixed
