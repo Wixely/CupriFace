@@ -13,6 +13,21 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- **The HTML `hidden` attribute is honoured (#280).** `<div hidden>…</div>` rendered its contents,
+  so a hidden data island was painted across the frame — one corpus composition keeps its message
+  list in `<div hidden data-hf-primitive-data>{…}</div>` and the raw JSON was drawn in a line
+  across the top. It is now `display: none` at UA-stylesheet origin, as in every browser, so an
+  author rule or inline style that sets `display` still shows the element.
+
+  The engine already believed the attribute everywhere else: keyboard focus skipped a hidden
+  element and CupriDoctor counted one as hidden on purpose. The painted pixels were therefore
+  unreachable by Tab AND exempt from the check on elements that produce no output, which is why
+  nothing ever reported them.
+
 ## v0.36.0
 
 ### Fixed

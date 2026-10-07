@@ -341,6 +341,18 @@ public sealed class StyleResolver
             case "h2": s.Display = DisplayType.Block; s.FontSize = 24; s.FontWeight = 700; break;
             case "h3": s.Display = DisplayType.Block; s.FontSize = 19; s.FontWeight = 700; break;
         }
+        // The HTML `hidden` attribute is `display: none` in every browser's UA stylesheet, and the
+        // engine had no equivalent rule — so a hidden element rendered, and what a hidden element
+        // usually holds is data. A JSON island in `<div hidden>` was painted across the frame (#280).
+        //
+        // Applied at UA origin, which is this method: an author rule is matched after it, so
+        // `[hidden] { display: block }` still shows the element, as in a browser. The engine
+        // already believed the attribute everywhere EXCEPT here — keyboard focus skips a hidden
+        // element (IsHiddenFromFocus) and CupriDoctor counts one as hidden on purpose — so the
+        // painted pixels were also unreachable by Tab and exempt from the doctor's own check on
+        // elements that produced no output. Nothing reported them.
+        if (node.Element?.HasAttribute("hidden") == true) s.Display = DisplayType.None;
+
         if (node.Tag is "strong" or "b") s.FontWeight = 700;
         if (node.Tag is "code" or "kbd" or "samp" or "var") s.FontFamily = "monospace";
         if (node.Tag is "em" or "i" or "cite" or "address" or "dfn" or "var") s.FontStyle = FontSlant.Italic;
