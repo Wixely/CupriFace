@@ -322,7 +322,35 @@ public readonly record struct GradientStop(SkiaSharp.SKColor Color, float Positi
 
 /// <summary>A CSS <c>linear-gradient()</c> / <c>radial-gradient()</c> background. <c>AngleDeg</c> is the
 /// CSS angle (0 = to top, 90 = to right; ignored for radial).</summary>
-public sealed record Gradient(GradientKind Kind, float AngleDeg, IReadOnlyList<GradientStop> Stops);
+/// <summary>A radial gradient's ending shape. CSS's initial value is <c>ellipse</c>, which is why
+/// it is first: <c>default(RadialSpec)</c> is the CSS default in every field.</summary>
+public enum RadialShape { Ellipse, Circle }
+
+/// <summary>How far a radial gradient's ending shape reaches when no explicit size is given.
+/// <c>farthest-corner</c> is CSS's initial value.</summary>
+public enum RadialExtent { FarthestCorner, ClosestSide, ClosestCorner, FarthestSide }
+
+/// <summary>
+/// The prelude of a <c>radial-gradient()</c>: its ending shape, its size and its centre (#278).
+///
+/// <para>All of it used to be skipped — the parser stepped over the prelude and the rasteriser
+/// filled in a centred circle reaching the farthest corner. So every positioned gradient in a
+/// document piled onto the middle of its box, which is how a composition lit from two corners
+/// came out as one dull blob in the centre.</para>
+///
+/// <para><c>default</c> is the CSS initial value throughout: an ellipse reaching the farthest
+/// corner, centred. An auto radius means "use <see cref="Extent"/>"; an auto centre means 50%.</para>
+/// </summary>
+public readonly record struct RadialSpec(
+    RadialShape Shape, RadialExtent Extent, Length RadiusX, Length RadiusY, Length CenterX, Length CenterY);
+
+/// <param name="Radial">Meaningful only when <paramref name="Kind"/> is
+/// <see cref="GradientKind.Radial"/>; <c>default</c> is CSS's initial value.</param>
+public sealed record Gradient(GradientKind Kind, float AngleDeg, IReadOnlyList<GradientStop> Stops,
+    RadialSpec Radial = default);
+
+/// <summary>One image layer of a background: a gradient or a raster image, never both (#279).</summary>
+public readonly record struct BackgroundLayer(Gradient? Gradient, string? ImageSrc);
 
 /// <summary>How <c>background-size</c> sizes the image layer's tile.</summary>
 public enum BackgroundSizeKind
