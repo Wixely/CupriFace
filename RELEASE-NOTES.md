@@ -40,6 +40,29 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   `Contrast` is public alongside it: `Ratio`, `RelativeLuminance`, `Over`, `RequiredFor` and
   `MeetsAa`, for picking a readable foreground or asserting a palette in your own tests.
 
+- **`CupriDocument.TextInputReactivated`** — the user activated the field that ALREADY has focus.
+  A host that shows a soft keyboard off the focus edge needs this as well: see the Android fix
+  below for why one event cannot be both.
+
+### Fixed
+
+- **Android: the soft keyboard never came back once dismissed (#288).** Tapping a field opened the
+  keyboard; dismissing it with Back or the keyboard's own hide button and tapping the SAME field
+  again did nothing at all, and the only way back was to focus something else and return. On a
+  phone, a field you have tapped and cannot type into reads as the app having hung — which is how
+  it was reported, from a physical device.
+
+  Two halves, both now closed. The dismissal is invisible to the app (the platform handles Back
+  entirely), so the host's `_keyboardShown` was a belief nothing refreshed — the IME inset's
+  VISIBILITY now corrects it, the window insets having carried that answer all along. And a tap on
+  an already-focused field changes nothing about the document, so the focus edge that shows the
+  keyboard could never fire again — the engine now says it outright
+  (`CupriDocument.TextInputReactivated`), and the Android host shows the keyboard off that without
+  restarting the input connection or re-entering the autofill session.
+
+  Nothing to do in an app. If you host the engine yourself: subscribe to `TextInputReactivated`
+  wherever your platform's keyboard can be dismissed without telling you.
+
 ## v0.38.0
 
 ### Fixed

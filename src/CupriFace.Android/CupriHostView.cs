@@ -34,6 +34,7 @@ public sealed class CupriHostView : SKGLSurfaceView
         // Focus edges from the engine: show/hide the soft keyboard, and restart the connection
         // when the field KIND changes (numeric -> text swaps the keyboard layout).
         host.TextInputChanged += OnTextInputChanged;
+        host.KeyboardRequested += OnKeyboardRequested;
         host.SelectionChanged += OnSelectionChanged;
         host.TextInputChanged += NotifyAutofillFocus;
         host.FormSubmitted += CommitAutofill;
@@ -219,8 +220,16 @@ public sealed class CupriHostView : SKGLSurfaceView
 
     // ---- IME ----------------------------------------------------------------------------------
 
+    /// <summary>Whether the soft keyboard is up. Asserted when we ask for it and CORRECTED by the
+    /// IME inset (see <see cref="OnImeVisibilityChanged"/>), because the platform can take the
+    /// keyboard away on its own — Back, the keyboard's own hide button — and tells the app nothing.
+    /// Before that it was a belief nothing refreshed: once stale, it stayed stale for ever.</summary>
     private bool _keyboardShown;
-    private (bool Numeric, bool Multiline, bool Masked) _lastKind;
+
+    /// <summary>The field kind the input connection was last built for; null until one has been.
+    /// Nullable rather than defaulted, because "no kind reported yet" and "a plain text field" are
+    /// different states and only the first must not provoke a restart.</summary>
+    private (bool Numeric, bool Multiline, bool Masked)? _lastKind;
 
     private void OnTextInputChanged(TextInputState state)
     {
@@ -228,18 +237,56 @@ public sealed class CupriHostView : SKGLSurfaceView
         if (imm is null) return;
         if (state.Focused)
         {
-            RequestFocus();
             var kind = (state.Numeric, state.Multiline, state.Masked);
-            if (_keyboardShown && kind != _lastKind) imm.RestartInput(this);
+            // The KIND changed under a live connection: numeric -> text swaps the whole keyboard,
+            // and the IME only re-reads EditorInfo when told to. Gated on a kind having been
+            // reported before rather than on the keyboard being up, which is a different question
+            // — and, now that the inset corrects it, one with a different answer.
+            if (_lastKind is { } last && kind != last) imm.RestartInput(this);
             _lastKind = kind;
-            imm.ShowSoftInput(this, ShowFlags.Implicit);
-            _keyboardShown = true;
+            ShowKeyboard(imm, "focus");
         }
         else if (_keyboardShown)
         {
             imm.HideSoftInputFromWindow(WindowToken, HideSoftInputFlags.None);
             _keyboardShown = false;
+            global::Android.Util.Log.Info(AndroidHost.Tag, "ime: hide (blur)");
         }
+    }
+
+    /// <summary>The user tapped the field they are ALREADY in. There is no focus edge to ride, and
+    /// nothing else to do: the connection is live and of the right kind, so this is <b>only</b>
+    /// the request for the keyboard the platform dismissed behind our back (#288).
+    ///
+    /// <para>Unconditional on purpose — <c>ShowSoftInput</c> is a no-op when the keyboard is
+    /// already up, so the common case (a tap in a field that is being typed into) costs one call
+    /// and changes nothing.</para></summary>
+    private void OnKeyboardRequested(TextInputState state)
+    {
+        if (!state.Focused) return;
+        if (Context?.GetSystemService(Context.InputMethodService) is not InputMethodManager imm) return;
+        ShowKeyboard(imm, "re-tap");
+    }
+
+    /// <summary>Ask for the keyboard, and say so. "The keyboard did not come up" and "the host
+    /// never asked for it" are the same symptom from outside the device and have nothing in common
+    /// as faults, so the request is a marker: <c>adb logcat -s cupri:I</c> separates them.</summary>
+    private void ShowKeyboard(InputMethodManager imm, string why)
+    {
+        RequestFocus();                             // the IME only attaches to a focused view
+        imm.ShowSoftInput(this, ShowFlags.Implicit);
+        _keyboardShown = true;
+        global::Android.Util.Log.Info(AndroidHost.Tag, $"ime: show ({why})");
+    }
+
+    /// <summary>The platform's own answer to "is the keyboard up", from the IME inset — the only
+    /// thing that reports a dismissal the app did not make. Without it <see cref="_keyboardShown"/>
+    /// stays true for the life of the process after the first Back gesture.</summary>
+    internal void OnImeVisibilityChanged(bool visible)
+    {
+        if (visible == _keyboardShown) return;      // insets re-apply constantly; only edges matter
+        _keyboardShown = visible;
+        global::Android.Util.Log.Info(AndroidHost.Tag, $"ime: platform says {(visible ? "shown" : "hidden")}");
     }
 
     /// <summary>The half of the IME contract an editor owes the keyboard: where the caret is. A
