@@ -4,6 +4,7 @@ using AngleSharp.Dom;
 using CupriFace.Components;
 using CupriFace.Dom;
 using CupriFace.Style;
+using SkiaSharp;
 
 namespace CupriFace.Diagnostics;
 
@@ -196,6 +197,7 @@ public static partial class CupriDoctor
             ScriptingHabits(dom, lines, findings);
             BoxesThatDoNotFit(doc, width, lines, findings);
             BackdropFilterOutsideTopLayer(doc, lines, findings);
+            TextNobodyCanRead(doc, registry, lines, findings);
             if (model is not null) UnresolvedBindings(html, model, lines, findings);
             doc.Dispose();
         }
@@ -623,6 +625,112 @@ public static partial class CupriDoctor
         ["object"] = "There is no plugin surface; render the content as part of this document.",
         ["embed"] = "There is no plugin surface; render the content as part of this document.",
     };
+
+    // ---- 3b. text that is there, and unreadable -------------------------------------------------
+
+    /// <summary>
+    /// Text whose colour is too close to what is behind it to read (WCAG AA).
+    ///
+    /// <para>The quietest kind of defect there is: the element lays out, the colours are valid CSS,
+    /// nothing throws, and the only symptom is that nobody can read the words. White on a lime
+    /// accent measures 1.31:1 where ordinary text needs 4.5:1 — it looks deliberate on a designer's
+    /// calibrated screen and disappears on a laptop at an angle.</para>
+    ///
+    /// <para><b>It stays silent whenever it cannot be sure.</b> The background is found by walking
+    /// ancestors for the nearest opaque colour, and ANY gradient, background image, or partial
+    /// opacity on the way makes the answer a guess rather than a fact — so the check gives up
+    /// rather than reporting. A contrast warning on a button that is actually fine is how a check
+    /// like this gets switched off wholesale, and <c>CF0030</c> has already taught this repository
+    /// what a confident wrong diagnostic costs (#270).</para>
+    /// </summary>
+    private static void TextNobodyCanRead(CupriDocument doc, ComponentRegistry registry, string[] lines, List<Finding> findings)
+    {
+        var reported = new HashSet<string>(StringComparer.Ordinal);
+
+        void Walk(RenderNode n)
+        {
+            if (n.Style.Display == DisplayType.None) return;
+            if (n.IsText && n.Lines is { Count: > 0 }) Check(n);
+            foreach (var c in n.Children) Walk(c);
+        }
+
+        void Check(RenderNode text)
+        {
+            var s = text.Style;
+            if (s.Color.Alpha == 0) return;                       // invisible on purpose
+            if (text.Lines!.All(l => l.Text.Trim().Length == 0)) return;
+            // Hidden from assistive tech is usually hidden from sight too, or decorative.
+            for (var a = text.Parent; a is not null; a = a.Parent)
+                if (a.Element?.GetAttribute("aria-hidden") == "true") return;
+
+            // A control's own insides are swept out, exactly as the component library's CSS is
+            // swept out of CF0050: a caller cannot restyle what `<cupri-button>` expands into, so
+            // a finding there is noise they cannot act on — and this repository's own bug rather
+            // than theirs. (The stock primary button is white on the copper accent, which measures
+            // 3.8:1 against the 4.5:1 bar. Recorded in the tests so the number is on file.)
+            //
+            // The cost is real and worth naming: an author who retunes `--cupri-accent` to
+            // something unreadable will not hear about it from here. Their OWN markup, which is
+            // where nearly all text lives, is still checked.
+            for (var a = text.Parent; a is not null; a = a.Parent)
+                if (a.Element is { } ancestor && registry.Tags.Contains(ancestor.LocalName, StringComparer.OrdinalIgnoreCase))
+                    return;
+
+            if (BackgroundUnder(text) is not { } bg) return;      // not knowable: say nothing
+            var fg = Contrast.Over(s.Color, bg);
+            var ratio = Contrast.Ratio(fg, bg);
+            var need = Contrast.RequiredFor(s.FontSize, s.FontWeight);
+            if (ratio >= need - 0.005) return;
+
+            // One finding per COLOUR PAIR, not per run of text. The pair is the actionable unit —
+            // it is fixed once, in one rule — and the same two colours appear on dozens of elements
+            // in any real document. Keyed before the sample is taken so the first occurrence is the
+            // one quoted, and its line is the one reported. (The shipped Showcase goes from 55
+            // findings to 6 under this rule, saying the same thing.)
+            if (!reported.Add(Hex(fg) + "|" + Hex(bg))) return;
+            var sample = text.Lines.Select(l => l.Text.Trim()).FirstOrDefault(t => t.Length > 0) ?? "";
+            if (sample.Length > 28) sample = sample[..27] + "…";
+
+            var big = need == Contrast.AaLarge;
+            findings.Add(new Finding(Severity.Warning, "CF0090",
+                $"\"{sample}\" is {Hex(fg)} on {Hex(bg)} — a contrast ratio of {ratio:0.0}:1, "
+                + $"where {(big ? "large text" : "text this size")} needs {need:0.0}:1 to be readable.",
+                $"Darken or lighten one of them. {Hex(Readable(bg))} on {Hex(bg)} would give "
+                + $"{Contrast.Ratio(Readable(bg), bg):0.0}:1.",
+                LineOf(lines, sample.Length > 0 ? sample : "<")));
+        }
+
+        Walk(doc.Root);
+    }
+
+    /// <summary>
+    /// The opaque colour painted behind this node, or null when that cannot be known.
+    ///
+    /// <para>Null is the important half. A gradient, a background image or a partially transparent
+    /// ancestor all mean the colour behind the text varies or is not this function's to compute,
+    /// and a number guessed from the nearest solid underneath it would be confidently wrong
+    /// somewhere in the box.</para>
+    /// </summary>
+    private static SKColor? BackgroundUnder(RenderNode text)
+    {
+        for (var n = text.Parent; n is not null; n = n.Parent)
+        {
+            var s = n.Style;
+            if (s.Opacity < 1f) return null;                      // the whole subtree is composited
+            if (s.HasBackgroundImage) return null;                // a gradient or an image: it varies
+            if (s.Background.Alpha == 0) continue;                // see through it to the next one
+            if (s.Background.Alpha < 255) return null;            // part of what is under it shows
+            return s.Background;
+        }
+        return null;                                              // nothing opaque anywhere up the chain
+    }
+
+    /// <summary>Black or white, whichever reads better on <paramref name="bg"/> — the suggestion
+    /// that comes with the finding.</summary>
+    private static SKColor Readable(SKColor bg) =>
+        Contrast.Ratio(SKColors.Black, bg) >= Contrast.Ratio(SKColors.White, bg) ? SKColors.Black : SKColors.White;
+
+    private static string Hex(SKColor c) => $"#{c.Red:x2}{c.Green:x2}{c.Blue:x2}";
 
     // ---- 4. JavaScript habits ------------------------------------------------------------------
 
