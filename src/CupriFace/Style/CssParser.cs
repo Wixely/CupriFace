@@ -81,7 +81,17 @@ public static partial class CssParser
             var close = MatchBrace(css, open);
             if (close < 0) break;
 
-            var header = css[i..open].Trim();
+            // Everything up to the '{' is the header — EXCEPT any statement at-rules sitting in
+            // front of it. `@import`, `@charset`, `@layer x;`, `@namespace` end at a semicolon and
+            // have no block of their own, so they rode into the next rule's selector: the header
+            // then began with '@', the whole rule was skipped as an at-rule, and the author lost
+            // the first rule of their stylesheet (#289). Exactly one rule, whichever it was, which
+            // is why it read as one rule mysteriously not applying rather than as a parse failure.
+            // A font `@import` at the top of a sheet is the ordinary way to pull a web font in CSS,
+            // and it cost 18 of 165 corpus compositions their first rule — one of them its entire
+            // background, size and clipping, because the rule it ate was the composition root.
+            var headerStart = i + AfterStatements(css[i..open]);
+            var header = css[headerStart..open].Trim();
             var body = css[(open + 1)..close];
             i = close + 1;
 
@@ -130,6 +140,28 @@ public static partial class CssParser
                 rules.Add(rule);
             }
         }
+    }
+
+    /// <summary>Where the real header starts in the text before a '{': just past the last
+    /// statement-level <c>;</c>, which is the terminator of a blockless at-rule. Semicolons inside
+    /// a string or a <c>url(…)</c> do not count — <c>@import url("a;b.css")</c> and a data URI both
+    /// carry one — and a selector cannot contain one at all, so the LAST top-level semicolon is
+    /// always the last at-statement's end.</summary>
+    private static int AfterStatements(string before)
+    {
+        var depth = 0;
+        var quote = '\0';
+        var last = -1;
+        for (var i = 0; i < before.Length; i++)
+        {
+            var ch = before[i];
+            if (quote != '\0') { if (ch == quote) quote = '\0'; continue; }
+            if (ch is '"' or '\'') quote = ch;
+            else if (ch == '(') depth++;
+            else if (ch == ')') { if (depth > 0) depth--; }
+            else if (ch == ';' && depth == 0) last = i;
+        }
+        return last + 1;
     }
 
     private static int MatchBrace(string s, int open)

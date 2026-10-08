@@ -44,7 +44,23 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   A host that shows a soft keyboard off the focus edge needs this as well: see the Android fix
   below for why one event cannot be both.
 
+- **`CF0052`: an `@import` is stepped over, not fetched.** There is no CSS loader here, so a sheet
+  imported for a web font never arrives and the text renders in whatever fallback the stack names.
+  Register the font with `LoadFonts`/`LoadFont` and name it in `font-family`, or inline the rules.
+
 ### Fixed
+
+- **An `@import` no longer swallows the rule after it (#289).** The parser read everything up to
+  the first `{` as a selector, so a blockless at-rule — `@import`, `@charset`, `@layer x;`,
+  `@namespace` — rode into the next rule's header, which then began with `@` and was skipped
+  wholesale. Exactly one rule was lost, whichever the author wrote first, so it read as one rule
+  mysteriously not applying rather than as a parse failure.
+
+  A font `@import` at the top of a `<style>` is the ordinary way to pull a web font in CSS: this
+  cost 18 of 165 corpus compositions their first rule, and one of them its composition root — the
+  background, the size and the clipping in a single stroke. Statement at-rules are now consumed to
+  their semicolon (the one inside `url("…?family=X:wght@800;900")` does not count), and `CF0052`
+  says that the import itself is still not fetched.
 
 - **Android: the soft keyboard never came back once dismissed (#288).** Tapping a field opened the
   keyboard; dismissing it with Back or the keyboard's own hide button and tapping the SAME field
