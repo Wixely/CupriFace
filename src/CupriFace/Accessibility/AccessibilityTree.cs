@@ -281,7 +281,13 @@ public static class AccessibilityTree
         return null;
     }
 
-    private static string? RoleOf(RenderNode n)
+    /// <summary>The element's ARIA role, explicit or implied by its tag; null when it has none.
+    ///
+    /// <para>Shared with <see cref="Diagnostics.CupriDoctor"/> rather than private, so that "what
+    /// kind of thing is this" has ONE answer. A diagnostic that reasoned about controls from its own
+    /// list would drift from the tree a screen reader actually reads, and then disagree with it
+    /// about the same element.</para></summary>
+    internal static string? RoleOf(RenderNode n)
     {
         var explicitRole = n.Element?.GetAttribute("role");
         if (explicitRole is { Length: > 0 }) return explicitRole;

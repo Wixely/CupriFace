@@ -196,6 +196,7 @@ public static partial class CupriDoctor
             UnrenderedElements(doc, dom, registry, lines, findings);
             ScriptingHabits(dom, lines, findings);
             BoxesThatDoNotFit(doc, width, lines, findings);
+            PeersThatDoNotLineUp(doc, registry, lines, findings);
             BackdropFilterOutsideTopLayer(doc, lines, findings);
             TextNobodyCanRead(doc, registry, lines, findings);
             if (model is not null) UnresolvedBindings(html, model, lines, findings);
@@ -1124,15 +1125,180 @@ public static partial class CupriDoctor
         }
         Walk(doc.Root, false, false, doc.Root.X, viewportWidth);
 
-        static string Name(RenderNode n) =>
-            n.Element?.GetAttribute("class") is { Length: > 0 } cls
-                ? $"<{n.Tag} class='{cls}'>"
-                : "<" + (n.Tag.Length > 0 ? n.Tag : "?") + ">";
+    }
 
-        static string ClassNeedle(RenderNode n) =>
-            n.Element?.GetAttribute("class") is { Length: > 0 } cls
-                ? cls.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0]
-                : "<" + n.Tag;
+    /// <summary>An element as a reader will recognise it in their own markup: the tag and the class
+    /// they wrote. Shared by every box-shaped finding so one element is named one way.</summary>
+    private static string Name(RenderNode n) =>
+        n.Element?.GetAttribute("class") is { Length: > 0 } cls
+            ? $"<{n.Tag} class='{cls}'>"
+            : "<" + (n.Tag.Length > 0 ? n.Tag : "?") + ">";
+
+    /// <summary>What to search the source text for to put a line number on it.</summary>
+    private static string ClassNeedle(RenderNode n) =>
+        n.Element?.GetAttribute("class") is { Length: > 0 } cls
+            ? cls.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0]
+            : "<" + n.Tag;
+
+    // ---- 6b. do the things that look alike line up? --------------------------------------------
+
+    /// <summary>
+    /// Repeated controls in a column that are not the same size — the odd one breaks the alignment.
+    ///
+    /// <para><b>Why no other check sees this.</b> Every box here is exactly the size it asked to be.
+    /// Nothing overflows, nothing clips, nothing is unreadable, no binding is wrong: each element is
+    /// individually correct and the SET is wrong. A screenshot shows it immediately and every
+    /// automatic check says the document is fine — which is the signature of the failures this tool
+    /// exists for.</para>
+    ///
+    /// <para><b>Why it happens.</b> A control sized by its label changes size when the label does,
+    /// and a label that depends on state ("Connect" / "Configure" / "Disconnecting…") differs from
+    /// row to row. The row is laid out correctly for the text it got, so one button juts out of a
+    /// column that is otherwise flush. TOOLBOX's "pin anything whose text changes" is the fix and
+    /// has been written down for a long time; what was missing was anything that NOTICED.</para>
+    ///
+    /// <para><b>Controls only, and that is the whole design.</b> Bare text of different lengths is
+    /// not a defect — a column of status labels reading "Demo mode", "Local TMDB development
+    /// snapshot" and "Demo resolver" is ragged by 162px and completely fine, while the three
+    /// buttons beside it differing by 12px is the bug. Flagging size disagreement generally would
+    /// bury the second finding under the first. So a peer must carry an interactive ROLE (the same
+    /// <see cref="Accessibility.AccessibilityTree.RoleOf"/> a screen reader reads) or be a
+    /// registered <c>cupri-*</c> control, and only the OUTERMOST such element counts — a caller
+    /// cannot restyle what a component expands into.</para>
+    ///
+    /// <para><b>It under-reports on purpose</b>, in three ways worth knowing. A group needs three
+    /// peers, because the finding is "this one disagrees with those two" and a pair has no majority
+    /// to disagree with. The peers must be STACKED — side by side in a row, differing widths are
+    /// ordinary and expected. And an element given an explicit <c>width</c> is taken at its word.
+    /// A div styled to look like a button but carrying no role is invisible here; trust a finding,
+    /// not its absence.</para>
+    /// </summary>
+    private static void PeersThatDoNotLineUp(CupriDocument doc, ComponentRegistry registry,
+                                             string[] lines, List<Finding> findings)
+    {
+        // Signature: the tag plus its classes, which is as close as markup gets to the author
+        // saying "these are the same kind of thing". Position in the tree is deliberately NOT part
+        // of it — rows are often generated, and a repeat that differs structurally (an extra badge
+        // on one row) is exactly where this defect hides.
+        var groups = new Dictionary<string, List<RenderNode>>(StringComparer.Ordinal);
+
+        void Walk(RenderNode n, bool insideControl)
+        {
+            if (n.Style.Display == DisplayType.None) return;
+            var isControl = !insideControl && n.Element is { } el && IsControl(el, n, registry);
+            if (isControl && n.Width > 0.5f && n.Height > 0.5f)
+            {
+                var key = Signature(n);
+                (groups.TryGetValue(key, out var list) ? list : groups[key] = []).Add(n);
+            }
+            foreach (var c in n.Children) Walk(c, insideControl || isControl);
+        }
+        Walk(doc.Root, false);
+
+        foreach (var (_, peers) in groups)
+        {
+            if (peers.Count < 3) continue;
+
+            // Each peer in its OWN row, and the rows all the same kind of thing — a de-facto table,
+            // where a column is expected to line up. This is the rule that separates the defect
+            // from its innocent twin: a stack of pills, chat bubbles or sidebar links shares ONE
+            // parent and is shrink-wrapped by nature, and nobody has ever filed a bug about a
+            // ragged tag list. Peers in sibling rows are a grid, and a grid with a wandering
+            // column is the thing people actually see.
+            var parents = peers.Select(p => p.Parent).ToList();
+            if (parents.Any(p => p?.Element is null)) continue;
+            if (parents.Distinct().Count() != peers.Count) continue;          // one shared parent: a stack, not a grid
+            if (parents.Select(Signature).Distinct().Count() != 1) continue;  // rows of different kinds: not a repeat
+
+            var boxes = peers.Select(p => (Node: p, Box: Interaction.HitTesting.ScreenBox(p)))
+                             .OrderBy(p => p.Box.Y).ToList();
+
+            // A COLUMN: each one below the last, all sharing some horizontal ground. Peers side by
+            // side in a row are a different thing entirely — a toolbar's buttons are as wide as
+            // their labels and nobody expects otherwise.
+            var stacked = true;
+            float overlapLeft = boxes[0].Box.X, overlapRight = boxes[0].Box.X + boxes[0].Box.W;
+            for (var i = 1; i < boxes.Count && stacked; i++)
+            {
+                var (_, prev) = boxes[i - 1];
+                var (_, cur) = boxes[i];
+                if (cur.Y < prev.Y + prev.H - 0.5f) stacked = false;
+                overlapLeft = MathF.Max(overlapLeft, cur.X);
+                overlapRight = MathF.Min(overlapRight, cur.X + cur.W);
+            }
+            if (!stacked || overlapRight <= overlapLeft) continue;
+
+            // The width the group agrees on, and who disagrees with it. A majority is required
+            // rather than a spread, so three peers of three different widths say nothing: there
+            // would be no "the others", and no honest number to suggest pinning to.
+            var agreed = boxes.GroupBy(b => MathF.Round(b.Box.W * 2f) / 2f)
+                              .OrderByDescending(g => g.Count()).ThenByDescending(g => g.Key).First();
+            if (agreed.Count() < 2 || agreed.Count() * 2 < boxes.Count) continue;
+            var odd = boxes.Where(b => MathF.Abs(b.Box.W - agreed.Key) >= 2f).ToList();
+            if (odd.Count == 0) continue;
+
+            // Explicitly sized: the author said what they wanted and got it.
+            odd = odd.Where(b => b.Node.Style.Width.IsAuto).ToList();
+            if (odd.Count == 0) continue;
+
+            var worst = odd.OrderByDescending(b => MathF.Abs(b.Box.W - agreed.Key)).First();
+            var name = Name(worst.Node);
+            var others = boxes.Count - odd.Count;
+
+            // Which edge is ragged, because that is what the eye actually caught. With differing
+            // widths at most one edge can line up, so there is always an answer.
+            var lefts = boxes.Select(b => b.Box.X).ToList();
+            var rights = boxes.Select(b => b.Box.X + b.Box.W).ToList();
+            var gap = MathF.Abs(worst.Box.W - agreed.Key);
+            var edge = lefts.Max() - lefts.Min() <= 0.5f
+                ? $"Their left edges line up, so this one's right edge juts {gap:0}px out of the column."
+                : rights.Max() - rights.Min() <= 0.5f
+                    ? $"Their right edges line up, so this one's left edge juts {gap:0}px out of the column."
+                    : $"Neither edge lines up: it sits {gap:0}px out of the column.";
+
+            var label = FirstText(worst.Node);
+            var otherLabel = boxes.FirstOrDefault(b => !odd.Contains(b)) is { Node: { } o } ? FirstText(o) : "";
+            var because = label.Length > 0 && otherLabel.Length > 0 && label != otherLabel
+                ? $" — \"{label}\" is a longer label than \"{otherLabel}\""
+                : "";
+
+            findings.Add(new Finding(Severity.Warning, "CF0073",
+                $"{name} is {worst.Box.W:0}px wide where the other {others} like it "
+                + $"{(others == 1 ? "is" : "are")} {agreed.Key:0}px{because}. {edge}",
+                $"Pin the size so the text cannot move it: min-width: {MathF.Max(worst.Box.W, agreed.Key):0}px "
+                + "on all of them (or a fixed column for the whole group). A control sized by its "
+                + "label resizes whenever the label changes, which is what state-dependent text does "
+                + "on every render. For digits, font-variant-numeric: tabular-nums does the same job.",
+                // The odd one's own line, found by its LABEL — the class needle would land on the
+                // first peer, which is the one that is RIGHT, and send a reader to the wrong row.
+                (label.Length > 0 ? LineOf(lines, label) : 0) is > 0 and var ln
+                    ? ln : LineOf(lines, ClassNeedle(worst.Node))));
+        }
+
+        // Tag plus classes: as close as markup gets to the author saying "these are the same kind
+        // of thing". Used for the peers themselves and for the rows that hold them.
+        static string Signature(RenderNode? n) =>
+            n?.Tag + "|" + (n?.Element?.GetAttribute("class") ?? "");
+
+        // An interactive element in its own right: the role a screen reader would read, or a
+        // registered component. Disabled is deliberately not excluded — a greyed-out button still
+        // has to line up with its neighbours.
+        static bool IsControl(IElement el, RenderNode n, ComponentRegistry registry) =>
+            registry.Tags.Contains(el.LocalName, StringComparer.OrdinalIgnoreCase)
+            || Accessibility.AccessibilityTree.RoleOf(n) is "button" or "link" or "switch" or "checkbox"
+                   or "radio" or "slider" or "textbox" or "spinbutton" or "combobox" or "tab" or "menuitem";
+
+        // The first line of text inside a control, for naming it in the finding. A label, not a
+        // semantic claim — so the first non-empty run in tree order is the right one.
+        static string FirstText(RenderNode n)
+        {
+            if (n.IsText && n.Lines is { Count: > 0 })
+                foreach (var line in n.Lines)
+                    if (line.Text.Trim() is { Length: > 0 } t) return t.Length > 24 ? t[..23] + "…" : t;
+            foreach (var c in n.Children)
+                if (FirstText(c) is { Length: > 0 } found) return found;
+            return "";
+        }
     }
 
     // ---- 7. does every binding name something real? --------------------------------------------

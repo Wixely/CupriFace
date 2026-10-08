@@ -13,6 +13,30 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Added
+
+- **`CF0073`: repeated controls in a column that are not the same size.** Three rows each ending in
+  a button reading "Connect", "Configure", "Connect" — the middle one is 12px wider because its
+  label is longer, so its left edge juts out of a column that is otherwise flush. Every box is
+  exactly the size it asked to be: nothing overflows, nothing clips, every binding resolves, and
+  every other check says the document is fine. The set is wrong, not any element in it, and a
+  state-dependent label ("Connect" / "Disconnecting…") produces it on any render but the first.
+
+  **The hard half is silence.** In the page this came from, the status labels beside those buttons
+  are 88px, 250px and 88px wide — ragged by 162px and entirely correct — so "sizes disagree" cannot
+  be the rule. Two things narrow it. A peer must be a CONTROL (the same role
+  `AccessibilityTree.RoleOf` gives a screen reader, or a registered `cupri-*` tag), and the peers
+  must sit in SIBLING ROWS, which is what makes a column anyone expects to line up: a stack of
+  chips, bubbles or nav links shares one parent, is shrink-wrapped by nature, and stays quiet.
+
+  It under-reports deliberately. Three peers are needed, because the finding is "this one disagrees
+  with those two" and a pair has no majority; three different widths say nothing, for want of an
+  honest number to pin to; side-by-side controls in a row are exempt; and an explicit `width` is
+  taken at its word. A div styled as a button but carrying no role is invisible to it — trust a
+  finding, not its absence. Silent across all twelve Showcase pages.
+
 ## v0.39.0
 
 ### Added
