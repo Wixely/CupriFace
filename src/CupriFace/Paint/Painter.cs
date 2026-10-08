@@ -440,7 +440,9 @@ public sealed class Painter
         // The elements inside a drawing are its shapes, painted above as part of it. They have no
         // boxes of their own, and walking them would push an opacity layer per hidden shape.
         if (!isDrawing)
-            foreach (var child in node.Children)
+            // In PAINT order, not document order: a positioned sibling that declares a z-index
+            // belongs above or below its neighbours whatever the markup's order (#290).
+            foreach (var child in PaintOrder.Children(node))
             {
                 if (child.Style.Display == DisplayType.None) continue;
                 if (child.Dragging) { dragged = child; continue; }

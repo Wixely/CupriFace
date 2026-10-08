@@ -1011,6 +1011,33 @@ jobs:
           restart_guard
           [ "$KB" = 1 ] || fail "soft keyboard did not appear on field focus"
 
+          # --- #288: the keyboard comes BACK after the platform dismisses it ----------------------
+          # Back (and the keyboard's own hide button) is handled entirely by the IME: the app is
+          # never told. So the engine still has the field focused and the view still believes the
+          # keyboard is up, while a second tap on that field changes nothing about the document --
+          # no event, nothing reaching ShowSoftInput, and the one field the user is looking at
+          # cannot be typed into, which on a phone reads as the app having hung. Reported from a
+          # physical device; nothing in this gate could have caught it.
+          adb shell input keyevent 4      # Back: consumed by the IME, never seen by the app
+          await_ime hidden 10 || fail "Back did not dismiss the keyboard, so #288 is not being reproduced"
+          # The dismissal grows the view back a beat AFTER the flag clears, and a tap sent into that
+          # resize is dropped (the lesson above) -- wait for the height before tapping.
+          i=0
+          until [ "$(view_h)" = "$H0" ] || [ "$i" -ge 10 ]; do sleep 1; i=$(( i + 1 )); done
+          RETAP=0
+          for i in 1 2 3; do
+            tap $(( DPW / 2 )) 109
+            if await_ime shown 10; then RETAP=1; break; fi
+            echo "re-tap not delivered, or the IME did not return within 10s (attempt $i)"
+          done
+          restart_guard
+          [ "$RETAP" = 1 ] || fail "the keyboard never came back when the focused field was tapped again (#288)"
+          # And back through the RE-TAP, not by luck: had Back reached the app instead of the IME,
+          # the field would have blurred and the re-tap would be an ordinary focus edge -- passing
+          # the assert above while proving nothing about the bug.
+          adb logcat -d -s cupri:I | grep -q "ime: show (re-tap)" \
+            || fail "the keyboard came back, but not off the re-tap: no 'ime: show (re-tap)' marker, so the field had been blurred and this run never reproduced #288"
+
           adb shell input keyevent 111   # Escape -> the engine blurs the field
           await_ime hidden 10 || fail "soft keyboard did not hide on blur"
           # Distinguish "the view has not come back" from "the marker is gone": an evicted line makes

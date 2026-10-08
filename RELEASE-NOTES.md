@@ -40,6 +40,75 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   `Contrast` is public alongside it: `Ratio`, `RelativeLuminance`, `Over`, `RequiredFor` and
   `MeetsAa`, for picking a readable foreground or asserting a palette in your own tests.
 
+- **`CupriDocument.TextInputReactivated`** — the user activated the field that ALREADY has focus.
+  A host that shows a soft keyboard off the focus edge needs this as well: see the Android fix
+  below for why one event cannot be both.
+
+- **`CF0052`: an `@import` is stepped over, not fetched.** There is no CSS loader here, so a sheet
+  imported for a web font never arrives and the text renders in whatever fallback the stack names.
+  Register the font with `LoadFonts`/`LoadFont` and name it in `font-family`, or inline the rules.
+
+### Fixed
+
+- **`z-index` orders siblings (#290).** It was read for exactly one thing — ordering the top layer,
+  so a dialog sits above a dropdown — and ignored everywhere else. Two overlapping positioned
+  siblings always stacked in document order whatever either declared, and `z-index: -1` did not put
+  an element behind. 71 of 165 corpus compositions declare it, 258 declarations in all: it is how a
+  scrim goes over a photo and a caption above a gradient, and document order is frequently the
+  opposite of what the author wanted, which is why they reached for the property.
+
+  Siblings now paint lowest layer first, document order within a layer, negative behind. It applies
+  where CSS says — positioned elements, plus flex and grid items — so a `z-index` on a static block
+  in normal flow is still ignored and no page that renders correctly today is reordered.
+  Hit-testing walks the same order, so a scrim lifted above a photo also receives the click.
+
+  **There are still no stacking contexts.** The sort is per parent: a child cannot lift itself past
+  its parent's siblings, and a negative layer sits behind its siblings but in front of its parent's
+  own background (CSS would put it behind that background, and so hide it under an opaque parent).
+  An element that must rise above the whole page wants `position: fixed` and the top layer, as
+  before. Verified pixel-identical across the ten deterministic Showcase pages, the component
+  library's own 20-odd `z-index` declarations included.
+
+- **`filter` animates from a `@keyframes` stop (#291).** It painted from a rule and was never read
+  off a keyframe, so the animated form was inert from the first frame to the last — a blur that
+  ramps up as one slide leaves and back down as the next arrives did nothing at all, with the
+  timing, the easing and the stops all working. 171 tweens across 18 of 165 corpus compositions
+  animate a filter.
+
+  Chains of the same shape interpolate op by op (`blur(0px)` → `blur(12px)`), a stop that omits the
+  property holds the element's own filter, and chains of different shapes flip at the midpoint —
+  the policy `transition: filter` already used, now shared with the keyframe path rather than
+  written twice.
+
+- **An `@import` no longer swallows the rule after it (#289).** The parser read everything up to
+  the first `{` as a selector, so a blockless at-rule — `@import`, `@charset`, `@layer x;`,
+  `@namespace` — rode into the next rule's header, which then began with `@` and was skipped
+  wholesale. Exactly one rule was lost, whichever the author wrote first, so it read as one rule
+  mysteriously not applying rather than as a parse failure.
+
+  A font `@import` at the top of a `<style>` is the ordinary way to pull a web font in CSS: this
+  cost 18 of 165 corpus compositions their first rule, and one of them its composition root — the
+  background, the size and the clipping in a single stroke. Statement at-rules are now consumed to
+  their semicolon (the one inside `url("…?family=X:wght@800;900")` does not count), and `CF0052`
+  says that the import itself is still not fetched.
+
+- **Android: the soft keyboard never came back once dismissed (#288).** Tapping a field opened the
+  keyboard; dismissing it with Back or the keyboard's own hide button and tapping the SAME field
+  again did nothing at all, and the only way back was to focus something else and return. On a
+  phone, a field you have tapped and cannot type into reads as the app having hung — which is how
+  it was reported, from a physical device.
+
+  Two halves, both now closed. The dismissal is invisible to the app (the platform handles Back
+  entirely), so the host's `_keyboardShown` was a belief nothing refreshed — the IME inset's
+  VISIBILITY now corrects it, the window insets having carried that answer all along. And a tap on
+  an already-focused field changes nothing about the document, so the focus edge that shows the
+  keyboard could never fire again — the engine now says it outright
+  (`CupriDocument.TextInputReactivated`), and the Android host shows the keyboard off that without
+  restarting the input connection or re-entering the autofill session.
+
+  Nothing to do in an app. If you host the engine yourself: subscribe to `TextInputReactivated`
+  wherever your platform's keyboard can be dismissed without telling you.
+
 ## v0.38.0
 
 ### Fixed

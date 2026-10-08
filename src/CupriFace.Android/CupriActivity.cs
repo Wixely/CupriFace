@@ -119,7 +119,10 @@ public abstract class CupriActivity : global::Android.App.Activity
             container.AddView(underlays);
             container.AddView(_view);
             _host!.UseVideo(this, underlays);
-            _padder = new InsetsPadder();
+            // The IME inset is also the only report of the keyboard GOING AWAY on the platform's
+            // own initiative (Back, the keyboard's hide button): nothing else tells the app, which
+            // is half of #288. The view keeps the belief; this is what refreshes it.
+            _padder = new InsetsPadder { ImeVisibilityChanged = v => _view?.OnImeVisibilityChanged(v) };
             container.SetOnApplyWindowInsetsListener(_padder);
             SetContentView(container);
         }
@@ -205,6 +208,11 @@ public abstract class CupriActivity : global::Android.App.Activity
         /// field you are typing into is not fullscreen, it is a bug.</summary>
         public bool Immersive;
 
+        /// <summary>Told whether the soft keyboard is up, every time the insets are applied. The
+        /// inset's SIZE is already consumed as padding; its VISIBILITY is a separate fact, and the
+        /// only one that reports a dismissal the app did not ask for.</summary>
+        public Action<bool>? ImeVisibilityChanged;
+
         public WindowInsets OnApplyWindowInsets(View v, WindowInsets insets)
         {
             if (OperatingSystem.IsAndroidVersionAtLeast(30))
@@ -214,6 +222,7 @@ public abstract class CupriActivity : global::Android.App.Activity
                     : WindowInsets.Type.SystemBars() | WindowInsets.Type.Ime() | WindowInsets.Type.DisplayCutout();
                 var i = insets.GetInsets(kinds);
                 v.SetPadding(i.Left, i.Top, i.Right, i.Bottom);
+                ImeVisibilityChanged?.Invoke(insets.IsVisible(WindowInsets.Type.Ime()));
             }
             return insets;
         }

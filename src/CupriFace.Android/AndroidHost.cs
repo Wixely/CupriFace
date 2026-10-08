@@ -205,6 +205,16 @@ public sealed class AndroidHost : IDisposable
             SetImeState(state);
             RunOnUi(() => TextInputChanged?.Invoke(state));
         };
+
+        // A tap on the field already being edited. No focus edge — nothing about the document
+        // changed — and on Android that was the whole of #288: Back dismisses the keyboard without
+        // telling the app, so the one call that shows it ran on a change that could never happen
+        // again, and the field under the user's finger could not be typed into.
+        doc.TextInputReactivated += state =>
+        {
+            SetImeState(state);
+            RunOnUi(() => KeyboardRequested?.Invoke(state));
+        };
     }
 
     // ---- the app stack ------------------------------------------------------------------------
@@ -249,6 +259,13 @@ public sealed class AndroidHost : IDisposable
     /// <summary>Raised on the UI thread when text-input focus changes — the view shows/hides the
     /// soft keyboard and restarts the input connection off this.</summary>
     public event Action<TextInputState>? TextInputChanged;
+
+    /// <summary>Raised on the UI thread when the user asks for the keyboard on the field that
+    /// already has focus — a second tap in it, after the platform took the keyboard away without
+    /// telling us (#288). Deliberately NOT <see cref="TextInputChanged"/>: nothing changed, so the
+    /// input connection must not be restarted and the autofill session must not be re-entered. The
+    /// only thing owed here is <c>ShowSoftInput</c>.</summary>
+    public event Action<TextInputState>? KeyboardRequested;
 
     /// <summary>Raised on the UI thread when the document asks for fullscreen; the activity maps
     /// it to immersive mode (it owns the window).</summary>

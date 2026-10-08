@@ -3006,6 +3006,12 @@ public sealed partial class CupriDocument : IDisposable
         while (field is not null && field.Element?.GetAttribute("role") is not ("textbox" or "spinbutton")) field = field.Parent;
         var focusChanged = UpdateFocus(field?.Element);
 
+        // A click back INTO the focused field moves nothing and so raises no state event. Said
+        // separately, because a host whose keyboard the platform can dismiss behind its back has
+        // no other way to hear it — see TextInputReactivated.
+        if (!focusChanged && field is not null && _focusKey is not null)
+            TextInputReactivated?.Invoke(GetTextInputState());
+
         // Sync keyboard focus to the clicked control (so Tab continues from here), but don't
         // show the focus ring for a mouse click — it appears on Tab/Shift-Tab (focus-visible).
         _kbIndex = IndexOfFocusable(hit);
@@ -4969,6 +4975,23 @@ public sealed partial class CupriDocument : IDisposable
     /// cue to show or hide the soft keyboard and restart its input connection. Caret movement
     /// within a field is NOT evented; poll <see cref="GetTextInputState"/> after dirty frames.</summary>
     public event Action<Interaction.TextInputState>? TextInputStateChanged;
+
+    /// <summary>Raised when the user activates the field that ALREADY has focus — a second tap or
+    /// click inside the field they are editing. <see cref="TextInputStateChanged"/> cannot carry
+    /// this: it is an EDGE, and there is no edge here. Nothing about the document changed.
+    ///
+    /// <para>Which matters wherever the soft keyboard can be dismissed without telling the
+    /// application — Android's Back gesture, the keyboard's own hide button, the browser on a
+    /// phone. There the focus edge is a host's only cue to show the keyboard, and after a dismissal
+    /// it never comes again: the field keeps the caret, the engine agrees it is focused, and
+    /// tapping the one field you are looking at does nothing at all. On a phone that reads as the
+    /// app having hung (#288). So the engine says the part a host cannot infer — the user asked for
+    /// this field, again — and leaves what to do about it to the host that owns the keyboard.</para>
+    ///
+    /// <para>Fires on the tap that lands IN the focused field and nothing else: a tap elsewhere
+    /// blurs (a focus edge, already evented), and a swipe that begins on the field is a scroll
+    /// rather than an activation, so it never reaches here.</para></summary>
+    public event Action<Interaction.TextInputState>? TextInputReactivated;
 
     /// <summary>The focused field's identity, kind, content, selection and caret rectangle
     /// (logical px), for IME integration. Snapshot semantics: value-typed, safe to hand across

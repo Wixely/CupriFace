@@ -217,6 +217,7 @@ public static partial class CupriDoctor
                         declarations.Add((prop, value));
 
         UnsupportedCssFunctions(declarations, css, html, findings);
+        ImportedStylesheetsAreNeverFetched(css, html, findings);
 
         findings.Sort((a, b) =>
         {
@@ -913,6 +914,38 @@ public static partial class CupriDoctor
         ("skewx(", "skewX", "Not implemented — there is no shear in the transform pipeline."),
         ("skewy(", "skewY", "Not implemented — there is no shear in the transform pipeline."),
     ];
+
+    /// <summary>
+    /// <c>@import</c>, which the engine steps over without fetching.
+    ///
+    /// <para>Since #289 it no longer eats the rule that follows it, which was the loud half. What
+    /// remains is quiet and worth saying: a sheet imported for a web font never arrives, so the text
+    /// renders in whatever fallback the stack names and nothing explains why the typeface is wrong.
+    /// An import is the ordinary way to pull a font in CSS — 18 of 165 corpus compositions open with
+    /// one — so this is the common case, not an exotic one.</para>
+    ///
+    /// <para>Read from the stylesheet and inline <c>&lt;style&gt;</c> blocks with comments stripped,
+    /// never from the whole document's text: a CSS comment explaining the absence of imports, or
+    /// body copy that merely says the word, must not fail a caller's own lint (#188). One finding per
+    /// document, because the fix is the same for every import in it.</para>
+    /// </summary>
+    private static void ImportedStylesheetsAreNeverFetched(string? css, string html, List<Finding> findings)
+    {
+        var authored = CssParser.StripComments(css ?? "");
+        foreach (Match block in InlineStyleBlocks().Matches(html))
+            authored += "\n" + CssParser.StripComments(block.Groups[1].Value);
+        if (!ImportStatement().IsMatch(authored)) return;
+        findings.Add(new Finding(Severity.Warning, "CF0052",
+            "@import is not fetched — the engine steps over it, so the stylesheet it names never loads.",
+            "There is no CSS loader here. Register the font with app.LoadFonts(dir) / LoadFont(bytes) "
+            + "and name it in font-family, or inline the imported rules into this stylesheet.",
+            LineOf(CssLines(css, html), "@import")));
+    }
+
+    /// <summary>An <c>@import</c> STATEMENT: the at-keyword, something, and its terminating
+    /// semicolon. Deliberately not a bare substring — see the method above.</summary>
+    [GeneratedRegex(@"@import\s[^;}]*;", RegexOptions.IgnoreCase)]
+    private static partial Regex ImportStatement();
 
     /// <summary>
     /// <c>backdrop-filter</c> outside the top layer, where it parses and then paints nothing.
