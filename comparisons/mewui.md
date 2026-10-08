@@ -12,12 +12,13 @@ They are also near-peers in a way the Avalonia comparison isn't: both are young,
 both are MIT, both are small-team projects moving fast, both are pre-1.0 with
 churning APIs. Neither gets to play the maturity card against the other.
 
-*Version note (September 2026): MewUI statements were checked against the public
-repository at **v0.21.1** — ~656 stars, ~2,783 commits, "the public API surface
-is still being stabilized". CupriFace statements come from this repository at
-**v0.18.0** (655 commits; the repo's first commit is 2026-08-03). Both projects
-moved a long way since this document's previous revision, and **one of the moves
-invalidated its headline claim** — see [What changed](#what-changed-since-the-last-revision).*
+*Version note (October 2026): MewUI statements were checked against the public
+repository at **v0.22.1** (released 2026-09-30) — 703 stars, ~3,120 commits, "the
+public API surface is still being stabilized". CupriFace statements come from this
+repository at **v0.40.0** (973 commits; the repo's first commit is 2026-08-03).
+Both projects moved a long way since this document's previous revision, and **one
+of the moves invalidated its headline claim** — see
+[What changed](#what-changed-since-the-last-revision).*
 
 *Measurement note: nothing below is estimated. CupriFace's NativeAOT and
 trimmed-single-file figures were produced while writing this revision —
@@ -25,16 +26,40 @@ trimmed-single-file figures were produced while writing this revision —
 number, and the same publish with `-p:PublishSingleFile=true -p:Trim=true
 -p:EnableCompressionInSingleFile=true` for the 20.8 MB one — each then run with no
 .NET on the `PATH`, checked for which render path it took, and put through the
-repo's UIA gate. CupriFace's test count is a `dotnet test` run. MewUI's desktop sizes are its own
-published measurements (`tools/aot-size/release-sizes.json`, v0.21.0, generated
+repo's UIA gate. **Those size figures were taken at v0.18.0 and are carried forward, not
+re-measured**: the NativeAOT publish needs a C++ linker that the machine doing the October pass does
+not have, and the single-file number is confirmed instead by the v0.40.0 release asset, which is
+still 20.8 MB. CupriFace's test count is a `dotnet test` run on v0.40.0. MewUI's desktop sizes are
+its own published measurements (`tools/aot-size/release-sizes.json`, v0.21.0, generated
 2026-09-06); MewUI's browser payload was measured from its live deployment on
 2026-09-07 by summing the `_framework` assets. Sizes use binary units
 (1 MB = 1024 KB), which is MewUI's convention, so both columns agree.*
 
 ## What changed since the last revision
 
-Worth stating plainly, because the previous revision of this document was wrong
-about the single biggest difference between the two projects:
+**October 2026 pass (MewUI v0.21.1 → v0.22.1, CupriFace v0.18.0 → v0.40.0).** The
+September entries below still stand; these are on top of them.
+
+- **MewUI gained a `TextInput` element** with clipboard, selection, undo/redo and
+  IME, plus compositing layers (window shadows and blurs), text outline and shadow
+  effects, and a round of layout and shape-rendering performance work. Its
+  drag-and-drop now reads every format another application offers on all three
+  desktops.
+- **MewUI's gaps that this document relies on have not moved**: no OS
+  accessibility bridge, no mobile target, and the browser host is still
+  unannounced. Those rows were re-checked against v0.22.0 and v0.22.1 rather than
+  assumed, because the previous revision was wrong in exactly that way.
+- **CupriFace's test suite went 818 → 2,078** and its element count 74 → 79, but
+  the change that matters to this document is **tooling, which was named its
+  weakest axis**: `CupriDoctor` arrived in v0.21.0 and is now 20 static checks.
+  It is not an inspector and does not compete with DevTools — it answers a
+  different question, before the app runs. The tooling row below says so.
+- **CupriFace also gained a game controller** on all four hosts (geometric focus
+  navigation, not Tab order), 3D transforms, `clip-path`, `::before`/`::after`,
+  inline `<svg>`, background images, `z-index`, WOFF 2 and animated `filter`.
+
+**September 2026 pass.** Worth stating plainly, because the revision before it was
+wrong about the single biggest difference between the two projects:
 
 - **MewUI has a browser host now.** `src/MewUI.Platform.Browser` and
   `src/MewUI.Backend.MewVG.Browser` (with a WebGL shim) render the Gallery to a
@@ -76,14 +101,14 @@ about the single biggest difference between the two projects:
 | Browser / WASM | **Shipped and documented**: same app class → `<canvas>`; two hosts (Mono-interpreted, NativeAOT-LLVM); 14.2 MB / 5.5 MB gzipped; a **read-only ARIA mirror** screen readers can read (not yet operate), CI-gated by role queries | **Real, live, but unannounced**: browser platform + WebGL backend in `src/`, Gallery deployed to a live site; 17.08 MB / 5.37 MB gzipped. Not on NuGet, not in the README, not on the roadmap; canvas only, no a11y mirror |
 | Mobile | **Android** — own host package, engine-level touch/fling/IME, TalkBack bridge, emulator-gated in CI | **None** — desktop and browser only |
 | Touch | Two-axis scrolling with momentum and rubber band; multi-touch capture seam | Desktop input (mouse, keyboard); the browser host handles touch and IME on the canvas |
-| Deployment | **20.8 MB** single self-contained file (trimmed + compressed, measured, no runtime install; 95.4 MB untrimmed, which is what releases ship today). NativeAOT is 25.05 MB in 5 files | **The whole point**: single self-contained exe, Hello World **3.17–4.52 MB**, Gallery **7.35–9.24 MB** |
+| Deployment | **20.8 MB** single self-contained file (trimmed + compressed, no runtime install) — and since v0.19.0 that *is* what releases ship, confirmed by the v0.40.0 asset. NativeAOT is 25.05 MB in 5 files, measured at v0.18.0 | **The whole point**: single self-contained exe, Hello World **3.17–4.52 MB**, Gallery **7.35–9.24 MB** |
 | Native footprint | Skia (9.16 MB) + HarfBuzz (1.71 MB) + SDL (1.62 MB) + GLFW (0.22 MB) on win-x64, before any app code | Direct2D/GDI ride OS libraries; MewVG is managed — near-zero native payload |
 | AOT posture | Design goal, verified by hand — **opt-in and explicitly not run in CI**. Both the UIA bridge and hardware GL silently degraded under it until the bridge moved to source-generated COM | **Non-negotiable design constraint**, validated continuously; `LibraryImport` P/Invoke; DevTools deliberately refuse to ship in a trimmed/AOT build rather than lie |
 | Embedding | Core capability: `RenderToPixels` into any RGBA buffer (game texture, canvas, server); `IGpuSurfaceSource` for zero-copy GPU handover | Not a stated goal — the framework hosts the window. (Its `WriteableBitmap` and `WinFormsHost` samples point *inward*: drawing into a MewUI control, hosting WinForms inside MewUI) |
-| Testing | **Headless-first**: engine needs no window; **818 tests** click/type/fling/pixel-assert | Broad and conventional — unit, generator, analyzer, SVG, graphics-backend and benchmark suites, plus a real-window automation suite (`MewUI.WindowAutomationTest`) covering DPI crossing, multi-monitor popups and drag |
+| Testing | **Headless-first**: engine needs no window; **2,078 tests** click/type/fling/pixel-assert | Broad and conventional — unit, generator, analyzer, SVG, graphics-backend and benchmark suites, plus a real-window automation suite (`MewUI.WindowAutomationTest`) covering DPI crossing, multi-monitor popups and drag |
 | Accessibility | `role`/`aria-*` in every component; **four bridges — UIA, AT-SPI, NSAccessibility, TalkBack — each CI-gated by a real AT client**; a read-only ARIA mirror on the web host, gated by role queries. *(UIA did not initialise under NativeAOT until the bridge moved to source-generated COM — see below)* | Focus and tab navigation documented; **no OS accessibility bridge** (no UIA, AT-SPI or NSAccessibility anywhere in the tree) |
-| Extras | Charts, kanban, command palette, pickers, Markdown, video, Lottie built in (74 elements) | Thin core + **optional packages**: MewDock (VS-style docking), SVG, Skia, MewCharts, MewvalonEdit (code editor), WebView2 |
-| Dev tooling | Plain text files, any editor; a live diagnostics HUD; no designer, no inspector | **Hot Reload** (no setup), **DevTools** (inspector, visual tree, perf monitor, profiler), **editor preview** as a VS Code extension, plus VS and Rider integrations — a decisive advantage |
+| Extras | Charts, kanban, command palette, pickers, Markdown, video, Lottie built in (79 elements) | Thin core + **optional packages**: MewDock (VS-style docking), SVG, Skia, MewCharts, MewvalonEdit (code editor), WebView2 |
+| Dev tooling | Plain text files, any editor; a live diagnostics HUD; no designer, no inspector, no hot reload. **`CupriDoctor`** (v0.21.0, 20 diagnostic codes) answers a different question statically — what will silently not work — and `DumpTree` prints the laid-out boxes; neither is a substitute for an inspector | **Hot Reload** (no setup), **DevTools** (inspector, visual tree, perf monitor, profiler), **editor preview** as a VS Code extension, plus VS and Rider integrations — a decisive advantage |
 | Getting started | `dotnet run --project samples/Viewer` | Also **one command, no project**: `curl … fba_gallery.cs \| dotnet run -` (file-based app, .NET 10) |
 | Non-goals | JavaScript in the authoring model, ever | XAML compatibility, designer-first workflows, reflection binding, exhaustive control catalogue |
 | Maturity | Young, pre-1.0, API churning | Young, pre-1.0, API churning ("breaking changes can happen between minor releases") |
@@ -157,7 +182,7 @@ more interesting result:
 
 | | Payload | Gzipped | How it was measured |
 |---|---|---|---|
-| CupriFace `samples/WebLlvm` (NativeAOT-LLVM) | 14.2 MB | 5.5 MB | This repository's published figure |
+| CupriFace `samples/WebLlvm` (NativeAOT-LLVM) | 14.2 MB | 5.5 MB | This repository's published figure, measured at v0.18.0 |
 | MewUI Gallery (wasm AOT) | 17.08 MB | 5.37 MB | Summed from the live deployment, 2026-09-07 |
 
 Neither is a small download; both are dominated by the .NET wasm runtime rather
@@ -195,8 +220,8 @@ An honest list, and it got longer:
   3.17–4.52 MB Hello World and a 7.35–9.24 MB Gallery, self-contained, no .NET
   install. CupriFace's best comparable number is **20.8 MB** — the full Showcase,
   trimmed and bundle-compressed into one self-contained file, measured, with
-  hardware GL and the UIA bridge verified intact. That is roughly **2.3× MewUI's
-  Gallery**.
+  hardware GL and the UIA bridge verified intact, and still 20.8 MB at v0.40.0
+  twenty-two releases later. That is roughly **2.3× MewUI's Gallery**.
 
   The previous revision of this document called the gap "structural rather than a
   matter of tuning," on the grounds that SkiaSharp's native library cannot be
@@ -307,7 +332,7 @@ Three consequences for this comparison:
   design world, already knows. Dark mode is a variable swap; responsive layout is
   a media query; restyling ships without a recompile.
 - **Headless-first testing.** The CupriFace engine doesn't know whether a window
-  exists, so UI behaviour is unit-testable: the repo's **818 tests** build
+  exists, so UI behaviour is unit-testable: the repo's **2,078 tests** build
   documents, click, type, fling and compose IME text into them, and assert on
   state and pixels — in CI, in milliseconds, with no display. The screenshots in
   the README are `doc.Render()` output for the same reason. MewUI tests broadly
@@ -331,7 +356,7 @@ Three consequences for this comparison:
   into a MewUI bitmap control.
 - **Batteries for app UI.** Charts, tables with sort/select/resize, a command
   palette, kanban with drag-and-drop, date/time/colour pickers, Markdown, video,
-  Lottie — 74 elements in the box, versus MewUI's deliberately thin core plus
+  Lottie — 79 elements in the box, versus MewUI's deliberately thin core plus
   optional packages. (MewUI calls an exhaustive catalogue an explicit non-goal,
   so this is a difference in philosophy, not an oversight — and MewDock and
   MewvalonEdit are two things MewUI has in packages that CupriFace has nowhere.)

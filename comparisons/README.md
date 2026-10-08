@@ -29,19 +29,40 @@ CupriFace is that model with the browser removed.
 
 Planned next (no documents yet): Tauri, Blazor Hybrid.
 
-*All five documents were reviewed in **September 2026** against CupriFace **v0.18.0**, and each
-names the version of the project it compares against: Avalonia 12.1.2, .NET MAUI 10.0.100,
-Flutter 3.47.2, MewUI v0.21.1, Electron 44.2.0. Shared CupriFace figures, re-measured for this pass:
-**818 tests**, **74 `cupri-*` elements**, a **20.8 MB** single-file download from v0.19.0
-(trimmed and compressed; 95.4 MB before that), a **25.1 MB** NativeAOT publish in 5 files, **21.1 MB** Android APK,
-**14.2 MB** wasm (5.5 MB gzipped), **~130 MB** idle RSS and **~97 ms** cold start on hardware GL.*
+*All five documents were reviewed in **October 2026** against CupriFace **v0.40.0**, and each names
+the version of the project it compares against: Avalonia 12.1.3, .NET MAUI 10.0.110, Flutter 3.47.7,
+MewUI v0.22.1, Electron 44.7.0. Shared CupriFace figures, re-measured for this pass: **2,078 tests**,
+**79 `cupri-*` elements**, **973 commits**, and the sizes a v0.40.0 release actually attaches —
+**20.8 MB** win-x64 single file, **21.0 MB** linux-x64, **19.0 MB** osx-arm64, **20.6 MB** Android APK.*
 
-*Three findings from this pass are recorded in the documents rather than smoothed over: the Windows
-UIA bridge **did not initialise under NativeAOT** — fixed since by moving it to source-generated COM
-([mewui.md](mewui.md#the-aot-caveat-found-while-measuring)); the download this project shipped was far
-larger than it needed to be, fixed in v0.19.0 ([electron.md](electron.md)); and the idle-memory figure these documents
-carried for a year was measured on the software fallback, so the memory advantage over Electron is
-~2.5–4×, not the order of magnitude previously claimed.*
+*Four figures are **carried forward from the September pass rather than re-measured**, and say so
+wherever they appear: the **25.05 MB** NativeAOT publish in 5 files, **14.2 MB** wasm (5.5 MB
+gzipped), **~130 MB** idle RSS and **~97 ms** cold start on hardware GL. The AOT publish cannot run
+on the machine this pass was done on (no C++ linker), and the two runtime figures need a window with
+hardware GL — measuring those on the software fallback is exactly the mistake the September pass
+caught itself making, so they were left alone rather than re-taken badly. They were measured at
+v0.18.0: treat them as the right order of magnitude, not as today's numbers.*
+
+*What moved on the CupriFace side between those two passes is most of what these documents compare
+on. v0.18.0 → v0.40.0 is 27 releases (35 tags, counting a prerelease run): a game controller on all
+four hosts with geometric focus navigation, 3D transforms, `clip-path`, `::before`/`::after`, inline
+`<svg>`, background images, `z-index`, WOFF 2 fonts, animated `filter`, and files dragged in from
+the OS. The test suite went from 818 to 2,078. **`CupriDoctor` did not exist at v0.18.0 at all** —
+it arrived in v0.21.0 and is now 20 diagnostic codes, which matters most to [mewui.md](mewui.md),
+where tooling was named CupriFace's weakest axis.*
+
+*What this pass did **not** do: re-read all five documents line by line against the engine. It
+refreshed every version and every figure, re-checked the gap claims each document leans on (MewUI's
+accessibility, mobile and browser rows against v0.22.x; the CSS and input capabilities CupriFace
+gained), and corrected what those turned up. Prose about architecture and trade-offs is carried
+forward on the September pass's authority, not re-derived.*
+
+*Three findings from the September pass are recorded in the documents rather than smoothed over: the
+Windows UIA bridge **did not initialise under NativeAOT** — fixed since by moving it to
+source-generated COM ([mewui.md](mewui.md#the-aot-caveat-found-while-measuring)); the download this
+project shipped was far larger than it needed to be, fixed in v0.19.0 ([electron.md](electron.md));
+and the idle-memory figure those documents carried for a year was measured on the software fallback,
+so the memory advantage over Electron is ~2.5–4×, not the order of magnitude previously claimed.*
 
 ## Ground rules for these documents
 

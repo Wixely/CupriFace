@@ -13,10 +13,12 @@ Everything below follows from that single sentence. It decides what your app
 looks like, how accessibility works, which platforms you can reach, what you
 can test without a device, and how large the thing you ship is.
 
-*Version note: MAUI statements were checked in September 2026 against
-**Microsoft.Maui.Controls 10.0.100** — .NET 10, the current LTS line (.NET 11 is
-in preview). MAUI moves with the .NET release train, so version-sensitive rows
-say so. CupriFace statements come from this repository at **v0.18.0**.*
+*Version note: MAUI statements were checked in October 2026 against
+**Microsoft.Maui.Controls 10.0.110** (released 2026-09-22) — .NET 10, the current
+LTS line (.NET 11 is in preview). 10.0.110 is a servicing release on the line
+checked in September and moved nothing this document compares on. MAUI moves with
+the .NET release train, so version-sensitive rows say so. CupriFace statements
+come from this repository at **v0.40.0**.*
 
 ## At a glance
 
@@ -33,11 +35,11 @@ say so. CupriFace statements come from this repository at **v0.18.0**.*
 | Platform APIs | **None** — it is a renderer, not an app platform | **Extensive** (Essentials): sensors, geolocation, permissions, file/media pickers, secure storage, connectivity |
 | Android runtime | **CoreCLR, mandated** (see below — a Mono codegen defect forced it) | **Mono** by default; CoreCLR-on-Android is newer and opt-in |
 | Accessibility | Portable semantics tree + **four hand-built bridges** (UIA, AT-SPI, NSAccessibility, TalkBack), each gated in CI by a real AT client. *(a NativeAOT build lost this bridge until it moved to source-generated COM — see [mewui.md](mewui.md#the-aot-caveat-found-while-measuring))* | **Inherited from the native controls** — mature and free, plus `SemanticProperties` |
-| Testing | **Headless-first**: **818 tests** click, type, fling and pixel-assert with no device or display | Device/emulator UI testing (Appium, .NET MAUI UITest); unit tests cover view-models, not views |
+| Testing | **Headless-first**: **2,078 tests** click, type, fling and pixel-assert with no device or display | Device/emulator UI testing (Appium, .NET MAUI UITest); unit tests cover view-models, not views |
 | Gestures | Two-axis scrolling with momentum and rubber band; drag/pinch/rotate recogniser plus a raw capture-based seam | `GestureRecognizer`s (tap, pan, pinch, swipe) inherited from the native controls |
-| Android app size | **21.1 MB** APK (arm64, the phone sample — the v0.18.0 release asset) | Broadly comparable for a small app; varies with trimming and linker settings |
-| Control set | 74 `<cupri-*>` elements, `role`/`aria-*` baked in | Native controls + a large first- and third-party ecosystem |
-| Tooling | Plain text files, any editor; no designer or previewer | XAML Hot Reload, .NET Hot Reload, VS/VS Code tooling, previewers |
+| Android app size | **20.6 MB** APK (arm64, the phone sample — the v0.40.0 release asset) | Broadly comparable for a small app; varies with trimming and linker settings |
+| Control set | 79 `<cupri-*>` elements, `role`/`aria-*` baked in | Native controls + a large first- and third-party ecosystem |
+| Tooling | Plain text files, any editor; no designer or previewer. **`CupriDoctor`** (since v0.21.0, 20 diagnostic codes) reports what will silently not work — an ignored CSS property, a binding naming nothing, contents overflowing their box, unreadable text — without running the app | XAML Hot Reload, .NET Hot Reload, VS/VS Code tooling, previewers |
 | Ecosystem & support | Small, young, one repo | **Microsoft first-party**, LTS servicing, Syncfusion/Telerik/DevExpress, Community Toolkit |
 | Embedding | Core capability: `RenderToPixels` into any RGBA buffer | Not the shape — the framework hosts your app |
 | Maturity | Pre-1.0, moving fast; a documented CSS subset | Shipping and supported since 2022, Xamarin.Forms lineage before that |
@@ -123,7 +125,7 @@ Appium, .NET MAUI UITest, a running app on real hardware. In practice, MAUI
 teams unit-test view-models and accept that the views themselves are covered by
 slower, flakier end-to-end automation.
 
-CupriFace's engine does not know whether a window exists. Its **818 tests** build
+CupriFace's engine does not know whether a window exists. Its **2,078 tests** build
 real documents, click, type, drag, **fling with momentum**, compose text with a
 simulated IME, and assert on both state and pixels — in milliseconds, in CI, on
 any OS, with no display and no device.

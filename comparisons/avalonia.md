@@ -8,13 +8,14 @@ macOS, Linux and the browser. The differences are therefore not about *what*
 gets drawn — they are about **how a UI is authored, what kind of software each
 project is, and where each one is willing to run**.
 
-*Version note: Avalonia statements below were checked against **Avalonia 12.1.2**
-(released 2026-09-02; the 11.3.x line is still serviced). Avalonia 12 is a major
+*Version note: Avalonia statements below were checked against **Avalonia 12.1.3**
+(released 2026-09-22; the 11.3.x line is still serviced). Avalonia 12 is a major
 release and moved two rows below: it added an **AT-SPI2 accessibility backend**
 for Linux, and it **removed `Avalonia.Browser.Blazor`**. It also moved to
-SkiaSharp 3.0 and dropped the Direct2D backend. CupriFace statements were
-re-checked against this repository in September 2026 at **v0.18.0**. For the
-mobile-first version of this argument, see [maui.md](maui.md).*
+SkiaSharp 3.0 and dropped the Direct2D backend. 12.1.3 is a patch on that line and
+moved nothing this document compares on. CupriFace statements were re-checked
+against this repository in October 2026 at **v0.40.0**. For the mobile-first
+version of this argument, see [maui.md](maui.md).*
 
 ## At a glance
 
@@ -28,14 +29,15 @@ mobile-first version of this argument, see [maui.md](maui.md).*
 | Layout | Managed flexbox + CSS grid + block flow (pure C#, no native Yoga) | XAML panels (`Grid`, `StackPanel`, `DockPanel`, …) |
 | Text | HarfBuzz shaping (kerning, ligatures, Greek/Cyrillic/Arabic); **IME composition** on Android + both web hosts + desktop; mixed-direction text partial | Mature text stack; IME and `FlowDirection` support |
 | Desktop | Windows / macOS / Linux via Silk.NET (OpenGL window or SDL software fallback) | Windows / macOS / Linux, mature windowing (multi-window, dialogs, tray, native menus) |
-| Browser | First-class target: thin JS glue → `<canvas>`; whole app is one wasm file — **14.2 MB (5.5 MB gzipped), measured** on the experimental NativeAOT-LLVM host | Supported, but heavyweight: Mono runtime + framework in the browser, large payloads, slower startup |
+| Browser | First-class target: thin JS glue → `<canvas>`; whole app is one wasm file — **14.2 MB (5.5 MB gzipped)**, measured on the experimental NativeAOT-LLVM host at v0.18.0 and not re-measured since | Supported, but heavyweight: Mono runtime + framework in the browser, large payloads, slower startup |
 | Mobile | **Android** — own host package, engine-level touch/fling/IME, TalkBack bridge, driven on an emulator by a blocking CI gate. **No iOS** | iOS **and** Android, both mature |
 | Touch & gestures | Two-axis scrolling with momentum and a rubber band; tap-on-release, long-press, double-tap; drag/pinch/rotate via `OnManipulate`, with raw pointers (`OnPointer` + capture) underneath for anything else | Mature gesture recognizers, longer-proven |
+| Game controller | **A pad is a first-class input**, new since v0.33.0: D-pad and sticks navigate by GEOMETRY rather than Tab order, on desktop, Android and the browser, with a scripted `GamepadDriver` for tests. Arrow keys can be turned into a D-pad for developing without one | Not a framework concern — keyboard and pointer only; a pad is the application's own problem |
 | Embedding | Core capability: `RenderToPixels` / `Render(canvas)` into any RGBA surface — game texture, HTML canvas, server-side PNG | Possible but not the primary shape; the framework expects to own the window |
-| Control set | 74 `<cupri-*>` elements (inputs, pickers, tables, charts, overlays, kanban, command palette, …) with `role`/`aria-*` baked in | Deep, mature control library + third-party vendors (DataGrid, virtualization for huge lists, docking, …) |
-| Tooling | Files are plain HTML/CSS — any editor; no designer | IDE previewer, XAML hot reload, commercial dev tools |
+| Control set | 79 `<cupri-*>` elements (inputs, pickers, tables, charts, overlays, kanban, command palette, …) with `role`/`aria-*` baked in | Deep, mature control library + third-party vendors (DataGrid, virtualization for huge lists, docking, …) |
+| Tooling | Files are plain HTML/CSS — any editor; no designer or inspector. **`CupriDoctor`** (new since v0.21.0, 20 diagnostic codes) is the answer instead: a static check that names what will not work — an unsupported property, a binding that resolves to nothing, contents that overflow their box, text too pale to read — before it is looked for on screen | IDE previewer, XAML hot reload, commercial dev tools |
 | Accessibility | Roles/ARIA in every component; **four bridges — UIA, AT-SPI, NSAccessibility, TalkBack** — each gated in CI by a real AT client; a read-only ARIA mirror on web, gated by role queries. *(a NativeAOT build lost this bridge until it moved to source-generated COM — see [mewui.md](mewui.md#the-aot-caveat-found-while-measuring))* | OS bridges on all three desktops; UIA and NSAccessibility are long-proven, **Linux AT-SPI2 arrived in 12.0**, so on Linux the two projects are closer in age than the rest of this row suggests; mobile a11y inherited from native controls |
-| Testing | **Headless-first**: the engine renders and takes input with no window; the repo's **818 tests** click, type, fling and pixel-assert real documents | Headless test platform exists; most testing is app-level/UI automation |
+| Testing | **Headless-first**: the engine renders and takes input with no window; the repo's **2,078 tests** click, type, fling and pixel-assert real documents | Headless test platform exists; most testing is app-level/UI automation |
 | Dependencies | SkiaSharp, HarfBuzzSharp, Silk.NET, AngleSharp — all MIT, checked as a hard project rule | MIT framework; larger dependency and binary surface |
 | Maturity | Young, moving fast; a documented CSS *subset* | Years of production use, commercial backing (incl. paid WPF-compat line) |
 
@@ -109,7 +111,7 @@ That buys three things Avalonia is not shaped for:
    screenshot/PDF-ish pipeline, an existing SDL/GL loop you already own. The
    UI is a function you call, not a process you surrender control to.
 2. **Headless is not a special mode.** The engine doesn't know whether a
-   window exists. The repo's test suite (**818 tests**) constructs documents,
+   window exists. The repo's test suite (**2,078 tests**) constructs documents,
    clicks, types, flings and composes IME text into them, and asserts on state
    and pixels — in milliseconds, in CI, with no display server. UI behaviour
    becomes as testable as business logic, which changes how much UI you are
@@ -140,7 +142,7 @@ An honest list, because it's a long one and it decides real projects:
 - **Maturity and surface area.** Avalonia has years of production hardening,
   a deep control library, virtualization for very large lists, a `DataGrid`,
   docking layouts, third-party control vendors, and answers on Stack Overflow.
-  CupriFace's 74 elements cover a lot of app UI, but the long tail is long.
+  CupriFace's 79 elements cover a lot of app UI, but the long tail is long.
 - **iOS.** Both projects now run on Android; only Avalonia runs on iPhones.
   CupriFace's Android host is the template for an eventual iOS one, but nothing
   is built.
