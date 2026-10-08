@@ -197,6 +197,7 @@ public static partial class CupriDoctor
             ScriptingHabits(dom, lines, findings);
             BoxesThatDoNotFit(doc, width, lines, findings);
             PeersThatDoNotLineUp(doc, registry, lines, findings);
+            BoxesWithNothingBetweenThem(doc, registry, lines, findings);
             BackdropFilterOutsideTopLayer(doc, lines, findings);
             TextNobodyCanRead(doc, registry, lines, findings);
             if (model is not null) UnresolvedBindings(html, model, lines, findings);
@@ -1342,6 +1343,113 @@ public static partial class CupriDoctor
                 if (FirstText(c) is { Length: > 0 } found) return found;
             return "";
         }
+    }
+
+    // ---- 6c. is anything that should stand alone touching? -------------------------------------
+
+    /// <summary>
+    /// Two rounded, filled boxes sitting flush against each other, with nothing between them.
+    ///
+    /// <para>A rounded corner is the author saying "this is a separate object". Two of them meeting
+    /// at 0px do not read as two objects: the curves collide, the background shows through the
+    /// wedge between them, and the pair reads as one broken shape. It is the signature of a margin
+    /// nobody set, and — like everything else in this section — every box involved is exactly the
+    /// size and position it asked for, so nothing else can see it.</para>
+    ///
+    /// <para><b>The corners that MEET are the whole rule.</b> Flush is not evidence of anything on
+    /// its own: a card header above a card body is flush BY DESIGN and must stay silent. Measured
+    /// side by side, those two cases are identical — a 760x85 box at y=0 and another at y=85, in
+    /// both. What separates them is that the header's bottom corners and the body's top corners are
+    /// SQUARE, which is how the author said "these two are one surface", while a card and a button
+    /// below it are rounded on both sides of the seam. So the check looks only at the corners on
+    /// the edge where the two actually touch, and only reports when both sides are rounded
+    /// there.</para>
+    ///
+    /// <para><b>Flush, not overlapping.</b> An overlap is usually deliberate — a stack of round
+    /// avatars pulled together with a negative margin is a design, not a defect — so only a gap of
+    /// nothing at all is reported. Zero is the number that means "unset"; anything else, including
+    /// a single pixel, is a number somebody chose.</para>
+    ///
+    /// <para><b>Info, not a warning</b>, and the first check in this tool to say so. The layout
+    /// works; it reads badly. That is the level's definition, and it keeps a judgement call about
+    /// visual polish out of anything gating on warnings — this is the most subjective check here
+    /// and it should be the easiest to ignore.</para>
+    /// </summary>
+    private static void BoxesWithNothingBetweenThem(CupriDocument doc, ComponentRegistry registry,
+                                                    string[] lines, List<Finding> findings)
+    {
+        var reported = new HashSet<string>(StringComparer.Ordinal);
+
+        void Walk(RenderNode n, bool insideControl)
+        {
+            if (n.Style.Display == DisplayType.None) return;
+            if (!insideControl) CheckChildrenOf(n);
+            var inside = insideControl
+                || (n.Element is { } el && registry.Tags.Contains(el.LocalName, StringComparer.OrdinalIgnoreCase));
+            foreach (var c in n.Children) Walk(c, inside);
+        }
+
+        void CheckChildrenOf(RenderNode parent)
+        {
+            // Visible boxes only: a radius nobody can see cannot collide with anything. In document
+            // order, which is the order they were written and the order they lay out in — a pair
+            // that is flush and adjacent is a pair someone wrote next to each other.
+            var kids = parent.Children
+                .Where(c => c.Style.Display != DisplayType.None && !c.IsText
+                            && c.Width > 0.5f && c.Height > 0.5f && IsVisibleBox(c))
+                .ToList();
+
+            for (var i = 1; i < kids.Count; i++) Pair(kids[i - 1], kids[i]);
+        }
+
+        void Pair(RenderNode a, RenderNode b)
+        {
+            var (ax, ay, aw, ah) = Interaction.HitTesting.ScreenBox(a);
+            var (bx, by, bw, bh) = Interaction.HitTesting.ScreenBox(b);
+            var ra = a.Style.BorderRadius.Resolve(aw, ah);
+            var rb = b.Style.BorderRadius.Resolve(bw, bh);
+
+            // Flush along one axis, genuinely overlapping on the other — touching, not merely
+            // diagonal from one another.
+            var below = MathF.Abs(by - (ay + ah)) <= 0.5f
+                        && MathF.Min(ax + aw, bx + bw) - MathF.Max(ax, bx) > 0.5f;
+            var beside = MathF.Abs(bx - (ax + aw)) <= 0.5f
+                         && MathF.Min(ay + ah, by + bh) - MathF.Max(ay, by) > 0.5f;
+            if (!below && !beside) return;
+
+            var rounded = below
+                ? Round(ra.BottomLeft, ra.BottomRight) && Round(rb.TopLeft, rb.TopRight)
+                : Round(ra.TopRight, ra.BottomRight) && Round(rb.TopLeft, rb.BottomLeft);
+            if (!rounded) return;
+
+            var key = Name(a) + "|" + Name(b);
+            if (!reported.Add(key)) return;
+
+            var where = below ? "directly below" : "directly beside";
+            var side = below ? "margin-top" : "margin-left";
+            findings.Add(new Finding(Severity.Info, "CF0074",
+                $"{Name(b)} sits flush {where} {Name(a)} — nothing at all between them, and both are "
+                + "rounded where they meet, so the two curves collide instead of reading as separate things.",
+                $"Give them room: {side} on the second, or a gap on the parent if it is a flex row or "
+                + "column. Square-edged boxes can sit flush and read as one surface — a card header "
+                + "above a card body does exactly that — which is why this is only reported when both "
+                + "sides of the seam are curved.",
+                LineOf(lines, ClassNeedle(b))));
+        }
+
+        // Rounded on the edge where the two meet. Either corner of that edge is enough: a single
+        // curve against a flush neighbour already shows the wedge.
+        static bool Round(SkiaSharp.SKPoint c1, SkiaSharp.SKPoint c2) =>
+            MathF.Max(c1.X, c1.Y) > 0.5f || MathF.Max(c2.X, c2.Y) > 0.5f;
+
+        // Something you can see the shape of: a fill, an image, or a border. A transparent box's
+        // corners are a fact about nothing.
+        static bool IsVisibleBox(RenderNode n) =>
+            n.Style.Background.Alpha > 0 || n.Style.HasBackgroundImage
+            || ((n.BorderTopW > 0 || n.BorderRightW > 0 || n.BorderBottomW > 0 || n.BorderLeftW > 0)
+                && n.Style.BorderTopColor.Alpha > 0);
+
+        Walk(doc.Root, false);
     }
 
     // ---- 7. does every binding name something real? --------------------------------------------

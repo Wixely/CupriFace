@@ -17,6 +17,26 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **`CF0074`: two rounded, filled boxes sitting flush, with nothing between them.** A margin
+  nobody set — the curves collide, the background shows through the wedge between them, and the
+  pair reads as one broken shape instead of two objects.
+
+  **Flush is not evidence on its own**, which is the only reason this can be checked at all.
+  Measured, the defect and its commonest innocent twin are identical: a card header above a card
+  body is also two filled boxes meeting at exactly 0px, and is correct. What separates them is the
+  corners on the seam — square on both sides says "these two are one surface", curved on both says
+  two things have collided. So only the corners where the boxes actually touch are examined.
+
+  Overlap is left alone (a stack of round avatars pulled together with a negative margin is a
+  design), and so is any gap at all: zero is the number that means "unset", and one pixel is a
+  number somebody chose. Reported as **Info** — the first check in the tool to use that level —
+  because the layout works and only reads badly, so the most subjective finding here is also the
+  easiest to ignore and cannot fail a gate that counts warnings.
+
+  Across the Showcase, MobileApp, ControlsApp and SettingsApp at two viewport sizes there are 16
+  flush adjacent pairs and the corner rule rejects every one of them: the rule is doing work on
+  real documents rather than finding nothing to look at.
+
 - **`CF0073`: repeated controls that disagree on their size.** Three rows each ending in
   a button reading "Connect", "Configure", "Connect" — the middle one is 12px wider because its
   label is longer, so its left edge juts out of a column that is otherwise flush. Every box is
