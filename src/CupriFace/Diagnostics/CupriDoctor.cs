@@ -1143,7 +1143,7 @@ public static partial class CupriDoctor
     // ---- 6b. do the things that look alike line up? --------------------------------------------
 
     /// <summary>
-    /// Repeated controls in a column that are not the same size — the odd one breaks the alignment.
+    /// Repeated controls that do not agree on their size — the odd one breaks the alignment.
     ///
     /// <para><b>Why no other check sees this.</b> Every box here is exactly the size it asked to be.
     /// Nothing overflows, nothing clips, nothing is unreadable, no binding is wrong: each element is
@@ -1151,11 +1151,17 @@ public static partial class CupriDoctor
     /// automatic check says the document is fine — which is the signature of the failures this tool
     /// exists for.</para>
     ///
-    /// <para><b>Why it happens.</b> A control sized by its label changes size when the label does,
-    /// and a label that depends on state ("Connect" / "Configure" / "Disconnecting…") differs from
-    /// row to row. The row is laid out correctly for the text it got, so one button juts out of a
-    /// column that is otherwise flush. TOOLBOX's "pin anything whose text changes" is the fix and
-    /// has been written down for a long time; what was missing was anything that NOTICED.</para>
+    /// <para><b>Why it happens.</b> A control sized by its content changes size when the content
+    /// does, and content that depends on state ("Connect" / "Configure" / "Disconnecting…") differs
+    /// from row to row. Each row is laid out correctly for the text it got, so one button juts out
+    /// of a column that is otherwise flush. TOOLBOX's "pin anything whose text changes" is the fix
+    /// and has been written down for a long time; what was missing was anything that NOTICED.</para>
+    ///
+    /// <para><b>The CROSS axis is the one that matters</b>, which is what makes the check possible
+    /// at all. Along the axis peers are stacked on, size is just content being different lengths: a
+    /// toolbar's buttons are as wide as their labels and nobody expects otherwise. Across it, size
+    /// carries a line the eye follows. So a COLUMN of peers is checked on its widths and a ROW of
+    /// peers on its heights, and neither is checked on the other.</para>
     ///
     /// <para><b>Controls only, and that is the whole design.</b> Bare text of different lengths is
     /// not a defect — a column of status labels reading "Demo mode", "Local TMDB development
@@ -1166,12 +1172,20 @@ public static partial class CupriDoctor
     /// registered <c>cupri-*</c> control, and only the OUTERMOST such element counts — a caller
     /// cannot restyle what a component expands into.</para>
     ///
-    /// <para><b>It under-reports on purpose</b>, in three ways worth knowing. A group needs three
-    /// peers, because the finding is "this one disagrees with those two" and a pair has no majority
-    /// to disagree with. The peers must be STACKED — side by side in a row, differing widths are
-    /// ordinary and expected. And an element given an explicit <c>width</c> is taken at its word.
-    /// A div styled to look like a button but carrying no role is invisible here; trust a finding,
-    /// not its absence.</para>
+    /// <para><b>The structural rule differs per axis, because so does the innocent twin.</b> A
+    /// column is only a column anyone expects to line up when each peer sits in its own ROW — a
+    /// de-facto table. Peers sharing one parent are a stack of chips, bubbles or nav links, which
+    /// is shrink-wrapped by nature and must stay silent. A row is the opposite: one shared parent
+    /// is the ordinary shape of a deck of cards, and that is exactly where a taller one spoils the
+    /// line.</para>
+    ///
+    /// <para><b>It under-reports on purpose.</b> A group needs three peers, because the finding is
+    /// "this one disagrees with those two" and a pair has no majority to disagree with; three
+    /// different sizes say nothing, for want of an honest number to suggest pinning to; and an
+    /// element given an explicit size on the axis in question is taken at its word (which is what
+    /// spares a hand-rolled bar chart, whose bars are explicitly sized by definition). A div styled
+    /// to look like a button but carrying no role is invisible here; trust a finding, not its
+    /// absence.</para>
     /// </summary>
     private static void PeersThatDoNotLineUp(CupriDocument doc, ComponentRegistry registry,
                                              string[] lines, List<Finding> findings)
@@ -1199,80 +1213,109 @@ public static partial class CupriDoctor
         {
             if (peers.Count < 3) continue;
 
-            // Each peer in its OWN row, and the rows all the same kind of thing — a de-facto table,
-            // where a column is expected to line up. This is the rule that separates the defect
-            // from its innocent twin: a stack of pills, chat bubbles or sidebar links shares ONE
-            // parent and is shrink-wrapped by nature, and nobody has ever filed a bug about a
-            // ragged tag list. Peers in sibling rows are a grid, and a grid with a wandering
-            // column is the thing people actually see.
-            var parents = peers.Select(p => p.Parent).ToList();
-            if (parents.Any(p => p?.Element is null)) continue;
-            if (parents.Distinct().Count() != peers.Count) continue;          // one shared parent: a stack, not a grid
-            if (parents.Select(Signature).Distinct().Count() != 1) continue;  // rows of different kinds: not a repeat
+            // Where they sit relative to each other decides WHICH question to ask. A column of
+            // peers must agree on their widths; a row of peers must agree on their heights. The
+            // axis they are stacked along is free — that is just content being different lengths —
+            // and the CROSS axis is the one carrying a line the eye follows.
+            var byY = peers.Select(p => (Node: p, Box: Interaction.HitTesting.ScreenBox(p)))
+                           .OrderBy(p => p.Box.Y).ToList();
+            var byX = byY.OrderBy(p => p.Box.X).ToList();
 
-            var boxes = peers.Select(p => (Node: p, Box: Interaction.HitTesting.ScreenBox(p)))
-                             .OrderBy(p => p.Box.Y).ToList();
+            if (Stacked(byY, vertical: true)) Compare(byY, vertical: true);
+            else if (Stacked(byX, vertical: false)) Compare(byX, vertical: false);
 
-            // A COLUMN: each one below the last, all sharing some horizontal ground. Peers side by
-            // side in a row are a different thing entirely — a toolbar's buttons are as wide as
-            // their labels and nobody expects otherwise.
-            var stacked = true;
-            float overlapLeft = boxes[0].Box.X, overlapRight = boxes[0].Box.X + boxes[0].Box.W;
-            for (var i = 1; i < boxes.Count && stacked; i++)
+            // Each one clear of the last along the stacking axis, and all of them sharing ground on
+            // the other — a column, or a row, rather than an incidental scatter.
+            static bool Stacked(List<(RenderNode Node, (float X, float Y, float W, float H) Box)> b, bool vertical)
             {
-                var (_, prev) = boxes[i - 1];
-                var (_, cur) = boxes[i];
-                if (cur.Y < prev.Y + prev.H - 0.5f) stacked = false;
-                overlapLeft = MathF.Max(overlapLeft, cur.X);
-                overlapRight = MathF.Min(overlapRight, cur.X + cur.W);
+                float lo = vertical ? b[0].Box.X : b[0].Box.Y;
+                float hi = lo + (vertical ? b[0].Box.W : b[0].Box.H);
+                for (var i = 1; i < b.Count; i++)
+                {
+                    var (_, prev) = b[i - 1];
+                    var (_, cur) = b[i];
+                    var clear = vertical ? cur.Y >= prev.Y + prev.H - 0.5f : cur.X >= prev.X + prev.W - 0.5f;
+                    if (!clear) return false;
+                    lo = MathF.Max(lo, vertical ? cur.X : cur.Y);
+                    hi = MathF.Min(hi, vertical ? cur.X + cur.W : cur.Y + cur.H);
+                }
+                return hi > lo;
             }
-            if (!stacked || overlapRight <= overlapLeft) continue;
 
-            // The width the group agrees on, and who disagrees with it. A majority is required
-            // rather than a spread, so three peers of three different widths say nothing: there
-            // would be no "the others", and no honest number to suggest pinning to.
-            var agreed = boxes.GroupBy(b => MathF.Round(b.Box.W * 2f) / 2f)
-                              .OrderByDescending(g => g.Count()).ThenByDescending(g => g.Key).First();
-            if (agreed.Count() < 2 || agreed.Count() * 2 < boxes.Count) continue;
-            var odd = boxes.Where(b => MathF.Abs(b.Box.W - agreed.Key) >= 2f).ToList();
-            if (odd.Count == 0) continue;
+            void Compare(List<(RenderNode Node, (float X, float Y, float W, float H) Box)> boxes, bool vertical)
+            {
+                // The structural rule differs by axis, because so does the innocent twin.
+                //
+                // A COLUMN of peers is only a column anyone expects to line up when each one sits
+                // in its own row — a de-facto table. Sharing one parent makes it a stack of chips,
+                // bubbles or nav links, which is shrink-wrapped by nature and must stay silent.
+                //
+                // A ROW is the other way round: one shared parent is the ordinary, correct shape of
+                // a row of cards or buttons, and that is exactly where a taller one spoils the line.
+                var parents = boxes.Select(b => b.Node.Parent).ToList();
+                if (parents.Any(p => p?.Element is null)) return;
+                var oneParent = parents.Distinct().Count() == 1;
+                var repeatedRows = parents.Distinct().Count() == boxes.Count
+                                   && parents.Select(Signature).Distinct().Count() == 1;
+                if (vertical ? !repeatedRows : !(oneParent || repeatedRows)) return;
 
-            // Explicitly sized: the author said what they wanted and got it.
-            odd = odd.Where(b => b.Node.Style.Width.IsAuto).ToList();
-            if (odd.Count == 0) continue;
+                float Size((float X, float Y, float W, float H) b) => vertical ? b.W : b.H;
 
-            var worst = odd.OrderByDescending(b => MathF.Abs(b.Box.W - agreed.Key)).First();
-            var name = Name(worst.Node);
-            var others = boxes.Count - odd.Count;
+                // The size the group agrees on, and who disagrees with it. A majority is required
+                // rather than a spread, so three peers of three different sizes say nothing: there
+                // would be no "the others", and no honest number to suggest pinning to.
+                var agreed = boxes.GroupBy(b => MathF.Round(Size(b.Box) * 2f) / 2f)
+                                  .OrderByDescending(g => g.Count()).ThenByDescending(g => g.Key).First();
+                if (agreed.Count() < 2 || agreed.Count() * 2 < boxes.Count) return;
+                var odd = boxes.Where(b => MathF.Abs(Size(b.Box) - agreed.Key) >= 2f).ToList();
 
-            // Which edge is ragged, because that is what the eye actually caught. With differing
-            // widths at most one edge can line up, so there is always an answer.
-            var lefts = boxes.Select(b => b.Box.X).ToList();
-            var rights = boxes.Select(b => b.Box.X + b.Box.W).ToList();
-            var gap = MathF.Abs(worst.Box.W - agreed.Key);
-            var edge = lefts.Max() - lefts.Min() <= 0.5f
-                ? $"Their left edges line up, so this one's right edge juts {gap:0}px out of the column."
-                : rights.Max() - rights.Min() <= 0.5f
-                    ? $"Their right edges line up, so this one's left edge juts {gap:0}px out of the column."
-                    : $"Neither edge lines up: it sits {gap:0}px out of the column.";
+                // Explicitly sized: the author said what they wanted and got it.
+                odd = odd.Where(b => (vertical ? b.Node.Style.Width : b.Node.Style.Height).IsAuto).ToList();
+                if (odd.Count == 0) return;
 
-            var label = FirstText(worst.Node);
-            var otherLabel = boxes.FirstOrDefault(b => !odd.Contains(b)) is { Node: { } o } ? FirstText(o) : "";
-            var because = label.Length > 0 && otherLabel.Length > 0 && label != otherLabel
-                ? $" — \"{label}\" is a longer label than \"{otherLabel}\""
-                : "";
+                var worst = odd.OrderByDescending(b => MathF.Abs(Size(b.Box) - agreed.Key)).First();
+                var others = boxes.Count - odd.Count;
+                var gap = MathF.Abs(Size(worst.Box) - agreed.Key);
 
-            findings.Add(new Finding(Severity.Warning, "CF0073",
-                $"{name} is {worst.Box.W:0}px wide where the other {others} like it "
-                + $"{(others == 1 ? "is" : "are")} {agreed.Key:0}px{because}. {edge}",
-                $"Pin the size so the text cannot move it: min-width: {MathF.Max(worst.Box.W, agreed.Key):0}px "
-                + "on all of them (or a fixed column for the whole group). A control sized by its "
-                + "label resizes whenever the label changes, which is what state-dependent text does "
-                + "on every render. For digits, font-variant-numeric: tabular-nums does the same job.",
-                // The odd one's own line, found by its LABEL — the class needle would land on the
-                // first peer, which is the one that is RIGHT, and send a reader to the wrong row.
-                (label.Length > 0 ? LineOf(lines, label) : 0) is > 0 and var ln
-                    ? ln : LineOf(lines, ClassNeedle(worst.Node))));
+                // Which edge is ragged, because that is what the eye actually caught. With differing
+                // sizes at most one edge can line up, so there is always an answer.
+                var near = boxes.Select(b => vertical ? b.Box.X : b.Box.Y).ToList();
+                var far = boxes.Select(b => vertical ? b.Box.X + b.Box.W : b.Box.Y + b.Box.H).ToList();
+                var (nearName, farName, line) = vertical
+                    ? ("left", "right", "column")
+                    : ("top", "bottom", "row");
+                var edge = near.Max() - near.Min() <= 0.5f
+                    ? $"Their {nearName} edges line up, so this one's {farName} edge juts {gap:0}px out of the {line}."
+                    : far.Max() - far.Min() <= 0.5f
+                        ? $"Their {farName} edges line up, so this one's {nearName} edge juts {gap:0}px out of the {line}."
+                        : $"Neither edge lines up: it sits {gap:0}px out of the {line}.";
+
+                var label = FirstText(worst.Node);
+                var otherLabel = boxes.FirstOrDefault(b => !odd.Contains(b)) is { Node: { } o } ? FirstText(o) : "";
+                var because = label.Length > 0 && otherLabel.Length > 0 && label != otherLabel
+                    ? $" — \"{label}\" is {(vertical ? "a longer label than" : "longer text than")} \"{otherLabel}\""
+                    : "";
+
+                var fix = vertical
+                    ? $"Pin the size so the text cannot move it: min-width: {MathF.Max(Size(worst.Box), agreed.Key):0}px "
+                      + "on all of them (or a fixed column for the whole group). A control sized by its "
+                      + "label resizes whenever the label changes, which is what state-dependent text does "
+                      + "on every render. For digits, font-variant-numeric: tabular-nums does the same job."
+                    : $"Let the row size them together — align-items: stretch (the flex default) gives every "
+                      + $"item the tallest one's height, and something has overridden it here. Or pin a floor: "
+                      + $"min-height: {MathF.Max(Size(worst.Box), agreed.Key):0}px on all of them. Text that wraps "
+                      + "to one more line is the usual cause, so the fix has to survive the longest string, "
+                      + "not today's.";
+
+                findings.Add(new Finding(Severity.Warning, "CF0073",
+                    $"{Name(worst.Node)} is {Size(worst.Box):0}px {(vertical ? "wide" : "tall")} where the "
+                    + $"other {others} like it {(others == 1 ? "is" : "are")} {agreed.Key:0}px{because}. {edge}",
+                    fix,
+                    // The odd one's own line, found by its LABEL — the class needle would land on the
+                    // first peer, which is the one that is RIGHT, and send a reader to the wrong row.
+                    (label.Length > 0 ? LineOf(lines, label) : 0) is > 0 and var ln
+                        ? ln : LineOf(lines, ClassNeedle(worst.Node))));
+            }
         }
 
         // Tag plus classes: as close as markup gets to the author saying "these are the same kind

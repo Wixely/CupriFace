@@ -203,6 +203,87 @@ public class PeerAlignmentTests
         Assert.Empty(Check(html));
     }
 
+    // ---- the same idea along the other axis: a ROW whose heights disagree ----------------------
+
+    [Fact]
+    public void A_card_that_is_taller_than_its_row_is_reported()
+    {
+        // The mirror of the reported defect. Three cards side by side, one with a description that
+        // wrapped to an extra line, so its bottom edge drops below the others. Same principle:
+        // peers must agree on their CROSS-axis size, and here that is the height.
+        var html = "<body><div class='deck'>"
+            + "<div class='card' role='button'>Trakt sync</div>"
+            + "<div class='card' role='button'>TMDB sync</div>"
+            + "<div class='card' role='button'>Real-Debrid cache checks and source resolution for every link</div>"
+            + "</div></body>";
+        var finding = Assert.Single(Check(html, "body{margin:0} .deck{display:flex;align-items:flex-start;gap:12px}"
+                                          + " .card{width:180px;background:#223;padding:12px}"));
+        Assert.Contains("tall", finding.Message);
+        Assert.Contains("top edges line up", finding.Message);
+        Assert.Contains("align-items: stretch", finding.Fix);
+    }
+
+    [Fact]
+    public void A_row_the_flex_default_already_evens_out_is_silent()
+    {
+        // align-items:stretch is the default and gives every item the tallest one's height, so
+        // there is nothing ragged to report. This is the common case, and it must cost nothing.
+        var html = "<body><div class='deck'>"
+            + "<div class='card' role='button'>Trakt sync</div>"
+            + "<div class='card' role='button'>TMDB sync</div>"
+            + "<div class='card' role='button'>Real-Debrid cache checks and source resolution for every link</div>"
+            + "</div></body>";
+        Assert.Empty(Check(html, "body{margin:0} .deck{display:flex;gap:12px} .card{width:180px;background:#223;padding:12px}"));
+    }
+
+    [Fact]
+    public void A_hand_rolled_bar_chart_is_silent()
+    {
+        // The false positive that would have made the row half unusable: bars in a chart are the
+        // same class, side by side, and differ in height BY DEFINITION.
+        //
+        // Quiet for two independent reasons, and a mutation run corrected which one does the work:
+        // the bars carry an explicit `height`, so the author-said-so rule excludes them before the
+        // controls-only rule is ever consulted. That is the stronger guard for a chart, since a bar
+        // is always explicitly sized. The role rule is the backstop, pinned by the test below.
+        var html = "<body><div class='chart'>"
+            + "<div class='bar'></div><div class='bar'></div><div class='bar'></div><div class='bar'></div>"
+            + "</div></body>";
+        var css = "body{margin:0} .chart{display:flex;align-items:flex-end;gap:6px;height:120px}"
+            + " .bar{width:20px;background:#6c6}"
+            + " .bar:nth-child(1){height:40px} .bar:nth-child(2){height:40px}"
+            + " .bar:nth-child(3){height:90px} .bar:nth-child(4){height:40px}";
+        Assert.Empty(Check(html, css));
+    }
+
+    [Fact]
+    public void Ragged_text_blocks_in_a_row_are_not_a_defect()
+    {
+        // The row-axis twin of the status labels: three columns of prose, one of which wraps to an
+        // extra line. Auto heights, so the explicit-size rule cannot help — the controls-only rule
+        // is the only thing standing here, which is what makes this test worth having.
+        var html = "<body><div class='cols'>"
+            + "<div class='col'>Watchlist and history</div>"
+            + "<div class='col'>Search and artwork</div>"
+            + "<div class='col'>Account-authorized cache checks and source resolution</div>"
+            + "</div></body>";
+        Assert.Empty(Check(html, "body{margin:0} .cols{display:flex;align-items:flex-start;gap:12px} .col{width:160px}"));
+    }
+
+    [Fact]
+    public void Controls_of_differing_widths_in_a_row_stay_silent()
+    {
+        // Restated because it is the asymmetry that makes the whole check work: along the axis the
+        // peers are stacked on, size is just content being different lengths. Only the cross axis
+        // carries a line.
+        var html = "<body><div class='bar'>"
+            + "<cupri-button class='act'>Save</cupri-button>"
+            + "<cupri-button class='act'>Cancel</cupri-button>"
+            + "<cupri-button class='act'>Save and close</cupri-button>"
+            + "</div></body>";
+        Assert.Empty(Check(html, "body{margin:0} .bar{display:flex;gap:8px;align-items:center}"));
+    }
+
     [Fact]
     public void A_control_s_own_insides_are_not_peers()
     {

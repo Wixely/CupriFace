@@ -17,7 +17,7 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
-- **`CF0073`: repeated controls in a column that are not the same size.** Three rows each ending in
+- **`CF0073`: repeated controls that disagree on their size.** Three rows each ending in
   a button reading "Connect", "Configure", "Connect" — the middle one is 12px wider because its
   label is longer, so its left edge juts out of a column that is otherwise flush. Every box is
   exactly the size it asked to be: nothing overflows, nothing clips, every binding resolves, and
@@ -31,11 +31,23 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   must sit in SIBLING ROWS, which is what makes a column anyone expects to line up: a stack of
   chips, bubbles or nav links shares one parent, is shrink-wrapped by nature, and stays quiet.
 
+  **Both axes, because the CROSS one is what carries a line.** Along the axis peers are stacked on,
+  size is just content being different lengths — a toolbar's buttons are as wide as their labels and
+  nobody expects otherwise. Across it, a line the eye follows breaks. So a COLUMN of peers is
+  checked on its widths and a ROW on its heights: the second catches the deck of cards where one
+  description wrapped to an extra line and dropped that card below its neighbours. The structural
+  rule flips with the axis too — a column must be built from sibling rows (one shared parent is a
+  stack of chips, not a table), while for a row one shared parent is the ordinary shape.
+
   It under-reports deliberately. Three peers are needed, because the finding is "this one disagrees
-  with those two" and a pair has no majority; three different widths say nothing, for want of an
-  honest number to pin to; side-by-side controls in a row are exempt; and an explicit `width` is
-  taken at its word. A div styled as a button but carrying no role is invisible to it — trust a
-  finding, not its absence. Silent across all twelve Showcase pages.
+  with those two" and a pair has no majority; three different sizes say nothing, for want of an
+  honest number to pin to; and an explicit size on the axis in question is taken at its word, which
+  is what spares a hand-rolled bar chart whose bars are explicitly sized by definition. A div styled
+  as a button but carrying no role is invisible to it — trust a finding, not its absence.
+
+  Silent across the Showcase, MobileApp, ControlsApp and SettingsApp at two viewport sizes — where
+  four peer groups do reach the size comparison and agree, so that silence is the check running
+  rather than finding nothing to look at.
 
 ## v0.39.0
 

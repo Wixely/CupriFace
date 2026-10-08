@@ -48,7 +48,7 @@ error   CF0030 (line 6): <img> is not something the engine draws — it lays out
 | **`CF0060`** | **A `{{path}}` that names nothing on the model** — renders as empty text, looks like missing data |
 | **`CF0070`** | **Contents that do not fit a fixed-height box** — they overflow and paint over the next element |
 | **`CF0071`** | **A box that laid out with no area** but has visible content inside it |
-| **`CF0073`** | **Repeated controls in a column that are not the same size** — one button's longer label pushes it out of line with the others. Every box is correct; the SET is wrong |
+| **`CF0073`** | **Repeated controls that disagree on their size** — a column checked on widths, a row checked on heights. One button's longer label pushes it out of line with the others; every box is correct and the SET is wrong |
 | **`CF0072`** | **Contents that run off the SIDE** past the viewport (or a box that clips them) — the way a desktop layout fails on a phone. Pass `width:`/`height:` to check a device size |
 | **`CF0090`** | **Text too close in colour to what is behind it to read** (WCAG AA). One finding per colour PAIR, with a readable replacement suggested. Silent whenever the background cannot be computed exactly — a gradient, an image, a faded ancestor — and inside a `cupri-*` control, whose insides a caller cannot restyle |
 | **`CF0080`** | **Characters no installed font can draw** — they paint as empty .notdef boxes. Under-reports on macOS (its LastResort face matches everything): trust a finding, not its absence |
