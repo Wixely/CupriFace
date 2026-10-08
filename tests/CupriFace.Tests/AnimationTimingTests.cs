@@ -76,11 +76,11 @@ public class AnimationTimingTests
     public void Shorthand_reads_duration_then_delay_and_a_bare_count()
     {
         using var td = new TestDoc("<div class='a'></div>", Keyframes + " .a { animation: 2s ease-in-out 0.5s 2 dim both; }");
-        var s = td.FindClass("a").Style;
-        Assert.Equal("dim", s.AnimationName);
-        Assert.Equal(2f, s.AnimationDuration);
-        Assert.Equal(0.5f, s.AnimationDelay);
-        Assert.Equal(2f, s.AnimationIterations);
-        Assert.True(s.AnimationFillForwards && s.AnimationFillBackwards);
+        var a = Assert.Single(td.FindClass("a").Style.Animations!);
+        Assert.Equal("dim", a.Name);
+        Assert.Equal(2f, a.Duration);
+        Assert.Equal(0.5f, a.Delay);
+        Assert.Equal(2f, a.Iterations);
+        Assert.True(a.FillForwards && a.FillBackwards);
     }
 }

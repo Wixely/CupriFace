@@ -206,16 +206,27 @@ public sealed class Painter
 
         // Filter wraps the whole subtree (outermost — the filter sees the composited element). The layer
         // is bounded to the element's box grown by the filter's spread, so the offscreen stays small.
+ 		// The box a filter's or an opacity group's offscreen LAYER has to cover. Both are pushed
+        // OUTSIDE the transform, so their bounds live in the pre-transform space and must be the
+        // element's box as the transform will place it — not the box it was laid out in.
+        //
+        // They used to be the laid-out box, which clipped a transformed element to where it would
+        // have been: `transform: translateX(60px); opacity: .5` painted NOTHING, and a 20px shift
+        // painted the sliver still overlapping its old position. That is the commonest pairing
+        // there is — every fade-and-slide entrance — and it took a two-animation element to make it
+        // obvious, because one animation rarely moves AND fades at once (found while fixing #284).
+        var layer = TransformedBounds(node, absX, absY, full);
+
         var filtered = s.Filter is { Count: > 0 };
         if (filtered)
         {
             var m = FilterMargin(s.Filter!);
-            list.Add(new PushFilter(s.Filter!, absX - m, absY - m, node.Width + 2 * m, node.Height + 2 * m));
+            list.Add(new PushFilter(s.Filter!, layer.Left - m, layer.Top - m, layer.Width + 2 * m, layer.Height + 2 * m));
         }
 
         // Opacity composites the whole subtree as a group (wrapping any transform).
         var faded = s.Opacity < 1f;
-        if (faded) list.Add(new PushOpacity(Math.Clamp(s.Opacity, 0f, 1f), absX, absY, node.Width, node.Height));
+        if (faded) list.Add(new PushOpacity(Math.Clamp(s.Opacity, 0f, 1f), layer.Left, layer.Top, layer.Width, layer.Height));
 
         // Transform wraps the node's whole subtree (inside the opacity group, so the group is of
         // the transformed image). The origin is resolved against the BORDER box, which is what its
@@ -520,6 +531,20 @@ public sealed class Painter
             if (tw <= 0 || th <= 0) return;
             list.Add(new TiledImage(x, y, w, h, radius, img, new BackgroundTile(x + tx, y + ty, tw, th, geom.RepeatX, geom.RepeatY)));
         }
+    }
+
+    /// <summary>The element's border box where its transform will actually put it, unioned with the
+    /// box it was laid out in. Used to size the offscreen layers that wrap the transform, which are
+    /// recorded in the space OUTSIDE it.</summary>
+    private static SKRect TransformedBounds(RenderNode node, float absX, float absY, float[]? full)
+    {
+        var box = SKRect.Create(absX, absY, node.Width, node.Height);
+        if (full is null) return box;
+        var mapped = Transform3D.Project(full).MapRect(box);
+        // Unioned rather than replaced: a perspective projection can map a box to something that no
+        // longer covers where children in flow are drawn, and a layer that is too big only costs
+        // memory, while one that is too small silently eats pixels.
+        return SKRect.Union(box, mapped);
     }
 
     // A collected position:sticky node and the origin it was reached at (its parent's painted top-left).

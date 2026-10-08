@@ -160,7 +160,7 @@ public sealed class SkiaRasterizer
             else if (!float.IsNaN(s.PositionPx)) { pos[i] = lineLength > 0 ? s.PositionPx / lineLength : 0f; any = true; }
             else pos[i] = float.NaN;
         }
-        if (!any) return (colors, null);            // Skia spaces them evenly itself
+        if (!any) return CarryHueIntoTransparentStops(colors, null);
 
         if (float.IsNaN(pos[0])) pos[0] = 0f;
         if (float.IsNaN(pos[n - 1])) pos[n - 1] = 1f;
@@ -180,7 +180,91 @@ public sealed class SkiaRasterizer
             pos[i] = Math.Clamp(pos[i], 0f, 1f);
             if (pos[i] < floor) pos[i] = floor; else floor = pos[i];
         }
-        return (colors, pos);
+        return CarryHueIntoTransparentStops(colors, pos);
+    }
+
+    /// <summary>
+    /// Give every fully transparent stop the hue of the stop beside it (#283).
+    ///
+    /// <para>CSS interpolates gradient stops in PREMULTIPLIED alpha, which is what makes the
+    /// <c>transparent</c> keyword usable: it means "this colour at zero alpha", and a fade out
+    /// keeps its hue all the way. Skia interpolates straight RGBA here, and <c>transparent</c> is
+    /// <c>rgba(0, 0, 0, 0)</c> — so a warm glow fading out was dragged towards BLACK on its way,
+    /// coming out darker and desaturated. 124 gradients across 45 of 165 corpus compositions fade
+    /// to transparent; it is how every glow, vignette, scrim and soft edge is built, and it reads
+    /// as "a bit flat" rather than as a defect, which is why it lasted.</para>
+    ///
+    /// <para>At zero alpha a stop contributes no colour of its own under premultiplied
+    /// interpolation, so taking its neighbour's hue is not an approximation of that behaviour — it
+    /// is exactly equal to it, and it needs nothing from the interpolator. <b>The remaining
+    /// difference is a stop with PARTIAL alpha whose hue differs from its neighbour's</b>, which
+    /// straight interpolation still shades slightly differently. SkiaSharp 3.116 exposes no
+    /// premultiplied-interpolation flag to fix that with — there is no gradient-flags overload at
+    /// all — so it waits on the SkiaSharp 4 upgrade.</para>
+    /// </summary>
+    private static (SKColor[] Colors, float[]? Positions) CarryHueIntoTransparentStops(SKColor[] colors, float[]? pos)
+    {
+        var n = colors.Length;
+        var expand = false;
+        for (var i = 0; i < n && !expand; i++)
+            if (colors[i].Alpha == 0 && Donor(colors, i, -1) is { } p && Donor(colors, i, +1) is { } q
+                && !SameRgb(p, q)) expand = true;
+
+        if (!expand)
+        {
+            // The ordinary shape: the transparent stops are at one end, or between stops of the
+            // same hue. Each simply borrows the nearest colour, in place.
+            for (var i = 0; i < n; i++)
+            {
+                if (colors[i].Alpha != 0) continue;
+                var donor = Donor(colors, i, -1) ?? Donor(colors, i, +1);
+                if (donor is { } c) colors[i] = c.WithAlpha(0);
+            }
+            return (colors, pos);
+        }
+
+        // A transparent stop BETWEEN two different colours is two stops in premultiplied terms:
+        // the left segment fades out of the colour before it, the right fades into the colour
+        // after. One stop can only hold one colour, so it is split into a coincident pair — which
+        // is what makes `red, transparent, blue` two clean fades rather than one through purple.
+        pos ??= EvenPositions(n);
+        var outColors = new List<SKColor>(n + 2);
+        var outPos = new List<float>(n + 2);
+        for (var i = 0; i < n; i++)
+        {
+            if (colors[i].Alpha != 0) { outColors.Add(colors[i]); outPos.Add(pos[i]); continue; }
+            var before = Donor(colors, i, -1);
+            var after = Donor(colors, i, +1);
+            if (before is { } b && after is { } a && !SameRgb(b, a))
+            {
+                outColors.Add(b.WithAlpha(0)); outPos.Add(pos[i]);
+                outColors.Add(a.WithAlpha(0)); outPos.Add(pos[i]);
+            }
+            else
+            {
+                outColors.Add((before ?? after ?? colors[i]).WithAlpha(0));
+                outPos.Add(pos[i]);
+            }
+        }
+        return ([.. outColors], [.. outPos]);
+    }
+
+    /// <summary>The nearest stop in <paramref name="step"/>'s direction that has a colour of its
+    /// own, or null if there is none that way.</summary>
+    private static SKColor? Donor(SKColor[] colors, int from, int step)
+    {
+        for (var i = from + step; i >= 0 && i < colors.Length; i += step)
+            if (colors[i].Alpha != 0) return colors[i];
+        return null;
+    }
+
+    private static bool SameRgb(SKColor a, SKColor b) => a.Red == b.Red && a.Green == b.Green && a.Blue == b.Blue;
+
+    private static float[] EvenPositions(int n)
+    {
+        var p = new float[n];
+        for (var i = 0; i < n; i++) p[i] = n == 1 ? 0f : (float)i / (n - 1);
+        return p;
     }
 
     // Append a chart line to <paramref name="path"/> (already moved to point 0): straight segments, or a

@@ -308,6 +308,22 @@ public readonly record struct FilterOp(FilterKind Kind, float A, float B, float 
 /// inner shadow rather than a drop shadow).</summary>
 public readonly record struct BoxShadow(float Dx, float Dy, float Blur, float Spread, SkiaSharp.SKColor Color, bool Inset);
 
+/// <summary>
+/// One entry of <c>animation</c>: the seven longhands CSS pairs together by index (#284).
+/// </summary>
+/// <param name="Delay">Seconds; negative starts part-way through, as in CSS.</param>
+/// <param name="Iterations">CSS default: once; <c>infinite</c> is +∞.</param>
+/// <param name="Timing">The curve each interval between two stops is shaped by. Parsed but thrown
+/// away before #184, so every animation ran linearly however it was written.</param>
+public readonly record struct AnimationSpec(
+    string? Name, float Duration, float Delay, float Iterations,
+    Easing Timing, bool FillForwards, bool FillBackwards)
+{
+    /// <summary>CSS's initial value for every longhand — what an entry starts as before the
+    /// declaration fills any of it in.</summary>
+    public static readonly AnimationSpec Initial = new(null, 0f, 0f, 1f, Easing.Linear, false, false);
+}
+
 public enum GradientKind { Linear, Radial }
 
 /// <summary>A gradient colour stop: its <c>Color</c> at <c>Position</c> (0..1), or at
