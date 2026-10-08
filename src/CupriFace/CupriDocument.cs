@@ -1266,7 +1266,7 @@ public sealed partial class CupriDocument : IDisposable
 
     private static bool AnyAnimated(RenderNode n)
     {
-        if (n.Style.AnimationName is not null && n.Style.AnimationDuration > 0) return true;
+        if (n.Style.HasAnimation) return true;
         foreach (var c in n.Children) if (AnyAnimated(c)) return true;
         return false;
     }

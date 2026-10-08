@@ -283,20 +283,32 @@ public sealed class ComputedStyle
     public (float X, float Y) TransformPivot(float width, float height) =>
         (TransformOriginX.Resolve(width, width / 2f), TransformOriginY.Resolve(height, height / 2f));
 
-    // Animation
-    public string? AnimationName;
-    public float AnimationDuration; // seconds
-    public float AnimationDelay;    // seconds; negative starts part-way through, as in CSS
-    public float AnimationIterations = 1f;
+    /// <summary>
+    /// The animations on this element, in the order written — CSS allows a list, and the LAST entry
+    /// to touch a property is the one that wins (#284).
+    ///
+    /// <para>There used to be room for exactly one, in seven scalar fields. A comma-separated
+    /// shorthand was tokenised on spaces alone, so the entries collapsed into a single hybrid built
+    /// from parts of each: <c>slide 2s linear both, fade 1s linear 1s both</c> ran SLIDE with
+    /// FADE's delay, and the even-looking case ran the first animation at its very first frame,
+    /// which looks exactly like nothing happening. The longhand list failed differently and just as
+    /// quietly — <c>animation-name: slide,fade</c> was stored whole and matched no
+    /// <c>@keyframes</c>. Neither said a word.</para>
+    /// </summary>
+    public List<AnimationSpec>? Animations;
 
-    /// <summary>The animation's timing function. Parsed but THROWN AWAY until now: every keyword was
-    /// matched and discarded, so `ease-out` and `linear` produced identical values at every sample
-    /// and an animation only ever ran linearly (noticed while isolating #184). The curve machinery
-    /// already existed for transitions; animations simply never asked for it.</summary>
-    public Easing AnimationEasing = Easing.Linear; // CSS default: once; `infinite` is +∞
-    public bool AnimationFillForwards;  // hold the last frame after the run
-    public bool AnimationFillBackwards; // show the first frame during the delay
     internal AnimationBase? AnimBase;    // the values a keyframe overrides, captured before its first frame
+
+    /// <summary>True when any entry could actually run — a named animation with a duration.</summary>
+    public bool HasAnimation
+    {
+        get
+        {
+            if (Animations is not { Count: > 0 } list) return false;
+            foreach (var a in list) if (a.Name is not null && a.Duration > 0) return true;
+            return false;
+        }
+    }
 
     // Transitions (NOT inherited — deliberately absent from InheritFrom). Null unless the element
     // declares `transition`. Each entry animates one paint property when its target value changes.

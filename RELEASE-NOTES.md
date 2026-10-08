@@ -13,6 +13,51 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- **A fade to `transparent` keeps its hue (#283).** CSS interpolates gradient stops in
+  PREMULTIPLIED alpha, which is what makes the keyword usable: it means "this colour at zero
+  alpha". Interpolated in straight RGBA it is `rgba(0,0,0,0)`, so a warm glow fading out was
+  dragged towards BLACK and came out darker and desaturated. 124 gradients across 45 of 165 corpus
+  compositions fade to transparent — it is how every glow, vignette, scrim and soft edge is built,
+  and it read as "a bit flat" rather than as a defect, which is why it lasted so long.
+
+  A fully transparent stop now takes the hue of the stop beside it, which at zero alpha is exactly
+  what premultiplied interpolation produces rather than an approximation of it. A transparent stop
+  BETWEEN two different colours becomes a coincident pair, one per side, so
+  `red, transparent, blue` is two clean fades instead of one through purple.
+  `linear-gradient(#f0d3a6, transparent)` and `linear-gradient(#f0d3a6, rgba(240,211,166,0))` now
+  paint identical pixels, which is what CSS says they are.
+
+  **One narrower case is still straight-interpolated**: a stop with PARTIAL alpha whose hue differs
+  from its neighbour's. SkiaSharp 3.116 exposes no premultiplied-interpolation flag — there is no
+  gradient-flags overload at all — so that waits on the SkiaSharp 4 upgrade.
+
+- **An element can carry a LIST of animations (#284).** There was room for exactly one. The
+  shorthand was tokenised on spaces alone, so a comma-separated list collapsed into a single hybrid
+  built from parts of each entry: `slide 2s linear both, fade 1s linear 1s both` ran SLIDE with
+  FADE's delay, and the even-looking case ran the first animation at its very first frame — which
+  looks exactly like nothing happening. The longhand list failed differently and just as quietly:
+  `animation-name: slide,fade` was stored whole and matched no `@keyframes`. Neither said a word.
+
+  `animation` now parses one entry per comma, and `animation-name`, `-duration`, `-delay`,
+  `-timing-function`, `-iteration-count` and `-fill-mode` are each a comma-separated list paired by
+  index with the shorter repeating, as CSS pairs them. Every entry runs, composing onto the
+  element, with the last to touch a property winning. This is what makes a **stagger** (per-element
+  delay), **overlapping tweens** and **per-tween easing** expressible at all.
+
+- **`transform` and `opacity` on the same element no longer clip it to where it would have been.**
+  The opacity and filter layers are opened outside the transform, and were sized to the laid-out
+  box, so the transformed content fell outside its own layer: `transform: translateX(60px);
+  opacity: .5` painted NOTHING, and a 20px shift painted only the sliver still overlapping its old
+  position. `scale()` and `rotate()` were cropped to the untransformed box the same way. The layers
+  are now sized to the box the transform actually puts the element in, unioned with the original.
+
+  This is the commonest pairing there is — every fade-and-slide entrance — and it was found while
+  fixing #284, because one animation rarely moves AND fades at once while two routinely do.
+
 ## v0.37.0
 
 ### Fixed

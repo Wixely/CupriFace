@@ -91,34 +91,56 @@ public static partial class Animation
     {
         var running = false;
         var s = node.Style;
-        if (s.AnimationName is { } name && s.AnimationDuration > 0 && keyframes.TryGetValue(name, out var frames))
+        if (s.Animations is { Count: > 0 } specs)
         {
-            // The clock is ABSOLUTE document time, not time since the element appeared: the same t
-            // gives the same frame whichever order frames are asked for (CupriCut renders out of
-            // order; a UI never notices).
-            var local = t - s.AnimationDelay;
-            if (local < 0)
+            // The base is captured ONCE, before any entry writes to the style — otherwise the
+            // second animation of a list would record the first one's output as the element's
+            // resting state (#284).
+            s.AnimBase ??= Capture(s);
+            // …and the frame is built from that base rather than on top of the last frame's writes,
+            // so an entry that stops applying stops showing.
+            Restore(s);
+
+            // In order, because CSS gives the LAST entry to touch a property the final say. Each
+            // writes only the properties its own keyframes name, so a slide and a fade compose.
+            foreach (var a in specs)
             {
-                if (s.AnimationFillBackwards) ApplyFrame(s, frames, 0f); else Restore(s);
-                running = true;
-            }
-            else
-            {
-                var cycles = local / s.AnimationDuration;
-                if (cycles >= s.AnimationIterations)
+                if (a.Name is not { } name || a.Duration <= 0 || !keyframes.TryGetValue(name, out var frames)) continue;
+                // The clock is ABSOLUTE document time, not time since the element appeared: the same
+                // t gives the same frame whichever order frames are asked for (CupriCut renders out
+                // of order; a UI never notices).
+                var local = t - a.Delay;
+                if (local < 0)
                 {
-                    if (s.AnimationFillForwards) ApplyFrame(s, frames, 1f); else Restore(s);
+                    if (a.FillBackwards) ApplyFrame(s, frames, 0f, a);
+                    running = true;
                 }
                 else
                 {
-                    ApplyFrame(s, frames, (float)(cycles % 1.0));
-                    running = true;
+                    var cycles = local / a.Duration;
+                    if (cycles >= a.Iterations)
+                    {
+                        if (a.FillForwards) ApplyFrame(s, frames, 1f, a);
+                    }
+                    else
+                    {
+                        ApplyFrame(s, frames, (float)(cycles % 1.0), a);
+                        running = true;
+                    }
                 }
             }
         }
         foreach (var c in node.Children) if (Walk(c, keyframes, t)) running = true;
         return running;
     }
+
+    /// <summary>The animatable values as they stand before any keyframe touches them.</summary>
+    private static AnimationBase Capture(ComputedStyle s) => new(
+        s.Opacity, s.HasTransform, s.TranslateX, s.TranslateY, s.RotateDeg, s.ScaleX, s.ScaleY, s.Width, s.Height,
+        s.TranslateXPct, s.TranslateYPct,
+        s.RotateXDeg, s.RotateYDeg, s.TranslateZ, s.PerspectiveFn,
+        s.SvgFill, s.SvgStroke, s.SvgStrokeWidth, s.SvgStrokeDashOffset, s.SvgFillOpacity, s.SvgStrokeOpacity,
+        s.ClipPath);
 
     private static void Restore(ComputedStyle s)
     {
@@ -133,13 +155,9 @@ public static partial class Animation
         s.ClipPath = b.ClipPath;
     }
 
-    private static void ApplyFrame(ComputedStyle s, List<Keyframe> frames, float progress)
+    private static void ApplyFrame(ComputedStyle s, List<Keyframe> frames, float progress, AnimationSpec spec)
     {
-        s.AnimBase ??= new AnimationBase(s.Opacity, s.HasTransform, s.TranslateX, s.TranslateY, s.RotateDeg, s.ScaleX, s.ScaleY, s.Width, s.Height,
-                                         s.TranslateXPct, s.TranslateYPct,
-                                         s.RotateXDeg, s.RotateYDeg, s.TranslateZ, s.PerspectiveFn,
-                                         s.SvgFill, s.SvgStroke, s.SvgStrokeWidth, s.SvgStrokeDashOffset, s.SvgFillOpacity, s.SvgStrokeOpacity,
-                                         s.ClipPath);
+        s.AnimBase ??= Capture(s);
         // Find bracketing keyframes.
         Keyframe a = frames[0], b = frames[^1];
         for (var i = 0; i < frames.Count - 1; i++)
@@ -160,7 +178,7 @@ public static partial class Animation
         local = Math.Clamp(local, 0f, 1f);
         // The timing function shapes each interval between two stops, which is what CSS says it
         // does. Until now it was parsed and discarded, so every animation ran linearly.
-        local = s.AnimationEasing.Eval(local);
+        local = spec.Timing.Eval(local);
 
         var from = new ComputedStyle();
         var to = new ComputedStyle();

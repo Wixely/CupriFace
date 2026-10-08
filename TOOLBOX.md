@@ -553,6 +553,13 @@ controls handle their own state.
   .bar  { background: linear-gradient(#5aa0e0, #2b5f92); }
   .glow { background: radial-gradient(#ffd39a, #B87333); }
   ```
+- **Animations come in lists.** `animation` takes one entry per comma, and each `animation-*`
+  longhand is its own list paired by index with the shorter repeating. Every entry runs and
+  composes onto the element; where two set the same property the last one wins.
+  ```css
+  .card { animation: slide 400ms ease-out both, fade 250ms linear 150ms both; }
+  .item:nth-child(2) { animation-delay: 60ms; }   /* a stagger is just a per-element delay */
+  ```
 - **Radial gradients take a prelude.** `radial-gradient([<shape>] [<size>] [at <position>], …)` —
   `circle` or `ellipse`, an extent keyword (`closest-side`, `farthest-corner`, …) or explicit
   radii, and a centre in percentages, lengths or keywords. The default is an `ellipse` reaching the

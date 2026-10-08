@@ -515,15 +515,38 @@ public sealed class StyleResolver
                 case "transform-style": s.Preserve3D = v.Trim().Equals("preserve-3d", StringComparison.OrdinalIgnoreCase); break;
                 case "backface-visibility": s.BackfaceHidden = v.Trim().Equals("hidden", StringComparison.OrdinalIgnoreCase); break;
                 case "animation": ParseAnimation(s, v); break;
-                case "animation-name": s.AnimationName = v; break;
-                case "animation-duration": s.AnimationDuration = ParseSeconds(v); break;
-                case "animation-delay": s.AnimationDelay = ParseSeconds(v); break;
-                case "animation-iteration-count": s.AnimationIterations = ParseIterations(v); break;
-                case "animation-fill-mode": ParseFillMode(s, v); break;
-                case "animation-timing-function":
-                    if (Easing.FromKeyword(v.Trim().ToLowerInvariant()) is { } ease) s.AnimationEasing = ease;
-                    else UnsupportedProperty?.Invoke("animation-timing-function", v);
+                // Each longhand is its own comma-separated list, paired with the others by index
+                // and repeating when shorter — which is how CSS pairs them (#284).
+                case "animation-name":
+                    s.Animations = PerAnimation(s.Animations, v, static (a, one) => a with { Name = one });
                     break;
+                case "animation-duration":
+                    s.Animations = PerAnimation(s.Animations, v, static (a, one) => a with { Duration = ParseSeconds(one) });
+                    break;
+                case "animation-delay":
+                    s.Animations = PerAnimation(s.Animations, v, static (a, one) => a with { Delay = ParseSeconds(one) });
+                    break;
+                case "animation-iteration-count":
+                    s.Animations = PerAnimation(s.Animations, v, static (a, one) => a with { Iterations = ParseIterations(one) });
+                    break;
+                case "animation-fill-mode":
+                    s.Animations = PerAnimation(s.Animations, v, static (a, one) =>
+                    {
+                        var k = one.Trim().ToLowerInvariant();
+                        return a with { FillForwards = k is "forwards" or "both", FillBackwards = k is "backwards" or "both" };
+                    });
+                    break;
+                case "animation-timing-function":
+                {
+                    var reported = false;
+                    s.Animations = PerAnimation(s.Animations, v, (a, one) =>
+                    {
+                        if (ParseEasing(one.Trim()) is { } e) return a with { Timing = e };
+                        if (!reported) { reported = true; UnsupportedProperty?.Invoke("animation-timing-function", one); }
+                        return a;
+                    });
+                    break;
+                }
                 // Tracking. 150 of 187 blocks in one surveyed corpus set it — the single most-used
                 // property the engine did not implement — and there is no way to fake it from
                 // outside: word-spacing is the wrong quantity, and per-character spans would need
@@ -1142,44 +1165,75 @@ public sealed class StyleResolver
         return new GridPlacement(start, span, startName, endName);
     }
 
+    /// <summary>
+    /// The <c>animation</c> shorthand: a comma-separated LIST of entries, each
+    /// <c>&lt;name&gt; &lt;duration&gt; [timing] [delay] [iteration-count] [direction] [fill-mode]</c>.
+    ///
+    /// <para>It used to split on spaces alone, so a list collapsed into one hybrid animation built
+    /// from parts of each entry — the first entry's name and duration with the second's delay — and
+    /// painted that confidently and silently (#284). The shorthand resets every longhand, as CSS
+    /// says, which here means replacing the whole list.</para>
+    /// </summary>
     private static void ParseAnimation(ComputedStyle s, string v)
     {
-        // animation: <name> <duration> [timing] [delay] [iteration-count] [direction] [fill-mode].
-        // A shorthand resets every longhand (CSS semantics). The first time token is the duration
-        // and the second the delay; a bare number is the iteration count; the name is whatever
-        // token is none of those and not a keyword.
-        s.AnimationName = null; s.AnimationDuration = 0f; s.AnimationDelay = 0f; s.AnimationIterations = 1f;
-        s.AnimationFillForwards = s.AnimationFillBackwards = false;
-        s.AnimationEasing = Easing.Linear;
+        var list = new List<AnimationSpec>();
+        foreach (var entry in SplitTopLevel(v, ','))
+            list.Add(ParseOneAnimation(entry));
+        s.Animations = list.Count > 0 ? list : null;
+    }
+
+    /// <summary>One entry of the shorthand. The first time token is the duration and the second the
+    /// delay; a bare number is the iteration count; the name is whatever token is none of those and
+    /// not a keyword.</summary>
+    private static AnimationSpec ParseOneAnimation(string v)
+    {
+        var a = AnimationSpec.Initial;
         var times = 0;
-        foreach (var tok in v.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        foreach (var tok in SplitTopLevel(v, ' '))
         {
             var low = tok.ToLowerInvariant();
+            if (low.Length == 0) continue;
             if (char.IsDigit(low[0]) || (low.Length > 1 && low[0] is '-' or '.' or '+' && (char.IsDigit(low[1]) || low[1] == '.')))
             {
-                if (low.EndsWith('s')) { if (times++ == 0) s.AnimationDuration = ParseSeconds(low); else s.AnimationDelay = ParseSeconds(low); }
-                else if (CssNumber.TryParse(low, out var n)) s.AnimationIterations = Math.Max(0f, n);
+                if (low.EndsWith('s')) { if (times++ == 0) a = a with { Duration = ParseSeconds(low) }; else a = a with { Delay = ParseSeconds(low) }; }
+                else if (CssNumber.TryParse(low, out var n)) a = a with { Iterations = Math.Max(0f, n) };
                 continue;
             }
             switch (low)
             {
-                case "infinite": s.AnimationIterations = float.PositiveInfinity; break;
-                case "forwards": s.AnimationFillForwards = true; break;
-                case "backwards": s.AnimationFillBackwards = true; break;
-                case "both": s.AnimationFillForwards = s.AnimationFillBackwards = true; break;
+                case "infinite": a = a with { Iterations = float.PositiveInfinity }; break;
+                case "forwards": a = a with { FillForwards = true }; break;
+                case "backwards": a = a with { FillBackwards = true }; break;
+                case "both": a = a with { FillForwards = true, FillBackwards = true }; break;
                 // The timing keywords USED TO BE MATCHED AND DROPPED HERE, which is why ease-out and
                 // linear produced identical values: every animation ran linearly however it was
                 // written. The curve was already implemented for transitions.
-                case "linear" or "ease" or "ease-in" or "ease-out" or "ease-in-out":
-                    s.AnimationEasing = Easing.FromKeyword(low) ?? Easing.Linear; break;
                 case "none" or "step-start" or "step-end"
                      or "normal" or "reverse" or "alternate" or "alternate-reverse" or "running" or "paused": break;
                 default:
-                    if (low.StartsWith("cubic-bezier") || low.StartsWith("steps")) break;
-                    s.AnimationName ??= tok;
+                    if (ParseEasing(tok) is { } e) { a = a with { Timing = e }; break; }
+                    a = a.Name is null ? a with { Name = tok } : a;
                     break;
             }
         }
+        return a;
+    }
+
+    /// <summary>
+    /// Apply one <c>animation-*</c> longhand across the list: its comma-separated values pair with
+    /// the entries by index, the shorter list repeating — the same rule the background longhands
+    /// follow, and what CSS specifies for both (#284).
+    /// </summary>
+    private static List<AnimationSpec> PerAnimation(List<AnimationSpec>? existing, string v,
+        Func<AnimationSpec, string, AnimationSpec> apply)
+    {
+        var parts = SplitTopLevel(v, ',');
+        var baseList = existing is { Count: > 0 } ? existing : [AnimationSpec.Initial];
+        if (parts.Count == 0) return baseList;
+        var n = Math.Max(parts.Count, baseList.Count);
+        var result = new List<AnimationSpec>(n);
+        for (var i = 0; i < n; i++) result.Add(apply(baseList[i % baseList.Count], parts[i % parts.Count]));
+        return result;
     }
 
     private static float ParseIterations(string v)
@@ -1187,13 +1241,6 @@ public sealed class StyleResolver
         v = v.Trim().ToLowerInvariant();
         if (v == "infinite") return float.PositiveInfinity;
         return CssNumber.TryParse(v, out var n) ? Math.Max(0f, n) : 1f;
-    }
-
-    private static void ParseFillMode(ComputedStyle s, string v)
-    {
-        v = v.Trim().ToLowerInvariant();
-        s.AnimationFillForwards = v is "forwards" or "both";
-        s.AnimationFillBackwards = v is "backwards" or "both";
     }
 
     private static float ParseSeconds(string v)
