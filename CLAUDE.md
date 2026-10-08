@@ -48,6 +48,8 @@ error   CF0030 (line 6): <img> is not something the engine draws — it lays out
 | **`CF0060`** | **A `{{path}}` that names nothing on the model** — renders as empty text, looks like missing data |
 | **`CF0070`** | **Contents that do not fit a fixed-height box** — they overflow and paint over the next element |
 | **`CF0071`** | **A box that laid out with no area** but has visible content inside it |
+| **`CF0074`** | **Two rounded, filled boxes sitting flush** — a margin nobody set, so the curves collide and they read as one broken shape. Square-edged boxes meeting are a seam, not a collision, and stay silent |
+| **`CF0073`** | **Repeated controls that disagree on their size** — a column checked on widths, a row checked on heights. One button's longer label pushes it out of line with the others; every box is correct and the SET is wrong |
 | **`CF0072`** | **Contents that run off the SIDE** past the viewport (or a box that clips them) — the way a desktop layout fails on a phone. Pass `width:`/`height:` to check a device size |
 | **`CF0090`** | **Text too close in colour to what is behind it to read** (WCAG AA). One finding per colour PAIR, with a readable replacement suggested. Silent whenever the background cannot be computed exactly — a gradient, an image, a faded ancestor — and inside a `cupri-*` control, whose insides a caller cannot restyle |
 | **`CF0080`** | **Characters no installed font can draw** — they paint as empty .notdef boxes. Under-reports on macOS (its LastResort face matches everything): trust a finding, not its absence |
@@ -356,6 +358,13 @@ a `1` is narrower than a `0`. Say so:
 
 Every digit then takes the widest digit's advance, so the value can change without the box moving.
 Only `tabular-nums` is supported; the other values of that property are reported by CupriDoctor.
+
+**`CF0073` now catches this one for you** — but only once a column already disagrees, which means
+only in the state you happened to render. Three rows ending in "Connect", "Configure", "Connect"
+report; the same three all reading "Connect" cannot, because at that instant the layout is correct
+and the defect only exists in a state you have not drawn. So the floor is still worth writing
+BEFORE anything is wrong, exactly as above: the check finds this where you forgot, it does not
+remove the reason to remember.
 
 ### 4. `box-sizing` is `content-box` in YOUR markup, `border-box` on the controls.
 

@@ -13,6 +13,64 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Added
+
+- **`CF0074`: two rounded, filled boxes sitting flush, with nothing between them.** A margin
+  nobody set — the curves collide, the background shows through the wedge between them, and the
+  pair reads as one broken shape instead of two objects.
+
+  **Flush is not evidence on its own**, which is the only reason this can be checked at all.
+  Measured, the defect and its commonest innocent twin are identical: a card header above a card
+  body is also two filled boxes meeting at exactly 0px, and is correct. What separates them is the
+  corners on the seam — square on both sides says "these two are one surface", curved on both says
+  two things have collided. So only the corners where the boxes actually touch are examined.
+
+  Overlap is left alone (a stack of round avatars pulled together with a negative margin is a
+  design), and so is any gap at all: zero is the number that means "unset", and one pixel is a
+  number somebody chose. Reported as **Info** — the first check in the tool to use that level —
+  because the layout works and only reads badly, so the most subjective finding here is also the
+  easiest to ignore and cannot fail a gate that counts warnings.
+
+  Across the Showcase, MobileApp, ControlsApp and SettingsApp at two viewport sizes there are 16
+  flush adjacent pairs and the corner rule rejects every one of them: the rule is doing work on
+  real documents rather than finding nothing to look at.
+
+- **`CF0073`: repeated controls that disagree on their size.** Three rows each ending in
+  a button reading "Connect", "Configure", "Connect" — the middle one is 12px wider because its
+  label is longer, so its left edge juts out of a column that is otherwise flush. Every box is
+  exactly the size it asked to be: nothing overflows, nothing clips, every binding resolves, and
+  every other check says the document is fine. The set is wrong, not any element in it, and a
+  state-dependent label ("Connect" / "Disconnecting…") produces it on any render but the first.
+
+  **The hard half is silence.** In the page this came from, the status labels beside those buttons
+  are 88px, 250px and 88px wide — ragged by 162px and entirely correct — so "sizes disagree" cannot
+  be the rule. Two things narrow it. A peer must be a CONTROL (the same role
+  `AccessibilityTree.RoleOf` gives a screen reader, or a registered `cupri-*` tag), and the peers
+  must sit in SIBLING ROWS, which is what makes a column anyone expects to line up: a stack of
+  chips, bubbles or nav links shares one parent, is shrink-wrapped by nature, and stays quiet.
+
+  **Both axes, because the CROSS one is what carries a line.** Along the axis peers are stacked on,
+  size is just content being different lengths — a toolbar's buttons are as wide as their labels and
+  nobody expects otherwise. Across it, a line the eye follows breaks. So a COLUMN of peers is
+  checked on its widths and a ROW on its heights: the second catches the deck of cards where one
+  description wrapped to an extra line and dropped that card below its neighbours. The structural
+  rule flips with the axis too — a column must be built from sibling rows (one shared parent is a
+  stack of chips, not a table), while for a row one shared parent is the ordinary shape.
+
+  It under-reports deliberately. Three peers are needed, because the finding is "this one disagrees
+  with those two" and a pair has no majority; a difference under 4px is ignored (CI settled that
+  number — labels one letter apart measured 2px apart on Linux fonts and under a pixel on Windows
+  and macOS, so anything tighter is both invisible and machine-dependent); three different sizes
+  say nothing, for want of an honest number to pin to; and an explicit size on the axis in question is taken at its word, which
+  is what spares a hand-rolled bar chart whose bars are explicitly sized by definition. A div styled
+  as a button but carrying no role is invisible to it — trust a finding, not its absence.
+
+  Silent across the Showcase, MobileApp, ControlsApp and SettingsApp at two viewport sizes — where
+  four peer groups do reach the size comparison and agree, so that silence is the check running
+  rather than finding nothing to look at.
+
 ## v0.39.0
 
 ### Added

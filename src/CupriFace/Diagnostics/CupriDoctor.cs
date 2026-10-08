@@ -196,6 +196,8 @@ public static partial class CupriDoctor
             UnrenderedElements(doc, dom, registry, lines, findings);
             ScriptingHabits(dom, lines, findings);
             BoxesThatDoNotFit(doc, width, lines, findings);
+            PeersThatDoNotLineUp(doc, registry, lines, findings);
+            BoxesWithNothingBetweenThem(doc, registry, lines, findings);
             BackdropFilterOutsideTopLayer(doc, lines, findings);
             TextNobodyCanRead(doc, registry, lines, findings);
             if (model is not null) UnresolvedBindings(html, model, lines, findings);
@@ -1124,15 +1126,337 @@ public static partial class CupriDoctor
         }
         Walk(doc.Root, false, false, doc.Root.X, viewportWidth);
 
-        static string Name(RenderNode n) =>
-            n.Element?.GetAttribute("class") is { Length: > 0 } cls
-                ? $"<{n.Tag} class='{cls}'>"
-                : "<" + (n.Tag.Length > 0 ? n.Tag : "?") + ">";
+    }
 
-        static string ClassNeedle(RenderNode n) =>
-            n.Element?.GetAttribute("class") is { Length: > 0 } cls
-                ? cls.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0]
-                : "<" + n.Tag;
+    /// <summary>An element as a reader will recognise it in their own markup: the tag and the class
+    /// they wrote. Shared by every box-shaped finding so one element is named one way.</summary>
+    private static string Name(RenderNode n) =>
+        n.Element?.GetAttribute("class") is { Length: > 0 } cls
+            ? $"<{n.Tag} class='{cls}'>"
+            : "<" + (n.Tag.Length > 0 ? n.Tag : "?") + ">";
+
+    /// <summary>What to search the source text for to put a line number on it.</summary>
+    private static string ClassNeedle(RenderNode n) =>
+        n.Element?.GetAttribute("class") is { Length: > 0 } cls
+            ? cls.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0]
+            : "<" + n.Tag;
+
+    // ---- 6b. do the things that look alike line up? --------------------------------------------
+
+    /// <summary>
+    /// Repeated controls that do not agree on their size — the odd one breaks the alignment.
+    ///
+    /// <para><b>Why no other check sees this.</b> Every box here is exactly the size it asked to be.
+    /// Nothing overflows, nothing clips, nothing is unreadable, no binding is wrong: each element is
+    /// individually correct and the SET is wrong. A screenshot shows it immediately and every
+    /// automatic check says the document is fine — which is the signature of the failures this tool
+    /// exists for.</para>
+    ///
+    /// <para><b>Why it happens.</b> A control sized by its content changes size when the content
+    /// does, and content that depends on state ("Connect" / "Configure" / "Disconnecting…") differs
+    /// from row to row. Each row is laid out correctly for the text it got, so one button juts out
+    /// of a column that is otherwise flush. TOOLBOX's "pin anything whose text changes" is the fix
+    /// and has been written down for a long time; what was missing was anything that NOTICED.</para>
+    ///
+    /// <para><b>The CROSS axis is the one that matters</b>, which is what makes the check possible
+    /// at all. Along the axis peers are stacked on, size is just content being different lengths: a
+    /// toolbar's buttons are as wide as their labels and nobody expects otherwise. Across it, size
+    /// carries a line the eye follows. So a COLUMN of peers is checked on its widths and a ROW of
+    /// peers on its heights, and neither is checked on the other.</para>
+    ///
+    /// <para><b>Controls only, and that is the whole design.</b> Bare text of different lengths is
+    /// not a defect — a column of status labels reading "Demo mode", "Local TMDB development
+    /// snapshot" and "Demo resolver" is ragged by 162px and completely fine, while the three
+    /// buttons beside it differing by 12px is the bug. Flagging size disagreement generally would
+    /// bury the second finding under the first. So a peer must carry an interactive ROLE (the same
+    /// <see cref="Accessibility.AccessibilityTree.RoleOf"/> a screen reader reads) or be a
+    /// registered <c>cupri-*</c> control, and only the OUTERMOST such element counts — a caller
+    /// cannot restyle what a component expands into.</para>
+    ///
+    /// <para><b>The structural rule differs per axis, because so does the innocent twin.</b> A
+    /// column is only a column anyone expects to line up when each peer sits in its own ROW — a
+    /// de-facto table. Peers sharing one parent are a stack of chips, bubbles or nav links, which
+    /// is shrink-wrapped by nature and must stay silent. A row is the opposite: one shared parent
+    /// is the ordinary shape of a deck of cards, and that is exactly where a taller one spoils the
+    /// line.</para>
+    ///
+    /// <para><b>It under-reports on purpose.</b> A group needs three peers, because the finding is
+    /// "this one disagrees with those two" and a pair has no majority to disagree with; three
+    /// different sizes say nothing, for want of an honest number to suggest pinning to; and an
+    /// element given an explicit size on the axis in question is taken at its word (which is what
+    /// spares a hand-rolled bar chart, whose bars are explicitly sized by definition). A div styled
+    /// to look like a button but carrying no role is invisible here; trust a finding, not its
+    /// absence.</para>
+    /// </summary>
+    private static void PeersThatDoNotLineUp(CupriDocument doc, ComponentRegistry registry,
+                                             string[] lines, List<Finding> findings)
+    {
+        // Signature: the tag plus its classes, which is as close as markup gets to the author
+        // saying "these are the same kind of thing". Position in the tree is deliberately NOT part
+        // of it — rows are often generated, and a repeat that differs structurally (an extra badge
+        // on one row) is exactly where this defect hides.
+        var groups = new Dictionary<string, List<RenderNode>>(StringComparer.Ordinal);
+
+        void Walk(RenderNode n, bool insideControl)
+        {
+            if (n.Style.Display == DisplayType.None) return;
+            var isControl = !insideControl && n.Element is { } el && IsControl(el, n, registry);
+            if (isControl && n.Width > 0.5f && n.Height > 0.5f)
+            {
+                var key = Signature(n);
+                (groups.TryGetValue(key, out var list) ? list : groups[key] = []).Add(n);
+            }
+            foreach (var c in n.Children) Walk(c, insideControl || isControl);
+        }
+        Walk(doc.Root, false);
+
+        foreach (var (_, peers) in groups)
+        {
+            if (peers.Count < 3) continue;
+
+            // Where they sit relative to each other decides WHICH question to ask. A column of
+            // peers must agree on their widths; a row of peers must agree on their heights. The
+            // axis they are stacked along is free — that is just content being different lengths —
+            // and the CROSS axis is the one carrying a line the eye follows.
+            var byY = peers.Select(p => (Node: p, Box: Interaction.HitTesting.ScreenBox(p)))
+                           .OrderBy(p => p.Box.Y).ToList();
+            var byX = byY.OrderBy(p => p.Box.X).ToList();
+
+            if (Stacked(byY, vertical: true)) Compare(byY, vertical: true);
+            else if (Stacked(byX, vertical: false)) Compare(byX, vertical: false);
+
+            // Each one clear of the last along the stacking axis, and all of them sharing ground on
+            // the other — a column, or a row, rather than an incidental scatter.
+            static bool Stacked(List<(RenderNode Node, (float X, float Y, float W, float H) Box)> b, bool vertical)
+            {
+                float lo = vertical ? b[0].Box.X : b[0].Box.Y;
+                float hi = lo + (vertical ? b[0].Box.W : b[0].Box.H);
+                for (var i = 1; i < b.Count; i++)
+                {
+                    var (_, prev) = b[i - 1];
+                    var (_, cur) = b[i];
+                    var clear = vertical ? cur.Y >= prev.Y + prev.H - 0.5f : cur.X >= prev.X + prev.W - 0.5f;
+                    if (!clear) return false;
+                    lo = MathF.Max(lo, vertical ? cur.X : cur.Y);
+                    hi = MathF.Min(hi, vertical ? cur.X + cur.W : cur.Y + cur.H);
+                }
+                return hi > lo;
+            }
+
+            void Compare(List<(RenderNode Node, (float X, float Y, float W, float H) Box)> boxes, bool vertical)
+            {
+                // The structural rule differs by axis, because so does the innocent twin.
+                //
+                // A COLUMN of peers is only a column anyone expects to line up when each one sits
+                // in its own row — a de-facto table. Sharing one parent makes it a stack of chips,
+                // bubbles or nav links, which is shrink-wrapped by nature and must stay silent.
+                //
+                // A ROW is the other way round: one shared parent is the ordinary, correct shape of
+                // a row of cards or buttons, and that is exactly where a taller one spoils the line.
+                var parents = boxes.Select(b => b.Node.Parent).ToList();
+                if (parents.Any(p => p?.Element is null)) return;
+                var oneParent = parents.Distinct().Count() == 1;
+                var repeatedRows = parents.Distinct().Count() == boxes.Count
+                                   && parents.Select(Signature).Distinct().Count() == 1;
+                if (vertical ? !repeatedRows : !(oneParent || repeatedRows)) return;
+
+                float Size((float X, float Y, float W, float H) b) => vertical ? b.W : b.H;
+
+                // The size the group agrees on, and who disagrees with it. A majority is required
+                // rather than a spread, so three peers of three different sizes say nothing: there
+                // would be no "the others", and no honest number to suggest pinning to.
+                var agreed = boxes.GroupBy(b => MathF.Round(Size(b.Box) * 2f) / 2f)
+                                  .OrderByDescending(g => g.Count()).ThenByDescending(g => g.Key).First();
+                if (agreed.Count() < 2 || agreed.Count() * 2 < boxes.Count) return;
+                // 4px, not 1 or 2. CI settled this rather than taste: a fixture whose labels
+                // differed by ONE LETTER ("Connect" / "Connecl") measured 2px apart on the Linux
+                // runner's fonts and produced a finding, while the same markup on Windows and
+                // macOS measured under a pixel. A difference that small is both invisible and
+                // unstable across machines, and it is never what this check is for — a label that
+                // changes with state ("Connect" / "Disconnecting…") moves a control by tens of
+                // pixels.
+                var odd = boxes.Where(b => MathF.Abs(Size(b.Box) - agreed.Key) >= 4f).ToList();
+
+                // Explicitly sized: the author said what they wanted and got it.
+                odd = odd.Where(b => (vertical ? b.Node.Style.Width : b.Node.Style.Height).IsAuto).ToList();
+                if (odd.Count == 0) return;
+
+                var worst = odd.OrderByDescending(b => MathF.Abs(Size(b.Box) - agreed.Key)).First();
+                var others = boxes.Count - odd.Count;
+                var gap = MathF.Abs(Size(worst.Box) - agreed.Key);
+
+                // Which edge is ragged, because that is what the eye actually caught. With differing
+                // sizes at most one edge can line up, so there is always an answer.
+                var near = boxes.Select(b => vertical ? b.Box.X : b.Box.Y).ToList();
+                var far = boxes.Select(b => vertical ? b.Box.X + b.Box.W : b.Box.Y + b.Box.H).ToList();
+                var (nearName, farName, line) = vertical
+                    ? ("left", "right", "column")
+                    : ("top", "bottom", "row");
+                var edge = near.Max() - near.Min() <= 0.5f
+                    ? $"Their {nearName} edges line up, so this one's {farName} edge juts {gap:0}px out of the {line}."
+                    : far.Max() - far.Min() <= 0.5f
+                        ? $"Their {farName} edges line up, so this one's {nearName} edge juts {gap:0}px out of the {line}."
+                        : $"Neither edge lines up: it sits {gap:0}px out of the {line}.";
+
+                var label = FirstText(worst.Node);
+                var otherLabel = boxes.FirstOrDefault(b => !odd.Contains(b)) is { Node: { } o } ? FirstText(o) : "";
+                var because = label.Length > 0 && otherLabel.Length > 0 && label != otherLabel
+                    ? $" — \"{label}\" is {(vertical ? "a longer label than" : "longer text than")} \"{otherLabel}\""
+                    : "";
+
+                var fix = vertical
+                    ? $"Pin the size so the text cannot move it: min-width: {MathF.Max(Size(worst.Box), agreed.Key):0}px "
+                      + "on all of them (or a fixed column for the whole group). A control sized by its "
+                      + "label resizes whenever the label changes, which is what state-dependent text does "
+                      + "on every render. For digits, font-variant-numeric: tabular-nums does the same job."
+                    : $"Let the row size them together — align-items: stretch (the flex default) gives every "
+                      + $"item the tallest one's height, and something has overridden it here. Or pin a floor: "
+                      + $"min-height: {MathF.Max(Size(worst.Box), agreed.Key):0}px on all of them. Text that wraps "
+                      + "to one more line is the usual cause, so the fix has to survive the longest string, "
+                      + "not today's.";
+
+                findings.Add(new Finding(Severity.Warning, "CF0073",
+                    $"{Name(worst.Node)} is {Size(worst.Box):0}px {(vertical ? "wide" : "tall")} where the "
+                    + $"other {others} like it {(others == 1 ? "is" : "are")} {agreed.Key:0}px{because}. {edge}",
+                    fix,
+                    // The odd one's own line, found by its LABEL — the class needle would land on the
+                    // first peer, which is the one that is RIGHT, and send a reader to the wrong row.
+                    (label.Length > 0 ? LineOf(lines, label) : 0) is > 0 and var ln
+                        ? ln : LineOf(lines, ClassNeedle(worst.Node))));
+            }
+        }
+
+        // Tag plus classes: as close as markup gets to the author saying "these are the same kind
+        // of thing". Used for the peers themselves and for the rows that hold them.
+        static string Signature(RenderNode? n) =>
+            n?.Tag + "|" + (n?.Element?.GetAttribute("class") ?? "");
+
+        // An interactive element in its own right: the role a screen reader would read, or a
+        // registered component. Disabled is deliberately not excluded — a greyed-out button still
+        // has to line up with its neighbours.
+        static bool IsControl(IElement el, RenderNode n, ComponentRegistry registry) =>
+            registry.Tags.Contains(el.LocalName, StringComparer.OrdinalIgnoreCase)
+            || Accessibility.AccessibilityTree.RoleOf(n) is "button" or "link" or "switch" or "checkbox"
+                   or "radio" or "slider" or "textbox" or "spinbutton" or "combobox" or "tab" or "menuitem";
+
+        // The first line of text inside a control, for naming it in the finding. A label, not a
+        // semantic claim — so the first non-empty run in tree order is the right one.
+        static string FirstText(RenderNode n)
+        {
+            if (n.IsText && n.Lines is { Count: > 0 })
+                foreach (var line in n.Lines)
+                    if (line.Text.Trim() is { Length: > 0 } t) return t.Length > 24 ? t[..23] + "…" : t;
+            foreach (var c in n.Children)
+                if (FirstText(c) is { Length: > 0 } found) return found;
+            return "";
+        }
+    }
+
+    // ---- 6c. is anything that should stand alone touching? -------------------------------------
+
+    /// <summary>
+    /// Two rounded, filled boxes sitting flush against each other, with nothing between them.
+    ///
+    /// <para>A rounded corner is the author saying "this is a separate object". Two of them meeting
+    /// at 0px do not read as two objects: the curves collide, the background shows through the
+    /// wedge between them, and the pair reads as one broken shape. It is the signature of a margin
+    /// nobody set, and — like everything else in this section — every box involved is exactly the
+    /// size and position it asked for, so nothing else can see it.</para>
+    ///
+    /// <para><b>The corners that MEET are the whole rule.</b> Flush is not evidence of anything on
+    /// its own: a card header above a card body is flush BY DESIGN and must stay silent. Measured
+    /// side by side, those two cases are identical — a 760x85 box at y=0 and another at y=85, in
+    /// both. What separates them is that the header's bottom corners and the body's top corners are
+    /// SQUARE, which is how the author said "these two are one surface", while a card and a button
+    /// below it are rounded on both sides of the seam. So the check looks only at the corners on
+    /// the edge where the two actually touch, and only reports when both sides are rounded
+    /// there.</para>
+    ///
+    /// <para><b>Flush, not overlapping.</b> An overlap is usually deliberate — a stack of round
+    /// avatars pulled together with a negative margin is a design, not a defect — so only a gap of
+    /// nothing at all is reported. Zero is the number that means "unset"; anything else, including
+    /// a single pixel, is a number somebody chose.</para>
+    ///
+    /// <para><b>Info, not a warning</b>, and the first check in this tool to say so. The layout
+    /// works; it reads badly. That is the level's definition, and it keeps a judgement call about
+    /// visual polish out of anything gating on warnings — this is the most subjective check here
+    /// and it should be the easiest to ignore.</para>
+    /// </summary>
+    private static void BoxesWithNothingBetweenThem(CupriDocument doc, ComponentRegistry registry,
+                                                    string[] lines, List<Finding> findings)
+    {
+        var reported = new HashSet<string>(StringComparer.Ordinal);
+
+        void Walk(RenderNode n, bool insideControl)
+        {
+            if (n.Style.Display == DisplayType.None) return;
+            if (!insideControl) CheckChildrenOf(n);
+            var inside = insideControl
+                || (n.Element is { } el && registry.Tags.Contains(el.LocalName, StringComparer.OrdinalIgnoreCase));
+            foreach (var c in n.Children) Walk(c, inside);
+        }
+
+        void CheckChildrenOf(RenderNode parent)
+        {
+            // Visible boxes only: a radius nobody can see cannot collide with anything. In document
+            // order, which is the order they were written and the order they lay out in — a pair
+            // that is flush and adjacent is a pair someone wrote next to each other.
+            var kids = parent.Children
+                .Where(c => c.Style.Display != DisplayType.None && !c.IsText
+                            && c.Width > 0.5f && c.Height > 0.5f && IsVisibleBox(c))
+                .ToList();
+
+            for (var i = 1; i < kids.Count; i++) Pair(kids[i - 1], kids[i]);
+        }
+
+        void Pair(RenderNode a, RenderNode b)
+        {
+            var (ax, ay, aw, ah) = Interaction.HitTesting.ScreenBox(a);
+            var (bx, by, bw, bh) = Interaction.HitTesting.ScreenBox(b);
+            var ra = a.Style.BorderRadius.Resolve(aw, ah);
+            var rb = b.Style.BorderRadius.Resolve(bw, bh);
+
+            // Flush along one axis, genuinely overlapping on the other — touching, not merely
+            // diagonal from one another.
+            var below = MathF.Abs(by - (ay + ah)) <= 0.5f
+                        && MathF.Min(ax + aw, bx + bw) - MathF.Max(ax, bx) > 0.5f;
+            var beside = MathF.Abs(bx - (ax + aw)) <= 0.5f
+                         && MathF.Min(ay + ah, by + bh) - MathF.Max(ay, by) > 0.5f;
+            if (!below && !beside) return;
+
+            var rounded = below
+                ? Round(ra.BottomLeft, ra.BottomRight) && Round(rb.TopLeft, rb.TopRight)
+                : Round(ra.TopRight, ra.BottomRight) && Round(rb.TopLeft, rb.BottomLeft);
+            if (!rounded) return;
+
+            var key = Name(a) + "|" + Name(b);
+            if (!reported.Add(key)) return;
+
+            var where = below ? "directly below" : "directly beside";
+            var side = below ? "margin-top" : "margin-left";
+            findings.Add(new Finding(Severity.Info, "CF0074",
+                $"{Name(b)} sits flush {where} {Name(a)} — nothing at all between them, and both are "
+                + "rounded where they meet, so the two curves collide instead of reading as separate things.",
+                $"Give them room: {side} on the second, or a gap on the parent if it is a flex row or "
+                + "column. Square-edged boxes can sit flush and read as one surface — a card header "
+                + "above a card body does exactly that — which is why this is only reported when both "
+                + "sides of the seam are curved.",
+                LineOf(lines, ClassNeedle(b))));
+        }
+
+        // Rounded on the edge where the two meet. Either corner of that edge is enough: a single
+        // curve against a flush neighbour already shows the wedge.
+        static bool Round(SkiaSharp.SKPoint c1, SkiaSharp.SKPoint c2) =>
+            MathF.Max(c1.X, c1.Y) > 0.5f || MathF.Max(c2.X, c2.Y) > 0.5f;
+
+        // Something you can see the shape of: a fill, an image, or a border. A transparent box's
+        // corners are a fact about nothing.
+        static bool IsVisibleBox(RenderNode n) =>
+            n.Style.Background.Alpha > 0 || n.Style.HasBackgroundImage
+            || ((n.BorderTopW > 0 || n.BorderRightW > 0 || n.BorderBottomW > 0 || n.BorderLeftW > 0)
+                && n.Style.BorderTopColor.Alpha > 0);
+
+        Walk(doc.Root, false);
     }
 
     // ---- 7. does every binding name something real? --------------------------------------------
