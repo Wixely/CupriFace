@@ -49,6 +49,7 @@ if (!report.IsClean) Console.WriteLine(report);
 | `CF0060` | A `{{path}}` that names nothing on the model — it renders as empty text, which is indistinguishable from data you have not loaded yet |
 | `CF0070` | Contents that do not fit a fixed-height box. They do not clip (`overflow: visible` is the CSS default) — they paint over whatever follows, which reads as a z-order bug rather than a height that is too small |
 | `CF0071` | A box that laid out with no area at all while holding visible content |
+| `CF0090` | Text whose colour is too close to its background to read, measured against WCAG AA (4.5:1, or 3:1 once the text is large). Reported once per colour pair with a working replacement colour. It stays silent wherever the background is not exactly computable — behind a gradient or an image, or under a faded ancestor — and inside a `cupri-*` control, because a caller cannot restyle what one expands into |
 | `CF0072` | Contents that run off the SIDE, past the viewport or past a box that clips them — content nobody can reach, with nothing on screen to say it exists. This is how a desktop layout fails on a phone: width is not height, so the overflowing box is usually one that was never given a width at all. A box with `overflow:scroll` is exempt — it can be dragged to |
 | `CF0080` | Characters no installed font can draw, which paint as empty `.notdef` boxes. A property of the machine, not the document — hence a warning. **Under-reports on macOS**, whose LastResort face matches every codepoint: trust a finding, never its absence |
 

@@ -13,6 +13,33 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Added
+
+- **`CF0090`: text too close in colour to what is behind it to read.** The quietest defect there
+  is — the element lays out, the colours are valid CSS, nothing throws, and the only symptom is
+  that nobody can read the words. A white label on a lime accent measures 1.3:1 where text that
+  size needs 4.5:1.
+
+  Measured as WCAG AA: 4.5:1 for ordinary text, 3:1 once it is large (24px, or 18.66px bold), both
+  taken from the computed size and weight. A semi-transparent text colour is composited onto its
+  background first, so it is judged as what the eye sees. Each finding names both colours, the
+  ratio, and a replacement that would work.
+
+  **It is built to stay quiet rather than to catch everything.** The background is found by walking
+  ancestors for the nearest opaque colour, and any gradient, background image or faded ancestor on
+  the way makes the answer a guess — so it declines to judge instead of reporting. Text inside a
+  `cupri-*` control is skipped too, on the same grounds the component library's CSS is already
+  swept out of `CF0050`: a caller cannot restyle what a control expands into. The cost of that
+  second rule is worth naming: retuning `--cupri-accent` to something unreadable will not be caught
+  here. Findings are also collapsed one per colour PAIR rather than per run of text, since the pair
+  is what gets fixed, in one rule — on the shipped Showcase that is the difference between 55
+  findings and 11.
+
+  `Contrast` is public alongside it: `Ratio`, `RelativeLuminance`, `Over`, `RequiredFor` and
+  `MeetsAa`, for picking a readable foreground or asserting a palette in your own tests.
+
 ## v0.38.0
 
 ### Fixed

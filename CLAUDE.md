@@ -48,6 +48,7 @@ error   CF0030 (line 6): <img> is not something the engine draws — it lays out
 | **`CF0070`** | **Contents that do not fit a fixed-height box** — they overflow and paint over the next element |
 | **`CF0071`** | **A box that laid out with no area** but has visible content inside it |
 | **`CF0072`** | **Contents that run off the SIDE** past the viewport (or a box that clips them) — the way a desktop layout fails on a phone. Pass `width:`/`height:` to check a device size |
+| **`CF0090`** | **Text too close in colour to what is behind it to read** (WCAG AA). One finding per colour PAIR, with a readable replacement suggested. Silent whenever the background cannot be computed exactly — a gradient, an image, a faded ancestor — and inside a `cupri-*` control, whose insides a caller cannot restyle |
 | **`CF0080`** | **Characters no installed font can draw** — they paint as empty .notdef boxes. Under-reports on macOS (its LastResort face matches everything): trust a finding, not its absence |
 
 **Pass `model:` whenever the document has one**, and **pass `width:`/`height:` to check a size you
