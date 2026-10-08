@@ -497,6 +497,16 @@ controls handle their own state.
   ```css
   .section-title { position: sticky; top: 0; background: var(--cupri-bg); border-bottom: 1px solid #ddd; }
   ```
+- **`z-index`.** Sorts SIBLINGS: lowest first, document order within a layer, and a negative value goes
+  behind its siblings. It applies where CSS says it does — positioned elements, plus flex and grid items
+  — so a `z-index` on a static block in normal flow is ignored, as in a browser. Hit-testing follows the
+  same order, so what is painted in front is what a click lands on.
+
+  There are no stacking CONTEXTS: the sort is per parent, so a child cannot lift itself past its
+  parent's siblings (`z-index: 999` inside a card does not escape the card), and a negative layer sits
+  behind its siblings but still in front of its parent's own background. An element that must rise above
+  the whole page wants `position: fixed`, which lifts it to the top layer — where z-index orders the
+  overlays against each other.
 - **Inline formatting.** A run of text and inline elements (`<code> <b> <em> <mark> <span> …`) flows into
   wrapping line boxes. An inline element with a `background`/`border`/`border-radius` + horizontal
   `padding` paints as a chip that flows with the words and gets its own rounded box on **each line it wraps

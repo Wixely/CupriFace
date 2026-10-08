@@ -7,6 +7,11 @@ namespace CupriFace.Interaction;
 /// Point → node hit-testing over the laid-out render tree (Layer 0 → input). Mirrors the
 /// painter: overlays (top-layer / position:fixed) are tested first, topmost z-index first,
 /// then the main tree — so a dialog backdrop or dropdown correctly captures clicks.
+///
+/// <para>"Mirrors the painter" is load-bearing rather than descriptive. Siblings are walked in
+/// <see cref="Paint.PaintOrder"/>'s order and the LAST hit wins, which means "the topmost one" only
+/// while the two walks agree. A scrim that z-index lifts above the photo it covers must also be
+/// what a click lands on, or the pointer falls through what is visibly in front of it.</para>
 /// </summary>
 public static class HitTesting
 {
@@ -100,7 +105,11 @@ public static class HitTesting
         if (node.Style.Overflow != OverflowMode.Visible && !InsideOverflowClip(node, ax, ay, x, y))
             return best;
 
-        foreach (var child in node.Children)
+        // The painter's order, because this loop keeps the LAST hit and that is only "the topmost
+        // one" while the two agree. Once z-index reorders painting (#290), a scrim declared before
+        // the photo it covers paints last and must also be what a click lands on — otherwise the
+        // pointer falls through whatever is visibly in front of it.
+        foreach (var child in Paint.PaintOrder.Children(node))
         {
             var hit = Hit(child, childOx, childOy, x, y, inTopLayer);
             if (hit is not null) best = hit;

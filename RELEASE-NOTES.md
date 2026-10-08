@@ -50,6 +50,25 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **`z-index` orders siblings (#290).** It was read for exactly one thing — ordering the top layer,
+  so a dialog sits above a dropdown — and ignored everywhere else. Two overlapping positioned
+  siblings always stacked in document order whatever either declared, and `z-index: -1` did not put
+  an element behind. 71 of 165 corpus compositions declare it, 258 declarations in all: it is how a
+  scrim goes over a photo and a caption above a gradient, and document order is frequently the
+  opposite of what the author wanted, which is why they reached for the property.
+
+  Siblings now paint lowest layer first, document order within a layer, negative behind. It applies
+  where CSS says — positioned elements, plus flex and grid items — so a `z-index` on a static block
+  in normal flow is still ignored and no page that renders correctly today is reordered.
+  Hit-testing walks the same order, so a scrim lifted above a photo also receives the click.
+
+  **There are still no stacking contexts.** The sort is per parent: a child cannot lift itself past
+  its parent's siblings, and a negative layer sits behind its siblings but in front of its parent's
+  own background (CSS would put it behind that background, and so hide it under an opaque parent).
+  An element that must rise above the whole page wants `position: fixed` and the top layer, as
+  before. Verified pixel-identical across the ten deterministic Showcase pages, the component
+  library's own 20-odd `z-index` declarations included.
+
 - **`filter` animates from a `@keyframes` stop (#291).** It painted from a rule and was never read
   off a keyframe, so the animated form was inert from the first frame to the last — a blur that
   ramps up as one slide leaves and back down as the next arrives did nothing at all, with the
