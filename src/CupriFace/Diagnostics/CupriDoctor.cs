@@ -1268,7 +1268,14 @@ public static partial class CupriDoctor
                 var agreed = boxes.GroupBy(b => MathF.Round(Size(b.Box) * 2f) / 2f)
                                   .OrderByDescending(g => g.Count()).ThenByDescending(g => g.Key).First();
                 if (agreed.Count() < 2 || agreed.Count() * 2 < boxes.Count) return;
-                var odd = boxes.Where(b => MathF.Abs(Size(b.Box) - agreed.Key) >= 2f).ToList();
+                // 4px, not 1 or 2. CI settled this rather than taste: a fixture whose labels
+                // differed by ONE LETTER ("Connect" / "Connecl") measured 2px apart on the Linux
+                // runner's fonts and produced a finding, while the same markup on Windows and
+                // macOS measured under a pixel. A difference that small is both invisible and
+                // unstable across machines, and it is never what this check is for — a label that
+                // changes with state ("Connect" / "Disconnecting…") moves a control by tens of
+                // pixels.
+                var odd = boxes.Where(b => MathF.Abs(Size(b.Box) - agreed.Key) >= 4f).ToList();
 
                 // Explicitly sized: the author said what they wanted and got it.
                 odd = odd.Where(b => (vertical ? b.Node.Style.Width : b.Node.Style.Height).IsAuto).ToList();

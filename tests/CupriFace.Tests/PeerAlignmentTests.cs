@@ -71,7 +71,10 @@ public class PeerAlignmentTests
     public void Pinning_the_width_silences_it()
     {
         // The whole point: the suggested fix must actually work.
-        Assert.Empty(Check(Connections(buttonCss: ".act{min-width:120px}")));
+        // 200px rather than a number close to the natural width: the point is that the floor
+        // equalises them, and a floor only just above one machine's measurement is not a floor on
+        // another's. (Linux measures these buttons ~10px wider than Windows does.)
+        Assert.Empty(Check(Connections(buttonCss: ".act{min-width:200px}")));
     }
 
     [Fact]
@@ -194,13 +197,19 @@ public class PeerAlignmentTests
     }
 
     [Fact]
-    public void A_sub_pixel_difference_is_not_worth_anyone_s_time()
+    public void A_difference_too_small_to_see_is_not_worth_anyone_s_time()
     {
-        // Text measurement is not exact; a difference nobody can see must not be a finding.
+        // 3px, just under the floor — and built from PADDING rather than from text, so the fixture
+        // does not depend on which fonts this machine happens to have.
+        //
+        // It did at first, and CI caught it: with two labels differing by one letter, the Linux
+        // runner measured "Connect" at 109px and "Connecl" at 107px and duly reported a 2px jut,
+        // while Windows and macOS measured less than a pixel between them and stayed silent. That
+        // is what raised the floor from 2px to 4px — a real measurement, not a preference.
         var html = "<body><div class='rows'>"
-            + Row("A", "x", "Connect") + Row("B", "y", "Connecl") + Row("C", "z", "Connect")
+            + Row("A", "x", "Connect") + Row("B", "y", "Connect") + Row("C", "z", "Connect")
             + "</div></body>";
-        Assert.Empty(Check(html));
+        Assert.Empty(Check(html, Css + " .row:nth-child(2) .act{padding-left:21px}"));
     }
 
     // ---- the same idea along the other axis: a ROW whose heights disagree ----------------------

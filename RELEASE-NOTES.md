@@ -60,8 +60,10 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   stack of chips, not a table), while for a row one shared parent is the ordinary shape.
 
   It under-reports deliberately. Three peers are needed, because the finding is "this one disagrees
-  with those two" and a pair has no majority; three different sizes say nothing, for want of an
-  honest number to pin to; and an explicit size on the axis in question is taken at its word, which
+  with those two" and a pair has no majority; a difference under 4px is ignored (CI settled that
+  number — labels one letter apart measured 2px apart on Linux fonts and under a pixel on Windows
+  and macOS, so anything tighter is both invisible and machine-dependent); three different sizes
+  say nothing, for want of an honest number to pin to; and an explicit size on the axis in question is taken at its word, which
   is what spares a hand-rolled bar chart whose bars are explicitly sized by definition. A div styled
   as a button but carrying no role is invisible to it — trust a finding, not its absence.
 
