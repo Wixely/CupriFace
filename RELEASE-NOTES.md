@@ -50,6 +50,17 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **`filter` animates from a `@keyframes` stop (#291).** It painted from a rule and was never read
+  off a keyframe, so the animated form was inert from the first frame to the last — a blur that
+  ramps up as one slide leaves and back down as the next arrives did nothing at all, with the
+  timing, the easing and the stops all working. 171 tweens across 18 of 165 corpus compositions
+  animate a filter.
+
+  Chains of the same shape interpolate op by op (`blur(0px)` → `blur(12px)`), a stop that omits the
+  property holds the element's own filter, and chains of different shapes flip at the midpoint —
+  the policy `transition: filter` already used, now shared with the keyframe path rather than
+  written twice.
+
 - **An `@import` no longer swallows the rule after it (#289).** The parser read everything up to
   the first `{` as a selector, so a blockless at-rule — `@import`, `@charset`, `@layer x;`,
   `@namespace` — rode into the next rule's header, which then began with `@` and was skipped

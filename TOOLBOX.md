@@ -526,6 +526,12 @@ controls handle their own state.
   between two keyframes — through the `animation` shorthand or `animation-timing-function`. Nothing
   is ever interpolated past the first or last keyframe.
 
+  A `@keyframes` stop animates `transform`, `opacity`, `clip-path`, `filter`, an inline SVG shape's
+  paint, and `width`/`height`. A property outside that set is the quietest gap in the engine,
+  because the static form usually works: the rule paints, the run's timing and easing are honoured,
+  and the element never changes. Check a tween you are unsure of by sampling two instants rather
+  than by reading the CSS.
+
   All but `height`/`width` are paint‑only (cheap); a size transition re‑lays‑out each frame, so the
   element and everything around it reflow as it animates.
   ```css

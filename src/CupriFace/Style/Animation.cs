@@ -16,14 +16,19 @@ internal sealed record AnimationBase(float Opacity, bool HasTransform, float Tra
     float RotateXDeg = 0f, float RotateYDeg = 0f, float TranslateZ = 0f, float PerspectiveFn = 0f,
     SKColor? SvgFill = null, SKColor? SvgStroke = null, float? SvgStrokeWidth = null,
     float? SvgStrokeDashOffset = null, float? SvgFillOpacity = null, float? SvgStrokeOpacity = null,
-    ClipShape? ClipPath = null);
+    ClipShape? ClipPath = null, List<FilterOp>? Filter = null);
 
 /// <summary>
 /// Parses <c>@keyframes</c> blocks and applies time-sampled animation overrides to the
-/// render tree. Animatable properties: transform + opacity (paint-only), and width +
-/// height — those write a definite length that the frame's layout honours, the same road
-/// a <c>transition: height</c> takes. Layout always follows Animate (host order:
-/// Animate → BuildFrame), so an animated size reflows the element and its siblings.
+/// render tree. Animatable: <c>transform</c>, <c>opacity</c>, <c>clip-path</c>, <c>filter</c> and an
+/// inline SVG shape's paint (all paint-only), plus the box sizes <c>width</c> and <c>height</c> —
+/// those write a definite length that the frame's layout honours, the same road a
+/// <c>transition: height</c> takes. Layout always follows Animate (host order: Animate →
+/// BuildFrame), so an animated size reflows the element and its siblings.
+///
+/// <para>A property missing from that list is the quietest kind of gap here, because the static
+/// form usually works: the rule paints, the keyframe runs, the timing and easing are honoured, and
+/// the element never changes. That was <c>filter</c> until #291.</para>
 /// </summary>
 public static partial class Animation
 {
@@ -140,7 +145,7 @@ public static partial class Animation
         s.TranslateXPct, s.TranslateYPct,
         s.RotateXDeg, s.RotateYDeg, s.TranslateZ, s.PerspectiveFn,
         s.SvgFill, s.SvgStroke, s.SvgStrokeWidth, s.SvgStrokeDashOffset, s.SvgFillOpacity, s.SvgStrokeOpacity,
-        s.ClipPath);
+        s.ClipPath, s.Filter);
 
     private static void Restore(ComputedStyle s)
     {
@@ -152,7 +157,7 @@ public static partial class Animation
         s.RotateXDeg = b.RotateXDeg; s.RotateYDeg = b.RotateYDeg; s.TranslateZ = b.TranslateZ; s.PerspectiveFn = b.PerspectiveFn;
         s.SvgFill = b.SvgFill; s.SvgStroke = b.SvgStroke; s.SvgStrokeWidth = b.SvgStrokeWidth;
         s.SvgStrokeDashOffset = b.SvgStrokeDashOffset; s.SvgFillOpacity = b.SvgFillOpacity; s.SvgStrokeOpacity = b.SvgStrokeOpacity;
-        s.ClipPath = b.ClipPath;
+        s.ClipPath = b.ClipPath; s.Filter = b.Filter;
     }
 
     private static void ApplyFrame(ComputedStyle s, List<Keyframe> frames, float progress, AnimationSpec spec)
@@ -234,6 +239,22 @@ public static partial class Animation
             var ca = a.Declarations.ContainsKey("clip-path") ? from.ClipPath : s.AnimBase.ClipPath;
             var cb = b.Declarations.ContainsKey("clip-path") ? to.ClipPath : s.AnimBase.ClipPath;
             s.ClipPath = ca is null || cb is null ? (local < 0.5f ? ca : cb) : ClipShape.Lerp(ca, cb, local);
+        }
+
+        // A blur that ramps up as one slide leaves and down as the next arrives, a rack-focus, a
+        // frosted panel resolving, a glow blooming (#291). `filter` painted from a rule and was
+        // never read off a keyframe, so the animated form was inert from the first frame to the
+        // last — not an interpolation fault but a property simply not consulted, which is why it
+        // was silent: the timing, the easing and the stops all worked.
+        //
+        // The chain pairs through the transition path's own policy (same shape → op by op, an
+        // omitted side → the element's resting filter, unlike shapes → a flip at the midpoint), so
+        // the two cannot disagree about what a half-finished blur is.
+        if (Declared(a, b, "filter"))
+        {
+            var fa = a.Declarations.ContainsKey("filter") ? from.Filter : s.AnimBase.Filter;
+            var fb = b.Declarations.ContainsKey("filter") ? to.Filter : s.AnimBase.Filter;
+            s.Filter = TransitionEngine.LerpFilterChains(fa, fb, local);
         }
     }
 

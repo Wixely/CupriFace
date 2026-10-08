@@ -357,6 +357,17 @@ public sealed class TransitionEngine
         return outp;
     }
 
+    /// <summary>Two filter chains, half way between — the whole policy in one call: chains of the
+    /// same shape interpolate op by op (and an empty side pads to the other's identities), chains of
+    /// different shapes are not interpolable and flip at the midpoint, as <c>clip-path</c> does
+    /// between unlike shapes.
+    ///
+    /// <para>Shared with the <c>@keyframes</c> path (#291) rather than reimplemented there. A
+    /// keyframed <c>blur(0px) → blur(12px)</c> and a transitioned one are the same question, and two
+    /// answers to it would drift the first time either was corrected.</para></summary>
+    internal static List<FilterOp>? LerpFilterChains(List<FilterOp>? a, List<FilterOp>? b, float t) =>
+        FilterInterpolable(a, b) ? LerpFilters(a, b, t) : t < 0.5f ? a : b;
+
     // Two filter chains interpolate if one is empty (→ identity of the other) or their op-kinds match.
     private static bool FilterInterpolable(List<FilterOp>? a, List<FilterOp>? b)
     {
