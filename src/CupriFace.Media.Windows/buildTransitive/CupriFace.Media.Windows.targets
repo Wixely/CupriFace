@@ -1,0 +1,74 @@
+<Project>
+  <!--
+    These files describe dependencies shipped beside a consuming application. Keep them visibly
+    separate from the app's own licence so nobody mistakes LibVLC's LGPL for the app's licence.
+  -->
+  <PropertyGroup>
+    <_CupriFaceMediaWindowsPackageRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\'))</_CupriFaceMediaWindowsPackageRoot>
+  </PropertyGroup>
+
+  <!-- VideoLAN.LibVLC.Windows exposes its native-copy rules from build/, which NuGet does not
+       carry through a transitive dependency. Import the pinned dependency's rule for consumers of
+       this package. A direct VideoLAN package reference has already set the target directory, so
+       the condition also avoids importing the same rule twice. -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'win-x64'">
+    <VlcWindowsX64Enabled Condition="'$(VlcWindowsX64Enabled)' == ''">true</VlcWindowsX64Enabled>
+    <VlcWindowsX86Enabled Condition="'$(VlcWindowsX86Enabled)' == ''">false</VlcWindowsX86Enabled>
+    <VlcWindowsArm64Enabled Condition="'$(VlcWindowsArm64Enabled)' == ''">false</VlcWindowsArm64Enabled>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'win-x86'">
+    <VlcWindowsX64Enabled Condition="'$(VlcWindowsX64Enabled)' == ''">false</VlcWindowsX64Enabled>
+    <VlcWindowsX86Enabled Condition="'$(VlcWindowsX86Enabled)' == ''">true</VlcWindowsX86Enabled>
+    <VlcWindowsArm64Enabled Condition="'$(VlcWindowsArm64Enabled)' == ''">false</VlcWindowsArm64Enabled>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'win-arm64'">
+    <VlcWindowsX64Enabled Condition="'$(VlcWindowsX64Enabled)' == ''">false</VlcWindowsX64Enabled>
+    <VlcWindowsX86Enabled Condition="'$(VlcWindowsX86Enabled)' == ''">false</VlcWindowsX86Enabled>
+    <VlcWindowsArm64Enabled Condition="'$(VlcWindowsArm64Enabled)' == ''">true</VlcWindowsArm64Enabled>
+  </PropertyGroup>
+  <Import Project="$(NuGetPackageRoot)videolan.libvlc.windows\3.0.24\build\VideoLAN.LibVLC.Windows.targets"
+          Condition="'$(VlcWindowsX64TargetDir)' == '' And Exists('$(NuGetPackageRoot)videolan.libvlc.windows\3.0.24\build\VideoLAN.LibVLC.Windows.targets')" />
+
+  <ItemGroup>
+    <Content Include="$(_CupriFaceMediaWindowsPackageRoot)THIRD-PARTY-NOTICES.md"
+             Link="THIRD-PARTY-NOTICES\CupriFace.Media.Windows.md"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest"
+             ExcludeFromSingleFile="true"
+             Visible="false" />
+    <Content Include="$(_CupriFaceMediaWindowsPackageRoot)licenses\third-party\LibVLC-LGPL-2.1-or-later.txt"
+             Link="licenses\third-party\LibVLC-LGPL-2.1-or-later.txt"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest"
+             ExcludeFromSingleFile="true"
+             Visible="false" />
+  </ItemGroup>
+
+  <!-- LGPL libraries must remain replaceable. Mark both the managed binding and the entire native
+       LibVLC tree as external before the SDK computes a single-file bundle. -->
+  <Target Name="CupriFaceMediaWindowsKeepLgplLibrariesExternal"
+          BeforeTargets="_ComputeFilesToBundle"
+          Condition="'$(PublishSingleFile)' == 'true'">
+    <ItemGroup>
+      <ResolvedFileToPublish Update="@(ResolvedFileToPublish)"
+        Condition="'%(ResolvedFileToPublish.Filename)%(ResolvedFileToPublish.Extension)' == 'LibVLCSharp.dll'
+          Or $([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').Replace('/', '\').StartsWith('libvlc\'))">
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+
+  <!-- Fail closed if a future SDK changes the bundler pipeline and ignores the metadata above. -->
+  <Target Name="CupriFaceMediaWindowsVerifyLgplLibrariesExternal"
+          AfterTargets="_ComputeFilesToBundle"
+          BeforeTargets="GenerateSingleFileBundle"
+          Condition="'$(PublishSingleFile)' == 'true'">
+    <ItemGroup>
+      <_CupriFaceBundledLgplFile Include="@(FilesToBundle)"
+        Condition="'%(FilesToBundle.Filename)%(FilesToBundle.Extension)' == 'LibVLCSharp.dll'
+          Or $([System.String]::Copy('%(FilesToBundle.RelativePath)').Replace('/', '\').StartsWith('libvlc\'))" />
+    </ItemGroup>
+    <Error Condition="'@(_CupriFaceBundledLgplFile)' != ''"
+           Text="CupriFace.Media.Windows requires LibVLCSharp and LibVLC to remain separate, replaceable files; they cannot be embedded in a single-file bundle." />
+  </Target>
+</Project>

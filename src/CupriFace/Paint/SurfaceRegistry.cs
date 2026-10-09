@@ -83,6 +83,109 @@ public interface IGpuSurfaceSource : ISurfaceSource
 }
 
 /// <summary>
+/// A live surface whose pixels are presented by a native host object instead of an
+/// <see cref="SKImage"/>. The desktop host supplies an opaque feature context and keeps the
+/// native surface aligned with the engine element; platform handles remain in optional adapter
+/// packages rather than leaking into portable application code.
+/// </summary>
+public interface IHostCompositedSurfaceSource : ISurfaceSource
+{
+    /// <summary>Attach to the current host. Called once before the first placement.</summary>
+    void Attach(IHostSurfaceContext context);
+
+    /// <summary>Apply the latest element placement, expressed in physical host pixels.</summary>
+    void Arrange(HostSurfacePlacement placement);
+
+    /// <summary>Release host-owned presentation resources when the element or window leaves.</summary>
+    void Detach();
+}
+
+/// <summary>An opaque, extensible set of host features for a composited surface.</summary>
+public interface IHostSurfaceContext
+{
+    object? GetFeature(Type featureType);
+    void RequestFrame();
+}
+
+public static class HostSurfaceContextExtensions
+{
+    public static T? GetFeature<T>(this IHostSurfaceContext context) where T : class =>
+        context.GetFeature(typeof(T)) as T;
+}
+
+/// <summary>An affine transform matching the engine's screen transform.</summary>
+public readonly record struct HostSurfaceTransform(
+    float ScaleX, float SkewY, float SkewX, float ScaleY, float TranslateX, float TranslateY)
+{
+    public static HostSurfaceTransform Identity { get; } = new(1, 0, 0, 1, 0, 0);
+    public bool IsIdentity => this == Identity;
+}
+
+/// <summary>
+/// Physical-pixel geometry for a host-composited surface. Clip values are inset distances from
+/// the element edges; adapters that cannot express affine transforms may decline non-identity
+/// placements rather than displaying pixels in the wrong location.
+/// </summary>
+public readonly record struct HostSurfacePlacement(
+    float X,
+    float Y,
+    float Width,
+    float Height,
+    float ClipTop,
+    float ClipRight,
+    float ClipBottom,
+    float ClipLeft,
+    bool Visible,
+    string ObjectFit,
+    HostSurfaceTransform Transform,
+    float DeviceScale);
+
+/// <summary>Geometry a host needs in order to place a host-composited surface correctly.</summary>
+public static class HostSurfaceGeometry
+{
+    /// <summary>
+    /// How far an element's OWN chrome covers the bottom of its surface.
+    ///
+    /// <para>A control bar written the way the web writes one — <c>position:absolute; bottom:0</c>
+    /// over a translucent background — is painted by the engine, and a host-composited surface is
+    /// presented by the HOST on top of everything the engine draws. The bar is therefore not merely
+    /// un-translucent on that path; it is not visible at all. Handing the host a shorter box and
+    /// letting the engine keep the strip is the one answer that shows both.</para>
+    ///
+    /// <para>It is a MEASUREMENT, never a constant: the bar's height is emergent from its padding
+    /// and its tallest child, so the same markup restyled moves the native surface with it. A
+    /// constant copied from today's stylesheet drifts the first time anyone restyles the bar, and
+    /// drifts silently — a black strip, or a surface painted over its own controls.</para>
+    ///
+    /// <para>Only chrome flush with the bottom edge counts. An overlay floating in the middle cannot
+    /// be resolved by shortening the box, so it is left alone and overdrawn rather than quietly
+    /// mis-sizing the surface to hide it.</para>
+    /// </summary>
+    public static float OverlayBottomInset(Dom.RenderNode node, float top, float height)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+        if (height <= 0) return 0;
+        var bottom = top + height;
+        var inset = 0f;
+        Measure(node);
+        return MathF.Min(inset, height);
+
+        void Measure(Dom.RenderNode n)
+        {
+            foreach (var child in n.Children)
+            {
+                if (child.LaidOut && child.Element?.HasAttribute("data-surface-overlay") == true)
+                {
+                    var (_, cy, _, ch) = Interaction.HitTesting.ScreenBox(child);
+                    if (ch > 0 && MathF.Abs(cy + ch - bottom) <= 0.5f) inset = MathF.Max(inset, ch);
+                }
+                Measure(child);
+            }
+        }
+    }
+}
+
+/// <summary>
 /// The document's live surfaces, keyed by the element attribute <c>data-cupri-surface</c>.
 /// Mirrors <see cref="ImageStore"/>'s host contract: <see cref="TakeArrived"/> is polled once
 /// per host tick (folded into <c>CupriDocument.ConsumeImageArrived</c>) so a frame published

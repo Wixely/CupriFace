@@ -305,6 +305,10 @@ public abstract class CupriApp
     /// Other hosts and older operating-system versions safely ignore the preference.</summary>
     public virtual bool DarkWindowChrome => false;
 
+    /// <summary>Allow unmuted <c>&lt;cupri-video autoplay&gt;</c> playback. Disabled by default for
+    /// browser compatibility; native-only applications may opt in.</summary>
+    public virtual bool AllowUnmutedVideoAutoplay => false;
+
     /// <summary>Opt in to the commit-snapshot render-thread split (DESIGN §7.2): the UI thread builds
     /// the display list and a background thread rasterises it, so rasterisation never blocks input.
     /// Wired for the CPU/SDL software path; the GL path renders inline. Default off.</summary>
@@ -505,6 +509,7 @@ public abstract class CupriApp
     {
         var doc = CupriDocument.Load(Html, Css).UseComponents(Components).UseImages(GetType().Assembly);
         doc.FontPolicy = FontPolicy;
+        doc.AllowUnmutedVideoAutoplay = AllowUnmutedVideoAutoplay;
         foreach (var font in Fonts) doc.LoadFont(font);
         if (Model is { } model) doc.Bind(model);
         doc.DebugOverlay = DebugOverlay;

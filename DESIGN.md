@@ -259,6 +259,56 @@ broken.
   Startup tries GL and falls back to software automatically; damage-region repaint
   (§7.3) matters even more here since every dirty pixel costs CPU.
 
+### 7.5.1 Host-composited surfaces, and the airspace rule they bring
+
+Most live surfaces (`ISurfaceSource`) hand the engine an `SKImage` and are painted into the display
+list like anything else — they obey z-order, opacity, clipping and transforms because they ARE
+engine content. Some cannot. A browser `<video>`, and a native video window on Windows, are
+presented by the **host**, and the engine paints a transparent hole where they belong
+(`HostComposited`). That buys hardware decoding and zero copies, and it costs one rule:
+
+> **Nothing the engine paints can appear on top of a host-composited surface.**
+
+The host's surface is composited over the engine's output, so z-order stops at the hole's edge. A
+modal, a dropdown, a tooltip, a toast, a focus ring or a context menu that overlaps such an element
+is painted *underneath* it and is simply not there. The web host is the mild case (the underlay sits
+below the canvas and a real stacking context exists); an OS child window is the strict one — it is
+above everything, always.
+
+Three consequences worth designing around:
+
+- **Overlay chrome on the element itself must be declared, not assumed.** A control bar written as
+  `position:absolute; bottom:0` over a translucent background works on the painted path and vanishes
+  on the composited one. Mark it `data-surface-overlay` and `HostSurfaceCoordinator` shortens the
+  placement by the bar's **laid-out** height, so the engine keeps that strip and the host gets the
+  rest. It is measured per frame rather than configured: a constant copied from today's stylesheet
+  drifts into a black strip the first time anyone restyles the bar, and drifts silently.
+- **An adapter that cannot express a placement must decline it, not approximate it.** A Win32 child
+  window has a rectangular region and no affine transform, so a rotated or skewed element hides the
+  surface instead of presenting it somewhere plausible-looking and wrong.
+- **UI that must sit over the surface belongs outside its box.** Where that is not possible on a
+  given host, say so in the component's documentation rather than letting it render into nothing.
+
+`IHostCompositedSurfaceSource` keeps platform handles out of portable code: the host offers features
+through `IHostSurfaceContext.GetFeature<T>()` (the desktop shell offers `Win32HostWindow`), so an
+adapter package asks for what it needs and an application never sees an `nint`.
+
+**Adding a platform is adding a package, not adding a branch.** The host's features are a set keyed
+by type, populated with whatever that host actually has — an HWND only where there are HWNDs. An
+adapter asks for the one type it understands and gets null everywhere else, which is already its
+"I cannot run here" answer, so `CupriFace.Media.Windows` contains no platform test and a Linux or
+Android sibling will not need one either. The engine stays free of all of it: `src/CupriFace` has no
+native imports at all, and the whole Win32 surface of the Windows video package is one file.
+
+What is NOT yet solved is **choosing between adapters** when an application references more than one.
+Today a backend is constructed directly (`doc.UseVideo(new LibVlcVideoBackend())`), which would put an
+`OperatingSystem.IsWindows()` in the application the moment a second package exists. The seam to add
+then — not before, since one implementation cannot show what the abstraction needs — is a capability
+probe on the backend plus a `UseVideo()` overload that takes the first that reports it can run, so an
+app references the packages it wants to support and names none of them. Note the trimming hazard when
+that lands: a backend discovered reflectively, or registered by a module initialiser in an assembly
+nothing references by type, is exactly what a trimmed build drops silently.
+
 ### 7.6 Input latency
 - Input is sampled and coalesced against the render clock; pointer-move events don't
   each trigger a full pipeline — they mark damage and let the next vsync frame reflect

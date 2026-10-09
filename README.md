@@ -96,7 +96,8 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 - **Video** — `<cupri-video>` with engine-drawn controls and fullscreen. The browser decodes
   on the web host (no codecs in the wasm binary); on desktop the optional `CupriFace.Media`
   package plays WebM (VP9 + Opus) with decoders for every desktop RID in **one** package —
-  build on any OS, run on any OS.
+  build on any OS, run on any OS. Windows applications that need broader formats and hardware
+  decode can instead opt into `CupriFace.Media.Windows`, backed by LibVLC and D3D11VA.
 - **Live surfaces** — anything can supply pixels for an element through `ISurfaceSource`: a video,
   a camera, a 3D viewport. CupriFace ships **no 3D** renderer; it decides only how those pixels
   reach the frame, and picks per host — *painted* into the display list where it can, or
@@ -119,6 +120,7 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 | `src/CupriFace.Web.NativeAot` | **Recommended browser host**, compiled AOT (NativeAOT-LLVM): `WebHost.Run` + canvas blit + touch/IME + ARIA mirror + browser-decoded video (no Blazor). Experimental toolchain, builds on x64 Windows and x64/arm64 Linux |
 | `src/CupriFace.Web.Mono` | The same browser host on the Mono wasm runtime — identical `WebHost.Run`, builds anywhere, engine runs interpreted. The fallback when the preview feed is not an option |
 | `src/CupriFace.Media` | Optional: WebM (VP9 + Opus) video for `<cupri-video>` on desktop |
+| `src/CupriFace.Media.Windows` | Optional Windows hardware video: LibVLC/D3D11VA in an embedded child window; LGPL dependencies are isolated here |
 | `src/CupriFace.Gl` | Optional: an OpenGL viewport bound to an element — the `IGpuSurfaceSource` seam packaged, on all three hosts |
 | `src/CupriFace.Lottie` | Optional: Lottie (After Effects JSON) playback via `<cupri-lottie>`, through Skia's own Skottie — managed only |
 | `src/CupriFace.Woff2` | Optional: WOFF 2 web fonts decoded to SFNT at runtime — managed only, no new dependency. Not on the NativeAOT-LLVM web host (no brotli archive there) |

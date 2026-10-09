@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Description>Optional hardware-accelerated Windows video backend for CupriFace.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CupriFace\CupriFace.csproj" />
+    <ProjectReference Include="..\CupriFace.Shell\CupriFace.Shell.csproj" />
+    <PackageReference Include="LibVLCSharp" Version="3.10.1" />
+    <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.24" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="THIRD-PARTY-NOTICES.md"
+          Pack="true"
+          PackagePath=""
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest"
+          TargetPath="THIRD-PARTY-NOTICES\CupriFace.Media.Windows.md" />
+    <None Update="licenses\third-party\LibVLC-LGPL-2.1-or-later.txt"
+          Pack="true"
+          PackagePath="licenses\third-party\LibVLC-LGPL-2.1-or-later.txt"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest"
+          TargetPath="licenses\third-party\LibVLC-LGPL-2.1-or-later.txt" />
+    <None Update="buildTransitive\CupriFace.Media.Windows.targets"
+          Pack="true"
+          PackagePath="buildTransitive\CupriFace.Media.Windows.targets" />
+  </ItemGroup>
+</Project>

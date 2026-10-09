@@ -67,7 +67,7 @@ public sealed class VideoComponent : ComponentBase
         // lives on the ELEMENT's aria-label — the bar has no room for a title once a seek bar
         // exists, which is also every real player's layout.
         el.InnerHtml = !Flag(el, "controls") ? "" : $"""
-            <div class='cupri-video-bar'>
+            <div class='cupri-video-bar' data-surface-overlay>
               <div class='cupri-video-btn' role='button' aria-label='Play' data-video-role='toggle' data-video-cmd='toggle'>{IconMarkup("play", 18)}</div>
               <div class='cupri-video-btn' role='button' aria-label='Mute' data-video-role='mute' data-video-cmd='mute'>{IconMarkup("volume", 18)}</div>
               <span class='cupri-video-time' data-video-role='time'>0:00</span>

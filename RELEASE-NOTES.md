@@ -13,6 +13,27 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Added
+
+- **`CupriFace.Media.Windows` provides optional LibVLC/D3D11VA playback for Windows applications.**
+  Reference the package, keep the backend alive for the host lifetime, and register it with
+  `document.UseVideo(video)`. The backend streams HTTPS sources directly, renders into a
+  host-composited child window and uses a black native-video background. The package remains MIT
+  licensed, carries pinned LibVLC dependencies with their LGPL notice, licence text and
+  corresponding-source links, and keeps those
+  dependencies separate and replaceable even in a consuming application's single-file publish.
+  Every GitHub release also carries the pinned VideoLAN corresponding-source archives beside the
+  binary and NuGet assets.
+
+- **Chrome painted over a host-composited surface must be marked `data-surface-overlay`.** A
+  host-composited surface (the web host's underlaid `<video>`, a native video window) is presented
+  on top of everything the engine paints, so an overlay control bar inside the element would be
+  invisible there. Mark it and the host shortens the surface by the bar's **laid-out** height,
+  keeping the strip for the engine. `<cupri-video controls>` does this for you; mark your own
+  element's chrome if it supplies a host-composited surface. See DESIGN.md §7.5.1.
+
 ## v0.41.0
 
 ### Added
