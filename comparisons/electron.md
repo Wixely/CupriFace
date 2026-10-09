@@ -44,8 +44,8 @@ typical-range estimates, not measurements of any one app.*
 | UI ↔ logic boundary | **None** — the model is a C# object you mutate directly | IPC across a process boundary; `contextIsolation`, preload scripts, serialization |
 | Process model | One process | Main + renderer(s) + GPU + utility; a renderer crash is survivable |
 | Download size | **20.8 MB** — self-contained single file, win-x64, trimmed and bundle-compressed, and still 20.8 MB at v0.40.0 (95.4 MB before, which is what releases up to v0.18.0 shipped) | 80–150 MB installer; 100–300 MB installed |
-| Idle memory | **~130 MB** (measured at v0.18.0, steady state, hardware GL; not re-measured since) | ~150–200 MB empty; 300–500 MB for a real React app |
-| Cold start to window | **~97 ms** (measured at v0.18.0; ~150 ms on a cold self-extract; not re-measured since) | typically 1–3 s |
+| Idle memory | **~127 MB** (re-measured at v0.40.0: median of 3 runs, 20 s idle, hardware GL confirmed by `GL_RENDERER`) | ~150–200 MB empty; 300–500 MB for a real React app |
+| Cold start to window | **~1.9 s** warm, **~7.8 s** on the first run while the single file self-extracts (re-measured at v0.40.0; the NativeAOT build, which is not what releases ship, is 0.64 s / 0.99 s) | typically 1–3 s |
 | Idle CPU | ~0% — repaints only on damage | Compositor/renderer keep working |
 | Dependencies | 4 MIT packages (Skia, HarfBuzz, Silk.NET, AngleSharp) | Chromium + Node + your npm tree |
 | Security surface | Small; no JS engine, no remote-code path, no npm | Chromium + V8 + Node + every transitive npm package |
@@ -58,7 +58,7 @@ typical-range estimates, not measurements of any one app.*
 | Rendering arbitrary web content | **Cannot** — by design | That's the entire point |
 | Testing | **Headless-first**: **2,078 tests** click/type/fling/pixel-assert, no display | Playwright/Spectron — real browser automation |
 | Embedding | `RenderToPixels` into any RGBA buffer | Electron owns the process |
-| Web deployment | Same app → `<canvas>`, 14.2 MB wasm (5.5 MB gzipped, measured at v0.18.0) | It *is* web tech, but Electron itself is desktop-only |
+| Web deployment | Same app → `<canvas>`, 17.9 MB wasm (7.3 MB gzipped, re-measured at v0.40.0) | It *is* web tech, but Electron itself is desktop-only |
 | Mobile | **Android** — same app class, **20.6 MB** APK (the v0.40.0 release asset, arm64) | **None** — Electron is desktop-only; phones mean a different stack entirely |
 | Touch | Two-axis scrolling, momentum, rubber band, multi-touch capture — built into the engine | Chromium's, i.e. the web platform's, which is the standard everything else is measured against |
 | Track record | Young, pre-1.0 | A decade; some of the most-used desktop software on earth |
@@ -80,7 +80,7 @@ which you are not in.
 CupriFace's bet is that if you delete the assumption of untrusted code, most of
 the weight goes with it. What remains — parse HTML, resolve a CSS cascade, lay
 out boxes, shape text, paint with Skia — is a solvable amount of engineering,
-and it fits in a 21 MB download and about 130 MB of RAM.
+and it fits in a 21 MB download and about 127 MB of RAM.
 
 The measured consequences, all from this repository on win-x64, on hardware GL:
 
@@ -88,13 +88,30 @@ The measured consequences, all from this repository on win-x64, on hardware GL:
 |---|---|---|
 | Download (v0.19.0 to v0.40.0) | **20.8 MB** (1 file) | 80–150 MB |
 | Download (up to v0.18.0) | 95.4 MB (1 file) | 80–150 MB |
-| Idle RSS | ~130 MB *(v0.18.0)* | 300–500 MB |
-| Cold start | ~97 ms *(v0.18.0)* | 1–3 s |
+| Idle RSS | **~127 MB** | 300–500 MB |
+| Cold start (warm file cache) | **~1.9 s** | 1–3 s |
+| Cold start (first run, self-extracting) | **~7.8 s** | 1–3 s |
 
-Start-up is the lopsided row: **10–30× faster to a window**. Memory is a real but
-much more modest win than this document used to claim — roughly **2.5–4×**, not an
-order of magnitude. An earlier revision quoted 51 MB, and a later one 64 MB; both
-were measured on the SDL software fallback rather than the GL path a user gets.
+**Start-up is no longer a win at all, and this revision is where that is admitted.**
+Previous revisions put it at ~97 ms and called it "10–30× faster to a window".
+That figure does not survive measurement: on the same hardware, the shipped
+single file reaches a window in **~1.9 s** warm (median of three runs, 1,853 /
+1,925 / 1,933 ms) and **~7.8 s** on a first run, where the bundle self-extracts.
+Against Electron's typical 1–3 s that is **comparable, not faster** — and worse on
+first launch. The old pair was internally implausible for the same reason it was
+wrong: 97 ms warm against 150 ms for extracting a 20 MB bundle is not a cost
+anything could pay that cheaply.
+
+The NativeAOT build *is* fast to start — 0.64 s warm, 0.99 s cold — so the
+original number may well have come from that build rather than the shipped one,
+the same mix-up that produced this document's memory error. AOT is not what
+releases attach, so it does not get to carry the row.
+
+Memory is the real win, and a modest one: roughly **2.5–4×**, not an order of
+magnitude. An earlier revision quoted 51 MB, and a later one 64 MB; both were
+measured on the SDL software fallback rather than the GL path a user gets. The
+~127 MB above is the GL path, confirmed by reading `GL_RENDERER` back from the
+running process (`NVIDIA GeForce GTX 1060`) rather than assumed.
 
 **The download row was wrong until very recently**, and it is worth saying why,
 because it is the row most often quoted out of context. Every release up to
@@ -265,7 +282,8 @@ Electron won.
 
 CupriFace's trade is the mirror image: **give up the web platform's completeness
 and its ecosystem, keep HTML and CSS as the authoring model, and get a ~21 MB,
-130 MB-resident, ~100 ms-cold-start application that is C# all the way down.**
+127 MB-resident application that is C# all the way down — one that starts in about
+the time an Electron app does, not faster.**
 
 The deciding question is usually not about size at all. It's this: **is the web
 platform load-bearing in your product, or is HTML/CSS just how you'd prefer to

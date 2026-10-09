@@ -35,13 +35,25 @@ MewUI v0.22.1, Electron 44.7.0. Shared CupriFace figures, re-measured for this p
 **79 `cupri-*` elements**, **973 commits**, and the sizes a v0.40.0 release actually attaches —
 **20.8 MB** win-x64 single file, **21.0 MB** linux-x64, **19.0 MB** osx-arm64, **20.6 MB** Android APK.*
 
-*Four figures are **carried forward from the September pass rather than re-measured**, and say so
-wherever they appear: the **25.05 MB** NativeAOT publish in 5 files, **14.2 MB** wasm (5.5 MB
-gzipped), **~130 MB** idle RSS and **~97 ms** cold start on hardware GL. The AOT publish cannot run
-on the machine this pass was done on (no C++ linker), and the two runtime figures need a window with
-hardware GL — measuring those on the software fallback is exactly the mistake the September pass
-caught itself making, so they were left alone rather than re-taken badly. They were measured at
-v0.18.0: treat them as the right order of magnitude, not as today's numbers.*
+*The four figures the September pass could only estimate were **all re-measured for this one**, on
+the same class of hardware (win-x64, NVIDIA GTX 1060, hardware GL confirmed by reading
+`GL_RENDERER` back from the running process rather than assumed). All four moved; three of them
+moved against CupriFace:*
+
+| | September (v0.18.0) | October (v0.40.0, measured) |
+|---|---|---|
+| NativeAOT publish | 25.05 MiB, 5 files | **26.4 MiB (27.7 MB), 5 files** |
+| wasm payload | 14.2 MB / 5.5 MB gz | **17.9 MB / 7.3 MB gz** |
+| Idle RSS | ~130 MB | **~127 MB** (median of 3, 20 s idle) |
+| Cold start to window | ~97 ms | **~1.9 s** warm, **~7.8 s** first run |
+
+***The start-up figure did not survive contact with a stopwatch, and that retires a headline
+claim.*** *~97 ms became ~1,925 ms (median of 1,853 / 1,925 / 1,933). Against Electron's typical
+1–3 s that is comparable rather than "10–30× faster to a window", which is what
+[electron.md](electron.md) said until this pass and no longer says. The NativeAOT build does start in
+0.64 s, so the old number most likely came from that build rather than the shipped one — the same
+mix-up that produced this set's earlier memory error. Memory, by contrast, held: ~127 MB against
+~130 MB, so the ~2.5–4× advantage over Electron stands.*
 
 *What moved on the CupriFace side between those two passes is most of what these documents compare
 on. v0.18.0 → v0.40.0 is 27 releases (35 tags, counting a prerelease run): a game controller on all

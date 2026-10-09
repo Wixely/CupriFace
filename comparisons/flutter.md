@@ -41,7 +41,7 @@ from this repository at **v0.40.0**.*
 | Ecosystem | NuGet; 79 built-in elements | **pub.dev** — enormous; Material + Cupertino widget sets built in |
 | Backing | One repository | **Google**, with a large full-time team |
 | Android app size | **20.6 MB** APK (arm64 — the v0.40.0 release asset) | Typically smaller for a comparable app (AOT Dart, tree-shaken, per-ABI splits) |
-| Web payload | 14.2 MB wasm / **5.5 MB gzipped** (NativeAOT-LLVM host; measured at v0.18.0, not re-measured since) | CanvasKit/skwasm + compiled app — broadly the same order, often smaller |
+| Web payload | **17.9 MB / 7.3 MB gzipped** (NativeAOT-LLVM host, re-measured at v0.40.0; was 14.2 / 5.5 at v0.18.0) | CanvasKit/skwasm + compiled app — broadly the same order, often smaller |
 | Maturity | Pre-1.0 | Production since 2018 |
 
 ## The agreement, and why it still matters

@@ -26,10 +26,11 @@ trimmed-single-file figures were produced while writing this revision —
 number, and the same publish with `-p:PublishSingleFile=true -p:Trim=true
 -p:EnableCompressionInSingleFile=true` for the 20.8 MB one — each then run with no
 .NET on the `PATH`, checked for which render path it took, and put through the
-repo's UIA gate. **Those size figures were taken at v0.18.0 and are carried forward, not
-re-measured**: the NativeAOT publish needs a C++ linker that the machine doing the October pass does
-not have, and the single-file number is confirmed instead by the v0.40.0 release asset, which is
-still 20.8 MB. CupriFace's test count is a `dotnet test` run on v0.40.0. MewUI's desktop sizes are
+repo's UIA gate. **Both figures were re-measured at v0.40.0 for this pass**: the NativeAOT publish
+(`-p:Aot=true -p:IlcUseEnvironmentalTools=true` from a VS Developer prompt — ILC's own
+`findvcvarsall.bat` does not recognise a VS 18 install, which is what made a first attempt report
+"Platform linker not found" on a machine that has the linker), and the single file taken straight
+from the v0.40.0 release asset. CupriFace's test count is a `dotnet test` run on v0.40.0. MewUI's desktop sizes are
 its own published measurements (`tools/aot-size/release-sizes.json`, v0.21.0, generated
 2026-09-06); MewUI's browser payload was measured from its live deployment on
 2026-09-07 by summing the `_framework` assets. Sizes use binary units
@@ -57,6 +58,12 @@ September entries below still stand; these are on top of them.
 - **CupriFace also gained a game controller** on all four hosts (geometric focus
   navigation, not Tab order), 3D transforms, `clip-path`, `::before`/`::after`,
   inline `<svg>`, background images, `z-index`, WOFF 2 and animated `filter`.
+- **The AOT caveat below is re-confirmed fixed.** A NativeAOT build published and
+  launched for this pass reports `renderer: NVIDIA GeForce GTX 1060` — it is on
+  the GPU, not the software fallback that v0.19.0's bug left it on.
+- **Sizes moved the wrong way on two of three axes.** The NativeAOT publish went
+  25.05 → 26.4 MiB and the wasm payload 14.2 → 17.9 MB; only the shipped single
+  file held, at 20.8 MB. Features are not free and these are where they land.
 
 **September 2026 pass.** Worth stating plainly, because the revision before it was
 wrong about the single biggest difference between the two projects:
@@ -98,10 +105,10 @@ wrong about the single biggest difference between the two projects:
 | Layout | CSS box model: managed flexbox, grid (`minmax()`, spans), block flow | WPF-style **measure/arrange** with panels (`Grid`, `StackPanel`, `DockPanel`, `UniformGrid`, `WrapPanel`, `Canvas`, `SplitPanel`) |
 | Rendering | SkiaSharp only, one path everywhere | **Pluggable**: Direct2D, GDI (Windows), MewVG (managed NanoVG port — GL on Win/Linux, Metal on macOS, WebGL in the browser); SkiaSharp as an *extension* |
 | Desktop | Windows / macOS / Linux via Silk.NET | Windows 10+ / Linux X11 / macOS 12+, per-backend hosts |
-| Browser / WASM | **Shipped and documented**: same app class → `<canvas>`; two hosts (Mono-interpreted, NativeAOT-LLVM); 14.2 MB / 5.5 MB gzipped; a **read-only ARIA mirror** screen readers can read (not yet operate), CI-gated by role queries | **Real, live, but unannounced**: browser platform + WebGL backend in `src/`, Gallery deployed to a live site; 17.08 MB / 5.37 MB gzipped. Not on NuGet, not in the README, not on the roadmap; canvas only, no a11y mirror |
+| Browser / WASM | **Shipped and documented**: same app class → `<canvas>`; two hosts (Mono-interpreted, NativeAOT-LLVM); 17.9 MB / 7.3 MB gzipped; a **read-only ARIA mirror** screen readers can read (not yet operate), CI-gated by role queries | **Real, live, but unannounced**: browser platform + WebGL backend in `src/`, Gallery deployed to a live site; 17.08 MB / 5.37 MB gzipped. Not on NuGet, not in the README, not on the roadmap; canvas only, no a11y mirror |
 | Mobile | **Android** — own host package, engine-level touch/fling/IME, TalkBack bridge, emulator-gated in CI | **None** — desktop and browser only |
 | Touch | Two-axis scrolling with momentum and rubber band; multi-touch capture seam | Desktop input (mouse, keyboard); the browser host handles touch and IME on the canvas |
-| Deployment | **20.8 MB** single self-contained file (trimmed + compressed, no runtime install) — and since v0.19.0 that *is* what releases ship, confirmed by the v0.40.0 asset. NativeAOT is 25.05 MB in 5 files, measured at v0.18.0 | **The whole point**: single self-contained exe, Hello World **3.17–4.52 MB**, Gallery **7.35–9.24 MB** |
+| Deployment | **20.8 MB** single self-contained file (trimmed + compressed, no runtime install) — and since v0.19.0 that *is* what releases ship, confirmed by the v0.40.0 asset. NativeAOT is **27.7 MB (26.4 MiB) in 5 files** at v0.40.0, up from 25.05 MiB at v0.18.0 | **The whole point**: single self-contained exe, Hello World **3.17–4.52 MB**, Gallery **7.35–9.24 MB** |
 | Native footprint | Skia (9.16 MB) + HarfBuzz (1.71 MB) + SDL (1.62 MB) + GLFW (0.22 MB) on win-x64, before any app code | Direct2D/GDI ride OS libraries; MewVG is managed — near-zero native payload |
 | AOT posture | Design goal, verified by hand — **opt-in and explicitly not run in CI**. Both the UIA bridge and hardware GL silently degraded under it until the bridge moved to source-generated COM | **Non-negotiable design constraint**, validated continuously; `LibraryImport` P/Invoke; DevTools deliberately refuse to ship in a trimmed/AOT build rather than lie |
 | Embedding | Core capability: `RenderToPixels` into any RGBA buffer (game texture, canvas, server); `IGpuSurfaceSource` for zero-copy GPU handover | Not a stated goal — the framework hosts the window. (Its `WriteableBitmap` and `WinFormsHost` samples point *inward*: drawing into a MewUI control, hosting WinForms inside MewUI) |
@@ -177,19 +184,28 @@ handling) and `MewUI.Backend.MewVG.Browser` (its managed vector renderer over
 WebGL), and its Gallery is deployed and reachable. Two projects that both refuse
 to embed a browser both decided the browser was worth targeting anyway.
 
-The payloads land within a few hundred kilobytes of each other, which is the
-more interesting result:
+The payloads used to land within a few hundred kilobytes of each other. Re-measured
+at v0.40.0 they no longer quite do, and the direction is against CupriFace:
 
 | | Payload | Gzipped | How it was measured |
 |---|---|---|---|
-| CupriFace `samples/WebLlvm` (NativeAOT-LLVM) | 14.2 MB | 5.5 MB | This repository's published figure, measured at v0.18.0 |
+| CupriFace `samples/WebLlvm` (NativeAOT-LLVM) | **17.90 MB** | **7.29 MB** | Published and summed at v0.40.0, excluding `.pdb` files a browser never fetches (the `dotnet.native.wasm` module alone is 17.23 MB / 7.12 MB) |
 | MewUI Gallery (wasm AOT) | 17.08 MB | 5.37 MB | Summed from the live deployment, 2026-09-07 |
+| *CupriFace at v0.18.0, for reference* | *14.2 MB* | *5.5 MB* | *The figure the September pass carried* |
+
+Raw, they are still close — 820 KB apart. **Gzipped, which is what a browser
+actually pulls over the wire, MewUI is now 1.9 MB smaller**, where in September the
+two were within 130 KB. CupriFace's module grew 14.2 → 17.2 MB across 22 releases
+(3D transforms, `clip-path`, inline SVG, WOFF 2, a gamepad stack and the rest all
+have to be in that wasm), and it compresses less well than it did.
 
 Neither is a small download; both are dominated by the .NET wasm runtime rather
 than by the UI engine (MewUI's own assemblies are ~2.2 MB of its 17.08 MB). If
 you were hoping the code-first project would produce a dramatically smaller
 browser bundle the way it produces a dramatically smaller desktop binary — it
-does not, because on the web the runtime, not the renderer, is the bill.
+does not, because on the web the runtime, not the renderer, is the bill. What has
+changed is that the gzip column is no longer a tie, and the growth is on the side
+that adds engine features.
 
 What CupriFace still has here, stated no wider than it deserves:
 

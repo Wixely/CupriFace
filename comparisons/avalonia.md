@@ -29,7 +29,7 @@ version of this argument, see [maui.md](maui.md).*
 | Layout | Managed flexbox + CSS grid + block flow (pure C#, no native Yoga) | XAML panels (`Grid`, `StackPanel`, `DockPanel`, …) |
 | Text | HarfBuzz shaping (kerning, ligatures, Greek/Cyrillic/Arabic); **IME composition** on Android + both web hosts + desktop; mixed-direction text partial | Mature text stack; IME and `FlowDirection` support |
 | Desktop | Windows / macOS / Linux via Silk.NET (OpenGL window or SDL software fallback) | Windows / macOS / Linux, mature windowing (multi-window, dialogs, tray, native menus) |
-| Browser | First-class target: thin JS glue → `<canvas>`; whole app is one wasm file — **14.2 MB (5.5 MB gzipped)**, measured on the experimental NativeAOT-LLVM host at v0.18.0 and not re-measured since | Supported, but heavyweight: Mono runtime + framework in the browser, large payloads, slower startup |
+| Browser | First-class target: thin JS glue → `<canvas>`; whole app is one wasm file — **17.9 MB (7.3 MB gzipped)**, re-measured at v0.40.0 on the experimental NativeAOT-LLVM host | Supported, but heavyweight: Mono runtime + framework in the browser, large payloads, slower startup |
 | Mobile | **Android** — own host package, engine-level touch/fling/IME, TalkBack bridge, driven on an emulator by a blocking CI gate. **No iOS** | iOS **and** Android, both mature |
 | Touch & gestures | Two-axis scrolling with momentum and a rubber band; tap-on-release, long-press, double-tap; drag/pinch/rotate via `OnManipulate`, with raw pointers (`OnPointer` + capture) underneath for anything else | Mature gesture recognizers, longer-proven |
 | Game controller | **A pad is a first-class input**, new since v0.33.0: D-pad and sticks navigate by GEOMETRY rather than Tab order, on desktop, Android and the browser, with a scripted `GamepadDriver` for tests. Arrow keys can be turned into a D-pad for developing without one | Not a framework concern — keyboard and pointer only; a pad is the application's own problem |
@@ -122,8 +122,8 @@ That buys three things Avalonia is not shaped for:
 3. **The web is a first-class citizen, cheaply.** The browser host is a
    `<canvas>`, ~200 lines of non-authored JS glue, and the same app class as
    the desktop. On the experimental NativeAOT-LLVM host the entire application
-   — engine, Skia, HarfBuzz, fonts, app — is a single 14.2 MB wasm file
-   (5.5 MB over the wire gzipped) running at native engine speed (a hover
+   — engine, Skia, HarfBuzz, fonts, app — is a single 17.2 MB wasm file
+   (7.1 MB over the wire gzipped) running at native engine speed (a hover
    restyle measured at 2.1 ms vs 16.2 ms interpreted). Avalonia's browser
    target exists and works, but it carries the framework and runtime into the
    page and it shows in payload and startup; the browser is a port, not a
