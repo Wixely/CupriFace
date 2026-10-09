@@ -13,6 +13,34 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- **`CF0074` no longer reports a pair that cannot be seen, or cannot be seen there (#296).** The
+  check shipped in v0.40.0 validated against 16 flush adjacent pairs across four sample apps and
+  rejected every one. Run over a 172-document corpus it fired twice, and both were correct
+  documents: four subtitle cues stacked flush in one bar, every one `opacity: 0` at rest and faded
+  in one at a time by a timeline, so no viewer ever sees two of them; and a 3D card's depth face
+  placed at exactly the card's width — which is what makes it flush — and then turned edge-on with
+  `rotateY(90deg)`, where flush is the construction rather than an accident, since a depth face
+  that did *not* meet the front face would be a visible crack in the solid.
+
+  Both reduce to one thing, and it is stated generally rather than per-symptom: **a box painted
+  somewhere other than where it was laid out is not visually adjacent to anything.** A box is now
+  skipped when it, or any ancestor, has `opacity: 0`, or when the box itself carries a `transform`.
+  A transform on a shared *ancestor* still reports — it moves both peers together and leaves the
+  seam exactly as it was, so excluding it would let one `transform` on a page disable the check.
+
+  Excluding every transform rather than only the out-of-plane rotation that was reported costs
+  something worth naming: a genuinely colliding pair where one box is nudged by
+  `translateY(-2px)` will no longer be reported. The general statement is the honest one, and
+  under-reporting is this check's stated posture.
+
+  Note for anyone reaching for the other half of the usual pair: **`visibility: hidden` is not
+  supported by this engine at all** — `CF0050` reports it as an ignored property — so there is
+  nothing for this check to skip there.
+
 ## v0.40.0
 
 ### Added

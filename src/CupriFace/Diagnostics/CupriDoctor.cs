@@ -1418,6 +1418,18 @@ public static partial class CupriDoctor
 
             // Flush along one axis, genuinely overlapping on the other — touching, not merely
             // diagonal from one another.
+            // Neither box may be one whose PAINTED appearance is not its laid-out box. This check
+            // reasons about layout, and #296 found two correct documents that are correct because
+            // of something that happens after it: four subtitle cues stacked flush and faded in
+            // one at a time (`opacity: 0`, so no viewer ever sees two of them), and a 3D card's
+            // depth face placed at exactly the card's width and then turned edge-on with
+            // `rotateY(90deg)` — where flush is not incidental but the construction, since a
+            // depth face that did NOT touch the front face would be a visible crack in the solid.
+            //
+            // Anything reasoning about adjacency from the layout box alone has this whole class of
+            // false positive, so the exclusion is stated generally rather than per-symptom.
+            if (NotWhereItWasLaidOut(a) || NotWhereItWasLaidOut(b)) return;
+
             var below = MathF.Abs(by - (ay + ah)) <= 0.5f
                         && MathF.Min(ax + aw, bx + bw) - MathF.Max(ax, bx) > 0.5f;
             var beside = MathF.Abs(bx - (ax + aw)) <= 0.5f
@@ -1442,6 +1454,27 @@ public static partial class CupriDoctor
                 + "above a card body does exactly that — which is why this is only reported when both "
                 + "sides of the seam are curved.",
                 LineOf(lines, ClassNeedle(b))));
+        }
+
+        /// <summary>Whether this box is painted somewhere other than where it was laid out — or not
+        /// painted at all. Either makes its layout-box adjacency meaningless.
+        ///
+        /// <para>Zero opacity counts from any ancestor, because that is how it reaches the screen:
+        /// a faded parent hides a fully opaque child. A TRANSFORM counts only on the box itself —
+        /// one on a shared ancestor moves both peers together and leaves the seam between them
+        /// exactly as it was.</para>
+        ///
+        /// <para>Excluding every transform rather than only the out-of-plane rotation that was
+        /// reported is deliberate, and it has a cost worth naming: a genuinely colliding pair where
+        /// one is nudged by `translateY(-2px)` on hover will no longer be reported. The general
+        /// statement is the honest one — a transform means the painted position is not the laid-out
+        /// position — and under-reporting is this check's stated posture.</para></summary>
+        static bool NotWhereItWasLaidOut(RenderNode n)
+        {
+            if (n.Style.HasTransform) return true;
+            for (var a = n; a is not null; a = a.Parent)
+                if (a.Style.Opacity <= 0.001f) return true;
+            return false;
         }
 
         // Rounded on the edge where the two meet. Either corner of that edge is enough: a single
