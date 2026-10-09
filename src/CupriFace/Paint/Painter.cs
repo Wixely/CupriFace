@@ -191,7 +191,8 @@ public sealed class Painter
 
         if (node.IsText)
         {
-            PaintText(list, node, absX, absY);
+            // `visibility` is inherited, so a text node carries its parent's answer.
+            if (s.Visible) PaintText(list, node, absX, absY);
             return;
         }
 
@@ -240,6 +241,18 @@ public sealed class Painter
         var shaped = s.ClipPath is not null;
         if (shaped) list.Add(new PushClipShape(absX, absY, node.Width, node.Height, s.ClipPath!));
 
+        // Whether an optional package prepared a vector drawing for this element decides whether its
+        // CHILDREN are walked at all (the shapes are painted as part of it, and they have no boxes),
+        // so it is a structural question and is answered outside the visibility guard below.
+        var isDrawing = _vectors?.Get(node.VectorKey) is not null;
+
+        // ---- this node's OWN paint ------------------------------------------------------------
+        // `visibility: hidden` suppresses everything in here and nothing outside it. The box keeps
+        // its place in layout (that is the whole difference from `display: none`), the transform and
+        // clip-path pushed above still apply, and the children below still paint — each deciding for
+        // itself, because a descendant may set `visibility: visible` and reappear.
+        if (s.Visible)
+        {
         // Box shadow: outset (drop) shadows paint BEHIND the background.
         if (s.BoxShadow is { Count: > 0 } shadows)
             foreach (var sh in shadows)
@@ -312,10 +325,8 @@ public sealed class Painter
         // command per shape, in paint order, each mapped from the drawing's viewBox into the content
         // box — so it rasterises at the resolution the frame is drawn at rather than at layout size,
         // and composes with the transform/clip/opacity already on the stack.
-        var isDrawing = false;
         if (_vectors?.Get(node.VectorKey) is { } drawing)
         {
-            isDrawing = true;
             var vw = node.Width - node.HorizontalInsets;
             var vh = node.Height - node.VerticalInsets;
             var vx = absX + node.ContentLeftInset;
@@ -367,6 +378,8 @@ public sealed class Painter
                 node.Width - node.HorizontalInsets, node.Height - node.VerticalInsets,
                 img, ParseFit(node.Element?.GetAttribute("data-object-fit")), radius));
 
+        } // ---- end of this node's own paint -----------------------------------------------------
+
         // A preserve-3d node hands its 4×4 to its children, each of which composes its own
         // transform into it and pushes the product (#269) — so its own transform wraps only its
         // own paint above, and is pushed again for the chrome drawn after the children.
@@ -383,7 +396,7 @@ public sealed class Painter
         // Chart line (line / sparkline / rolling): a polyline through normalised points scaled into the
         // content box, with an optional area fill (data-cupri-area) and dots (data-cupri-dots). Emitted
         // inside the clip so a plot with overflow:hidden crops the line to its (rounded) box.
-        if (node.ChartLine is { Length: > 0 } chartLine)
+        if (s.Visible && node.ChartLine is { Length: > 0 } chartLine)
         {
             var cx = absX + node.ContentLeftInset;
             var cy = absY + node.ContentTopInset;

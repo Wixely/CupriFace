@@ -15,6 +15,32 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ## Unreleased
 
+### Added
+
+- **`visibility: hidden`.** The box is laid out and keeps its space, and paints nothing. It cannot
+  be clicked, cannot be tabbed to, and is absent from the accessibility tree. Keeping the space is
+  the whole difference from `display: none` — and until now the property was parsed by nothing,
+  reported by `CF0050` as ignored, and the element was fully painted and fully operable.
+
+  **It is inherited, and a child can take it back**: `visibility: visible` on a descendant of a
+  hidden element is visible again. That single fact shapes the implementation — nothing may skip a
+  subtree on the strength of this property, which is exactly what `display: none` is allowed to do,
+  so the two could not share a path. The cascade gives the semantics for free (inheritance runs
+  before the author's rules, so a child's own declaration simply wins), and every subsystem then
+  asks each node for itself: paint, hit-testing, focus, the accessibility tree and `CF0074`.
+
+  The focus walk had already written down why it would not implement half of this: paint and focus
+  have to agree, or a control that is plainly on screen becomes unreachable by keyboard. They agree
+  now. `collapse` is treated as `hidden`, which is what it means outside a table.
+
+  One test changed sides: `visibility: hidden` used to be asserted as *still a Tab stop, because it
+  is still painted*, which was right while the property did nothing. It now asserts the opposite,
+  and a new test covers the visible-child-of-a-hidden-parent case that makes the subtree shortcut
+  illegal.
+
+  Note that `CupriFace.Svg` has honoured `visibility: hidden` on shapes inside an inline `<svg>` all
+  along; it was only HTML elements that ignored it. The two now agree.
+
 ### Fixed
 
 - **`CF0074` no longer reports a pair that cannot be seen, or cannot be seen there (#296).** The

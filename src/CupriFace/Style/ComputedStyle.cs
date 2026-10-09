@@ -157,6 +157,18 @@ public sealed class ComputedStyle
     public SKColor Background = SKColors.Transparent;
     public float Opacity = 1f;
 
+    /// <summary><c>visibility</c>: false for <c>hidden</c> (and <c>collapse</c>, which is the same
+    /// thing outside a table). The box is laid out and takes its space exactly as before — it simply
+    /// paints nothing, cannot be clicked, cannot be tabbed to and is absent from the accessibility
+    /// tree. That is the whole difference from <c>display: none</c>, which removes the box.
+    ///
+    /// <para><b>Inherited, and overridable per child</b> — which is why this is a field rather than
+    /// a subtree decision. <c>visibility: visible</c> on a descendant of a hidden element makes that
+    /// descendant visible again, so nothing may skip a subtree on the strength of it. The cascade
+    /// gives this for free: <see cref="InheritFrom"/> runs before the author's rules, so a child's
+    /// own declaration simply wins afterwards.</para></summary>
+    public bool Visible = true;
+
     /// <summary><c>content</c>, decoded: the text a <c>::before</c>/<c>::after</c> box holds (often
     /// <c>""</c>, a box with nothing in it), or null for <c>none</c>/<c>normal</c> — no box at all,
     /// which is what a pseudo-element with no <c>content</c> declaration is. Read only on the
@@ -384,6 +396,7 @@ public sealed class ComputedStyle
         WordBreakAll = parent.WordBreakAll;
         OverflowWrapBreak = parent.OverflowWrapBreak;
         Cursor = parent.Cursor;
+        Visible = parent.Visible;          // inherited; a child's own `visibility: visible` wins after this
         FontStyle = parent.FontStyle;
         Decorations = parent.Decorations;
         LetterSpacing = parent.LetterSpacing;

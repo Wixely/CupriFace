@@ -509,6 +509,18 @@ controls handle their own state.
   behind its siblings but still in front of its parent's own background. An element that must rise above
   the whole page wants `position: fixed`, which lifts it to the top layer — where z-index orders the
   overlays against each other.
+- **`visibility: hidden`.** The box is laid out and keeps its space — it simply paints nothing,
+  cannot be clicked, cannot be tabbed to, and is absent from the accessibility tree. That space is
+  the whole difference from `display: none`, which removes the box and lets what follows move up.
+
+  It is **inherited, and a child can take it back**: `visibility: visible` on a descendant of a
+  hidden element is visible again, which is why nothing in the engine skips a subtree on the
+  strength of it. `collapse` means `hidden` here — it differs only on table rows and columns, and
+  there are no tables.
+  ```css
+  .slot      { visibility: hidden; }   /* holds its place in the row, shows nothing */
+  .slot .tag { visibility: visible; }  /* …except this, which comes back */
+  ```
 - **Inline formatting.** A run of text and inline elements (`<code> <b> <em> <mark> <span> …`) flows into
   wrapping line boxes. An inline element with a `background`/`border`/`border-radius` + horizontal
   `padding` paints as a chip that flows with the words and gets its own rounded box on **each line it wraps

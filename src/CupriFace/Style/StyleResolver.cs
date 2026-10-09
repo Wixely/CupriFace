@@ -514,6 +514,12 @@ public sealed class StyleResolver
                 }
                 case "transform-style": s.Preserve3D = v.Trim().Equals("preserve-3d", StringComparison.OrdinalIgnoreCase); break;
                 case "backface-visibility": s.BackfaceHidden = v.Trim().Equals("hidden", StringComparison.OrdinalIgnoreCase); break;
+                // `collapse` is `hidden` for everything that is not a table row or column,
+                // and there are no tables here, so the two are the same answer.
+                case "visibility":
+                    s.Visible = !(v.Trim().Equals("hidden", StringComparison.OrdinalIgnoreCase)
+                                  || v.Trim().Equals("collapse", StringComparison.OrdinalIgnoreCase));
+                    break;
                 case "animation": ParseAnimation(s, v); break;
                 // Each longhand is its own comma-separated list, paired with the others by index
                 // and repeating when shorter — which is how CSS pairs them (#284).

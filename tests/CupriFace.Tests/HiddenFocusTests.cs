@@ -17,10 +17,11 @@ namespace CupriFace.Tests;
 /// the worst way — nothing is drawn, so a person tabbing through a form sees the focus ring vanish
 /// for one press and come back, with no way to know what holds it.</para>
 ///
-/// <para><c>visibility: hidden</c> is deliberately NOT here. That property is unimplemented (CF0050
-/// reports it and it is ignored), so such an element is fully painted; skipping it would make a
-/// control that is plainly on screen unreachable by keyboard — a worse bug than this one. See
-/// <see cref="Visibility_hidden_is_still_a_stop_because_it_is_still_painted"/>.</para>
+/// <para><c>visibility: hidden</c> now belongs here too, but it is asked in a different place and
+/// for a reason worth keeping in view: the walk below skips a whole SUBTREE, and that property must
+/// not, because a descendant can set <c>visibility: visible</c> and be plainly on screen. So it is
+/// asked of each focus candidate instead. See
+/// <see cref="Visibility_hidden_is_not_a_stop_now_that_it_is_not_painted"/>.</para>
 /// </summary>
 public class HiddenFocusTests(ITestOutputHelper output)
 {
@@ -175,14 +176,40 @@ public class HiddenFocusTests(ITestOutputHelper output)
     /// element stop painting.</para>
     /// </summary>
     [Fact]
-    public void Visibility_hidden_is_still_a_stop_because_it_is_still_painted()
+    public void Visibility_hidden_is_not_a_stop_now_that_it_is_not_painted()
     {
-        Assert.Equal("scan", FirstStop("style='visibility:hidden'", "scan"));
+        // This test used to assert the opposite, and was right to: while the property was
+        // unimplemented the element was fully painted, so skipping it would have made a control
+        // that is plainly on screen unreachable by keyboard. Now that it paints nothing, paint and
+        // focus agree the other way.
+        Assert.Equal("first", FirstStop("style='visibility:hidden'", "scan"));
 
+        // …and the doctor no longer reports the property as ignored, because it is not ignored.
         var report = Diagnostics.CupriDoctor.Check(
             "<div class='p' style='visibility:hidden'>x</div><style>.p{width:10px;height:10px}</style>", "");
         output.WriteLine(report.ToString());
-        Assert.Contains(report.Findings,
+        Assert.DoesNotContain(report.Findings,
             f => f.Code == "CF0050" && f.Message.Contains("visibility"));
+    }
+
+    [Fact]
+    public void But_a_visible_child_of_a_hidden_parent_is_a_stop()
+    {
+        // The case that forbids skipping a subtree anywhere in the engine. The parent is hidden,
+        // the button inside it sets `visibility: visible`, so it is on screen — and an on-screen
+        // control has to be reachable.
+        const string html = "<body><div class='wrap'><div class='scan' data-scan='1'>Scan a code</div></div>"
+                          + "<div class='btn' data-first='1'>First</div></body>";
+        const string css = ".wrap{visibility:hidden}.scan{visibility:visible;width:120px;height:24px}"
+                         + ".btn{width:120px;height:24px}";
+        using var doc = CupriDocument.Load(html, css);
+        var trail = "";
+        doc.OnClick(".scan", _ => trail += "scan");
+        doc.OnClick("[data-first]", _ => trail += "first");
+        doc.Refresh();
+        using (doc.RenderToImage(400, 300)) { }
+        doc.DispatchKey(null, EditKey.Tab);
+        doc.DispatchKey(null, EditKey.Enter);
+        Assert.Equal("scan", trail);
     }
 }

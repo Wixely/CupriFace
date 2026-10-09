@@ -134,7 +134,10 @@ public static class AccessibilityTree
 
         var role = RoleOf(render);
         var target = parent;
-        if (role is not null && render.Element is { } el)
+        // `visibility: hidden` is invisible to assistive technology for the same reason it is
+        // invisible to the eye — and asked per node rather than per subtree, because a descendant
+        // can set `visibility: visible` and must then be announced normally.
+        if (role is not null && render.Style.Visible && render.Element is { } el)
         {
             var bounds = InlineAwareBounds(render, ax, ay);
             var sem = new AccessibilityNode
