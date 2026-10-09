@@ -10,12 +10,15 @@ namespace CupriFace.Media;
 public readonly struct VideoSource
 {
     public string Src { get; }
+    /// <summary>Whether the CupriFace element has its standard overlaid transport controls.</summary>
+    public bool HasControls { get; }
     private readonly System.Reflection.Assembly? _assembly;
     private readonly Resources.CupriSourceOptions? _urlOptions;
 
-    internal VideoSource(string src, System.Reflection.Assembly? assembly, Resources.CupriSourceOptions? urlOptions)
+    internal VideoSource(string src, System.Reflection.Assembly? assembly, Resources.CupriSourceOptions? urlOptions, bool hasControls = false)
     {
         Src = src;
+        HasControls = hasControls;
         _assembly = assembly;
         _urlOptions = urlOptions;
     }

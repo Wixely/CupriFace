@@ -83,6 +83,64 @@ public interface IGpuSurfaceSource : ISurfaceSource
 }
 
 /// <summary>
+/// A live surface whose pixels are presented by a native host object instead of an
+/// <see cref="SKImage"/>. The desktop host supplies an opaque feature context and keeps the
+/// native surface aligned with the engine element; platform handles remain in optional adapter
+/// packages rather than leaking into portable application code.
+/// </summary>
+public interface IHostCompositedSurfaceSource : ISurfaceSource
+{
+    /// <summary>Attach to the current host. Called once before the first placement.</summary>
+    void Attach(IHostSurfaceContext context);
+
+    /// <summary>Apply the latest element placement, expressed in physical host pixels.</summary>
+    void Arrange(HostSurfacePlacement placement);
+
+    /// <summary>Release host-owned presentation resources when the element or window leaves.</summary>
+    void Detach();
+}
+
+/// <summary>An opaque, extensible set of host features for a composited surface.</summary>
+public interface IHostSurfaceContext
+{
+    object? GetFeature(Type featureType);
+    void RequestFrame();
+}
+
+public static class HostSurfaceContextExtensions
+{
+    public static T? GetFeature<T>(this IHostSurfaceContext context) where T : class =>
+        context.GetFeature(typeof(T)) as T;
+}
+
+/// <summary>An affine transform matching the engine's screen transform.</summary>
+public readonly record struct HostSurfaceTransform(
+    float ScaleX, float SkewY, float SkewX, float ScaleY, float TranslateX, float TranslateY)
+{
+    public static HostSurfaceTransform Identity { get; } = new(1, 0, 0, 1, 0, 0);
+    public bool IsIdentity => this == Identity;
+}
+
+/// <summary>
+/// Physical-pixel geometry for a host-composited surface. Clip values are inset distances from
+/// the element edges; adapters that cannot express affine transforms may decline non-identity
+/// placements rather than displaying pixels in the wrong location.
+/// </summary>
+public readonly record struct HostSurfacePlacement(
+    float X,
+    float Y,
+    float Width,
+    float Height,
+    float ClipTop,
+    float ClipRight,
+    float ClipBottom,
+    float ClipLeft,
+    bool Visible,
+    string ObjectFit,
+    HostSurfaceTransform Transform,
+    float DeviceScale);
+
+/// <summary>
 /// The document's live surfaces, keyed by the element attribute <c>data-cupri-surface</c>.
 /// Mirrors <see cref="ImageStore"/>'s host contract: <see cref="TakeArrived"/> is polled once
 /// per host tick (folded into <c>CupriDocument.ConsumeImageArrived</c>) so a frame published

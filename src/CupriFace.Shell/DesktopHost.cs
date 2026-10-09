@@ -109,6 +109,7 @@ public static class DesktopHost
         var logicalW = 0f; var logicalH = 0f; // last presented logical size, for the a11y snapshot
         var lastRefresh = 0.0;
         var lastAnimFrame = double.NaN;   // NaN = nothing animated yet, so the first frame is due
+        HostSurfaceCoordinator? hostSurfaces = null;
 
         // Render-on-demand (same model as the WASM host): input marks the doc dirty only when a
         // dispatch actually changed something; animation/refresh/image arrival wake it too. A static
@@ -184,6 +185,7 @@ public static class DesktopHost
             if (effective != 1f) ctx.Canvas.Scale(effective);
             doc.Render(ctx.Canvas, p.LogicalWidth, p.LogicalHeight);
             ctx.Canvas.Restore();
+            hostSurfaces?.Sync(effective);
         }
 
         // Escape hatch: CUPRIFACE_SOFTWARE=1 skips the GL attempt entirely and goes straight to
@@ -226,6 +228,9 @@ public static class DesktopHost
                 app.DpiAware,
                 app.TrackMonitorDpi);
             if (icon is { } ic) window.SetIcon(ic.Rgba, ic.W, ic.H);
+            using var nativeSurfaces = new HostSurfaceCoordinator(
+                doc, new DesktopHostSurfaceContext(() => window.Win32Hwnd, () => dirty = true));
+            hostSurfaces = nativeSurfaces;
             deviceScale = () => window.DeviceScale;
             // A monitor change resizes every raster-backed surface and invalidates the retained
             // frame: what was cached was rasterised for the old scale and is the wrong pixel count
@@ -239,6 +244,8 @@ public static class DesktopHost
             // actions on this UI thread, and publishing a semantics snapshot after each drawn
             // frame — the subscription order after Draw is what sequences that. No-ops on a
             // platform without a bridge, under its kill switch, or if attaching failed.
+            using var monitorMaximize = new WindowsMonitorMaximize();
+            window.Tick += () => monitorMaximize.Attach(window.Win32Hwnd);
             using var a11y = new Accessibility.PlatformAccessibility(doc, () => dirty = true, app.Title);
             window.Tick += () => { if (a11y.Tick(() => OperatingSystem.IsMacOS() ? window.CocoaWindow : window.Win32Hwnd)) dirty = true; };
             // T, not P: an AT is told where things are in PHYSICAL screen pixels, so the monitor's
@@ -351,7 +358,7 @@ public static class DesktopHost
             Action<string> clipboardWriter = value => window.ClipboardText = value;
             app.ClipboardWriteRequested += clipboardWriter;
             try { window.Run(); }
-            finally { app.ClipboardWriteRequested -= clipboardWriter; }
+            finally { hostSurfaces = null; app.ClipboardWriteRequested -= clipboardWriter; }
         }
         catch (Exception ex)
         {
@@ -380,6 +387,9 @@ public static class DesktopHost
             window.UseLayeredGpu = layeredGpu && !forceSoftware;
             window.UseGl = sdlGl;
             if (icon is { } ic) window.SetIcon(ic.Rgba, ic.W, ic.H);
+            using var nativeSurfaces = new HostSurfaceCoordinator(
+                doc, new DesktopHostSurfaceContext(() => window.Win32Hwnd, () => dirty = true));
+            hostSurfaces = nativeSurfaces;
             deviceScale = () => window.DeviceScale;
 
             // The retained surface was recreated (blank): the doc's damage diff must restart from
@@ -391,6 +401,8 @@ public static class DesktopHost
             // The same bridge on the software window — this is the path GL-less machines (RDP,
             // VMs, CI runners, and every headless Linux box) actually take, so assistive tech
             // must work here, not only on GL.
+            using var monitorMaximize = new WindowsMonitorMaximize();
+            window.Tick += () => monitorMaximize.Attach(window.Win32Hwnd);
             using var a11y = new Accessibility.PlatformAccessibility(doc, () => dirty = true, app.Title);
             window.Tick += () => { if (a11y.Tick(() => OperatingSystem.IsMacOS() ? window.CocoaWindow : window.Win32Hwnd)) dirty = true; };
             using var tray = new WindowsTrayIcon(app.CloseToTray, app.Title, app.TrayCloseLabel);
@@ -437,6 +449,7 @@ public static class DesktopHost
                 // The list is built in LOGICAL units and the render thread scales it into the device
                 // surface, so the glyphs are rasterised at the size they are shown at.
                 var list = doc.BuildFrame(p.LogicalWidth, p.LogicalHeight);
+                hostSurfaces?.Sync(effective);
                 presenter.Submit(list, ctx.Width, ctx.Height,
                                  app.Transparent ? SkiaSharp.SKColors.Transparent : app.Background, effective);
                 a11y.Publish(p.LogicalWidth, p.LogicalHeight, effective, window.ScreenPosition);
@@ -483,6 +496,7 @@ public static class DesktopHost
                     if (effective != 1f) ctx.Canvas.Scale(effective);
                     var logical = doc.RenderIncremental(ctx.Canvas, p.LogicalWidth, p.LogicalHeight, bg);
                     ctx.Canvas.Restore();
+                    hostSurfaces?.Sync(effective);
                     SkiaSharp.SKRectI? damage = logical is { } lg
                         ? CupriDocument.ScaleDamageToDevice(lg, effective, ctx.Width, ctx.Height)
                         : null;
@@ -589,7 +603,7 @@ public static class DesktopHost
             Action<string> clipboardWriter = value => window.ClipboardText = value;
             app.ClipboardWriteRequested += clipboardWriter;
             try { window.Run(); }
-            finally { app.ClipboardWriteRequested -= clipboardWriter; }
+            finally { hostSurfaces = null; app.ClipboardWriteRequested -= clipboardWriter; }
         }
     }
 

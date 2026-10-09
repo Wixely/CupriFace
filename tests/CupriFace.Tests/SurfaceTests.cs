@@ -111,6 +111,30 @@ public class SurfaceTests
         public bool HostComposited => Ready;
     }
 
+    private sealed class HostSurface : IHostCompositedSurfaceSource
+    {
+        public SKImage? CurrentFrame => null;
+        public (int W, int H)? NaturalSize => (100, 60);
+        public bool Ticking => false;
+        public bool HostComposited => true;
+        public int Attached { get; private set; }
+        public int Arranged { get; private set; }
+        public int Detached { get; private set; }
+        public void Attach(IHostSurfaceContext context) => Attached++;
+        public void Arrange(HostSurfacePlacement placement) => Arranged++;
+        public void Detach() => Detached++;
+    }
+
+    [Fact]
+    public void Host_composited_surface_contract_is_independent_of_platform_handles()
+    {
+        var surface = new HostSurface();
+        Assert.IsAssignableFrom<ISurfaceSource>(surface);
+        Assert.True(surface.HostComposited);
+        Assert.DoesNotContain(typeof(IHostCompositedSurfaceSource).GetMethods(),
+            method => method.GetParameters().Any(parameter => parameter.ParameterType == typeof(nint)));
+    }
+
     [Fact]
     public void A_host_composited_surface_punches_a_transparent_hole_and_suppresses_the_poster()
     {

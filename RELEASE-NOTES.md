@@ -13,6 +13,20 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Added
+
+- **`CupriFace.Media.Windows` provides optional LibVLC/D3D11VA playback for Windows applications.**
+  Reference the package, keep the backend alive for the host lifetime, and register it with
+  `document.UseVideo(video)`. The backend streams HTTPS sources directly, renders into a
+  host-composited child window, uses a black native-video background, and keeps maximize operations
+  on the window's current monitor. The package remains MIT licensed, carries pinned LibVLC
+  dependencies with their LGPL notice, licence text and corresponding-source links, and keeps those
+  dependencies separate and replaceable even in a consuming application's single-file publish.
+  Every GitHub release also carries the pinned VideoLAN corresponding-source archives beside the
+  binary and NuGet assets.
+
 ## v0.41.0
 
 ### Added
