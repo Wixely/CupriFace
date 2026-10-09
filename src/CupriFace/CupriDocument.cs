@@ -3593,11 +3593,11 @@ public sealed partial class CupriDocument : IDisposable
     /// assistive technology and simultaneously operable from the keyboard, which is a contradiction
     /// rather than a gap.</para>
     ///
-    /// <para><b>Not here: <c>visibility: hidden</c>.</b> That property is not implemented at all —
-    /// it is reported by CF0050 and ignored — so an element carrying it is fully PAINTED. Skipping
-    /// it here would make a control that is plainly on screen unreachable by keyboard, which is a
-    /// worse bug than the one being fixed. It belongs with an implementation of the property, where
-    /// paint and focus can agree.</para>
+    /// <para><b>Not here, but next door: <c>visibility: hidden</c>.</b> It is implemented now, and
+    /// paint and focus do agree — but it is asked in <c>Focusables</c> rather than here, because
+    /// this method skips a whole SUBTREE and that property must not. A descendant may set
+    /// <c>visibility: visible</c> and be plainly on screen; making it unreachable by keyboard would
+    /// be a worse bug than the one this method fixes.</para>
     /// </summary>
     private static bool IsHiddenFromFocus(RenderNode n)
     {
@@ -3617,7 +3617,10 @@ public sealed partial class CupriDocument : IDisposable
         void Walk(RenderNode n)
         {
             if (IsHiddenFromFocus(n)) return;                 // the whole subtree, not just this node
-            if (n.Element is { } el && IsFocusable(el)) { list.Add(n); return; }
+            // `visibility: hidden` is the one that CANNOT skip a subtree: a descendant may set
+            // `visibility: visible` and be on screen, and an on-screen control has to be reachable.
+            // So it is asked of the candidate itself, where paint and focus give the same answer.
+            if (n.Element is { } el && IsFocusable(el) && n.Style.Visible) { list.Add(n); return; }
             foreach (var c in n.Children) Walk(c);
         }
         foreach (var c in scope.Children) Walk(c);

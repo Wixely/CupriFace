@@ -69,7 +69,10 @@ public static class HitTesting
 
         var inside = x >= ax && x < ax + node.Width && y >= ay && y < ay + node.Height;
 
-        RenderNode? best = inside && !node.IsText ? node : null;
+        // `visibility: hidden` takes the box out of the pointer's reach without taking it out of
+        // layout. NOT a subtree skip: a descendant that sets `visibility: visible` is visible and
+        // must be clickable, so each node answers for itself.
+        RenderNode? best = inside && !node.IsText && node.Style.Visible ? node : null;
         // Children of a horizontally scrolled box are shifted left by its offset, exactly as the
         // painter shifts them — otherwise a card dragged into view could not be tapped where it
         // now appears.

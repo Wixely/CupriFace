@@ -1471,7 +1471,8 @@ public static partial class CupriDoctor
         /// position — and under-reporting is this check's stated posture.</para></summary>
         static bool NotWhereItWasLaidOut(RenderNode n)
         {
-            if (n.Style.HasTransform) return true;
+            // `visibility: hidden` is already inherited, so asking the node is asking its ancestors.
+            if (!n.Style.Visible || n.Style.HasTransform) return true;
             for (var a = n; a is not null; a = a.Parent)
                 if (a.Style.Opacity <= 0.001f) return true;
             return false;
