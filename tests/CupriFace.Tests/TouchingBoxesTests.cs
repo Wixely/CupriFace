@@ -127,6 +127,65 @@ public class TouchingBoxesTests
         Assert.Empty(Check(html, css, 400, 200));
     }
 
+    // ---- #296: the box is not painted where it was laid out ------------------------------------
+    // Two false positives found by running this check over 172 independent documents, which is 10x
+    // the corpus it shipped validated against. Both documents are correct, and correct BECAUSE of
+    // something that happens after layout — which is the whole class of defect a check that reasons
+    // about layout boxes is exposed to.
+
+    [Fact]
+    public void A_stack_of_faded_out_cues_is_silent()
+    {
+        // vfx-magnetic: four subtitle cues share one bar, stacked flush, every one `opacity: 0` at
+        // rest and faded in one at a time by a timeline. No viewer ever sees two of them, let alone
+        // their corners colliding — flush stacking is exactly right for cues exclusive in time.
+        const string html = "<body><div class='bar'>"
+            + "<div class='subtitle'>One</div><div class='subtitle'>Two</div><div class='subtitle'>Three</div>"
+            + "</div></body>";
+        const string css = "body{margin:0} .subtitle{background:rgba(0,0,0,0.7);padding:12px 32px;"
+            + "border-radius:8px;opacity:0}";
+        Assert.Empty(Check(html, css, 900, 400));
+    }
+
+    [Fact]
+    public void A_faded_ancestor_hides_its_children_too()
+    {
+        // Opacity reaches the screen through the ancestors: a faded parent hides a fully opaque
+        // child, so the exclusion has to walk up rather than read one element.
+        const string html = "<body><div class='group'>"
+            + "<div class='chip'>One</div><div class='chip'>Two</div></div></body>";
+        const string css = "body{margin:0} .group{opacity:0} .chip{background:#223;border-radius:8px;padding:12px}";
+        Assert.Empty(Check(html, css, 900, 400));
+    }
+
+    [Fact]
+    public void A_face_turned_edge_on_is_silent()
+    {
+        // ui-3d-reveal: a 3D card's depth face, placed at exactly the card's width — which is what
+        // makes it flush — and then turned 90 degrees about its own left edge. Flush is not
+        // incidental here, it is the construction: a depth face that did NOT meet the front face
+        // would be a visible crack in the solid.
+        const string html = "<body><div class='stage'><div class='ui-card'></div>"
+            + "<div class='depth-right'></div></div></body>";
+        const string css = "body{margin:0} .stage{position:relative}"
+            + ".ui-card{width:300px;height:200px;background:#223;border-radius:12px}"
+            + ".depth-right{position:absolute;top:12px;left:300px;width:10px;height:176px;"
+            + "background:#114;border-radius:4px;transform-origin:0% 50%;transform:rotateY(90deg)}";
+        Assert.Empty(Check(html, css, 900, 400));
+    }
+
+    [Fact]
+    public void A_transform_on_a_shared_ancestor_still_reports()
+    {
+        // The exclusion is about a box painted away from its own layout box. A transform on a
+        // shared ancestor moves both peers together and leaves the seam between them exactly as it
+        // was — so it must NOT silence the check, or one `transform` on a page would disable it.
+        const string html = "<body><div class='stage'><div class='a'>One</div><div class='b'>Two</div></div></body>";
+        const string css = "body{margin:0} .stage{transform:translateY(10px)}"
+            + ".a{background:#223;border-radius:12px;padding:12px} .b{background:#334;border-radius:12px;padding:12px}";
+        Assert.Single(Check(html, css, 400, 300));
+    }
+
     [Fact]
     public void Diagonal_neighbours_are_not_touching()
     {
