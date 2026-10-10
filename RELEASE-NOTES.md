@@ -96,7 +96,7 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   `ScreenBox`/`ActivationPoint` each worked out a stuck node's position separately, so a pinned
   header was painted in one place, clicked in another, and reported to assistive technology in a
   third — it looked like sticky content simply could not be clicked. The rule now lives in one place
-  (`HitTesting.StickyShiftY`) that all three read, and hit-testing defers sticky nodes exactly as the
+  (`HitTesting.StickyShift`) that all three read, and hit-testing defers sticky nodes exactly as the
   painter does, so a stuck element also wins over the content it visibly covers. (#302)
 
 - **`position: sticky` no longer disappears once you scroll past one scrollport of content.** The
