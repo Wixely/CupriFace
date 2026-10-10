@@ -258,7 +258,7 @@ public sealed class VideoComponent : ComponentBase
     }
 
     private static string TrackContextMenuMarkup() => $"""
-        <div class='cupri-ctx-menu' role='menu' data-cupri-ctx-menu data-focus-scope>
+        <div class='cupri-ctx-menu' role='menu' data-cupri-ctx-menu data-focus-scope data-surface-occluder>
           <div class='cupri-menu-item cupri-menu-parent' role='menuitem' aria-haspopup='menu'>
             <span class='cupri-menu-label'>Audio</span>{IconMarkup("chevron-right", 16)}
             <div class='cupri-submenu' role='menu' data-video-track-list='audio'></div>

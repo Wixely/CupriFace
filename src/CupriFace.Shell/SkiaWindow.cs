@@ -103,22 +103,100 @@ public sealed class SkiaWindow : IDisposable
 
     // The state to restore on exit — a maximized window must come back maximized, not Normal.
     private WindowState _beforeFullscreen = WindowState.Normal;
+    // …and WHERE it was, because going fullscreen through GLFW moves the window to a monitor and
+    // forgets where it came from. Null until a GLFW-driven fullscreen has actually happened.
+    private (int X, int Y, int W, int H)? _boundsBeforeFullscreen;
 
     /// <summary>Enter/leave fullscreen (the host maps <c>WindowCommandRequested</c> and the
-    /// Escape-to-exit convention here). Resize events flow as normal, so the app reflows.</summary>
+    /// Escape-to-exit convention here). Resize events flow as normal, so the app reflows.
+    ///
+    /// <para>Fullscreen goes to the monitor the window is ON, not the primary one. Asking the
+    /// windowing layer for "fullscreen" without naming a monitor gets you the primary display, so a
+    /// window on a second screen jumped across to the first every time (#304). Exit restores the
+    /// exact bounds the window had, because the trip through a monitor loses them.</para></summary>
     public void SetFullscreen(bool on)
     {
         if (_window is null || IsFullscreen == on) return;
         if (on)
         {
             _beforeFullscreen = _window.WindowState;
-            _window.WindowState = WindowState.Fullscreen;
+            if (!GlfwFullscreenOnCurrentMonitor()) _window.WindowState = WindowState.Fullscreen;
         }
-        else
+        else if (!GlfwRestoreFromFullscreen())
         {
             _window.WindowState = _beforeFullscreen == WindowState.Fullscreen ? WindowState.Normal : _beforeFullscreen;
         }
         _forceRender = true;
+    }
+
+    /// <summary>
+    /// Put the window fullscreen on the monitor that currently contains it, remembering where it
+    /// was. False when GLFW is not the windowing layer underneath (the caller then falls back to
+    /// the platform-agnostic path, which is what every non-GLFW host already did).
+    /// </summary>
+    private unsafe bool GlfwFullscreenOnCurrentMonitor()
+    {
+        if (GlfwWindowHandle is not { } handle) return false;
+        try
+        {
+            var glfw = GlfwApi;
+            var window = (GlfwWindow*)handle;
+            glfw.GetWindowPos(window, out var wx, out var wy);
+            glfw.GetWindowSize(window, out var ww, out var wh);
+            if (ww <= 0 || wh <= 0) return false;
+
+            var monitor = MonitorContaining(glfw, wx + ww / 2, wy + wh / 2);
+            if (monitor is null) return false;
+
+            var mode = glfw.GetVideoMode(monitor);
+            if (mode is null) return false;
+            glfw.GetMonitorPos(monitor, out var mx, out var my);
+
+            _boundsBeforeFullscreen = (wx, wy, ww, wh);
+            glfw.SetWindowMonitor(window, monitor, mx, my, mode->Width, mode->Height, mode->RefreshRate);
+            return true;
+        }
+        catch
+        {
+            return false;   // an optional nicety must never take the window down
+        }
+    }
+
+    /// <summary>Put the window back exactly where it was. False if we never moved it.</summary>
+    private unsafe bool GlfwRestoreFromFullscreen()
+    {
+        if (_boundsBeforeFullscreen is not { } b || GlfwWindowHandle is not { } handle) return false;
+        try
+        {
+            GlfwApi.SetWindowMonitor((GlfwWindow*)handle, null, b.X, b.Y, b.W, b.H, 0);
+            _boundsBeforeFullscreen = null;
+            // A window that was maximized before is restored to that, not to the bounds above.
+            if (_beforeFullscreen == WindowState.Maximized) _window!.WindowState = WindowState.Maximized;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>The monitor whose area contains a point — the window's own centre, so a window
+    /// straddling two screens goes fullscreen on the one showing most of it. Null if none does
+    /// (a window dragged off-screen), which leaves the caller on its fallback.</summary>
+    private static unsafe Silk.NET.GLFW.Monitor* MonitorContaining(GlfwApi glfw, int px, int py)
+    {
+        var monitors = glfw.GetMonitors(out var count);
+        if (monitors is null || count <= 0) return null;
+        for (var i = 0; i < count; i++)
+        {
+            var m = monitors[i];
+            if (m is null) continue;
+            var mode = glfw.GetVideoMode(m);
+            if (mode is null) continue;
+            glfw.GetMonitorPos(m, out var mx, out var my);
+            if (px >= mx && px < mx + mode->Width && py >= my && py < my + mode->Height) return m;
+        }
+        return null;
     }
 
     /// <summary>Change the native always-on-top state while the window is running.</summary>

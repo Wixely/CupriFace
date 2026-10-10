@@ -35,12 +35,9 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 - **`CF0053`: `position: sticky` with no inset on any axis.** It parses, costs a deferred paint pass,
   and pins to nothing. The doctor now says so instead of leaving you to find it by scrolling.
 
-- **`doc.MouseActivation` chooses when a mouse press activates what it landed on** (`CupriApp.MouseActivation`
-  too). The default, `PointerActivation.OnPress`, is unchanged. `PointerActivation.OnRelease` makes a
-  mouse down + up over the same control the confirmed click, and a press that travels into a pan or a
-  drag activates nothing — the model touch has always used, so a `data-drag-scroll` carousel behaves
-  the same under a finger and under a mouse. Focus, `:active` and caret placement still happen on the
-  press either way. (#302)
+- **`doc.MouseActivation` chooses when a mouse press activates what it landed on**, and
+  `CupriApp.MouseActivation` sets it for a hosted application. Focus, `:active` and caret placement
+  still happen on the press either way — those are the press, not the click. (#302)
 
 - `TransparentHud --present-count N` adds a minimal GLFW/OpenGL reproduction for #212.
   `Test-WindowsAlpha.ps1 -GlBaseline -PresentCount N` verifies the swap count, native DLL,
@@ -78,6 +75,17 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Changed
 
+- **Breaking: a mouse press inside a `data-drag-scroll` box now activates on RELEASE in a hosted
+  application.** `CupriApp.MouseActivation` defaults to `PointerActivation.OnRelease`, so a down + up
+  over the same control is the click and a press that travels into a pan or a drag activates nothing
+  — what a finger has always done here, so a carousel finally behaves the same under both. Only the
+  press/release pairing changes; a plain click is unaffected. Override `MouseActivation` to
+  `OnPress` for an application that would rather intercept the press itself.
+
+  **`CupriDocument.MouseActivation` still defaults to `OnPress`**, and that difference is deliberate:
+  a synthesised click — a test, an accessibility action — is already a completed click with no
+  release coming, and waiting for one would mean it never fired. (#302)
+
 - **Breaking (small): `position: sticky` with no inset no longer pins to the top.** This engine used
   to invent `top: 0` when neither inset was given; CSS treats an axis whose insets are both `auto` as
   `relative`, and now so does this. Markup ported from the web cannot have depended on the old
@@ -87,26 +95,52 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **Fullscreen stays on the monitor the window is on, and restores where it came from.** Asking the
+  windowing layer for fullscreen without naming a monitor gets you the PRIMARY display, so a window
+  on a second screen jumped across every time. It now picks the monitor containing the window's
+  centre and puts the exact previous bounds back on exit (a maximized window still returns
+  maximized). GLFW's own monitor API, so Linux and macOS multi-monitor get it too; the SDL software
+  window was already correct. (#304)
+
+- **The desktop host now tells the document what fullscreen actually did.** Only the web host ever
+  called `NotifyHostFullscreen`, so leaving fullscreen by a route the engine cannot see — Escape,
+  the window manager, the title bar — left a `<cupri-video>` element-fullscreened around a window
+  that was not, or the reverse. Both desktop paths report the state they ENDED in rather than the
+  one they were asked for, which also covers a host that refuses. Hosts outside this repo should do
+  the same. (#304)
+
+- **`overflow: scroll` now scrolls CROSS-axis overflow.** In a flex row the vertical axis is the
+  cross axis, and a child taller than the line added nothing to the scroll extent — so the box
+  reported itself unscrollable, took no wheel, and painted its content straight out of itself with
+  neither a scrollbar nor a clip to show for it. The children's own boxes are measured now, the way
+  the horizontal extent already was. Nothing to change in your markup. (#300)
+
+- **A video's track context menu no longer hides behind the native video window.** `<cupri-video
+  tracks>` builds its own menu markup and was missing the `data-surface-occluder` marker that makes
+  a host-composited surface stand down, so on the Windows backend the menu was painted underneath
+  the picture. Every context menu the toolbox builds now carries it, and a test asserts that for all
+  of them rather than for the one that was reported. (#305)
+
 - **The companion video track selector now uses contained audio/subtitle tables.** Long track labels
   no longer paint into neighbouring choices, its default trigger reads `Audio / Video`, and selecting
   a track leaves the panel open for further changes. Long unbroken names wrap within the Track column,
   and video track fly-out menus use a wider, high-contrast surface with bounded wrapping.
-- **The Windows media backend finds external LibVLC beside a single-file application.** It now
-  resolves the RID-specific native directory beside `Environment.ProcessPath`, falling back to
-  `AppContext.BaseDirectory`, rather than assuming the extracted managed assembly directory.
-  This keeps the LGPL libraries replaceable and loadable even with all-content self-extraction.
-
 - **A `position: sticky` element is now clicked where it is painted.** Paint, hit-testing and
   `ScreenBox`/`ActivationPoint` each worked out a stuck node's position separately, so a pinned
   header was painted in one place, clicked in another, and reported to assistive technology in a
   third — it looked like sticky content simply could not be clicked. The rule now lives in one place
-  (`HitTesting.StickyShiftY`) that all three read, and hit-testing defers sticky nodes exactly as the
+  (`HitTesting.StickyShift`) that all three read, and hit-testing defers sticky nodes exactly as the
   painter does, so a stuck element also wins over the content it visibly covers. (#302)
 
 - **`position: sticky` no longer disappears once you scroll past one scrollport of content.** The
   clamp that keeps a stuck node inside its containing block measured that block with the scroll
   container's *visible* height instead of its scrolled content height, which dragged the node off
   the top and stopped it painting at all. Nothing to change in your markup. (#302)
+
+- **The Windows media backend finds external LibVLC beside a single-file application.** It now
+  resolves the RID-specific native directory beside `Environment.ProcessPath`, falling back to
+  `AppContext.BaseDirectory`, rather than assuming the extracted managed assembly directory.
+  This keeps the LGPL libraries replaceable and loadable even with all-content self-extraction.
 
 - **Maximizing a window on a secondary monitor no longer moves it to the primary one.** GLFW and
   SDL can inherit primary-monitor bounds when Windows asks their HWND for `WM_GETMINMAXINFO`, so
