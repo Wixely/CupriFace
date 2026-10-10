@@ -126,6 +126,9 @@ public sealed partial class CupriDocument : IDisposable
     private string? _panPath;
     private float _panX0, _panY0, _panScrollX0, _panScrollY0;
     private bool _panEngaged;
+    // OnRelease activation: what the press landed on, waiting to see whether it becomes a drag.
+    private string? _pendingActivation;
+    private float _pendingX, _pendingY;
     private const float PanSlopPx = 4f;
     private string? _scrollbarHotPath;  // the scrollbar the pointer is over (a path: the tree is rebuilt)
     private RenderNode? _scrollbarHotNode;
@@ -3118,16 +3121,26 @@ public sealed partial class CupriDocument : IDisposable
         _kbIndex = IndexOfFocusable(hit);
         _focusVisible = false;
 
-        // Built-in behaviour first (steppers, toggles, buttons, user handlers).
+        // Built-in behaviour first (steppers, toggles, buttons, user handlers) — unless this document
+        // confirms a click on the RELEASE, in which case the press only remembers where it landed
+        // and DispatchPointerUp decides, once it is known whether a drag happened.
         var label = Observing ? ControlName(hit) : null;
-        var handled = ActivateFrom(hit, x, y);
-        if (handled) Note(Interaction.InputAction.Activate, label);
-
-        // Clicking a checkbox/radio/switch's text label toggles the control (like <label>).
-        if (!handled && ActivateLabel(hit) is { } labelled)
+        var handled = false;
+        if (MouseActivation == Interaction.PointerActivation.OnRelease)
         {
-            _kbIndex = FocusableIndexOf(labelled); // continue Tab order from the toggled control
-            handled = true;
+            _pendingActivation = PathOf(hit); _pendingX = x; _pendingY = y;
+        }
+        else
+        {
+            handled = ActivateFrom(hit, x, y);
+            if (handled) Note(Interaction.InputAction.Activate, label);
+
+            // Clicking a checkbox/radio/switch's text label toggles the control (like <label>).
+            if (!handled && ActivateLabel(hit) is { } labelled)
+            {
+                _kbIndex = FocusableIndexOf(labelled); // continue Tab order from the toggled control
+                handled = true;
+            }
         }
 
         // If the click landed in a focused text field and nothing else consumed it, position the
@@ -3150,6 +3163,21 @@ public sealed partial class CupriDocument : IDisposable
         ReconcileScope(); // a click may have opened/closed an overlay → update the focus scope
         return handled || focusChanged || strayClosed || _activeChain.Count > 0;
     }
+
+    /// <summary>
+    /// When a mouse press activates what it landed on. <see cref="Interaction.PointerActivation.OnPress"/>
+    /// by default — unchanged behaviour, and the right one for an application that would rather
+    /// intercept the press itself.
+    ///
+    /// <para><see cref="Interaction.PointerActivation.OnRelease"/> makes a mouse down + up over the
+    /// same control the confirmed click, and a press that travels into a pan or a drag activates
+    /// nothing. That is exactly what touch has always done, so setting it makes a drag-to-pan
+    /// carousel behave the same under a finger and under a mouse.</para>
+    ///
+    /// <para>Focus, <c>:active</c> feedback and caret placement still happen on the press either
+    /// way — those are the press, not the click.</para>
+    /// </summary>
+    public Interaction.PointerActivation MouseActivation { get; set; } = Interaction.PointerActivation.OnPress;
 
     /// <summary>Note a press on a scroller that has opted into drag-to-pan, without consuming it.
     /// The element opts in with <c>data-drag-scroll</c>; <c>&lt;cupri-carousel&gt;</c> sets it on its
@@ -6611,8 +6639,38 @@ public sealed partial class CupriDocument : IDisposable
         if (_reorderItems is not null) { EndReorder(); return true; }
         if (_splitA is not null) { _splitA = null; _splitB = null; return true; }
         if (_colPath is not null) { _colPath = null; return true; }
+        var activated = ResolvePendingActivation();
         _panPath = null; _panEngaged = false;
-        _dragging = false; _dragSeek = null; _dragUndecided = false; _windowDrag = false; _textDrag = false; _scrollDrag = null; _resizeDrag = null; return ClearActive();
+        _dragging = false; _dragSeek = null; _dragUndecided = false; _windowDrag = false; _textDrag = false; _scrollDrag = null; _resizeDrag = null;
+        return ClearActive() | activated;
+    }
+
+    /// <summary>
+    /// The release half of <see cref="Interaction.PointerActivation.OnRelease"/>: activate what the
+    /// press landed on, unless the press turned into a pan or a drag.
+    ///
+    /// <para>Activation uses the PRESS coordinates, not the release ones — the pointer may have
+    /// wobbled inside the slop, and the user pressed what they first pointed at. That is the same
+    /// rule <c>TouchInput.Up</c> applies to a tap, deliberately, so the two paths cannot drift.</para>
+    /// </summary>
+    private bool ResolvePendingActivation()
+    {
+        if (_pendingActivation is not { } path) return false;
+        _pendingActivation = null;
+        if (_panEngaged || _textDrag || _dragging || _scrollDrag is not null || _resizeDrag is not null)
+            return false;                                   // it became a gesture, so it was never a click
+        if (NodeAtPath(path) is not { } hit) return false;  // the element went away under the press
+
+        var label = Observing ? ControlName(hit) : null;
+        var handled = ActivateFrom(hit, _pendingX, _pendingY);
+        if (handled) Note(Interaction.InputAction.Activate, label);
+        else if (ActivateLabel(hit) is { } labelled)
+        {
+            _kbIndex = FocusableIndexOf(labelled);
+            handled = true;
+        }
+        if (handled) Refresh();
+        return handled;
     }
 
     /// <summary>Scroll wheel: scroll the nearest scrollable element under the pointer by pixels.</summary>

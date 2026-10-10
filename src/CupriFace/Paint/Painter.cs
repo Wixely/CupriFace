@@ -565,17 +565,16 @@ public sealed class Painter
     // A collected position:sticky node and the origin it was reached at (its parent's painted top-left).
     private readonly record struct StickyItem(RenderNode Node, float OriginX, float OriginY);
 
-    // Paint a sticky node at its stuck position: it sticks `top` px below the scroll container's content
-    // top, but never scrolls above its natural place, and never past its containing block's bottom (so it
-    // rides out with the parent). scrollTop is the container's absolute content-box top.
+    // Paint a sticky node at its stuck position. The rule itself lives in HitTesting.StickyShiftY so
+    // that paint, hit-testing and ScreenBox cannot disagree about where a stuck node is — they used
+    // to, and a stuck header was then painted in one place and clicked in another.
     private void PaintSticky(DisplayList list, StickyItem it, float scrollTop, List<RenderNode> topLayer, bool inTopLayer)
     {
         var n = it.Node;
-        var natural = it.OriginY + n.Y;                                     // where the node scrolled to
-        var top = n.Style.Top.IsDefinite ? n.Style.Top.Resolve(0f) : 0f;
-        var parentBottom = it.OriginY + (n.Parent?.Height ?? n.Height);     // its containing block's bottom
-        var stuck = MathF.Min(MathF.Max(natural, scrollTop + top), parentBottom - n.Height);
-        PaintNode(list, n, it.OriginX, it.OriginY + (stuck - natural), topLayer, inTopLayer);
+        var dy = n.Parent is { } cb
+            ? Interaction.HitTesting.StickyShiftY(n, cb, it.OriginY, it.OriginY + n.Y, scrollTop)
+            : 0f;
+        PaintNode(list, n, it.OriginX, it.OriginY + dy, topLayer, inTopLayer);
     }
 
     private static void PaintText(DisplayList list, RenderNode node, float absX, float absY)

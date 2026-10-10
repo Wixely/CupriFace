@@ -53,3 +53,20 @@ public enum InputRoute
     /// whatever it would have done with a key nobody wanted.</summary>
     Ignore,
 }
+
+/// <summary>
+/// When a MOUSE press turns into activation. Touch is unaffected: a finger has always activated on
+/// release, because a press that becomes a scroll must not press what it began on.
+/// </summary>
+public enum PointerActivation
+{
+    /// <summary>On the press (the default, and what every release so far has done). The click has
+    /// already happened by the time a drag could cancel it, so an application that needs a drag to
+    /// take precedence intercepts the press itself.</summary>
+    OnPress,
+
+    /// <summary>On the release, and only if the press did not become a pan or a drag — a mouse
+    /// down + up over the same control is the confirmed click. This is the model touch already
+    /// uses, so a carousel behaves the same under a finger and under a mouse.</summary>
+    OnRelease,
+}

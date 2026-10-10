@@ -38,13 +38,65 @@ public static class HitTesting
         }
     }
 
-    private static RenderNode? Hit(RenderNode node, float originX, float originY, float x, float y, bool inTopLayer)
+    /// <summary>
+    /// How far a <c>position:sticky</c> node is pushed DOWN from where it would otherwise be, in
+    /// the same screen space the painter draws in.
+    ///
+    /// <para>This is the single definition of "where is a stuck node", and it is deliberately
+    /// shared: paint, hit-testing and <see cref="ScreenBox"/> each used to answer separately, and a
+    /// stuck header was painted in one place, clicked in another and reported to assistive tech in
+    /// a third.</para>
+    ///
+    /// <para><b>The containing block of a scroll container is its scrolled CONTENT, not its visible
+    /// box.</b> Clamping against the border-box height instead drags the node off the top of the
+    /// scrollport as soon as the scroll passes one scrollport's worth of content — the node stops
+    /// being painted at all, which reads as "sticky does not work" rather than as a clamp that is
+    /// one value wrong.</para>
+    ///
+    /// <para>Only <c>top</c> is honoured; a bottom-sticky node is not stuck.</para>
+    /// </summary>
+    /// <param name="cbOriginY">The containing block's border-box top, already shifted by its own
+    /// scroll — exactly the origin the painter passes its children.</param>
+    /// <param name="nodeY">Where the node sits with scrolling applied but no stickiness.</param>
+    /// <param name="portTop">The enclosing scrollport's padding-box top.</param>
+    internal static float StickyShiftY(RenderNode node, RenderNode containingBlock,
+                                       float cbOriginY, float nodeY, float portTop)
+    {
+        if (float.IsNegativeInfinity(portTop)) return 0f;          // nothing scrolls above it
+        var top = node.Style.Top.IsDefinite ? node.Style.Top.Resolve(0f) : 0f;
+        var wanted = portTop + top;
+        if (nodeY >= wanted) return 0f;                            // still in its natural place
+
+        var cbHeight = containingBlock.IsScrollable
+            ? containingBlock.ScrollContentHeight                  // the scrolled content
+            : containingBlock.ContentBoxHeight;
+        var maxShift = (cbOriginY + containingBlock.ContentTopInset + cbHeight - node.Height) - nodeY;
+        return MathF.Max(0f, MathF.Min(wanted - nodeY, maxShift)); // rides out with its block
+    }
+
+    private static RenderNode? Hit(RenderNode node, float originX, float originY, float x, float y, bool inTopLayer,
+                                    RenderNode? parent = null, float portTop = float.NegativeInfinity,
+                                    List<StickyHit>? stickyCollect = null)
     {
         if (node.Style.Display == DisplayType.None) return null;
         if (!inTopLayer && node.IsTopLayer) return null; // reached via the main pass — skip; tested in the overlay pass
 
+        // Deferred exactly as Painter defers it: a sticky node is lifted out of the normal walk and
+        // tested after its scroll container's content, because that is when it is PAINTED. Testing
+        // it in document order would let a later sibling that it visibly covers take the click.
+        if (stickyCollect is not null && node.Style.Position == PositionType.Sticky)
+        {
+            stickyCollect.Add(new StickyHit(node, originX, originY));
+            return null;
+        }
+
         var ax = originX + node.X;
         var ay = originY + node.Y;
+
+        // Stuck nodes are hit where they are PAINTED, not where they were laid out. Children ride
+        // along, because childOy is derived from ay below.
+        if (node.Style.Position == PositionType.Sticky && parent is not null)
+            ay += StickyShiftY(node, parent, originY, ay, portTop);
 
         // A transformed node PAINTS somewhere other than its layout box, so the pointer has to be
         // mapped into that box's space before anything is compared. Without this a scaled-up tile
@@ -100,6 +152,13 @@ public static class HitTesting
         }
         // Children of a scrolled element are shifted up by the scroll offset.
         var childOy = ay - (node.IsScrollable ? node.EffectiveScrollY : 0f);
+        // A scroll container is the scrollport its sticky descendants pin to (padding-box top,
+        // matching Painter); a non-scrolling node just passes the enclosing one through.
+        var childPortTop = node.IsScrollable ? ay + node.BorderTopW : portTop;
+        // A scroll container collects the sticky nodes beneath it; anything else passes the
+        // collector straight through, so a sticky node defers to its CONTAINER, not its parent.
+        var stickyOwn = node.IsScrollable ? new List<StickyHit>() : null;
+        var childSticky = node.IsScrollable ? stickyOwn : stickyCollect;
 
         // Paint clips descendants to the padding box whenever overflow is not visible. Keep the
         // element itself hittable in its border, but never descend to a child at a point where that
@@ -114,11 +173,21 @@ public static class HitTesting
         // pointer falls through whatever is visibly in front of it.
         foreach (var child in Paint.PaintOrder.Children(node))
         {
-            var hit = Hit(child, childOx, childOy, x, y, inTopLayer);
+            var hit = Hit(child, childOx, childOy, x, y, inTopLayer, node, childPortTop, childSticky);
             if (hit is not null) best = hit;
         }
+
+        // The deferred sticky pass, after the scrolled content it sits on top of.
+        if (stickyOwn is { Count: > 0 })
+            foreach (var it in stickyOwn)
+            {
+                var hit = Hit(it.Node, it.OriginX, it.OriginY, x, y, inTopLayer, it.Node.Parent, childPortTop);
+                if (hit is not null) best = hit;
+            }
         return best;
     }
+
+    private readonly record struct StickyHit(RenderNode Node, float OriginX, float OriginY);
 
     // Painter clips overflow to this same rounded padding box. The node itself still owns its
     // rectangular border box, but descendants in a visually cut-away corner must not receive input.
@@ -171,14 +240,30 @@ public static class HitTesting
     /// WOULD be unscrolled; this is where it IS.)</summary>
     private static (float X, float Y) Origin(RenderNode node)
     {
-        float x = 0, y = 0;
+        // Walked ROOT-DOWN rather than node-up, because a sticky node's shift depends on the
+        // scrollport above it — and because a stuck ANCESTOR carries its whole subtree with it,
+        // which a bottom-up accumulation cannot see.
+        var chain = new List<RenderNode>();
         for (var n = node; n is not null; n = n.Parent)
         {
+            chain.Add(n);
+            if (n.IsTopLayer) break;
+        }
+        chain.Reverse();
+
+        float x = 0, y = 0, portTop = float.NegativeInfinity;
+        RenderNode? parent = null;
+        foreach (var n in chain)
+        {
+            var originY = y;
+            if (parent is { IsScrollable: true } p) { y -= p.EffectiveScrollY; originY = y; }
+            if (parent is { IsScrollableX: true } px) x -= px.EffectiveScrollX;
             x += n.X;
             y += n.Y;
-            if (n.IsTopLayer) break;
-            if (n.Parent is { IsScrollable: true } p) y -= p.EffectiveScrollY;
-            if (n.Parent is { IsScrollableX: true } px) x -= px.EffectiveScrollX;
+            if (n.Style.Position == PositionType.Sticky && parent is not null)
+                y += StickyShiftY(n, parent, originY, y, portTop);
+            if (n.IsScrollable) portTop = y + n.BorderTopW;
+            parent = n;
         }
         return (x, y);
     }
