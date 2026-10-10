@@ -239,6 +239,8 @@ public static class DesktopHost
             // actions on this UI thread, and publishing a semantics snapshot after each drawn
             // frame — the subscription order after Draw is what sequences that. No-ops on a
             // platform without a bridge, under its kill switch, or if attaching failed.
+            using var monitorMaximize = new WindowsMonitorMaximize();
+            window.Tick += () => monitorMaximize.Attach(window.Win32Hwnd);
             using var a11y = new Accessibility.PlatformAccessibility(doc, () => dirty = true, app.Title);
             window.Tick += () => { if (a11y.Tick(() => OperatingSystem.IsMacOS() ? window.CocoaWindow : window.Win32Hwnd)) dirty = true; };
             // T, not P: an AT is told where things are in PHYSICAL screen pixels, so the monitor's
@@ -391,6 +393,8 @@ public static class DesktopHost
             // The same bridge on the software window — this is the path GL-less machines (RDP,
             // VMs, CI runners, and every headless Linux box) actually take, so assistive tech
             // must work here, not only on GL.
+            using var monitorMaximize = new WindowsMonitorMaximize();
+            window.Tick += () => monitorMaximize.Attach(window.Win32Hwnd);
             using var a11y = new Accessibility.PlatformAccessibility(doc, () => dirty = true, app.Title);
             window.Tick += () => { if (a11y.Tick(() => OperatingSystem.IsMacOS() ? window.CocoaWindow : window.Win32Hwnd)) dirty = true; };
             using var tray = new WindowsTrayIcon(app.CloseToTray, app.Title, app.TrayCloseLabel);
