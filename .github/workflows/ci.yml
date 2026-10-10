@@ -1771,6 +1771,7 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           for proj in src/CupriFace/CupriFace.csproj src/CupriFace.Shell/CupriFace.Shell.csproj \
                       src/CupriFace.Media/CupriFace.Media.csproj \
+                      src/CupriFace.Media.Windows/CupriFace.Media.Windows.csproj \
                       src/CupriFace.Lottie/CupriFace.Lottie.csproj \
                       src/CupriFace.Svg/CupriFace.Svg.csproj \
                       src/CupriFace.Gl/CupriFace.Gl.csproj \
@@ -1800,6 +1801,54 @@ jobs:
             grep -q 'runtimes/win-x64/native/cupricodecs.dll' pkg.txt \
               || { echo "::error::CupriFace.Media packed without its win-x64 codec native"; cat pkg.txt; exit 1; }
           fi
+          # The Windows media package is MIT; its separately distributed VideoLAN dependencies are
+          # LGPL. Ship the distinction, the full licence, source locations and the transitive rule
+          # that keeps those libraries replaceable in a single-file consuming application.
+          WINDOWS_MEDIA_PKG="dist/CupriFace.Media.Windows.$VERSION.nupkg"
+          unzip -l "$WINDOWS_MEDIA_PKG" > windows-media-pkg.txt
+          for path in THIRD-PARTY-NOTICES.md \
+                      licenses/third-party/LibVLC-LGPL-2.1-or-later.txt \
+                      buildTransitive/CupriFace.Media.Windows.targets; do
+            grep -q "$path" windows-media-pkg.txt || {
+              echo "::error::CupriFace.Media.Windows packed without $path"
+              cat windows-media-pkg.txt; exit 1
+            }
+          done
+          unzip -p "$WINDOWS_MEDIA_PKG" buildTransitive/CupriFace.Media.Windows.targets > windows-media.targets
+          grep -q 'ExcludeFromSingleFile' windows-media.targets || {
+            echo "::error::CupriFace.Media.Windows lost its LGPL single-file exclusion"
+            cat windows-media.targets; exit 1
+          }
+          unzip -p "$WINDOWS_MEDIA_PKG" CupriFace.Media.Windows.nuspec > windows-media.nuspec
+          grep -q '<license type="expression">MIT</license>' windows-media.nuspec || {
+            echo "::error::CupriFace.Media.Windows is not explicitly packed as MIT"
+            cat windows-media.nuspec; exit 1
+          }
+          unzip -p "$WINDOWS_MEDIA_PKG" THIRD-PARTY-NOTICES.md > windows-media-notices.md
+          grep -q 'vlc-3.0.24.tar.xz' windows-media-notices.md || {
+            echo "::error::CupriFace.Media.Windows lost its corresponding-source location"
+            cat windows-media-notices.md; exit 1
+          }
+          dotnet new console --framework net10.0 --output windows-media-consumer
+          dotnet add windows-media-consumer package CupriFace.Media.Windows --version "$VERSION" \
+            --source "$PWD/dist" --source https://api.nuget.org/v3/index.json
+          dotnet publish windows-media-consumer -c Release -r win-x64 --self-contained false \
+            --no-restore -p:PublishSingleFile=true -p:IncludeAllContentForSelfExtract=true \
+            -o windows-media-publish
+          for path in LibVLCSharp.dll \
+                      libvlc/win-x64/libvlc.dll \
+                      libvlc/win-x64/libvlccore.dll \
+                      THIRD-PARTY-NOTICES/CupriFace.Media.Windows.md \
+                      licenses/third-party/LibVLC-LGPL-2.1-or-later.txt; do
+            test -f "windows-media-publish/$path" || {
+              echo "::error::Single-file consumer did not keep $path separate"
+              find windows-media-publish -maxdepth 4 -type f; exit 1
+            }
+          done
+          find windows-media-publish/libvlc/win-x64/plugins -type f -print -quit | grep -q . || {
+            echo "::error::Single-file consumer did not receive LibVLC plugins"
+            exit 1
+          }
           # Same shape of check, same reason: CupriFace.Gl's whole ask of a consumer's build is one
           # DirectPInvoke line on wasm, and a nupkg that dropped buildTransitive would restore
           # cleanly and then throw PlatformNotSupportedException inside a browser frame loop —
@@ -1838,6 +1887,38 @@ jobs:
             echo "$pkg: $path carries $needle"
           done
           ls -l dist
+
+      # We redistribute the LGPL VideoLAN binaries through CupriFace.Media.Windows, so every
+      # durable binary release also carries the matching source. Download immutable revisions,
+      # verify their pinned hashes, and only then move them into dist/ for the release uploader.
+      - name: Attach LGPL corresponding source
+        run: |
+          set -euo pipefail
+          mkdir -p corresponding-source
+          fetch_source() {
+            local name="$1" url="$2" sha256="$3"
+            curl --fail --location --retry 5 --retry-all-errors \
+              --output "corresponding-source/$name" "$url"
+            printf '%s  %s\n' "$sha256" "corresponding-source/$name" | sha256sum --check -
+          }
+          fetch_source \
+            CupriFace.Media.Windows-source-LibVLCSharp-3.10.1-4896d0e06d19ac40b46802cf7dc167d432f3fd63.tar.gz \
+            'https://code.videolan.org/api/v4/projects/187/repository/archive.tar.gz?sha=4896d0e06d19ac40b46802cf7dc167d432f3fd63' \
+            55bb5237772b5ee696240d9ffff3c1349ef60abf765d0f203b458746f2aa6a87
+          fetch_source \
+            CupriFace.Media.Windows-source-VLC-3.0.24.tar.xz \
+            'https://download.videolan.org/pub/videolan/vlc/3.0.24/vlc-3.0.24.tar.xz' \
+            e7cab503d1d7d5849b89d2cf0e1ee60d0ef6d012407791b644b9cfc0cc225fdf
+          fetch_source \
+            CupriFace.Media.Windows-source-libvlc-nuget-3.0.24-7ce6314cbe902feccc6a3c94714fc867cfd6a6c6.tar.gz \
+            'https://code.videolan.org/api/v4/projects/442/repository/archive.tar.gz?sha=7ce6314cbe902feccc6a3c94714fc867cfd6a6c6' \
+            29c5109ca4689d0c8f9fcb5fe415e292a97929051eaa80850f93dc00c6d6ba2e
+          test "$(find corresponding-source -maxdepth 1 -type f | wc -l)" -eq 3 || {
+            echo "::error::expected three LGPL corresponding-source archives"
+            find corresponding-source -maxdepth 1 -type f; exit 1
+          }
+          mv corresponding-source/* dist/
+          ls -lh dist/CupriFace.Media.Windows-source-*
 
       # Attaching nupkgs to a release makes them downloadable; it does not make them INSTALLABLE.
       # GitHub Packages is a real NuGet feed, so a consumer adds one source and gets `dotnet add
@@ -1894,6 +1975,12 @@ jobs:
           | `CupriFace.Web.NativeAot` | **The recommended browser host** — `WebHost.Run(new MyApp())` on a canvas, compiled ahead of time. Frame loop, input, touch, the ARIA mirror, IME, clipboard, browser-decoded video. No Blazor, no JS to write. ~8x quicker to interact with than the Mono host for the same download; needs the experimental dotnet/runtimelab ILC feed, which your app declares, and builds on x64 Windows and x64/arm64 Linux. |
           | `CupriFace.Web.Mono` | The same browser host on the SDK's own wasm runtime — identical `WebHost.Run` API, builds anywhere `dotnet publish` runs, no preview feed. The engine runs interpreted, so it is the fallback when the recommended host's build requirements do not fit. |
           | `CupriFace.Media` | Optional: WebM (VP9 + Opus) playback for `<cupri-video>`, decoders included for every desktop RID. |
+          | `CupriFace.Media.Windows` | Optional: Windows LibVLC/D3D11VA playback for `<cupri-video>`. CupriFace remains MIT; the separately shipped VideoLAN components are LGPL-2.1-or-later. |
+
+          The three `CupriFace.Media.Windows-source-*` assets are the matching corresponding source
+          for the VideoLAN binaries distributed by `CupriFace.Media.Windows`: LibVLCSharp, VLC, and
+          the native NuGet packaging/build scripts. Keep the package's third-party notice and LGPL
+          text with any application distribution that includes those binaries.
 
           These are also published to **GitHub Packages**, which is a real NuGet feed — so rather
           than downloading a file, add the source once and install normally:

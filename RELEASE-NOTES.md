@@ -22,6 +22,23 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   GPU alpha, and composited output. Acceptance captures now reject obscured backdrops
   and indistinguishable panels. This is diagnostic tooling, not a transparency fix.
 
+- **`CupriFace.Media.Windows` provides optional LibVLC/D3D11VA playback for Windows applications.**
+  Reference the package, keep the backend alive for the host lifetime, and register it with
+  `document.UseVideo(video)`. The backend streams HTTPS sources directly, renders into a
+  host-composited child window and uses a black native-video background. The package remains MIT
+  licensed, carries pinned LibVLC dependencies with their LGPL notice, licence text and
+  corresponding-source links, and keeps those
+  dependencies separate and replaceable even in a consuming application's single-file publish.
+  Every GitHub release also carries the pinned VideoLAN corresponding-source archives beside the
+  binary and NuGet assets.
+
+- **Chrome painted over a host-composited surface must be marked `data-surface-overlay`.** A
+  host-composited surface (the web host's underlaid `<video>`, a native video window) is presented
+  on top of everything the engine paints, so an overlay control bar inside the element would be
+  invisible there. Mark it and the host shortens the surface by the bar's **laid-out** height,
+  keeping the strip for the engine. `<cupri-video controls>` does this for you; mark your own
+  element's chrome if it supplies a host-composited surface. See DESIGN.md §7.5.1.
+
 ### Fixed
 
 - **Maximizing a window on a secondary monitor no longer moves it to the primary one.** GLFW and
@@ -1477,7 +1494,6 @@ at anything with tracked headings or all-caps labels.
 
   A declared `width`/`height` still wins over an opposite offset, as in CSS, and a single offset
   still positions without sizing — so nothing that was already laid out correctly moves.
-
 
 - **`letter-spacing` is implemented (#202).** Tracking — negative on a large display heading so the
   letters close up, positive and wide on a small all-caps label. It was reported by `CF0050` and

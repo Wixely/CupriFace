@@ -8,7 +8,8 @@ namespace CupriFace.Tests;
 /// <summary>
 /// <c>&lt;cupri-video&gt;</c> + the document's video wiring, against a fake backend: player
 /// lifecycle follows the DOM, transport commands ride input dispatch synchronously, and the
-/// autoplay policy is the web's rule on every host (autoplay only when muted).
+/// autoplay policy is browser-safe by default (autoplay only when muted), with an explicit native
+/// opt-in for audible autoplay.
 /// </summary>
 public class VideoComponentTests
 {
@@ -103,7 +104,7 @@ public class VideoComponentTests
     }
 
     [Fact]
-    public void Autoplay_is_honored_only_with_muted_on_every_host()
+    public void Autoplay_is_muted_by_default_but_native_hosts_can_opt_into_audio()
     {
         var backend = new FakeBackend();
         using (var t = new TestDoc(Html, "", components: true))
@@ -122,6 +123,16 @@ public class VideoComponentTests
             t2.Doc.UseVideo(backend2);
             t2.Layout();
             Assert.False(backend2.Players["clip.webm"].Playing); // unmuted autoplay: stays paused
+        }
+
+        var nativeBackend = new FakeBackend();
+        using (var native = new TestDoc("<body><cupri-video src='clip.webm' autoplay></cupri-video></body>", "", components: true))
+        {
+            native.Doc.AllowUnmutedVideoAutoplay = true;
+            native.Doc.UseVideo(nativeBackend);
+            native.Layout();
+            Assert.False(nativeBackend.Players["clip.webm"].Muted);
+            Assert.True(nativeBackend.Players["clip.webm"].Playing);
         }
     }
 

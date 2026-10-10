@@ -463,6 +463,10 @@ public sealed partial class CupriDocument : IDisposable
     private int _videoStateChanged; // set (any thread) by Ended → consumed on the UI thread
     private string? _fullscreenVideo; // src of the video currently element-fullscreened (web model: one at most)
 
+    /// <summary>Allow an unmuted video with <c>autoplay</c> to start immediately. The default is
+    /// false because browsers reject audible autoplay; native applications may opt in explicitly.</summary>
+    public bool AllowUnmutedVideoAutoplay { get; set; }
+
     /// <summary>Register the video backend (host composition root — see <see cref="Media.IVideoBackend"/>).</summary>
     private List<Action<AngleSharp.Dom.IDocument>>? _rebuiltHandlers;
 
@@ -549,9 +553,10 @@ public sealed partial class CupriDocument : IDisposable
         player.Ended += () => System.Threading.Interlocked.Exchange(ref _videoStateChanged, 1);
         player.Loop = el.HasAttribute("data-video-loop");
         player.Muted = el.HasAttribute("data-video-muted");
-        // The autoplay policy every host shares (the web cannot do otherwise, so nobody does):
-        // autoplay starts only when muted; unmuted autoplay stays on the poster's play button.
-        if (el.HasAttribute("data-video-autoplay") && player.Muted) player.Play();
+        // Browsers reject audible autoplay, so muted remains the portable default. A native app can
+        // explicitly allow audible autoplay without weakening the default used by web hosts.
+        if (el.HasAttribute("data-video-autoplay") && (player.Muted || AllowUnmutedVideoAutoplay))
+            player.Play();
         return player;
     }
 

@@ -111,6 +111,97 @@ public class SurfaceTests
         public bool HostComposited => Ready;
     }
 
+    private sealed class HostSurface : IHostCompositedSurfaceSource
+    {
+        public SKImage? CurrentFrame => null;
+        public (int W, int H)? NaturalSize => (100, 60);
+        public bool Ticking => false;
+        public bool HostComposited => true;
+        public int Attached { get; private set; }
+        public int Arranged { get; private set; }
+        public int Detached { get; private set; }
+        public void Attach(IHostSurfaceContext context) => Attached++;
+        public void Arrange(HostSurfacePlacement placement) => Arranged++;
+        public void Detach() => Detached++;
+    }
+
+    [Fact]
+    public void Overlay_chrome_shortens_a_host_composited_surface_by_its_measured_height()
+    {
+        // A host-composited surface is presented OVER everything the engine paints, so engine
+        // chrome inside the element has to be excluded from the box the host is given.
+        using var t = new TestDoc("""
+            <body><div class='pic' style='width:320px;height:180px;position:relative'>
+              <div class='bar' data-surface-overlay></div>
+            </div></body>
+            """, ".bar { position:absolute; left:0; right:0; bottom:0; height:44px; }");
+        t.Layout();
+        var pic = t.Find(n => n.Element?.ClassList.Contains("pic") == true)!;
+
+        Assert.Equal(44f, HostSurfaceGeometry.OverlayBottomInset(pic, 0, 180), 1);
+    }
+
+    [Fact]
+    public void Overlay_inset_follows_the_stylesheet_rather_than_a_constant()
+    {
+        // The whole point of measuring: restyle the bar and the native surface moves with it.
+        using var t = new TestDoc("""
+            <body><div class='pic' style='width:320px;height:180px;position:relative'>
+              <div class='bar' data-surface-overlay></div>
+            </div></body>
+            """, ".bar { position:absolute; left:0; right:0; bottom:0; height:72px; }");
+        t.Layout();
+        var pic = t.Find(n => n.Element?.ClassList.Contains("pic") == true)!;
+
+        Assert.Equal(72f, HostSurfaceGeometry.OverlayBottomInset(pic, 0, 180), 1);
+    }
+
+    [Fact]
+    public void Overlay_chrome_that_is_not_on_the_bottom_edge_is_overdrawn_rather_than_guessed_at()
+    {
+        // Shortening the box cannot resolve a floating overlay, so it must not pretend to.
+        using var t = new TestDoc("""
+            <body><div class='pic' style='width:320px;height:180px;position:relative'>
+              <div class='bar' data-surface-overlay></div>
+            </div></body>
+            """, ".bar { position:absolute; left:0; right:0; top:20px; height:44px; }");
+        t.Layout();
+        var pic = t.Find(n => n.Element?.ClassList.Contains("pic") == true)!;
+
+        Assert.Equal(0f, HostSurfaceGeometry.OverlayBottomInset(pic, 0, 180), 1);
+    }
+
+    [Fact]
+    public void A_video_marks_its_control_bar_as_overlay_chrome_only_when_it_has_one()
+    {
+        using var withBar = new TestDoc(
+            "<body><cupri-video src='c.webm' controls style='width:320px;height:180px'></cupri-video></body>",
+            "", components: true);
+        withBar.Layout();
+        var bar = withBar.Find(n => n.Element?.HasAttribute("data-surface-overlay") == true);
+        Assert.NotNull(bar);
+
+        // controls="false" is absent-by-Flag, so there is no bar AND nothing to inset for — the
+        // two have to agree, or the surface is shortened for chrome that was never rendered.
+        using var off = new TestDoc(
+            "<body><cupri-video src='c.webm' controls='false' style='width:320px;height:180px'></cupri-video></body>",
+            "", components: true);
+        off.Layout();
+        Assert.Null(off.Find(n => n.Element?.HasAttribute("data-surface-overlay") == true));
+        var video = off.Find(n => n.Element?.HasAttribute("data-cupri-video") == true)!;
+        Assert.Equal(0f, HostSurfaceGeometry.OverlayBottomInset(video, 0, 180), 1);
+    }
+
+    [Fact]
+    public void Host_composited_surface_contract_is_independent_of_platform_handles()
+    {
+        var surface = new HostSurface();
+        Assert.IsAssignableFrom<ISurfaceSource>(surface);
+        Assert.True(surface.HostComposited);
+        Assert.DoesNotContain(typeof(IHostCompositedSurfaceSource).GetMethods(),
+            method => method.GetParameters().Any(parameter => parameter.ParameterType == typeof(nint)));
+    }
+
     [Fact]
     public void A_host_composited_surface_punches_a_transparent_hole_and_suppresses_the_poster()
     {
