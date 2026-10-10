@@ -176,7 +176,9 @@ public class VideoComponentTests
         var backend = new FakeBackend();
         using var t = new TestDoc(Html, "", components: true);
         VideoPlaybackState? observed = null;
+        string? endedSource = null;
         t.Doc.VideoPlaybackStateChanged += state => observed = state;
+        t.Doc.VideoEnded += source => endedSource = source;
         t.Doc.UseVideo(backend);
         t.Layout();
         var player = backend.Players["clip.webm"];
@@ -197,6 +199,36 @@ public class VideoComponentTests
         Assert.Equal(6.5, observed.PositionSeconds);
         Assert.Equal(2, observed.AudioTrackId);
         Assert.Equal(4, observed.SubtitleTrackId);
+        // The end is reported by the player on ITS thread, and handed on by the host's pump — which
+        // is what makes a handler free to touch the document and start the next item.
+        player.RaiseEnded();
+        Assert.Null(endedSource);
+        Assert.True(t.Doc.ConsumeImageArrived());
+        Assert.Equal("clip.webm", endedSource);
+    }
+
+    [Fact]
+    public void A_video_that_ends_is_reported_once_per_ending_and_not_again()
+    {
+        var backend = new FakeBackend();
+        using var t = new TestDoc(Html, "", components: true);
+        var ends = new List<string>();
+        t.Doc.VideoEnded += ends.Add;
+        t.Doc.UseVideo(backend);
+        t.Layout();
+        var player = backend.Players["clip.webm"];
+
+        player.RaiseEnded();
+        t.Doc.ConsumeImageArrived();
+        Assert.Equal(["clip.webm"], ends);
+
+        // A pump with nothing waiting must not replay the last ending.
+        t.Doc.ConsumeImageArrived();
+        Assert.Equal(["clip.webm"], ends);
+
+        player.RaiseEnded();
+        t.Doc.ConsumeImageArrived();
+        Assert.Equal(["clip.webm", "clip.webm"], ends);
     }
 
     [Fact]
@@ -308,7 +340,12 @@ public class VideoComponentTests
         var visibleTooltip = t.Find(n => n.Element?.ClassList.Contains("cupri-video-chapter-tooltip") == true &&
                                          n.Element.TextContent == "The middle")!;
         Assert.Equal(CupriFace.Style.PositionType.Fixed, visibleTooltip.Style.Position);
+        Assert.True(visibleTooltip.Element!.HasAttribute("data-surface-occluder"),
+            "the tooltip must cut through a native child-window video surface");
         Assert.NotNull(visibleTooltip.Element!.GetAttribute("data-cupri-anchor"));
+        var video = t.Find(n => n.Element?.HasAttribute("data-cupri-video") == true)!;
+        var (videoX, videoY, videoWidth, videoHeight) = Interaction.HitTesting.ScreenBox(video);
+        Assert.NotEmpty(HostSurfaceGeometry.GetOcclusions(t.Doc.Root, videoX, videoY, videoWidth, videoHeight));
         t.ClickMatch(n => n.Element?.GetAttribute("data-video-chapter-title") == "The middle");
         Assert.InRange(backend.Players["clip.webm"].Position, 4.5, 5.5);
         Assert.False(backend.Players["clip.webm"].Playing);

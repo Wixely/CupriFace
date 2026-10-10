@@ -466,6 +466,9 @@ public sealed partial class CupriDocument : IDisposable
     private string? _videoTrackPanelSource;
     private string? _videoChapterPanelSource;
     private int _videoStateChanged; // set (any thread) by Ended → consumed on the UI thread
+    // …and WHICH source ended, because the consumer below iterates every player and would not
+    // otherwise know. Written on the player's thread, drained on the UI one.
+    private readonly System.Collections.Concurrent.ConcurrentQueue<string> _videoEndedSources = new();
     private string? _fullscreenVideo; // src of the video currently element-fullscreened (web model: one at most)
 
     /// <summary>Allow an unmuted video with <c>autoplay</c> to start immediately. The default is
@@ -512,6 +515,20 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>Raised on the UI thread when transport, position, volume, or selected tracks change.
     /// Applications can persist this portable snapshot without depending on a concrete backend.</summary>
     public event Action<Media.VideoPlaybackState>? VideoPlaybackStateChanged;
+
+    /// <summary>
+    /// Raised on the UI thread when a video reaches its natural end, carrying its <c>src</c>.
+    ///
+    /// <para>A backend reports the end on whatever thread it decodes on, so this is deferred to the
+    /// same pump that already reacts to it (<see cref="ConsumeImageArrived"/>) rather than handed
+    /// straight on. Starting the next item in a playlist is the whole point of this event, and
+    /// doing that means touching the document — which from a decoder thread takes the process down
+    /// rather than failing cleanly.</para>
+    ///
+    /// <para>It is raised BEFORE the rebuild that follows, so a handler that swaps the source has
+    /// it reflected in the same frame instead of the next one.</para>
+    /// </summary>
+    public event Action<string>? VideoEnded;
 
     public Media.VideoPlaybackState? GetVideoPlaybackState(string source) =>
         _videoPlayers.TryGetValue(source, out var player) ? SnapshotVideoState(source, player) : null;
@@ -701,7 +718,12 @@ public sealed partial class CupriDocument : IDisposable
 
         _videoPlayers[src] = player;
         Surfaces.Register("video:" + src, player.Surface);
-        player.Ended += () => System.Threading.Interlocked.Exchange(ref _videoStateChanged, 1);
+        player.Ended += () =>
+        {
+            // Enqueued BEFORE the flag, so the pump can never see the flag without the source.
+            _videoEndedSources.Enqueue(src);
+            System.Threading.Interlocked.Exchange(ref _videoStateChanged, 1);
+        };
         if (player is Media.IVideoTrackSelector tracks)
         {
             tracks.TracksChanged += () =>
@@ -836,6 +858,7 @@ public sealed partial class CupriDocument : IDisposable
         {
             foreach (var (src, player) in _videoPlayers)
                 NotifyVideoPlaybackState(src, player);
+            while (_videoEndedSources.TryDequeue(out var ended)) VideoEnded?.Invoke(ended);
             Refresh();
             return true;
         }

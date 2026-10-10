@@ -17,6 +17,12 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **Video completion is observable.** Subscribe to `VideoEnded` to start follow-on playback after a
+  source reaches its natural end. It is raised **on the UI thread**, just before the rebuild that
+  follows, so a handler may swap the source directly and have it land in the same frame — no `Post`
+  needed. Chapter hover tooltips also cut through native video surfaces when chapter controls are
+  enabled.
+
 - **Video playback state has an application persistence boundary.** Subscribe to
   `VideoPlaybackStateChanged` to store position, duration, transport, volume, mute, and selected
   track IDs without depending on a concrete decoder. Reapply a snapshot with
