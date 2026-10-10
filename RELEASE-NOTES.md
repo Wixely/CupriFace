@@ -95,6 +95,18 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **`overflow: scroll` now scrolls CROSS-axis overflow.** In a flex row the vertical axis is the
+  cross axis, and a child taller than the line added nothing to the scroll extent — so the box
+  reported itself unscrollable, took no wheel, and painted its content straight out of itself with
+  neither a scrollbar nor a clip to show for it. The children's own boxes are measured now, the way
+  the horizontal extent already was. Nothing to change in your markup. (#300)
+
+- **A video's track context menu no longer hides behind the native video window.** `<cupri-video
+  tracks>` builds its own menu markup and was missing the `data-surface-occluder` marker that makes
+  a host-composited surface stand down, so on the Windows backend the menu was painted underneath
+  the picture. Every context menu the toolbox builds now carries it, and a test asserts that for all
+  of them rather than for the one that was reported. (#305)
+
 - **The companion video track selector now uses contained audio/subtitle tables.** Long track labels
   no longer paint into neighbouring choices, its default trigger reads `Audio / Video`, and selecting
   a track leaves the panel open for further changes. Long unbroken names wrap within the Track column,

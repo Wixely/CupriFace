@@ -279,7 +279,26 @@ public sealed class LayoutEngine
         node.Height = contentH + node.VerticalInsets;
 
         // Scroll: remember the full children extent (ScrollY is preserved across layouts).
-        node.ScrollContentHeight = !node.IsText && s.Overflow == OverflowMode.Scroll ? usedH : 0f;
+        //
+        // The flow total alone is not that extent. In a flex ROW the vertical axis is the CROSS
+        // axis, and a child taller than the line does not add to it — so a 500px card in a 200px
+        // row reported 200, scrolled nowhere, and painted straight out of the box with no
+        // scrollbar and no clip to show for it (#300). The children's own boxes are measured for
+        // the same reason the width below is, and the larger of the two wins: flow still answers
+        // for content that is not a box of its own, such as text.
+        node.ScrollContentHeight = 0f;
+        if (!node.IsText && s.Overflow == OverflowMode.Scroll)
+        {
+            var bottom = 0f;
+            foreach (var child in node.Children)
+            {
+                if (child.Style.Display == DisplayType.None) continue;
+                if (child.Style.Position is PositionType.Fixed) continue;
+                bottom = MathF.Max(bottom, child.Y + child.Height + child.MarginBottom);
+            }
+            // Child Y is relative to this node's border box; the content box starts after the inset.
+            node.ScrollContentHeight = MathF.Max(usedH, MathF.Max(0, bottom - node.ContentTopInset));
+        }
 
         // …and the same on the other axis, so a box whose content is WIDER than it is can scroll
         // sideways. Measured from the children's own boxes rather than a flow total, because
