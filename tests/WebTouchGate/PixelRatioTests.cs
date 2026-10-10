@@ -48,7 +48,13 @@ public class PixelRatioTests(WebHostFixture host)
     {
         var page = await host.PhoneAsync();
         await page.SetViewportSizeAsync(360, 640);
-        await page.WaitForFunctionAsync("() => document.getElementById('cupri').clientWidth === 360");
+        // Wait for the BACKING STORE, not just the CSS box. clientWidth reaches 360 as soon as the
+        // browser has laid the page out, while the buffer is resized by the engine on its next
+        // frame — and between those two moments the ratio is the OLD buffer over the NEW box. That
+        // is 824/360 = 2.2889 on this fixture (412 CSS at the ceiling of 2), which is exactly what
+        // this test failed with once before the wait was widened.
+        await page.WaitForFunctionAsync(
+            "() => { const c = document.getElementById('cupri'); return c.clientWidth === 360 && c.width === 720; }");
 
         Assert.Equal(2.0, await page.EvaluateAsync<double>(MeasureFn), 3);
         Assert.Equal(720, await page.EvaluateAsync<int>("() => document.getElementById('cupri').width"));
