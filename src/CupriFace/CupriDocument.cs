@@ -469,6 +469,10 @@ public sealed partial class CupriDocument : IDisposable
     // …and WHICH source ended, because the consumer below iterates every player and would not
     // otherwise know. Written on the player's thread, drained on the UI one.
     private readonly System.Collections.Concurrent.ConcurrentQueue<string> _videoEndedSources = new();
+    // The same, for tracks and chapters appearing. Both are announced by the backend whenever it
+    // finishes parsing, which is its thread and not ours.
+    private readonly System.Collections.Concurrent.ConcurrentQueue<string> _videoTracksFound = new();
+    private readonly System.Collections.Concurrent.ConcurrentQueue<string> _videoChaptersFound = new();
     private string? _fullscreenVideo; // src of the video currently element-fullscreened (web model: one at most)
 
     /// <summary>Allow an unmuted video with <c>autoplay</c> to start immediately. The default is
@@ -504,12 +508,19 @@ public sealed partial class CupriDocument : IDisposable
         return this;
     }
 
-    /// <summary>Raised when a video's backend discovers or changes its selectable media tracks.
-    /// The callback may arrive from a decoder thread; use <see cref="Post"/> before changing UI state.</summary>
+    /// <summary>
+    /// Raised on the UI thread when a video's backend discovers or changes its selectable media
+    /// tracks, carrying its <c>src</c>. Deferred to <see cref="ConsumeImageArrived"/> for the same
+    /// reasons as <see cref="VideoEnded"/>, and for one more: a backend that already knows its
+    /// tracks announces them while the player is being opened, which happens DURING a rebuild —
+    /// so a handler that called <see cref="Refresh"/> used to re-enter the rebuild it was raised
+    /// from. The cost is that this first notification now arrives a frame later than it did.
+    /// </summary>
     public event Action<string>? VideoTracksChanged;
 
-    /// <summary>Raised when a video's backend discovers chapters or changes the current chapter.
-    /// The callback may arrive from a decoder thread; use <see cref="Post"/> before changing UI state.</summary>
+    /// <inheritdoc cref="VideoTracksChanged"/>
+    /// <summary>Raised on the UI thread when a video's backend discovers chapters or changes the
+    /// current chapter. Same deferral, same reasons.</summary>
     public event Action<string>? VideoChaptersChanged;
 
     /// <summary>Raised on the UI thread when transport, position, volume, or selected tracks change.
@@ -529,6 +540,14 @@ public sealed partial class CupriDocument : IDisposable
     /// it reflected in the same frame instead of the next one.</para>
     /// </summary>
     public event Action<string>? VideoEnded;
+
+    /// <summary>Record a notice for the UI thread to hand on. Enqueued BEFORE the flag, so the
+    /// pump can never find the flag set with nothing behind it.</summary>
+    private void QueueVideoNotice(System.Collections.Concurrent.ConcurrentQueue<string> queue, string src)
+    {
+        queue.Enqueue(src);
+        System.Threading.Interlocked.Exchange(ref _videoStateChanged, 1);
+    }
 
     public Media.VideoPlaybackState? GetVideoPlaybackState(string source) =>
         _videoPlayers.TryGetValue(source, out var player) ? SnapshotVideoState(source, player) : null;
@@ -718,30 +737,17 @@ public sealed partial class CupriDocument : IDisposable
 
         _videoPlayers[src] = player;
         Surfaces.Register("video:" + src, player.Surface);
-        player.Ended += () =>
-        {
-            // Enqueued BEFORE the flag, so the pump can never see the flag without the source.
-            _videoEndedSources.Enqueue(src);
-            System.Threading.Interlocked.Exchange(ref _videoStateChanged, 1);
-        };
+        player.Ended += () => QueueVideoNotice(_videoEndedSources, src);
         if (player is Media.IVideoTrackSelector tracks)
         {
-            tracks.TracksChanged += () =>
-            {
-                System.Threading.Interlocked.Exchange(ref _videoStateChanged, 1);
-                VideoTracksChanged?.Invoke(src);
-            };
+            tracks.TracksChanged += () => QueueVideoNotice(_videoTracksFound, src);
             if (tracks.AudioTracks.Count > 0 || tracks.SubtitleTracks.Count > 0)
-                VideoTracksChanged?.Invoke(src);
+                QueueVideoNotice(_videoTracksFound, src);
         }
         if (player is Media.IVideoChapterProvider chapters)
         {
-            chapters.ChaptersChanged += () =>
-            {
-                System.Threading.Interlocked.Exchange(ref _videoStateChanged, 1);
-                VideoChaptersChanged?.Invoke(src);
-            };
-            if (chapters.Chapters.Count > 0) VideoChaptersChanged?.Invoke(src);
+            chapters.ChaptersChanged += () => QueueVideoNotice(_videoChaptersFound, src);
+            if (chapters.Chapters.Count > 0) QueueVideoNotice(_videoChaptersFound, src);
         }
         player.Loop = el.HasAttribute("data-video-loop");
         player.Muted = el.HasAttribute("data-video-muted");
@@ -858,6 +864,8 @@ public sealed partial class CupriDocument : IDisposable
         {
             foreach (var (src, player) in _videoPlayers)
                 NotifyVideoPlaybackState(src, player);
+            while (_videoTracksFound.TryDequeue(out var tracked)) VideoTracksChanged?.Invoke(tracked);
+            while (_videoChaptersFound.TryDequeue(out var chaptered)) VideoChaptersChanged?.Invoke(chaptered);
             while (_videoEndedSources.TryDequeue(out var ended)) VideoEnded?.Invoke(ended);
             Refresh();
             return true;

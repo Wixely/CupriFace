@@ -99,6 +99,15 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Changed
 
+- **`VideoTracksChanged` and `VideoChaptersChanged` are now raised on the UI thread**, like
+  `VideoEnded` and `VideoPlaybackStateChanged` beside them, instead of on whichever thread the
+  backend parsed on. You no longer need `Post` in a handler. Two behaviour changes come with it:
+  a backend that already knows its tracks announced them INLINE while the player was being opened —
+  that is, during a rebuild, so a handler calling `Refresh()` re-entered the rebuild that raised it
+  — and that notice now arrives on the next host pump instead, about a frame later. Read
+  `GetVideoAudioTracks` / `GetVideoChapters` directly if you need the data sooner; only the notice
+  is deferred, never the data.
+
 - **Breaking: a mouse press inside a `data-drag-scroll` box now activates on RELEASE in a hosted
   application.** `CupriApp.MouseActivation` defaults to `PointerActivation.OnRelease`, so a down + up
   over the same control is the click and a press that travels into a pan or a drag activates nothing

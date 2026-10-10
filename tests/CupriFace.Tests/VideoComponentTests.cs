@@ -160,6 +160,10 @@ public class VideoComponentTests
             [new VideoTrack(1, "English"), new VideoTrack(2, "Commentary")],
             [new VideoTrack(-1, "Off"), new VideoTrack(4, "English CC")]);
 
+        // The backend announces on its own thread; the host's pump hands it on. The tracks
+        // themselves are readable immediately either way — only the NOTICE is deferred.
+        Assert.Null(changedSource);
+        Assert.True(t.Doc.ConsumeImageArrived());
         Assert.Equal("clip.webm", changedSource);
         Assert.Equal(["English", "Commentary"], t.Doc.GetVideoAudioTracks("clip.webm").Select(track => track.Label));
         Assert.Equal(["Off", "English CC"], t.Doc.GetVideoSubtitleTracks("clip.webm").Select(track => track.Label));
@@ -205,6 +209,27 @@ public class VideoComponentTests
         Assert.Null(endedSource);
         Assert.True(t.Doc.ConsumeImageArrived());
         Assert.Equal("clip.webm", endedSource);
+    }
+
+    [Fact]
+    public void A_handler_that_refreshes_does_not_re_enter_the_rebuild_that_raised_it()
+    {
+        // A backend that already knows its tracks announces them while the player is being OPENED,
+        // which happens during a rebuild. Raised inline, a handler calling Refresh re-entered the
+        // rebuild it came from; raised from the pump, there is no rebuild in flight to re-enter.
+        var backend = new FakeBackend();
+        using var t = new TestDoc(Html, "", components: true);
+        var notices = 0;
+        t.Doc.VideoTracksChanged += _ => { notices++; t.Doc.Refresh(); };
+        t.Doc.UseVideo(backend);
+        t.Layout();
+
+        backend.Players["clip.webm"].PublishTracks([new VideoTrack(1, "English")], []);
+        t.Doc.ConsumeImageArrived();
+        t.Layout();
+
+        Assert.True(notices > 0, "the notice should still arrive");
+        Assert.Equal(["English"], t.Doc.GetVideoAudioTracks("clip.webm").Select(x => x.Label));
     }
 
     [Fact]
