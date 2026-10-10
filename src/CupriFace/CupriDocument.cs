@@ -693,7 +693,6 @@ public sealed partial class CupriDocument : IDisposable
         var selected = string.Equals(kind, "audio", StringComparison.Ordinal)
             ? SelectVideoAudioTrack(source, trackId)
             : string.Equals(kind, "subtitle", StringComparison.Ordinal) && SelectVideoSubtitleTrack(source, trackId);
-        if (selected) _videoTrackPanelSource = null;
         return selected;
     }
 

@@ -79,6 +79,10 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **The companion video track selector now uses contained audio/subtitle tables.** Long track labels
+  no longer paint into neighbouring choices, its default trigger reads `Audio / Video`, and selecting
+  a track leaves the panel open for further changes.
+
 - **A `position: sticky` element is now clicked where it is painted.** Paint, hit-testing and
   `ScreenBox`/`ActivationPoint` each worked out a stuck node's position separately, so a pinned
   header was painted in one place, clicked in another, and reported to assistive technology in a

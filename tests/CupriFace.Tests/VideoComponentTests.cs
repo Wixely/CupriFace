@@ -161,7 +161,7 @@ public class VideoComponentTests
               <cupri-video src='clip.webm' controls tracks style='width:320px;height:180px'></cupri-video>
               <cupri-video-tracks src='clip.webm'></cupri-video-tracks>
             </body>
-            """, "", components: true);
+            """, "", components: true, width: 800, height: 600);
         t.Doc.UseVideo(backend);
         t.Layout();
         backend.Players["clip.webm"].PublishTracks(
@@ -171,14 +171,19 @@ public class VideoComponentTests
         t.Layout();
 
         Assert.NotNull(t.Find(n => n.Element?.HasAttribute("data-cupri-ctx-host") == true));
+        Assert.Contains("Audio / Video", t.Find(n => n.Element?.HasAttribute("data-video-track-toggle") == true)!.Element!.TextContent);
         t.ClickMatch(n => n.Element?.HasAttribute("data-video-track-toggle") == true);
         t.Layout();
         Assert.Equal("display:flex", t.Find(n => n.Element?.HasAttribute("data-video-track-panel") == true)!.Element!.GetAttribute("style"));
+        Assert.NotNull(t.Find(n => n.Element?.GetAttribute("aria-label") == "Audio tracks"));
+        Assert.NotNull(t.Find(n => n.Element?.GetAttribute("aria-label") == "Subtitle tracks"));
         Assert.NotNull(t.Find(n => n.Element?.GetAttribute("data-video-track-id") == "4"));
         t.ClickMatch(n => n.Element?.ClassList.Contains("cupri-video-track-choice") == true &&
                           n.Element.GetAttribute("data-video-track-kind") == "audio" &&
                           n.Element.GetAttribute("data-video-track-id") == "2");
         Assert.Equal(2, backend.Players["clip.webm"].SelectedAudioTrack);
+        t.Layout();
+        Assert.Equal("display:flex", t.Find(n => n.Element?.HasAttribute("data-video-track-panel") == true)!.Element!.GetAttribute("style"));
     }
 
     [Fact]

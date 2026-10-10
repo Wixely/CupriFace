@@ -823,7 +823,9 @@ Embedded audio/subtitle selection is deliberately **off by default**. A backend 
 `IVideoTrackSelector`; add `tracks` to the video only when users should be allowed to switch those
 tracks. That adds an Audio/Subtitles right-click menu. Add the optional
 `<cupri-video-tracks src="…">` companion immediately below the player for the same choices in a
-collapsible, keyboard/remote-friendly form. Omitting both UI opt-ins does not expose track switching.
+collapsible, keyboard/remote-friendly pair of tables. Its panel remains open while tracks are selected,
+so several settings can be compared or changed without reopening it. Omitting both UI opt-ins does not
+expose track switching.
 
 On a host that composites the video itself (a native video window), the engine cannot paint ON TOP
 of the picture, so opening the right-click menu hides the video for as long as the menu is up. That
