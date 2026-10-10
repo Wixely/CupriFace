@@ -54,7 +54,7 @@ public class SubmenuTests
     [Fact]
     public void The_panel_flies_out_to_the_right_of_its_row()
     {
-        using var t = new TestDoc(Html, "", components: true, width: 360, height: 260);
+        using var t = new TestDoc(Html, "", components: true, width: 600, height: 260);
         var row = t.FindClass("cupri-menu-parent");
         var rb = HitTesting.AbsoluteBox(row);
 
@@ -64,6 +64,28 @@ public class SubmenuTests
 
         Assert.True(fb.X > rb.X + rb.W * 0.6f, $"panel X {fb.X} should be right of the row (x {rb.X}, w {rb.W})");
         Assert.True(Math.Abs(fb.Y - rb.Y) < 12f, $"panel should be roughly top-aligned (row {rb.Y}, panel {fb.Y})");
+    }
+
+    [Fact]
+    public void The_panel_flips_left_when_opening_right_would_leave_the_viewport()
+    {
+        const string edgeHtml = "<body><cupri-context-menu style='width:360px;height:200px'>" +
+            "<div>Target</div><cupri-menu-item label='Share'>" +
+            "<cupri-menu-item>Email link</cupri-menu-item><cupri-menu-item>Copy link</cupri-menu-item>" +
+            "</cupri-menu-item></cupri-context-menu></body>";
+        using var t = new TestDoc(edgeHtml, "", components: true, width: 360, height: 260);
+        t.Doc.DispatchContextMenu(350, 40);
+        t.Layout();
+        var row = t.FindClass("cupri-menu-parent");
+        var (px, py) = TestDoc.Center(row);
+        t.Move(px, py);
+
+        var rb = HitTesting.AbsoluteBox(row);
+        var fb = HitTesting.AbsoluteBox(Flyout(t)!);
+
+        Assert.True(fb.X < rb.X, $"panel X {fb.X} should flip left of the row at {rb.X}");
+        Assert.True(fb.X >= 4f && fb.X + fb.W <= 356f,
+                    $"panel {fb.X}..{fb.X + fb.W} should remain inside the 360px viewport");
     }
 
     [Fact]

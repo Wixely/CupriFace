@@ -836,11 +836,17 @@ name when its section is hovered, and add a matching
 start, and duration. The companion table is collapsed behind its Chapters button by default and
 stays open after selection. Decoders without chapter metadata show an empty-state row and an undivided bar.
 
+Applications that persist playback can subscribe to `VideoPlaybackStateChanged`. Its portable
+`VideoPlaybackState` snapshot contains source, position, duration, playing/muted state, volume, and
+selected audio/subtitle track IDs. Use `GetVideoPlaybackState(source)` for an on-demand snapshot and
+`RestoreVideoPlaybackState(source, state)` after reopening that source; if track discovery is
+asynchronous, restore again from `VideoTracksChanged` so the saved track IDs can be applied.
+
 On a host that composites the video itself (a native video window), the engine cannot paint ON TOP
-of the picture, so opening the right-click menu hides the video for as long as the menu is up. That
-is deliberate — the alternative is a menu drawn underneath the video and therefore not there — but
-it is why the `<cupri-video-tracks>` companion exists: it sits BELOW the player, outside the
-composited box, and changes tracks without the picture going anywhere.
+of the picture. It therefore reports the menu overlap as `HostSurfacePlacement.Occlusions`:
+supporting host adapters remove only those rectangles from their native surface region, leaving the
+rest of the video visible. The `<cupri-video-tracks>` companion sits BELOW the player and therefore
+needs no cut-out at all.
 
 `src` resolves **exactly like an image** — the developer picks the scheme per element:
 an **embedded** asset (bare name, the assembly registered via `UseImages`), a **disk** file
@@ -1046,7 +1052,8 @@ doc.OnClick(".open-dlg", _ => { model.DialogOpen = true; }); // handler mutates 
 submenu: it shows a chevron and, on hover, reveals its children in a panel to the right. Give the
 parent row a `label` for its own text (its children are the panel, not the label). Nesting works to
 any depth. The panel opens on hover alone — no `open` flag or handler — and is flush to the row, so
-there's no gap to fall through and dismiss it.
+there's no gap to fall through and dismiss it. It prefers the right side, flips left when needed,
+and clamps to the viewport when neither side has enough room.
 
 ```html
 <cupri-menu label="File">

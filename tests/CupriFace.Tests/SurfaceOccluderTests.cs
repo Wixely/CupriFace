@@ -1,6 +1,7 @@
 using CupriFace.Components;
 using CupriFace.Interaction;
 using CupriFace.Paint;
+using CupriFace.Style;
 using Xunit;
 
 namespace CupriFace.Tests;
@@ -13,7 +14,7 @@ namespace CupriFace.Tests;
 public class SurfaceOccluderTests
 {
     [Fact]
-    public void A_videos_track_menu_hides_the_surface_while_it_is_open_and_restores_it_after()
+    public void A_videos_track_menu_exposes_only_its_overlap_and_restores_the_full_surface_after()
     {
         using var t = new TestDoc(
             "<body><cupri-video src='clip.mkv' controls tracks style='width:320px;height:180px'></cupri-video></body>",
@@ -28,7 +29,31 @@ public class SurfaceOccluderTests
         t.Doc.DispatchContextMenu(cx, cy);
         t.Layout();
         Assert.True(HostSurfaceGeometry.IsOccluded(t.Doc.Root, vx, vy, vw, vh),
-                    "the open track menu must make the video stand down");
+                    "the open track menu must mark its overlap");
+        var overlap = Assert.Single(HostSurfaceGeometry.GetOcclusions(t.Doc.Root, vx, vy, vw, vh));
+        Assert.True(overlap.Width < vw && overlap.Height < vh,
+                    "the menu should cut out only its own rectangle, not hide the whole video");
+
+        var parent = t.Find(n => n.Element?.ClassList.Contains("cupri-menu-parent") == true)!;
+        var (px, py) = TestDoc.Center(parent);
+        t.Move(px, py);
+        var visiblePanels = new List<Dom.RenderNode>();
+        CollectVisiblePanels(t.Doc.Root);
+        void CollectVisiblePanels(Dom.RenderNode node)
+        {
+            if (node.Style.Display != DisplayType.None
+                && (node.Element?.ClassList.Contains("cupri-ctx-menu") == true
+                    || node.Element?.ClassList.Contains("cupri-submenu") == true))
+                visiblePanels.Add(node);
+            foreach (var child in node.Children) CollectVisiblePanels(child);
+        }
+        Assert.Equal(2, visiblePanels.Count);
+        Assert.All(visiblePanels, panel =>
+        {
+            Assert.True(panel.Element!.HasAttribute("data-surface-occluder"));
+            Assert.Equal(BorderRadiusSpec.None, panel.Style.BorderRadius);
+        });
+        Assert.Equal(2, HostSurfaceGeometry.GetOcclusions(t.Doc.Root, vx, vy, vw, vh).Count);
 
         // Dismissed with a click OUTSIDE it — clicking where it was opened lands on the menu
         // itself and chooses an item instead.
@@ -59,13 +84,14 @@ public class SurfaceOccluderTests
         Collect(t.Doc.Root);
         void Collect(Dom.RenderNode n)
         {
-            if (n.Element?.ClassList.Contains("cupri-ctx-menu") == true) menus.Add(n);
+            if (n.Element?.ClassList.Contains("cupri-ctx-menu") == true
+                || n.Element?.ClassList.Contains("cupri-submenu") == true) menus.Add(n);
             foreach (var c in n.Children) Collect(c);
         }
 
         Assert.NotEmpty(menus);
         foreach (var menu in menus)
             Assert.True(menu.Element!.HasAttribute("data-surface-occluder"),
-                        $"a .cupri-ctx-menu inside <{menu.Parent?.Tag}> is missing data-surface-occluder");
+                        $"a context-menu panel inside <{menu.Parent?.Tag}> is missing data-surface-occluder");
     }
 }

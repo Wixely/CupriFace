@@ -261,11 +261,11 @@ public sealed class VideoComponent : ComponentBase
         <div class='cupri-ctx-menu' role='menu' data-cupri-ctx-menu data-focus-scope data-surface-occluder>
           <div class='cupri-menu-item cupri-menu-parent' role='menuitem' aria-haspopup='menu'>
             <span class='cupri-menu-label'>Audio</span>{IconMarkup("chevron-right", 16)}
-            <div class='cupri-submenu' role='menu' data-video-track-list='audio'></div>
+            <div class='cupri-submenu' role='menu' data-surface-occluder data-video-track-list='audio'></div>
           </div>
           <div class='cupri-menu-item cupri-menu-parent' role='menuitem' aria-haspopup='menu'>
             <span class='cupri-menu-label'>Subtitles</span>{IconMarkup("chevron-right", 16)}
-            <div class='cupri-submenu' role='menu' data-video-track-list='subtitle'></div>
+            <div class='cupri-submenu' role='menu' data-surface-occluder data-video-track-list='subtitle'></div>
           </div>
         </div>
         """;

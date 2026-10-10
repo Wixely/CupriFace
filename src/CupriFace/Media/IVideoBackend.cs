@@ -90,6 +90,17 @@ public interface IVideoPlayer : IDisposable
 /// <summary>A selectable audio or subtitle stream exposed by a video backend.</summary>
 public sealed record VideoTrack(int Id, string Label);
 
+/// <summary>A portable snapshot of the user-visible playback state for persistence and resume.</summary>
+public sealed record VideoPlaybackState(
+    string Source,
+    double PositionSeconds,
+    double DurationSeconds,
+    bool Playing,
+    bool Muted,
+    double Volume,
+    int? AudioTrackId,
+    int? SubtitleTrackId);
+
 /// <summary>
 /// Optional capability implemented by players that can enumerate and switch embedded audio and
 /// subtitle streams. The base <see cref="IVideoPlayer"/> stays minimal, so a single-track decoder

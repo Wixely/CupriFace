@@ -17,6 +17,10 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **Video playback state has an application persistence boundary.** Subscribe to
+  `VideoPlaybackStateChanged` to store position, duration, transport, volume, mute, and selected
+  track IDs without depending on a concrete decoder. Reapply a snapshot with
+  `RestoreVideoPlaybackState`; track-discovering backends can retry from `VideoTracksChanged`.
 - **Video chapters are an opt-in player capability.** Implement `IVideoChapterProvider`, add
   `chapters` to `<cupri-video>` for chapter divisions and title tooltips on the seek bar, and add
   `<cupri-video-chapters src="...">` for a selectable chapter table. The Windows LibVLC adapter
@@ -66,12 +70,12 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   LibVLC backend exposes the tracks it finds. User-facing selection stays **off** unless you ask
   for it: add `tracks` to `<cupri-video>` for a right-click menu, and `<cupri-video-tracks
   src="...">` for a collapsible companion form below the player. Note that on a host-composited
-  video the right-click menu hides the picture while it is open (the engine cannot paint over the
-  host's surface) — the companion form sits outside that box and does not.
+  video the host cuts the menu rectangle out of the native surface while it is open, leaving the
+  rest of the picture visible; the companion form sits outside that box and needs no cut-out.
 
-- **A popup marked `data-surface-occluder` hides a host-composited surface it overlaps.** The
-  engine's context menus are marked for you. Mark your own popups if they can open over a video or
-  another host-composited element; without it they are painted underneath it and are not visible.
+- **A popup marked `data-surface-occluder` cuts through a host-composited surface it overlaps.**
+  The engine's context menus are marked for you. Mark your own popups if they can open over a video
+  or another host-composited element; without it they are painted underneath it and are not visible.
 
 ### Changed
 
@@ -95,6 +99,10 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **Native video stays visible around context menus.** Host-composited surfaces now receive precise
+  popup cut-outs instead of disappearing wholesale, and fly-out submenus flip or clamp at viewport
+  edges rather than opening off-screen. Windows media adapters should apply `Occlusions` when
+  constructing their native surface region.
 - **Fullscreen stays on the monitor the window is on, and restores where it came from.** Asking the
   windowing layer for fullscreen without naming a monitor gets you the PRIMARY display, so a window
   on a second screen jumped across every time. It now picks the monitor containing the window's
