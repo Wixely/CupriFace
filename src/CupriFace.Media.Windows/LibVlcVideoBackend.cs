@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using CupriFace.Media;
 using CupriFace.Paint;
@@ -26,8 +27,19 @@ public sealed class LibVlcVideoBackend : IVideoBackend, IDisposable
         if (!OperatingSystem.IsWindows())
             throw new PlatformNotSupportedException("The LibVLC Windows backend requires Windows.");
 
-        Core.Initialize();
         _debug = Environment.GetEnvironmentVariable("CUPRIFACE_MEDIA_DEBUG") is "1" or "true" or "TRUE";
+        // Assembly.Location and, with IncludeAllContentForSelfExtract, AppContext.BaseDirectory can
+        // point into the single-file extraction directory. LibVLC is kept external and replaceable
+        // for LGPL compliance, so prefer the directory containing the running apphost/executable.
+        var architectureDirectory = ArchitectureDirectory();
+        var processDirectory = Path.GetDirectoryName(Environment.ProcessPath);
+        var applicationDirectory = processDirectory is not null
+            && Directory.Exists(Path.Combine(processDirectory, "libvlc", architectureDirectory))
+                ? processDirectory
+                : AppContext.BaseDirectory;
+        var nativeDirectory = Path.Combine(applicationDirectory, "libvlc", architectureDirectory);
+        if (_debug) Console.WriteLine($"[cupri-media] native directory selected: {architectureDirectory}");
+        Core.Initialize(nativeDirectory);
         var options = new List<string>
         {
             "--avcodec-hw=d3d11va",
@@ -52,6 +64,15 @@ public sealed class LibVlcVideoBackend : IVideoBackend, IDisposable
         _cacheDirectory = cacheDirectory ?? Path.Combine(Path.GetTempPath(), "CupriFace.Media.Windows");
         Directory.CreateDirectory(_cacheDirectory);
     }
+
+    private static string ArchitectureDirectory() => RuntimeInformation.ProcessArchitecture switch
+    {
+        Architecture.X64 => "win-x64",
+        Architecture.X86 => "win-x86",
+        Architecture.Arm64 => "win-arm64",
+        var architecture => throw new PlatformNotSupportedException(
+            $"The LibVLC Windows backend does not provide {architecture} native libraries."),
+    };
 
     public IVideoPlayer Open(VideoSource source)
     {
