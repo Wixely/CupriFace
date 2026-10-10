@@ -121,6 +121,44 @@ jobs:
           test "$layouts" = "1" || { echo "::error::the same text laid out differently across operating systems ($layouts distinct layout hashes)"; exit 1; }
           echo "text lays out identically on every OS"
 
+  # The Windows media backend, against REAL LibVLC. The two faults the media-player integration
+  # found were both in this adapter and both invisible to every other job: its native-library
+  # discovery (the obvious directories point into the single-file extraction folder) and its resume
+  # path (Play(media) reassigns the media and restarts a paused stream from the beginning, where
+  # Play() resumes it). Neither is reachable without actually loading LibVLC and playing something.
+  #
+  # The fixture is the one the managed VP9+Opus decoder already uses — 9 KB, already in the repo,
+  # licensing already settled — so this gate adds no new media asset.
+  #
+  # What a green tick here does NOT mean: the runner has no GPU, so D3D11VA hardware decode never
+  # happens and playback falls back to software; and the engine's own window takes the SDL software
+  # path on this runner, so the child HWND composited OVER a GL surface is still unproven. Both of
+  # those need real hardware. Audio-output errors in the log are expected — a runner has no sound
+  # device, and the gate mutes playback anyway.
+  media-windows:
+    name: Windows media backend (LibVLC)
+    runs-on: windows-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Authenticate to GitHub Packages
+        run: >
+          dotnet nuget update source GitHub-Wixely-Packages
+          --username ${{ github.actor }}
+          --password ${{ secrets.GITHUB_TOKEN }}
+          --store-password-in-clear-text
+
+      # Blocking. Drives the shipped adapter, not LibVLCSharp directly: the adapter is what breaks.
+      - name: Media gate
+        run: >
+          dotnet run --project tests/MediaWindowsGate -c Release --
+          samples/DemoApp/Assets/demo-av.webm
+
   # The demo app (Viewer + DemoApp + the Silk.NET/SDL shell) built on all three desktop targets.
   # The test job above never compiles the shell, so without this a platform-specific break in the
   # host layer ships unnoticed. Each run also publishes a runnable build as an artifact.
