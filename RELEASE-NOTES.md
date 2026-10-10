@@ -17,6 +17,13 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **`position: sticky` now honours `bottom`.** A sticky element with `bottom` pins to the bottom edge
+  of its scrollport — a toolbar or action bar that stays in view while its own place is still further
+  down the page — and releases once the page scrolls far enough to reach it. `top` is unchanged, and
+  with both set `top` wins (the CSS rule for an element shorter than the scrollport). An element with
+  NEITHER inset still pins to the top as before; the web would leave it unstuck, and that difference is
+  kept deliberately so existing documents do not silently stop sticking. (#302)
+
 - **`doc.MouseActivation` chooses when a mouse press activates what it landed on** (`CupriApp.MouseActivation`
   too). The default, `PointerActivation.OnPress`, is unchanged. `PointerActivation.OnRelease` makes a
   mouse down + up over the same control the confirmed click, and a press that travels into a pan or a

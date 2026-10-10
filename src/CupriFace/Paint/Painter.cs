@@ -162,7 +162,8 @@ public sealed class Painter
     /// coordinates, for this node to compose its own transform into (#269); null under a flat
     /// parent, which is every parent unless it says otherwise.</param>
     private void PaintNode(DisplayList list, RenderNode node, float originX, float originY, List<RenderNode> topLayer, bool inTopLayer,
-        List<StickyItem>? stickyCollect = null, float scrollTop = float.NegativeInfinity, float[]? space = null)
+        List<StickyItem>? stickyCollect = null, float scrollTop = float.NegativeInfinity, float[]? space = null,
+        float scrollBottom = float.PositiveInfinity)
     {
         // Lift a top-layer (fixed) node out of the normal walk; paint it in the deferred pass.
         if (!inTopLayer && node.IsTopLayer)
@@ -448,6 +449,7 @@ public sealed class Painter
         // Sticky pins to the scrollport (padding-box) top, not the content box — content scrolls under the
         // padding, so a `top:0` header sits flush at the very top and covers it.
         var childScrollTop = node.IsScrollable ? absY + node.BorderTopW : scrollTop;
+        var childScrollBottom = node.IsScrollable ? absY + node.Height - node.BorderBottomW : scrollBottom;
 
         RenderNode? dragged = null; // the lifted reorder item — painted last so it sits on top of its siblings
         // The elements inside a drawing are its shapes, painted above as part of it. They have no
@@ -463,7 +465,7 @@ public sealed class Painter
                 if (cull && !child.IsTopLayer && child.Style.Position != PositionType.Sticky
                     && (child.Y + child.Height < bandTop || child.Y > bandBottom)) continue;
                 PaintNode(list, child, absX - scrollX, absY - scrollY, topLayer, inTopLayer, childSticky, childScrollTop,
-                    preserve ? full : null);
+                    preserve ? full : null, childScrollBottom);
             }
         // Defer the lifted card to a single global layer (painted after everything, incl. other columns and
         // whatever sits below the board), so it floats on top instead of hiding behind a later-painted sibling.
@@ -473,7 +475,7 @@ public sealed class Painter
         // block), on top of the scrolled content but still inside this container's clip.
         if (stickyOwn is { Count: > 0 })
             foreach (var it in stickyOwn)
-                PaintSticky(list, it, childScrollTop, topLayer, inTopLayer);
+                PaintSticky(list, it, childScrollTop, childScrollBottom, topLayer, inTopLayer);
 
         if (clip) list.Add(new PopClip());
         if (preserve) list.Add(new PushTransform(Transform3D.Project(full!)));
@@ -568,11 +570,12 @@ public sealed class Painter
     // Paint a sticky node at its stuck position. The rule itself lives in HitTesting.StickyShiftY so
     // that paint, hit-testing and ScreenBox cannot disagree about where a stuck node is — they used
     // to, and a stuck header was then painted in one place and clicked in another.
-    private void PaintSticky(DisplayList list, StickyItem it, float scrollTop, List<RenderNode> topLayer, bool inTopLayer)
+    private void PaintSticky(DisplayList list, StickyItem it, float scrollTop, float scrollBottom,
+                             List<RenderNode> topLayer, bool inTopLayer)
     {
         var n = it.Node;
         var dy = n.Parent is { } cb
-            ? Interaction.HitTesting.StickyShiftY(n, cb, it.OriginY, it.OriginY + n.Y, scrollTop)
+            ? Interaction.HitTesting.StickyShiftY(n, cb, it.OriginY, it.OriginY + n.Y, scrollTop, scrollBottom)
             : 0f;
         PaintNode(list, n, it.OriginX, it.OriginY + dy, topLayer, inTopLayer);
     }

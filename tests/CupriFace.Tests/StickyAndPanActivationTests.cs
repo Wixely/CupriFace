@@ -81,6 +81,91 @@ public class StickyAndPanActivationTests
         Assert.NotNull(strip);
     }
 
+    private const string BottomCss = """
+        .page   { width:380px; height:240px; overflow:scroll; }
+        .above  { height:400px; }
+        .foot   { position:sticky; bottom:0; height:60px; }
+        .after  { height:400px; }
+        """;
+
+    private const string BottomHtml = """
+        <body><div class='page'>
+          <div class='above' role='button' aria-label='Above'></div>
+          <div class='foot' role='button' aria-label='Foot'></div>
+          <div class='after' role='button' aria-label='After'></div>
+        </div></body>
+        """;
+
+    [Fact]
+    public void A_bottom_sticky_element_pins_to_the_scrollport_bottom()
+    {
+        using var t = new TestDoc(BottomHtml, BottomCss, components: true);
+        t.Layout();                      // unscrolled: the footer's natural place is far below
+        var foot = t.Find(n => n.Element?.GetAttribute("aria-label") == "Foot")!;
+
+        // Scrollport is 240 tall, so a bottom:0 footer of 60 holds at y=180..240.
+        var box = HitTesting.ScreenBox(foot);
+        Assert.Equal(180f, box.Y, 1);
+        Assert.Equal("Foot", HitTesting.HitTest(t.Doc.Root, 60, 200)?.Element?.GetAttribute("aria-label"));
+        Assert.Equal("Above", HitTesting.HitTest(t.Doc.Root, 60, 100)?.Element?.GetAttribute("aria-label"));
+    }
+
+    [Fact]
+    public void A_bottom_sticky_element_stops_pinning_once_its_natural_place_arrives()
+    {
+        using var t = new TestDoc(BottomHtml, BottomCss, components: true);
+        t.Layout();
+        t.Doc.DispatchWheel(50, 50, 400);   // scroll until the footer's own place reaches the port
+        t.Layout();
+        var foot = t.Find(n => n.Element?.GetAttribute("aria-label") == "Foot")!;
+
+        // Natural y is 400; scrolled by 400 it sits at 0, which is above the pin line — so it is
+        // no longer stuck and must not be dragged back down to the bottom edge.
+        Assert.Equal(0f, HitTesting.ScreenBox(foot).Y, 1);
+        Assert.Equal("Foot", HitTesting.HitTest(t.Doc.Root, 60, 30)?.Element?.GetAttribute("aria-label"));
+    }
+
+    [Fact]
+    public void A_bottom_sticky_element_never_rides_above_its_containing_block()
+    {
+        using var t = new TestDoc(BottomHtml, BottomCss, components: true);
+        t.Layout();
+        var foot = t.Find(n => n.Element?.GetAttribute("aria-label") == "Foot")!;
+
+        foreach (var requested in new[] { 0f, 100f, 400f, 700f, 900f })
+        {
+            using var d = new TestDoc(BottomHtml, BottomCss, components: true);
+            d.Layout();
+            if (requested > 0) d.Doc.DispatchWheel(50, 50, requested);
+            d.Layout();
+            var page = d.FindClass("page");
+            var f = d.Find(n => n.Element?.GetAttribute("aria-label") == "Foot")!;
+
+            // It is pinned 60px above the port's bottom edge (240 - 60 = 180) for exactly as long
+            // as its own place is still below that line, and scrolls away normally afterwards. It
+            // only ever moves UP from where it would otherwise be — never down.
+            var natural = 400f - page.ScrollY;
+            Assert.Equal(MathF.Min(natural, 180f), HitTesting.ScreenBox(f).Y, 1);
+        }
+        Assert.NotNull(foot);
+    }
+
+    [Fact]
+    public void Sticky_with_no_inset_still_pins_to_the_top()
+    {
+        // A deliberate deviation from CSS, kept so an existing document does not silently stop
+        // sticking on upgrade. Bottom-only sticky must not inherit this default.
+        using var t = new TestDoc(
+            StickyHtml.Replace("class='strip'", "class='strip noinset'"),
+            StickyCss + " .noinset { top:auto; }", components: true);
+        t.Layout();
+        t.Doc.DispatchWheel(50, 50, 340);
+        t.Layout();
+        var strip = t.Find(n => n.Element?.GetAttribute("aria-label") == "Strip")!;
+
+        Assert.Equal(0f, HitTesting.ScreenBox(strip).Y, 1);
+    }
+
     private const string PanHtml = """
         <body><div class='strip' data-drag-scroll>
           <cupri-checkbox checked="{{A}}"></cupri-checkbox>

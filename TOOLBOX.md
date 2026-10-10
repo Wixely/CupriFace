@@ -502,13 +502,22 @@ controls handle their own state.
   click.
 
 - **`position: sticky`.** An element flows normally, but while its scroll container is scrolled it holds
-  at the top (its `top` offset from the scrollport) instead of scrolling away — pinning a section header —
-  and releases when its containing block scrolls out. It paints above the content that slides under it, so
-  give it an opaque background. (`relative`/`absolute`/`fixed` are also supported; `fixed` lifts to the
-  top layer over the page.)
+  at an edge of the scrollport instead of scrolling away, and releases when its containing block scrolls
+  out. It paints above the content that slides under it, so give it an opaque background — and it is
+  CLICKED where it is painted, so a pinned toolbar is usable rather than just visible.
+  (`relative`/`absolute`/`fixed` are also supported; `fixed` lifts to the top layer over the page.)
   ```css
-  .section-title { position: sticky; top: 0; background: var(--cupri-bg); border-bottom: 1px solid #ddd; }
+  .section-title { position: sticky; top: 0;    background: var(--cupri-bg); }   /* pins a header */
+  .action-bar    { position: sticky; bottom: 0; background: var(--cupri-bg); }   /* pins a footer */
   ```
+  `top` pins to the scrollport's top edge and `bottom` to its bottom edge — a footer stays in view while
+  its own place is still further down the page, then stops pinning once the page scrolls far enough to
+  reach it. Set **both** and `top` wins, which is the CSS rule whenever the element is shorter than the
+  scrollport (a taller one cannot honour both, whichever you pick first).
+
+  **One deliberate deviation:** with NEITHER inset set, this engine pins to the top as if you had written
+  `top: 0`; the web leaves such a box unstuck. It is kept so existing documents do not silently stop
+  sticking. Write the inset you mean and the two agree.
 - **`z-index`.** Sorts SIBLINGS: lowest first, document order within a layer, and a negative value goes
   behind its siblings. It applies where CSS says it does — positioned elements, plus flex and grid items
   — so a `z-index` on a static block in normal flow is ignored, as in a browser. Hit-testing follows the

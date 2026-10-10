@@ -53,29 +53,65 @@ public static class HitTesting
     /// being painted at all, which reads as "sticky does not work" rather than as a clamp that is
     /// one value wrong.</para>
     ///
-    /// <para>Only <c>top</c> is honoured; a bottom-sticky node is not stuck.</para>
+    /// <para><c>top</c> and <c>bottom</c> are both honoured. A node with neither is never stuck: it
+    /// takes part in nothing and flows normally, which is what the CSS default says.</para>
+    ///
+    /// <para>With BOTH set, <c>top</c> wins — it is tested first, and <c>bottom</c> only gets a say
+    /// when the top constraint is already satisfied. That is the CSS rule for a node shorter than
+    /// its scrollport, and a node taller than one cannot honour both whatever order you pick.</para>
+    ///
+    /// <para><b>One deliberate deviation from CSS:</b> with NEITHER inset set, this engine pins to
+    /// the top as if <c>top:0</c>. The web would leave such a box unstuck. It is kept because it is
+    /// the behaviour this engine has always had and the one TOOLBOX documents, and because the
+    /// alternative is someone's header silently stopping sticking on an upgrade. Set the inset you
+    /// mean and both agree.</para>
     /// </summary>
     /// <param name="cbOriginY">The containing block's border-box top, already shifted by its own
     /// scroll — exactly the origin the painter passes its children.</param>
     /// <param name="nodeY">Where the node sits with scrolling applied but no stickiness.</param>
     /// <param name="portTop">The enclosing scrollport's padding-box top.</param>
+    /// <param name="portBottom">…and its padding-box bottom, for a bottom-sticky node.</param>
     internal static float StickyShiftY(RenderNode node, RenderNode containingBlock,
-                                       float cbOriginY, float nodeY, float portTop)
+                                       float cbOriginY, float nodeY, float portTop, float portBottom)
     {
         if (float.IsNegativeInfinity(portTop)) return 0f;          // nothing scrolls above it
-        var top = node.Style.Top.IsDefinite ? node.Style.Top.Resolve(0f) : 0f;
-        var wanted = portTop + top;
-        if (nodeY >= wanted) return 0f;                            // still in its natural place
+        var s = node.Style;
 
+        // The containing block's content band, which the node may never leave in either direction.
         var cbHeight = containingBlock.IsScrollable
             ? containingBlock.ScrollContentHeight                  // the scrolled content
             : containingBlock.ContentBoxHeight;
-        var maxShift = (cbOriginY + containingBlock.ContentTopInset + cbHeight - node.Height) - nodeY;
-        return MathF.Max(0f, MathF.Min(wanted - nodeY, maxShift)); // rides out with its block
+        var cbTop = cbOriginY + containingBlock.ContentTopInset;
+        var maxShift = (cbTop + cbHeight - node.Height) - nodeY;   // rides out at the bottom
+        var minShift = cbTop - nodeY;                              // …and at the top
+
+        // No inset at all means top:0 here — see the deviation noted above.
+        if (s.Top.IsDefinite || !s.Bottom.IsDefinite)
+        {
+            var wanted = portTop + (s.Top.IsDefinite ? s.Top.Resolve(0f) : 0f);
+            if (nodeY < wanted)                                    // scrolled above where it pins
+                return Clamp(wanted - nodeY, minShift, maxShift);
+        }
+
+        if (s.Bottom.IsDefinite && !float.IsPositiveInfinity(portBottom))
+        {
+            // Pins a footer: it holds `bottom` px above the scrollport's bottom edge while its
+            // natural place is still further down, and moves UP to get there (a negative shift).
+            var wantedBottom = portBottom - s.Bottom.Resolve(0f);
+            var naturalBottom = nodeY + node.Height;
+            if (naturalBottom > wantedBottom)
+                return Clamp(wantedBottom - naturalBottom, minShift, maxShift);
+        }
+
+        return 0f;                                                 // still in its natural place
+
+        static float Clamp(float shift, float lo, float hi) =>
+            hi < lo ? 0f : MathF.Max(lo, MathF.Min(shift, hi));    // a block too small to hold it
     }
 
     private static RenderNode? Hit(RenderNode node, float originX, float originY, float x, float y, bool inTopLayer,
                                     RenderNode? parent = null, float portTop = float.NegativeInfinity,
+                                    float portBottom = float.PositiveInfinity,
                                     List<StickyHit>? stickyCollect = null)
     {
         if (node.Style.Display == DisplayType.None) return null;
@@ -96,7 +132,7 @@ public static class HitTesting
         // Stuck nodes are hit where they are PAINTED, not where they were laid out. Children ride
         // along, because childOy is derived from ay below.
         if (node.Style.Position == PositionType.Sticky && parent is not null)
-            ay += StickyShiftY(node, parent, originY, ay, portTop);
+            ay += StickyShiftY(node, parent, originY, ay, portTop, portBottom);
 
         // A transformed node PAINTS somewhere other than its layout box, so the pointer has to be
         // mapped into that box's space before anything is compared. Without this a scaled-up tile
@@ -155,6 +191,7 @@ public static class HitTesting
         // A scroll container is the scrollport its sticky descendants pin to (padding-box top,
         // matching Painter); a non-scrolling node just passes the enclosing one through.
         var childPortTop = node.IsScrollable ? ay + node.BorderTopW : portTop;
+        var childPortBottom = node.IsScrollable ? ay + node.Height - node.BorderBottomW : portBottom;
         // A scroll container collects the sticky nodes beneath it; anything else passes the
         // collector straight through, so a sticky node defers to its CONTAINER, not its parent.
         var stickyOwn = node.IsScrollable ? new List<StickyHit>() : null;
@@ -173,7 +210,7 @@ public static class HitTesting
         // pointer falls through whatever is visibly in front of it.
         foreach (var child in Paint.PaintOrder.Children(node))
         {
-            var hit = Hit(child, childOx, childOy, x, y, inTopLayer, node, childPortTop, childSticky);
+            var hit = Hit(child, childOx, childOy, x, y, inTopLayer, node, childPortTop, childPortBottom, childSticky);
             if (hit is not null) best = hit;
         }
 
@@ -181,7 +218,8 @@ public static class HitTesting
         if (stickyOwn is { Count: > 0 })
             foreach (var it in stickyOwn)
             {
-                var hit = Hit(it.Node, it.OriginX, it.OriginY, x, y, inTopLayer, it.Node.Parent, childPortTop);
+                var hit = Hit(it.Node, it.OriginX, it.OriginY, x, y, inTopLayer, it.Node.Parent,
+                              childPortTop, childPortBottom);
                 if (hit is not null) best = hit;
             }
         return best;
@@ -251,7 +289,7 @@ public static class HitTesting
         }
         chain.Reverse();
 
-        float x = 0, y = 0, portTop = float.NegativeInfinity;
+        float x = 0, y = 0, portTop = float.NegativeInfinity, portBottom = float.PositiveInfinity;
         RenderNode? parent = null;
         foreach (var n in chain)
         {
@@ -261,8 +299,12 @@ public static class HitTesting
             x += n.X;
             y += n.Y;
             if (n.Style.Position == PositionType.Sticky && parent is not null)
-                y += StickyShiftY(n, parent, originY, y, portTop);
-            if (n.IsScrollable) portTop = y + n.BorderTopW;
+                y += StickyShiftY(n, parent, originY, y, portTop, portBottom);
+            if (n.IsScrollable)
+            {
+                portTop = y + n.BorderTopW;
+                portBottom = y + n.Height - n.BorderBottomW;
+            }
             parent = n;
         }
         return (x, y);
