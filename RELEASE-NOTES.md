@@ -13,6 +13,13 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+- `TransparentHud --present-count N` adds a minimal GLFW/OpenGL reproduction for #212.
+  `Test-WindowsAlpha.ps1 -GlBaseline -PresentCount N` verifies the swap count, native DLL,
+  GPU alpha, and composited output. Acceptance captures now reject obscured backdrops
+  and indistinguishable panels. This is diagnostic tooling, not a transparency fix.
+
 ## v0.41.0
 
 ### Added

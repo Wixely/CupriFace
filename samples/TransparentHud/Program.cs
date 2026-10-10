@@ -1,6 +1,15 @@
 using CupriFace;
 using CupriFace.Shell;
 
+if (args.Contains("--present-count"))
+{
+    var index = Array.IndexOf(args, "--present-count");
+    if (index + 1 >= args.Length || !int.TryParse(args[index + 1], out var count) || count < 1)
+        throw new ArgumentException("--present-count requires a positive integer.");
+    AlphaFrames.Run(count, !args.Contains("--no-topmost"));
+    return;
+}
+
 // A transparent, frameless, always-on-top HUD that floats over the desktop — the same
 // CupriApp model as every other sample, only with three flags flipped. The window has no
 // background of its own: wherever the markup doesn't paint, the framebuffer stays fully
