@@ -38,6 +38,8 @@ public sealed class VideoComponent : ComponentBase
         .cupri-video-seek-thumb { position:absolute; top:-4px; width:12px; height:12px; background:white; border-radius:6px;
                                   box-shadow:0 1px 4px #00000059; }
         .cupri-video-fs { z-index:90; background:#000; }
+        .cupri-video .cupri-ctx-menu, .cupri-video .cupri-submenu { background:var(--cupri-surface,#161b24); color:var(--cupri-text,#f4f6f9); }
+        .cupri-video-track-selected { color:var(--cupri-accent,#B87333); }
         """;
 
     public override void Expand(IElement el)
@@ -61,12 +63,18 @@ public sealed class VideoComponent : ComponentBase
         if (Flag(el, "autoplay")) el.SetAttribute("data-video-autoplay", "");
         if (Flag(el, "muted")) el.SetAttribute("data-video-muted", "");
         if (Flag(el, "loop")) el.SetAttribute("data-video-loop", "");
+        var tracks = Flag(el, "tracks");
+        if (tracks)
+        {
+            el.SetAttribute("data-video-tracks-enabled", "");
+            el.SetAttribute("data-cupri-ctx-host", "");
+        }
 
         // The bar: transport, current time, the seek slider (a real role=slider — pointer scrub,
         // arrow keys, AT SetValue all route to the player), duration, fullscreen. The clip's label
         // lives on the ELEMENT's aria-label — the bar has no room for a title once a seek bar
         // exists, which is also every real player's layout.
-        el.InnerHtml = !Flag(el, "controls") ? "" : $"""
+        var controls = !Flag(el, "controls") ? "" : $"""
             <div class='cupri-video-bar' data-surface-overlay>
               <div class='cupri-video-btn' role='button' aria-label='Play' data-video-role='toggle' data-video-cmd='toggle'>{IconMarkup("play", 18)}</div>
               <div class='cupri-video-btn' role='button' aria-label='Mute' data-video-role='mute' data-video-cmd='mute'>{IconMarkup("volume", 18)}</div>
@@ -82,6 +90,7 @@ public sealed class VideoComponent : ComponentBase
               <div class='cupri-video-btn' role='button' aria-label='Fullscreen' data-video-role='fullscreen' data-video-cmd='fullscreen'>{IconMarkup("fullscreen", 18)}</div>
             </div>
             """;
+        el.InnerHtml = controls + (tracks ? TrackContextMenuMarkup() : "");
     }
 
     internal static string FormatTime(double seconds)
@@ -159,5 +168,143 @@ public sealed class VideoComponent : ComponentBase
             if (seek.QuerySelector(".cupri-video-seek-thumb") is { } thumb)
                 thumb.SetAttribute("style", $"left:{pctText}%;margin-left:-6px"); // centre the 12px thumb
         }
+    }
+
+    internal static void SyncTracks(IElement el, string source, Media.IVideoTrackSelector? tracks)
+    {
+        if (!el.HasAttribute("data-video-tracks-enabled")) return;
+        FillTrackList(el.QuerySelector("[data-video-track-list='audio']"), source, "audio",
+            tracks?.AudioTracks ?? [], tracks?.SelectedAudioTrack);
+        FillTrackList(el.QuerySelector("[data-video-track-list='subtitle']"), source, "subtitle",
+            tracks?.SubtitleTracks ?? [], tracks?.SelectedSubtitleTrack);
+    }
+
+    private static void FillTrackList(
+        IElement? list,
+        string source,
+        string kind,
+        IReadOnlyList<Media.VideoTrack> tracks,
+        int? selected)
+    {
+        if (list is null) return;
+        if (tracks.Count == 0)
+        {
+            list.InnerHtml = "<div class='cupri-menu-item disabled' role='menuitem' aria-disabled='true' data-video-track-disabled>No selectable tracks</div>";
+            return;
+        }
+
+        list.InnerHtml = string.Join("", tracks.Select(track =>
+        {
+            var chosen = track.Id == selected;
+            var css = chosen ? "cupri-menu-item cupri-video-track-selected" : "cupri-menu-item";
+            var check = chosen ? IconMarkup("check", 16) : "";
+            return $"<div class='{css}' role='menuitem' data-video-track-source='{Escape(source)}' " +
+                   $"data-video-track-kind='{kind}' data-video-track-id='{track.Id}'><span class='cupri-menu-label'>{Escape(track.Label)}</span>{check}</div>";
+        }));
+    }
+
+    private static string TrackContextMenuMarkup() => $"""
+        <div class='cupri-ctx-menu' role='menu' data-cupri-ctx-menu data-focus-scope>
+          <div class='cupri-menu-item cupri-menu-parent' role='menuitem' aria-haspopup='menu'>
+            <span class='cupri-menu-label'>Audio</span>{IconMarkup("chevron-right", 16)}
+            <div class='cupri-submenu' role='menu' data-video-track-list='audio'></div>
+          </div>
+          <div class='cupri-menu-item cupri-menu-parent' role='menuitem' aria-haspopup='menu'>
+            <span class='cupri-menu-label'>Subtitles</span>{IconMarkup("chevron-right", 16)}
+            <div class='cupri-submenu' role='menu' data-video-track-list='subtitle'></div>
+          </div>
+        </div>
+        """;
+
+    internal static string Escape(string value) => value
+        .Replace("&", "&amp;")
+        .Replace("<", "&lt;")
+        .Replace(">", "&gt;")
+        .Replace("\"", "&quot;")
+        .Replace("'", "&#39;");
+}
+
+/// <summary>
+/// Opt-in companion for <c>&lt;cupri-video tracks&gt;</c>. It renders the same audio and subtitle
+/// choices as an accessible, collapsible form below a player. Omit this element (and the video's
+/// <c>tracks</c> attribute) when an application must not expose track switching to users.
+/// </summary>
+public sealed class VideoTracksComponent : ComponentBase
+{
+    public override string Tag => "cupri-video-tracks";
+    public override string DefaultCss => """
+        .cupri-video-tracks { display:block; }
+        .cupri-video-tracks-toggle { display:inline-flex; align-items:center; gap:8px; padding:9px 14px;
+                                     border:1px var(--cupri-border,#d8dde6); border-radius:8px;
+                                     color:var(--cupri-text,#1e2430); font-weight:bold; }
+        .cupri-video-tracks-status { margin-left:10px; color:var(--cupri-muted,#687184); font-size:12px; }
+        .cupri-video-tracks-panel { display:none; margin-top:10px; padding:14px; gap:18px;
+                                    background:var(--cupri-surface,#ffffff); border:1px var(--cupri-border,#d8dde6); border-radius:10px; }
+        .cupri-video-tracks-column { flex:1; min-width:0; }
+        .cupri-video-tracks-column > strong { display:block; margin-bottom:8px; color:var(--cupri-muted,#687184);
+                                              font-size:11px; letter-spacing:1px; }
+        .cupri-video-tracks-list { display:flex; flex-wrap:wrap; gap:8px; }
+        .cupri-video-track-choice { display:inline-flex; align-items:center; justify-content:space-between; gap:12px;
+                                    min-width:140px; padding:9px 12px; border:1px var(--cupri-border,#d8dde6);
+                                    border-radius:8px; color:var(--cupri-text,#1e2430); }
+        .cupri-video-track-choice:hover, .cupri-video-track-choice.cupri-video-track-selected { background:var(--cupri-hover,#eef1f5); }
+        .cupri-video-track-choice.cupri-video-track-selected { color:var(--cupri-accent,#B87333); }
+        """;
+
+    public override void Expand(IElement el)
+    {
+        var source = Str(el, "src");
+        var label = Str(el, "label", "Tracks");
+        el.ClassList.Add("cupri-video-tracks");
+        el.SetAttribute("data-video-track-controls", source);
+        el.InnerHtml = $"""
+            <div class='cupri-video-tracks-toggle' role='button' tabindex='0' data-video-track-toggle='{VideoComponent.Escape(source)}'>
+              {IconMarkup("settings", 18)}<span>{VideoComponent.Escape(label)}</span>
+            </div>
+            <span class='cupri-video-tracks-status' data-video-track-status>Audio and subtitle tracks appear after playback starts.</span>
+            <div class='cupri-video-tracks-panel' data-video-track-panel>
+              <div class='cupri-video-tracks-column'><strong>AUDIO</strong><div class='cupri-video-tracks-list' data-video-track-form-list='audio'></div></div>
+              <div class='cupri-video-tracks-column'><strong>SUBTITLES</strong><div class='cupri-video-tracks-list' data-video-track-form-list='subtitle'></div></div>
+            </div>
+            """;
+    }
+
+    internal static void Sync(IElement el, string source, Media.IVideoTrackSelector? tracks, bool open)
+    {
+        if (el.QuerySelector("[data-video-track-panel]") is { } panel)
+            panel.SetAttribute("style", open ? "display:flex" : "display:none");
+
+        var audio = tracks?.AudioTracks ?? [];
+        var subtitles = tracks?.SubtitleTracks ?? [];
+        FillChoices(el.QuerySelector("[data-video-track-form-list='audio']"), source, "audio", audio, tracks?.SelectedAudioTrack);
+        FillChoices(el.QuerySelector("[data-video-track-form-list='subtitle']"), source, "subtitle", subtitles, tracks?.SelectedSubtitleTrack);
+
+        if (el.QuerySelector("[data-video-track-status]") is not { } status) return;
+        if (tracks is null || (audio.Count == 0 && subtitles.Count == 0))
+        {
+            status.TextContent = "No selectable tracks.";
+            return;
+        }
+        var audioLabel = audio.FirstOrDefault(track => track.Id == tracks.SelectedAudioTrack)?.Label ?? "Default";
+        var subtitleLabel = subtitles.FirstOrDefault(track => track.Id == tracks.SelectedSubtitleTrack)?.Label ?? "Off";
+        status.TextContent = $"Audio: {audioLabel} · Subtitles: {subtitleLabel}";
+    }
+
+    private static void FillChoices(IElement? list, string source, string kind, IReadOnlyList<Media.VideoTrack> tracks, int? selected)
+    {
+        if (list is null) return;
+        if (tracks.Count == 0)
+        {
+            list.InnerHtml = "<span class='cupri-video-tracks-status'>None</span>";
+            return;
+        }
+        list.InnerHtml = string.Join("", tracks.Select(track =>
+        {
+            var chosen = track.Id == selected;
+            var css = chosen ? "cupri-video-track-choice cupri-video-track-selected" : "cupri-video-track-choice";
+            var check = chosen ? IconMarkup("check", 16) : "";
+            return $"<div class='{css}' role='button' tabindex='0' data-video-track-source='{VideoComponent.Escape(source)}' " +
+                   $"data-video-track-kind='{kind}' data-video-track-id='{track.Id}'><span>{VideoComponent.Escape(track.Label)}</span>{check}</div>";
+        }));
     }
 }

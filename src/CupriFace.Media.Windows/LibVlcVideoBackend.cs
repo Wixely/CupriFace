@@ -85,7 +85,7 @@ public sealed class LibVlcVideoBackend : IVideoBackend, IDisposable
     }
 }
 
-internal sealed class LibVlcVideoPlayer : IVideoPlayer, IHostCompositedSurfaceSource
+internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IHostCompositedSurfaceSource
 {
     private readonly object _gate = new();
     private readonly VideoSource _source;
@@ -103,6 +103,8 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IHostCompositedSurfaceSo
     private bool _loop;
     private double _volume = 1;
     private (int W, int H)? _naturalSize;
+    private VideoTrack[] _audioTracks = [];
+    private VideoTrack[] _subtitleTracks = [];
 
     private readonly Action<string> _log;
     private readonly Action<LibVlcVideoPlayer> _closed;
@@ -167,6 +169,38 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IHostCompositedSurfaceSo
     }
 
     public event Action? Ended;
+    public event Action? TracksChanged;
+
+    public IReadOnlyList<VideoTrack> AudioTracks
+    {
+        get { lock (_gate) return _audioTracks; }
+    }
+
+    public IReadOnlyList<VideoTrack> SubtitleTracks
+    {
+        get { lock (_gate) return _subtitleTracks; }
+    }
+
+    public int SelectedAudioTrack => _disposed ? -1 : _player.AudioTrack;
+    public int SelectedSubtitleTrack => _disposed ? -1 : _player.Spu;
+
+    public bool SelectAudioTrack(int trackId)
+    {
+        lock (_gate)
+        {
+            if (_disposed || !_audioTracks.Any(track => track.Id == trackId)) return false;
+            return _player.SetAudioTrack(trackId);
+        }
+    }
+
+    public bool SelectSubtitleTrack(int trackId)
+    {
+        lock (_gate)
+        {
+            if (_disposed || !_subtitleTracks.Any(track => track.Id == trackId)) return false;
+            return _player.SetSpu(trackId);
+        }
+    }
 
     public string DiagnosticsSummary =>
         $"LibVLC D3D11VA requested · {(_failure ?? (_ready ? "ready" : "loading"))} · " +
@@ -308,9 +342,39 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IHostCompositedSurfaceSo
         uint width = 0, height = 0;
         if (_player.Size(0, ref width, ref height) && width > 0 && height > 0)
             _naturalSize = ((int)width, (int)height);
+        RefreshTracks();
         _log($"playing; video output {_naturalSize?.W ?? 0}x{_naturalSize?.H ?? 0}");
         _context?.RequestFrame();
     }
+
+    private void RefreshTracks()
+    {
+        var audio = _player.AudioTrackDescription
+            .Where(track => track.Id >= 0)
+            .Select((track, index) => new VideoTrack(track.Id, TrackLabel(track.Name, "Audio", index + 1)))
+            .ToArray();
+        var subtitles = _player.SpuDescription
+            .Select((track, index) => new VideoTrack(
+                track.Id,
+                track.Id < 0 ? "Off" : TrackLabel(track.Name, "Subtitle", index + 1)))
+            .ToList();
+        if (subtitles.All(track => track.Id >= 0)) subtitles.Insert(0, new VideoTrack(-1, "Off"));
+
+        var changed = false;
+        lock (_gate)
+        {
+            if (!_audioTracks.SequenceEqual(audio) || !_subtitleTracks.SequenceEqual(subtitles))
+            {
+                _audioTracks = audio;
+                _subtitleTracks = subtitles.ToArray();
+                changed = true;
+            }
+        }
+        if (changed) TracksChanged?.Invoke();
+    }
+
+    private static string TrackLabel(string? label, string fallback, int number) =>
+        string.IsNullOrWhiteSpace(label) ? $"{fallback} {number}" : label.Trim();
 
     private void OnEnded(object? sender, EventArgs args)
     {

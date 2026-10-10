@@ -793,6 +793,18 @@ OS/browser-fullscreen through `WindowCommandRequested` — together the video fi
 Escape (or ⛶ again) undoes both; on the web the browser's own Esc is picked up via
 `fullscreenchange`, so the element never sticks.
 
+Embedded audio/subtitle selection is deliberately **off by default**. A backend may implement
+`IVideoTrackSelector`; add `tracks` to the video only when users should be allowed to switch those
+tracks. That adds an Audio/Subtitles right-click menu. Add the optional
+`<cupri-video-tracks src="…">` companion immediately below the player for the same choices in a
+collapsible, keyboard/remote-friendly form. Omitting both UI opt-ins does not expose track switching.
+
+On a host that composites the video itself (a native video window), the engine cannot paint ON TOP
+of the picture, so opening the right-click menu hides the video for as long as the menu is up. That
+is deliberate — the alternative is a menu drawn underneath the video and therefore not there — but
+it is why the `<cupri-video-tracks>` companion exists: it sits BELOW the player, outside the
+composited box, and changes tracks without the picture going anywhere.
+
 `src` resolves **exactly like an image** — the developer picks the scheme per element:
 an **embedded** asset (bare name, the assembly registered via `UseImages`), a **disk** file
 (`file://` or a path), an inline `data:` URI, or a **web URL** fetched under the document's
@@ -804,6 +816,8 @@ play from the same resolved bytes, so every scheme works on every host.
 <cupri-video src="Assets/intro.webm" poster="Assets/intro.png" controls muted autoplay loop
              label="Product tour" fit="cover" style="width:100%;height:260px"></cupri-video>
 <cupri-video src="https://example.com/trailer.webm" controls muted></cupri-video>
+<cupri-video src="movie.mkv" controls tracks></cupri-video>
+<cupri-video-tracks src="movie.mkv"></cupri-video-tracks>
 ```
 **Wiring a backend.** The web host has one built in (the browser decodes). On desktop, add the
 optional **`CupriFace.Media`** package — WebM/VP9+Opus, with decoders for every desktop RID inside
@@ -855,7 +869,8 @@ to the bottom as new lines arrive (logging), *unless* the user has scrolled up:
 | Element | Purpose | Key attributes | Children | role |
 |---------|---------|----------------|----------|------|
 | `<cupri-image>` | Raster image (PNG/JPEG/WebP/GIF) | `src`, `alt`, `fit` (`contain`\|`cover`\|`fill`\|`none`) | — | `img` or decorative |
-| `<cupri-video>` | Video (host-registered backend) | `src`, `poster`, `fit`, `label`, `controls`, `autoplay` (with `muted`), `muted`, `loop` | — | `img` + button controls |
+| `<cupri-video>` | Video (host-registered backend) | `src`, `poster`, `fit`, `label`, `controls`, `tracks` (opt-in), `autoplay` (with `muted`), `muted`, `loop` | — | `img` + button controls |
+| `<cupri-video-tracks>` | Opt-in collapsible audio/subtitle form for a track-capable video | `src`, `label` | — | button + track choices |
 | `<cupri-icon>` | Vector icon (current text colour) | `name`, `size` (24), `aria-label`? | — | `img` or decorative |
 | `<cupri-badge>` | Small pill label | — | text/HTML | — |
 | `<cupri-chip>` | Pill with optional close icon | `closable` | text/HTML | — |

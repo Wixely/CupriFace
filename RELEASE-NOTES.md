@@ -39,6 +39,18 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   keeping the strip for the engine. `<cupri-video controls>` does this for you; mark your own
   element's chrome if it supplies a host-composited surface. See DESIGN.md §7.5.1.
 
+- **Optional embedded audio/subtitle track selection.** Backends may implement
+  `IVideoTrackSelector`; `CupriDocument` gains enumeration and selection APIs, and the Windows
+  LibVLC backend exposes the tracks it finds. User-facing selection stays **off** unless you ask
+  for it: add `tracks` to `<cupri-video>` for a right-click menu, and `<cupri-video-tracks
+  src="...">` for a collapsible companion form below the player. Note that on a host-composited
+  video the right-click menu hides the picture while it is open (the engine cannot paint over the
+  host's surface) — the companion form sits outside that box and does not.
+
+- **A popup marked `data-surface-occluder` hides a host-composited surface it overlaps.** The
+  engine's context menus are marked for you. Mark your own popups if they can open over a video or
+  another host-composited element; without it they are painted underneath it and are not visible.
+
 ### Fixed
 
 - **Maximizing a window on a secondary monitor no longer moves it to the primary one.** GLFW and
