@@ -808,7 +808,8 @@ Embedded chapter navigation is also opt-in. A backend implements `IVideoChapterP
 `chapters` to `<cupri-video>` to divide its seek bar at chapter boundaries and show each chapter's
 name when its section is hovered, and add a matching
 `<cupri-video-chapters src="movie.mkv">` below it for a selectable table of chapter number, name,
-start, and duration. Decoders without chapter metadata show an empty-state row and an undivided bar.
+start, and duration. The companion table is collapsed behind its Chapters button by default and
+stays open after selection. Decoders without chapter metadata show an empty-state row and an undivided bar.
 
 On a host that composites the video itself (a native video window), the engine cannot paint ON TOP
 of the picture, so opening the right-click menu hides the video for as long as the menu is up. That

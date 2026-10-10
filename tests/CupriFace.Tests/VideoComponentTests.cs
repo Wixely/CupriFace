@@ -242,7 +242,7 @@ public class VideoComponentTests
         t.Doc.UseVideo(backend);
         t.Layout();
         backend.Players["clip.webm"].PublishChapters([
-            new VideoChapter(0, "Opening", 0, 2.5),
+            new VideoChapter(0, "Opening credits and the first mysterious encounter", 0, 2.5),
             new VideoChapter(1, "The middle", 2.5, 5),
             new VideoChapter(2, "Finale", 7.5, 2.5),
         ]);
@@ -250,12 +250,25 @@ public class VideoComponentTests
         t.Layout();
 
         Assert.Equal(3, t.Doc.GetVideoChapters("clip.webm").Count);
-        Assert.NotNull(t.Find(n => n.Element?.GetAttribute("aria-label") == "Video chapters"));
+        Assert.Null(t.Find(n => n.Element?.GetAttribute("aria-label") == "Video chapters"));
+        Assert.Equal("false", t.Find(n => n.Element?.HasAttribute("data-video-chapter-toggle") == true)!
+            .Element!.GetAttribute("aria-expanded"));
         Assert.Equal(2, Count(t.Root, n => n.Element?.ClassList.Contains("cupri-video-chapter-marker") == true));
         Assert.Equal(3, Count(t.Root, n => n.Element?.ClassList.Contains("cupri-video-chapter-segment") == true));
         Assert.Equal("The middle", t.Find(n => n.Element?.GetAttribute("data-video-chapter-title") == "The middle")!
             .Element!.QuerySelector("[role='tooltip']")!.TextContent);
-        Assert.NotNull(t.Find(n => n.IsText && n.Text == "The middle"));
+
+        var openingSegment = t.Find(n => n.Element?.GetAttribute("data-video-chapter-title") ==
+            "Opening credits and the first mysterious encounter")!;
+        var (openingX, openingY) = TestDoc.Center(openingSegment);
+        t.Move(openingX, openingY);
+        openingSegment = t.Find(n => n.Element?.GetAttribute("data-video-chapter-title") ==
+            "Opening credits and the first mysterious encounter")!;
+        var openingTooltip = t.Find(n => n.Element?.ClassList.Contains("cupri-video-chapter-tooltip") == true &&
+            n.Element.TextContent == "Opening credits and the first mysterious encounter")!;
+        Assert.NotEqual(CupriFace.Style.DisplayType.None, openingTooltip.Style.Display);
+        Assert.True(openingTooltip.Width > openingSegment.Width,
+            "the full title tooltip must size independently of a narrow chapter segment");
 
         var middleSegment = t.Find(n => n.Element?.GetAttribute("data-video-chapter-title") == "The middle")!;
         var (segmentX, segmentY) = TestDoc.Center(middleSegment);
@@ -263,15 +276,27 @@ public class VideoComponentTests
         Assert.NotEqual(CupriFace.Style.DisplayType.None,
             t.Find(n => n.Element?.ClassList.Contains("cupri-video-chapter-tooltip") == true &&
                         n.Element.TextContent == "The middle")!.Style.Display);
+        var visibleTooltip = t.Find(n => n.Element?.ClassList.Contains("cupri-video-chapter-tooltip") == true &&
+                                         n.Element.TextContent == "The middle")!;
+        Assert.Equal(CupriFace.Style.PositionType.Fixed, visibleTooltip.Style.Position);
+        Assert.NotNull(visibleTooltip.Element!.GetAttribute("data-cupri-anchor"));
         t.ClickMatch(n => n.Element?.GetAttribute("data-video-chapter-title") == "The middle");
         Assert.InRange(backend.Players["clip.webm"].Position, 4.5, 5.5);
         Assert.False(backend.Players["clip.webm"].Playing);
 
+        t.ClickMatch(n => n.Element?.HasAttribute("data-video-chapter-toggle") == true);
+        Assert.Equal("true", t.Find(n => n.Element?.HasAttribute("data-video-chapter-toggle") == true)!
+            .Element!.GetAttribute("aria-expanded"));
+        Assert.NotNull(t.Find(n => n.Element?.GetAttribute("aria-label") == "Video chapters"));
+        Assert.Equal("display:block", t.Find(n => n.Element?.HasAttribute("data-video-chapter-panel") == true)!
+            .Element!.GetAttribute("style"));
         t.ClickMatch(n => n.Element?.GetAttribute("data-video-chapter-id") == "2");
         Assert.Equal(2, backend.Players["clip.webm"].SelectedChapter);
         Assert.Equal(7.5, backend.Players["clip.webm"].Position);
         Assert.Equal("2", t.Find(n => n.Element?.ClassList.Contains("cupri-video-chapter-current") == true)!
             .Element!.GetAttribute("data-video-chapter-id"));
+        Assert.Equal("display:block", t.Find(n => n.Element?.HasAttribute("data-video-chapter-panel") == true)!
+            .Element!.GetAttribute("style"));
 
         static int Count(CupriFace.Dom.RenderNode node, Func<CupriFace.Dom.RenderNode, bool> predicate)
         {
