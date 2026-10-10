@@ -128,11 +128,12 @@ public class CarouselDragTests(ITestOutputHelper output)
     {
         var clicks = 0;
         using var t = Doc();
+        t.Doc.MouseActivation = PointerActivation.OnRelease;
         t.Doc.OnClick(".card", _ => clicks++);
         var card = t.Find(n => n.Element?.ClassList.Contains("card") == true)!;
         var (x, y) = TestDoc.Center(card);
 
-        t.Doc.DispatchPointerDown(x, y);
+        t.Click(x, y);
         t.Layout();
         t.Move(x - 90, y);
         t.Up(x - 90, y);
@@ -146,11 +147,12 @@ public class CarouselDragTests(ITestOutputHelper output)
     {
         var clicks = 0;
         using var t = Doc();
+        t.Doc.MouseActivation = PointerActivation.OnRelease;
         t.Doc.OnClick(".card", _ => clicks++);
         var card = t.Find(n => n.Element?.ClassList.Contains("card") == true)!;
         var (x, y) = TestDoc.Center(card);
 
-        t.Doc.DispatchPointerDown(x, y);
+        t.Click(x, y);
         t.Layout();
         Assert.Equal(0, clicks);
         t.Up(x, y);

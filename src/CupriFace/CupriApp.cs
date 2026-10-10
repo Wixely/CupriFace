@@ -309,6 +309,11 @@ public abstract class CupriApp
     /// browser compatibility; native-only applications may opt in.</summary>
     public virtual bool AllowUnmutedVideoAutoplay => false;
 
+    /// <summary>When a mouse press activates what it landed on. The default activates on the press;
+    /// <see cref="Interaction.PointerActivation.OnRelease"/> waits for the release and cancels if
+    /// the press became a pan or a drag — the model touch already uses.</summary>
+    public virtual Interaction.PointerActivation MouseActivation => Interaction.PointerActivation.OnPress;
+
     /// <summary>Opt in to the commit-snapshot render-thread split (DESIGN §7.2): the UI thread builds
     /// the display list and a background thread rasterises it, so rasterisation never blocks input.
     /// Wired for the CPU/SDL software path; the GL path renders inline. Default off.</summary>
@@ -510,6 +515,7 @@ public abstract class CupriApp
         var doc = CupriDocument.Load(Html, Css).UseComponents(Components).UseImages(GetType().Assembly);
         doc.FontPolicy = FontPolicy;
         doc.AllowUnmutedVideoAutoplay = AllowUnmutedVideoAutoplay;
+        doc.MouseActivation = MouseActivation;
         foreach (var font in Fonts) doc.LoadFont(font);
         if (Model is { } model) doc.Bind(model);
         doc.DebugOverlay = DebugOverlay;

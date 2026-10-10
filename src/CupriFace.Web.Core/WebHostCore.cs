@@ -403,7 +403,7 @@ public static class WebHostCore
     private static float L(double v) => (float)(v / _scale);
 
     public static void PointerDown(double x, double y, int clicks)
-    { if (_doc?.DispatchPointerDown(L(x), L(y), clicks) == true) _dirty = true; UpdateCursor(x, y); }
+    { if (_doc?.DispatchClick(L(x), L(y), clicks) == true) _dirty = true; UpdateCursor(x, y); }
 
     // ---- files dropped onto the canvas -----------------------------------------------------------
     //

@@ -81,6 +81,7 @@ public class StickyPositionTests
             ".fill{height:360px}";
         var clicks = 0;
         using var t = new TestDoc(html, css, width: 240, height: 160);
+        t.Doc.MouseActivation = PointerActivation.OnRelease;
         t.Doc.OnClick(".item", _ => clicks++);
         var scroll = t.FindClass("scroll");
         scroll.ScrollY = 80;
@@ -93,11 +94,11 @@ public class StickyPositionTests
         var (clickX, clickY) = HitTesting.ActivationPoint(first);
         Assert.InRange(clickY, 0f, 40f);
 
-        t.Doc.DispatchPointerDown(clickX, clickY);
+        t.Click(clickX, clickY);
         t.Up(clickX, clickY);
         Assert.Equal(1, clicks);
 
-        t.Doc.DispatchPointerDown(150, 20);
+        t.Click(150, 20);
         t.Move(60, 20);
         t.Up(60, 20);
 

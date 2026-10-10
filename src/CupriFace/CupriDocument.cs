@@ -126,9 +126,9 @@ public sealed partial class CupriDocument : IDisposable
     private string? _panPath;
     private float _panX0, _panY0, _panScrollX0, _panScrollY0;
     private bool _panEngaged;
-    private bool _panClickPending;
-    private float _panClickX, _panClickY;
-    private int _panClickCount;
+    // OnRelease activation: what the press landed on, waiting to see whether it becomes a drag.
+    private string? _pendingActivation;
+    private float _pendingX, _pendingY;
     private const float PanSlopPx = 4f;
     private string? _scrollbarHotPath;  // the scrollbar the pointer is over (a path: the tree is rebuilt)
     private RenderNode? _scrollbarHotNode;
@@ -3109,17 +3109,10 @@ public sealed partial class CupriDocument : IDisposable
             ? Observe(Interaction.InputSource.Pointer, $"click {x:0},{y:0}", Interaction.InputRoute.Navigate,
                       () => Bump(DispatchClickCore(Zc(x), Zc(y), clickCount)))
             : Bump(DispatchClickCore(Zc(x), Zc(y), clickCount));
-    private bool DispatchClickCore(
-        float x,
-        float y,
-        int clickCount,
-        float adjustRadius = 0f,
-        bool deferPanActivation = false,
-        bool armPan = true)
+    private bool DispatchClickCore(float x, float y, int clickCount, float adjustRadius = 0f)
     {
         EnsureLaidOut();
         _textDrag = false;
-        if (deferPanActivation) _panClickPending = false;
 
         // An open context menu intercepts the next click: an item runs its command (without
         // blurring the underlying field, so the selection survives for Copy/Cut); a click
@@ -3166,27 +3159,15 @@ public sealed partial class CupriDocument : IDisposable
         // else — shared with the touch layer, which must know these drag from the FIRST touch.
         if (TryGrabDragSurface(hit, x, y)) return true;
 
-        // A pannable scroller under the pointer becomes a PAN CANDIDATE. Deliberately not a drag
-        // surface: most presses on a carousel are clicks, and only travel beyond the slop turns one
-        // into a pan. Native hosts defer activation until release so that transition can cancel it;
-        // DispatchClick callers already mean a completed click and continue to activate immediately.
-        var panCandidate = armPan && StartPanCandidate(hit, x, y);
+        // A pannable scroller under the pointer becomes a PAN CANDIDATE. Deliberately not a grab:
+        // the press must still reach whatever it landed on, because most presses on a carousel are
+        // someone clicking a card rather than starting a drag. Only travel past the slop turns it
+        // into a pan, and by then the click has already happened — which is how a real carousel
+        // behaves and why this is not in TryGrabDragSurface.
+        StartPanCandidate(hit, x, y);
 
         // :active press feedback — mark the pressed element chain (restyled below; cleared on pointer-up).
         SetActive(hit.Element);
-
-        // Native hosts do not know on pointer-down whether this is a click or a pan. Delay an
-        // actionable child of an opted-in scroller until pointer-up; travel beyond the slop cancels
-        // it. DispatchClick remains the immediate API for synthetic, already-complete clicks.
-        if (deferPanActivation && panCandidate)
-        {
-            _panClickPending = true;
-            _panClickX = x;
-            _panClickY = y;
-            _panClickCount = clickCount;
-            if (_activeChain.Count > 0) ReStyle();
-            return true;
-        }
 
         // Focus: a click inside a text/number field focuses it; elsewhere blurs.
         RenderNode? field = hit;
@@ -3204,16 +3185,26 @@ public sealed partial class CupriDocument : IDisposable
         _kbIndex = IndexOfFocusable(hit);
         _focusVisible = false;
 
-        // Built-in behaviour first (steppers, toggles, buttons, user handlers).
+        // Built-in behaviour first (steppers, toggles, buttons, user handlers) — unless this document
+        // confirms a click on the RELEASE, in which case the press only remembers where it landed
+        // and DispatchPointerUp decides, once it is known whether a drag happened.
         var label = Observing ? ControlName(hit) : null;
-        var handled = ActivateFrom(hit, x, y);
-        if (handled) Note(Interaction.InputAction.Activate, label);
-
-        // Clicking a checkbox/radio/switch's text label toggles the control (like <label>).
-        if (!handled && ActivateLabel(hit) is { } labelled)
+        var handled = false;
+        if (MouseActivation == Interaction.PointerActivation.OnRelease)
         {
-            _kbIndex = FocusableIndexOf(labelled); // continue Tab order from the toggled control
-            handled = true;
+            _pendingActivation = PathOf(hit); _pendingX = x; _pendingY = y;
+        }
+        else
+        {
+            handled = ActivateFrom(hit, x, y);
+            if (handled) Note(Interaction.InputAction.Activate, label);
+
+            // Clicking a checkbox/radio/switch's text label toggles the control (like <label>).
+            if (!handled && ActivateLabel(hit) is { } labelled)
+            {
+                _kbIndex = FocusableIndexOf(labelled); // continue Tab order from the toggled control
+                handled = true;
+            }
         }
 
         // If the click landed in a focused text field and nothing else consumed it, position the
@@ -3237,35 +3228,37 @@ public sealed partial class CupriDocument : IDisposable
         return handled || focusChanged || strayClosed || _activeChain.Count > 0;
     }
 
+    /// <summary>
+    /// When a mouse press activates what it landed on. <see cref="Interaction.PointerActivation.OnPress"/>
+    /// by default — unchanged behaviour, and the right one for an application that would rather
+    /// intercept the press itself.
+    ///
+    /// <para><see cref="Interaction.PointerActivation.OnRelease"/> makes a mouse down + up over the
+    /// same control the confirmed click, and a press that travels into a pan or a drag activates
+    /// nothing. That is exactly what touch has always done, so setting it makes a drag-to-pan
+    /// carousel behave the same under a finger and under a mouse.</para>
+    ///
+    /// <para>Focus, <c>:active</c> feedback and caret placement still happen on the press either
+    /// way — those are the press, not the click.</para>
+    /// </summary>
+    public Interaction.PointerActivation MouseActivation { get; set; } = Interaction.PointerActivation.OnPress;
+
     /// <summary>Note a press on a scroller that has opted into drag-to-pan, without consuming it.
     /// The element opts in with <c>data-drag-scroll</c>; <c>&lt;cupri-carousel&gt;</c> sets it on its
     /// viewport, and an app can put it on any scroll box it wants a hand to be able to push.</summary>
-    private bool StartPanCandidate(RenderNode hit, float x, float y)
+    private void StartPanCandidate(RenderNode hit, float x, float y)
     {
         _panPath = null; _panEngaged = false;
         for (var n = hit; n is not null; n = n.Parent)
         {
             if (n.Element?.HasAttribute("data-drag-scroll") != true) continue;
-            if (!n.IsScrollableX && !n.IsScrollable) return false; // nothing to pan
+            if (!n.IsScrollableX && !n.IsScrollable) return;      // nothing to pan
             _panPath = PathOf(n);
             _panX0 = x; _panY0 = y;
             _panScrollX0 = n.ScrollX; _panScrollY0 = Math.Clamp(n.ScrollY, 0, n.MaxScrollY);
-            return true;
+            return;
         }
-        return false;
     }
-
-    /// <summary>
-    /// Dispatch a native pointer-down. Inside a <c>data-drag-scroll</c> box, activation waits for
-    /// pointer-up and is cancelled when movement engages the pan. Hosts should use this for mouse
-    /// down; accessibility and test callers that mean a completed click may use
-    /// <see cref="DispatchClick(float,float,int)"/>.
-    /// </summary>
-    public bool DispatchPointerDown(float x, float y, int clickCount = 1) =>
-        Outermost
-            ? Observe(Interaction.InputSource.Pointer, $"down {x:0},{y:0}", Interaction.InputRoute.Navigate,
-                      () => Bump(DispatchClickCore(Zc(x), Zc(y), clickCount, deferPanActivation: true)))
-            : Bump(DispatchClickCore(Zc(x), Zc(y), clickCount, deferPanActivation: true));
 
     /// <summary>One frame of a pan. Returns whether anything moved.</summary>
     private bool MovePan(float x, float y)
@@ -6715,17 +6708,38 @@ public sealed partial class CupriDocument : IDisposable
         if (_reorderItems is not null) { EndReorder(); return true; }
         if (_splitA is not null) { _splitA = null; _splitB = null; return true; }
         if (_colPath is not null) { _colPath = null; return true; }
-        var activatePanClick = _panClickPending && !_panEngaged;
-        var clickX = _panClickX;
-        var clickY = _panClickY;
-        var clickCount = _panClickCount;
-        _panClickPending = false;
+        var activated = ResolvePendingActivation();
         _panPath = null; _panEngaged = false;
         _dragging = false; _dragSeek = null; _dragUndecided = false; _windowDrag = false; _textDrag = false; _scrollDrag = null; _resizeDrag = null;
-        if (!activatePanClick) return ClearActive();
+        return ClearActive() | activated;
+    }
 
-        var activated = DispatchClickCore(clickX, clickY, clickCount, armPan: false);
-        return ClearActive() || activated;
+    /// <summary>
+    /// The release half of <see cref="Interaction.PointerActivation.OnRelease"/>: activate what the
+    /// press landed on, unless the press turned into a pan or a drag.
+    ///
+    /// <para>Activation uses the PRESS coordinates, not the release ones — the pointer may have
+    /// wobbled inside the slop, and the user pressed what they first pointed at. That is the same
+    /// rule <c>TouchInput.Up</c> applies to a tap, deliberately, so the two paths cannot drift.</para>
+    /// </summary>
+    private bool ResolvePendingActivation()
+    {
+        if (_pendingActivation is not { } path) return false;
+        _pendingActivation = null;
+        if (_panEngaged || _textDrag || _dragging || _scrollDrag is not null || _resizeDrag is not null)
+            return false;                                   // it became a gesture, so it was never a click
+        if (NodeAtPath(path) is not { } hit) return false;  // the element went away under the press
+
+        var label = Observing ? ControlName(hit) : null;
+        var handled = ActivateFrom(hit, _pendingX, _pendingY);
+        if (handled) Note(Interaction.InputAction.Activate, label);
+        else if (ActivateLabel(hit) is { } labelled)
+        {
+            _kbIndex = FocusableIndexOf(labelled);
+            handled = true;
+        }
+        if (handled) Refresh();
+        return handled;
     }
 
     /// <summary>Scroll wheel: scroll the nearest scrollable element under the pointer by pixels.</summary>
