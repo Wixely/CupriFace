@@ -17,6 +17,11 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **Video completion is observable.** Subscribe to `VideoEnded` to start follow-on playback after a
+  source reaches its natural end; marshal UI changes through `Post` because decoder backends may
+  raise the callback from a worker thread. Chapter hover tooltips also cut through native video
+  surfaces when chapter controls are enabled.
+
 - **Video playback state has an application persistence boundary.** Subscribe to
   `VideoPlaybackStateChanged` to store position, duration, transport, volume, mute, and selected
   track IDs without depending on a concrete decoder. Reapply a snapshot with

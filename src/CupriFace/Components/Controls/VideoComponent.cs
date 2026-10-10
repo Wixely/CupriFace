@@ -228,7 +228,7 @@ public sealed class VideoComponent : ComponentBase
             var anchorId = $"cupri-video-chapter-{anchorSet}-{index}";
             return $"<span class='cupri-video-chapter-segment' id='{anchorId}' style='left:{left}%;width:{width}%' " +
                    $"data-video-chapter-title='{Escape(chapter.Label)}'>" +
-                   $"<span class='cupri-video-chapter-tooltip' role='tooltip' data-cupri-anchor='{anchorId}' " +
+                   $"<span class='cupri-video-chapter-tooltip' role='tooltip' data-surface-occluder data-cupri-anchor='{anchorId}' " +
                    $"data-cupri-placement='top'>{Escape(chapter.Label)}</span></span>{marker}";
         }));
     }

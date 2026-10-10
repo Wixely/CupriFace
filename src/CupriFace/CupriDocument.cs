@@ -513,6 +513,10 @@ public sealed partial class CupriDocument : IDisposable
     /// Applications can persist this portable snapshot without depending on a concrete backend.</summary>
     public event Action<Media.VideoPlaybackState>? VideoPlaybackStateChanged;
 
+    /// <summary>Raised when a video reaches its natural end. The callback may arrive from a decoder
+    /// thread; use <see cref="Post"/> before changing UI state.</summary>
+    public event Action<string>? VideoEnded;
+
     public Media.VideoPlaybackState? GetVideoPlaybackState(string source) =>
         _videoPlayers.TryGetValue(source, out var player) ? SnapshotVideoState(source, player) : null;
 
@@ -701,7 +705,11 @@ public sealed partial class CupriDocument : IDisposable
 
         _videoPlayers[src] = player;
         Surfaces.Register("video:" + src, player.Surface);
-        player.Ended += () => System.Threading.Interlocked.Exchange(ref _videoStateChanged, 1);
+        player.Ended += () =>
+        {
+            System.Threading.Interlocked.Exchange(ref _videoStateChanged, 1);
+            VideoEnded?.Invoke(src);
+        };
         if (player is Media.IVideoTrackSelector tracks)
         {
             tracks.TracksChanged += () =>
