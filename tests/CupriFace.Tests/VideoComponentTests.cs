@@ -171,6 +171,35 @@ public class VideoComponentTests
     }
 
     [Fact]
+    public void Playback_state_can_be_observed_and_restored_without_backend_coupling()
+    {
+        var backend = new FakeBackend();
+        using var t = new TestDoc(Html, "", components: true);
+        VideoPlaybackState? observed = null;
+        t.Doc.VideoPlaybackStateChanged += state => observed = state;
+        t.Doc.UseVideo(backend);
+        t.Layout();
+        var player = backend.Players["clip.webm"];
+        player.PublishTracks(
+            [new VideoTrack(1, "English"), new VideoTrack(2, "Commentary")],
+            [new VideoTrack(-1, "Off"), new VideoTrack(4, "English CC")]);
+
+        Assert.True(t.Doc.RestoreVideoPlaybackState("clip.webm", new VideoPlaybackState(
+            "clip.webm", 6.5, 10, Playing: true, Muted: false, Volume: .4, AudioTrackId: 2, SubtitleTrackId: 4)));
+
+        Assert.Equal(6.5, player.Position);
+        Assert.False(player.Muted);
+        Assert.Equal(.4, player.Volume);
+        Assert.Equal(2, player.SelectedAudioTrack);
+        Assert.Equal(4, player.SelectedSubtitleTrack);
+        Assert.NotNull(observed);
+        Assert.Equal("clip.webm", observed.Source);
+        Assert.Equal(6.5, observed.PositionSeconds);
+        Assert.Equal(2, observed.AudioTrackId);
+        Assert.Equal(4, observed.SubtitleTrackId);
+    }
+
+    [Fact]
     public void Track_selection_ui_is_opt_in_and_uses_the_player_capability()
     {
         var backend = new FakeBackend();

@@ -17,6 +17,11 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **Video playback state has an application persistence boundary.** Subscribe to
+  `VideoPlaybackStateChanged` to store position, duration, transport, volume, mute, and selected
+  track IDs without depending on a concrete decoder. Reapply a snapshot with
+  `RestoreVideoPlaybackState`; track-discovering backends can retry from `VideoTracksChanged`.
+
 - **CI now loads LibVLC for real.** A `media-windows` job drives the shipped Windows adapter on a
   runner: it constructs the backend (so the single-file native discovery is exercised, not just
   asserted by the packaging gate), parents a child window to a real HWND, plays the repo's existing
@@ -79,12 +84,12 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   LibVLC backend exposes the tracks it finds. User-facing selection stays **off** unless you ask
   for it: add `tracks` to `<cupri-video>` for a right-click menu, and `<cupri-video-tracks
   src="...">` for a collapsible companion form below the player. Note that on a host-composited
-  video the right-click menu hides the picture while it is open (the engine cannot paint over the
-  host's surface) — the companion form sits outside that box and does not.
+  video the host cuts the menu rectangle out of the native surface while it is open, leaving the
+  rest of the picture visible; the companion form sits outside that box and needs no cut-out.
 
-- **A popup marked `data-surface-occluder` hides a host-composited surface it overlaps.** The
-  engine's context menus are marked for you. Mark your own popups if they can open over a video or
-  another host-composited element; without it they are painted underneath it and are not visible.
+- **A popup marked `data-surface-occluder` cuts through a host-composited surface it overlaps.**
+  The engine's context menus are marked for you. Mark your own popups if they can open over a video
+  or another host-composited element; without it they are painted underneath it and are not visible.
 
 ### Changed
 
@@ -108,6 +113,10 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **Native video stays visible around context menus.** Host-composited surfaces now receive precise
+  popup cut-outs instead of disappearing wholesale, and fly-out submenus flip or clamp at viewport
+  edges rather than opening off-screen. Windows media adapters should apply `Occlusions` when
+  constructing their native surface region.
 - **Fullscreen stays on the monitor the window is on, and restores where it came from.** Asking the
   windowing layer for fullscreen without naming a monitor gets you the PRIMARY display, so a window
   on a second screen jumped across every time. It now picks the monitor containing the window's
@@ -138,7 +147,6 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   no longer paint into neighbouring choices, its default trigger reads `Audio / Video`, and selecting
   a track leaves the panel open for further changes. Long unbroken names wrap within the Track column,
   and video track fly-out menus use a wider, high-contrast surface with bounded wrapping.
-
 - **A `position: sticky` element is now clicked where it is painted.** Paint, hit-testing and
   `ScreenBox`/`ActivationPoint` each worked out a stuck node's position separately, so a pinned
   header was painted in one place, clicked in another, and reported to assistive technology in a
@@ -273,7 +281,6 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   Silent across the Showcase, MobileApp, ControlsApp and SettingsApp at two viewport sizes — where
   four peer groups do reach the size comparison and agree, so that silence is the check running
   rather than finding nothing to look at.
-
 ## v0.39.0
 
 ### Added

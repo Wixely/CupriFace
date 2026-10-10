@@ -121,8 +121,14 @@ internal sealed class HostSurfaceCoordinator(
         // Engine-painted chrome the host's surface would otherwise cover (see the overlay note below).
         var surfaceH = MathF.Max(0, h - HostSurfaceGeometry.OverlayBottomInset(node, y, h));
 
-        var visible = w > 0 && surfaceH > 0 && visR > visL && visB > visT
-                      && !HostSurfaceGeometry.IsOccluded(document.Root, x, y, w, surfaceH);
+        var visible = w > 0 && surfaceH > 0 && visR > visL && visB > visT;
+        var occlusions = HostSurfaceGeometry.GetOcclusions(document.Root, x, y, w, surfaceH)
+            .Select(overlap => new HostSurfaceOcclusion(
+                overlap.X * scale,
+                overlap.Y * scale,
+                overlap.Width * scale,
+                overlap.Height * scale))
+            .ToArray();
         var matrix = HitTesting.ScreenTransform(node);
         var transform = matrix.IsIdentity
             ? HostSurfaceTransform.Identity
@@ -146,7 +152,8 @@ internal sealed class HostSurfaceCoordinator(
             visible,
             node.Element?.GetAttribute("data-object-fit") ?? "contain",
             transform,
-            scale);
+            scale,
+            occlusions);
     }
 
     private static void Safe(Action action)

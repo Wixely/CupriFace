@@ -124,6 +124,44 @@ public class CarouselDragTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void Dragging_from_an_actionable_child_does_not_activate_it()
+    {
+        var clicks = 0;
+        using var t = Doc();
+        t.Doc.MouseActivation = PointerActivation.OnRelease;
+        t.Doc.OnClick(".card", _ => clicks++);
+        var card = t.Find(n => n.Element?.ClassList.Contains("card") == true)!;
+        var (x, y) = TestDoc.Center(card);
+
+        t.Click(x, y);
+        t.Layout();
+        t.Move(x - 90, y);
+        t.Up(x - 90, y);
+
+        Assert.Equal(0, clicks);
+        Assert.True(Strip(t).ScrollX > 50);
+    }
+
+    [Fact]
+    public void A_native_press_without_a_drag_activates_on_release()
+    {
+        var clicks = 0;
+        using var t = Doc();
+        t.Doc.MouseActivation = PointerActivation.OnRelease;
+        t.Doc.OnClick(".card", _ => clicks++);
+        var card = t.Find(n => n.Element?.ClassList.Contains("card") == true)!;
+        var (x, y) = TestDoc.Center(card);
+
+        t.Click(x, y);
+        t.Layout();
+        Assert.Equal(0, clicks);
+        t.Up(x, y);
+
+        Assert.Equal(1, clicks);
+        Assert.Equal(0f, Strip(t).ScrollX, 0.5);
+    }
+
+    [Fact]
     public void Dragging_back_returns_it()
     {
         using var t = Doc();
