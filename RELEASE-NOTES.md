@@ -53,6 +53,10 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **The companion video track selector now uses contained audio/subtitle tables.** Long track labels
+  no longer paint into neighbouring choices, its default trigger reads `Audio / Video`, and selecting
+  a track leaves the panel open for further changes.
+
 - Fixed mouse drag-to-pan on `data-drag-scroll` containers: actionable children now activate on
   release only when the gesture remains a click, and floating `position: sticky` scrollers are
   hit-tested at their visible position.

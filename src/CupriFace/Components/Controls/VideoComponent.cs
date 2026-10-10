@@ -237,24 +237,32 @@ public sealed class VideoTracksComponent : ComponentBase
         .cupri-video-tracks-toggle { display:inline-flex; align-items:center; gap:8px; padding:9px 14px;
                                      border:1px var(--cupri-border,#d8dde6); border-radius:8px;
                                      color:var(--cupri-text,#1e2430); font-weight:bold; }
-        .cupri-video-tracks-status { margin-left:10px; color:var(--cupri-muted,#687184); font-size:12px; }
+        .cupri-video-tracks-status { display:block; margin-top:8px; color:var(--cupri-muted,#687184); font-size:12px; }
         .cupri-video-tracks-panel { display:none; margin-top:10px; padding:14px; gap:18px;
                                     background:var(--cupri-surface,#ffffff); border:1px var(--cupri-border,#d8dde6); border-radius:10px; }
         .cupri-video-tracks-column { flex:1; min-width:0; }
         .cupri-video-tracks-column > strong { display:block; margin-bottom:8px; color:var(--cupri-muted,#687184);
                                               font-size:11px; letter-spacing:1px; }
-        .cupri-video-tracks-list { display:flex; flex-wrap:wrap; gap:8px; }
-        .cupri-video-track-choice { display:inline-flex; align-items:center; justify-content:space-between; gap:12px;
-                                    min-width:140px; padding:9px 12px; border:1px var(--cupri-border,#d8dde6);
-                                    border-radius:8px; color:var(--cupri-text,#1e2430); }
+        .cupri-video-tracks-table { display:flex; flex-direction:column; width:100%; overflow:hidden;
+                                    border:1px var(--cupri-border,#d8dde6); border-radius:8px; }
+        .cupri-video-tracks-row { display:flex; align-items:center; width:100%; border-bottom:1px var(--cupri-border,#d8dde6); }
+        .cupri-video-tracks-row:last-child { border-bottom:0; }
+        .cupri-video-tracks-header { color:var(--cupri-muted,#687184); font-size:10px; font-weight:bold; letter-spacing:1px; }
+        .cupri-video-tracks-cell { flex:1; min-width:0; padding:9px 12px; }
+        .cupri-video-tracks-state { flex:none; width:82px; text-align:center; }
+        .cupri-video-track-choice { color:var(--cupri-text,#1e2430); }
         .cupri-video-track-choice:hover, .cupri-video-track-choice.cupri-video-track-selected { background:var(--cupri-hover,#eef1f5); }
         .cupri-video-track-choice.cupri-video-track-selected { color:var(--cupri-accent,#B87333); }
+        @media (max-width: 720px) {
+          .cupri-video-tracks-panel { flex-direction:column; }
+          .cupri-video-tracks-column { width:100%; }
+        }
         """;
 
     public override void Expand(IElement el)
     {
         var source = Str(el, "src");
-        var label = Str(el, "label", "Tracks");
+        var label = Str(el, "label", "Audio / Video");
         el.ClassList.Add("cupri-video-tracks");
         el.SetAttribute("data-video-track-controls", source);
         el.InnerHtml = $"""
@@ -263,8 +271,8 @@ public sealed class VideoTracksComponent : ComponentBase
             </div>
             <span class='cupri-video-tracks-status' data-video-track-status>Audio and subtitle tracks appear after playback starts.</span>
             <div class='cupri-video-tracks-panel' data-video-track-panel>
-              <div class='cupri-video-tracks-column'><strong>AUDIO</strong><div class='cupri-video-tracks-list' data-video-track-form-list='audio'></div></div>
-              <div class='cupri-video-tracks-column'><strong>SUBTITLES</strong><div class='cupri-video-tracks-list' data-video-track-form-list='subtitle'></div></div>
+              <div class='cupri-video-tracks-column'><strong>AUDIO</strong><div class='cupri-video-tracks-table' role='table' aria-label='Audio tracks' data-video-track-form-list='audio'></div></div>
+              <div class='cupri-video-tracks-column'><strong>SUBTITLES</strong><div class='cupri-video-tracks-table' role='table' aria-label='Subtitle tracks' data-video-track-form-list='subtitle'></div></div>
             </div>
             """;
     }
@@ -295,16 +303,23 @@ public sealed class VideoTracksComponent : ComponentBase
         if (list is null) return;
         if (tracks.Count == 0)
         {
-            list.InnerHtml = "<span class='cupri-video-tracks-status'>None</span>";
+            list.InnerHtml = "<div class='cupri-video-tracks-row' role='row'><span class='cupri-video-tracks-cell' role='cell'>None</span></div>";
             return;
         }
-        list.InnerHtml = string.Join("", tracks.Select(track =>
+        var heading = "<div class='cupri-video-tracks-row cupri-video-tracks-header' role='row'>" +
+                      "<span class='cupri-video-tracks-cell' role='columnheader'>TRACK</span>" +
+                      "<span class='cupri-video-tracks-cell cupri-video-tracks-state' role='columnheader'>ACTIVE</span></div>";
+        list.InnerHtml = heading + string.Join("", tracks.Select(track =>
         {
             var chosen = track.Id == selected;
-            var css = chosen ? "cupri-video-track-choice cupri-video-track-selected" : "cupri-video-track-choice";
+            var css = chosen
+                ? "cupri-video-tracks-row cupri-video-track-choice cupri-video-track-selected"
+                : "cupri-video-tracks-row cupri-video-track-choice";
             var check = chosen ? IconMarkup("check", 16) : "";
-            return $"<div class='{css}' role='button' tabindex='0' data-video-track-source='{VideoComponent.Escape(source)}' " +
-                   $"data-video-track-kind='{kind}' data-video-track-id='{track.Id}'><span>{VideoComponent.Escape(track.Label)}</span>{check}</div>";
+            return $"<div class='{css}' role='row' tabindex='0' data-video-track-source='{VideoComponent.Escape(source)}' " +
+                   $"data-video-track-kind='{kind}' data-video-track-id='{track.Id}'>" +
+                   $"<span class='cupri-video-tracks-cell' role='cell'>{VideoComponent.Escape(track.Label)}</span>" +
+                   $"<span class='cupri-video-tracks-cell cupri-video-tracks-state' role='cell'>{check}</span></div>";
         }));
     }
 }
