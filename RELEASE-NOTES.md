@@ -57,6 +57,11 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   release only when the gesture remains a click, and floating `position: sticky` scrollers are
   hit-tested at their visible position.
 
+- **The Windows media backend finds external LibVLC beside a single-file application.** It now
+  resolves the RID-specific native directory beside `Environment.ProcessPath`, falling back to
+  `AppContext.BaseDirectory`, rather than assuming the extracted managed assembly directory.
+  This keeps the LGPL libraries replaceable and loadable even with all-content self-extraction.
+
 - **Maximizing a window on a secondary monitor no longer moves it to the primary one.** GLFW and
   SDL can inherit primary-monitor bounds when Windows asks their HWND for `WM_GETMINMAXINFO`, so
   the title bar's maximize button jumped the window across displays. The shell now answers that
