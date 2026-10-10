@@ -17,6 +17,13 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **Video chapters are an opt-in player capability.** Implement `IVideoChapterProvider`, add
+  `chapters` to `<cupri-video>` for chapter divisions and title tooltips on the seek bar, and add
+  `<cupri-video-chapters src="...">` for a selectable chapter table. The Windows LibVLC adapter
+  exposes embedded chapter names, offsets, durations, and seeking.
+- **Windows LibVLC playback resumes in place.** Pausing and resuming now preserves the current
+  time, decoder, and buffered input instead of reopening the media from the beginning.
+
 - `TransparentHud --present-count N` adds a minimal GLFW/OpenGL reproduction for #212.
   `Test-WindowsAlpha.ps1 -GlBaseline -PresentCount N` verifies the swap count, native DLL,
   GPU alpha, and composited output. Acceptance captures now reject obscured backdrops
@@ -55,7 +62,8 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 - **The companion video track selector now uses contained audio/subtitle tables.** Long track labels
   no longer paint into neighbouring choices, its default trigger reads `Audio / Video`, and selecting
-  a track leaves the panel open for further changes.
+  a track leaves the panel open for further changes. Long unbroken names wrap within the Track column,
+  and video track fly-out menus use a wider, high-contrast surface with bounded wrapping.
 
 - Fixed mouse drag-to-pan on `data-drag-scroll` containers: actionable children now activate on
   release only when the gesture remains a click, and floating `position: sticky` scrollers are

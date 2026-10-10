@@ -155,6 +155,7 @@ public sealed class ComponentRegistry
         .Register(new ImageComponent())
         .Register(new VideoComponent())
         .Register(new VideoTracksComponent())
+        .Register(new VideoChaptersComponent())
         .Register(new IconComponent())
         .Register(new BadgeComponent())
         .Register(new ChipComponent())

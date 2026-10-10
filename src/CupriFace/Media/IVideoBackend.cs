@@ -108,3 +108,23 @@ public interface IVideoTrackSelector
     /// <summary>Raised when tracks become available or their descriptions change. Any thread.</summary>
     event Action? TracksChanged;
 }
+
+/// <summary>One seekable chapter embedded in a video.</summary>
+public sealed record VideoChapter(int Index, string Label, double StartSeconds, double DurationSeconds);
+
+/// <summary>
+/// Optional capability implemented by players that expose embedded chapter metadata. The base
+/// <see cref="IVideoPlayer"/> remains chapter-agnostic so lightweight decoders do not need to
+/// manufacture metadata they do not have.
+/// </summary>
+public interface IVideoChapterProvider
+{
+    IReadOnlyList<VideoChapter> Chapters { get; }
+    int SelectedChapter { get; }
+
+    /// <summary>Select and seek to a chapter by its provider index.</summary>
+    bool SelectChapter(int chapterIndex);
+
+    /// <summary>Raised when chapters become available or the current chapter changes. Any thread.</summary>
+    event Action? ChaptersChanged;
+}

@@ -35,11 +35,24 @@ public sealed class VideoComponent : ComponentBase
         .cupri-video-seek.disabled { opacity:0.35; cursor:not-allowed; }
         .cupri-video-seek-track { position:relative; height:4px; background:rgba(255,255,255,0.28); border-radius:2px; }
         .cupri-video-seek-fill { position:absolute; top:0; left:0; height:4px; background:var(--cupri-accent,#B87333); border-radius:2px; }
+        .cupri-video-chapter-markers { position:absolute; left:0; right:0; top:0; bottom:0; }
+        .cupri-video-chapter-segment { position:absolute; top:-8px; height:20px; }
+        .cupri-video-chapter-marker { position:absolute; top:-2px; width:2px; height:8px; background:#0b0d10; }
+        .cupri-video-chapter-tooltip { display:none; position:absolute; left:50%; bottom:4px; z-index:2;
+                                       width:max-content; max-width:300px; padding:4px 8px; transform:translateX(-50%);
+                                       border-radius:6px; background:#161b24; color:#f4f6f9; font-size:12px;
+                                       line-height:1.2; white-space:nowrap; overflow:hidden; pointer-events:none;
+                                       box-shadow:0 3px 12px #00000080; }
+        .cupri-video-chapter-segment:hover .cupri-video-chapter-tooltip { display:block; }
         .cupri-video-seek-thumb { position:absolute; top:-4px; width:12px; height:12px; background:white; border-radius:6px;
                                   box-shadow:0 1px 4px #00000059; }
         .cupri-video-fs { z-index:90; background:#000; }
-        .cupri-video .cupri-ctx-menu, .cupri-video .cupri-submenu { background:var(--cupri-surface,#161b24); color:var(--cupri-text,#f4f6f9); }
-        .cupri-video-track-selected { color:var(--cupri-accent,#B87333); }
+        .cupri-video .cupri-ctx-menu, .cupri-video .cupri-submenu { background:#161b24; color:#f4f6f9; }
+        .cupri-video .cupri-submenu { width:360px; max-width:70vw; }
+        .cupri-video .cupri-menu-item { color:#f4f6f9; }
+        .cupri-video .cupri-menu-item:hover { background:#273244; color:#ffffff; }
+        .cupri-video .cupri-video-track-menu-label { overflow-wrap:anywhere; }
+        .cupri-video .cupri-video-track-selected { color:var(--cupri-accent,#B87333); }
         """;
 
     public override void Expand(IElement el)
@@ -69,6 +82,8 @@ public sealed class VideoComponent : ComponentBase
             el.SetAttribute("data-video-tracks-enabled", "");
             el.SetAttribute("data-cupri-ctx-host", "");
         }
+        var chapters = Flag(el, "chapters");
+        if (chapters) el.SetAttribute("data-video-chapters-enabled", "");
 
         // The bar: transport, current time, the seek slider (a real role=slider — pointer scrub,
         // arrow keys, AT SetValue all route to the player), duration, fullscreen. The clip's label
@@ -83,6 +98,7 @@ public sealed class VideoComponent : ComponentBase
                    aria-valuemin='0' aria-valuemax='0' aria-valuenow='0'>
                 <div class='cupri-video-seek-track'>
                   <div class='cupri-video-seek-fill' style='width:0%'></div>
+                  {(chapters ? "<div class='cupri-video-chapter-markers' data-video-chapter-markers aria-hidden='true'></div>" : "")}
                   <div class='cupri-video-seek-thumb' style='left:0%'></div>
                 </div>
               </div>
@@ -179,6 +195,39 @@ public sealed class VideoComponent : ComponentBase
             tracks?.SubtitleTracks ?? [], tracks?.SelectedSubtitleTrack);
     }
 
+    internal static void SyncChapters(IElement el, Media.IVideoChapterProvider? provider, double duration)
+    {
+        if (!el.HasAttribute("data-video-chapters-enabled") ||
+            el.QuerySelector("[data-video-chapter-markers]") is not { } markers)
+            return;
+        if (provider is null || provider.Chapters.Count == 0 || duration <= 0)
+        {
+            markers.InnerHtml = "";
+            return;
+        }
+
+        var chapters = provider.Chapters
+            .Where(chapter => chapter.StartSeconds >= 0 && chapter.StartSeconds < duration)
+            .OrderBy(chapter => chapter.StartSeconds)
+            .ToArray();
+        markers.InnerHtml = string.Join("", chapters.Select((chapter, index) =>
+        {
+            var start = Math.Clamp(chapter.StartSeconds / duration * 100, 0, 100);
+            var nextStart = index + 1 < chapters.Length
+                ? Math.Clamp(chapters[index + 1].StartSeconds / duration * 100, start, 100)
+                : 100;
+            var left = start.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+            var width = Math.Max(0, nextStart - start)
+                .ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+            var marker = index == 0
+                ? ""
+                : $"<span class='cupri-video-chapter-marker' style='left:{left}%'></span>";
+            return $"<span class='cupri-video-chapter-segment' style='left:{left}%;width:{width}%' " +
+                   $"data-video-chapter-title='{Escape(chapter.Label)}'>" +
+                   $"<span class='cupri-video-chapter-tooltip' role='tooltip'>{Escape(chapter.Label)}</span></span>{marker}";
+        }));
+    }
+
     private static void FillTrackList(
         IElement? list,
         string source,
@@ -199,7 +248,7 @@ public sealed class VideoComponent : ComponentBase
             var css = chosen ? "cupri-menu-item cupri-video-track-selected" : "cupri-menu-item";
             var check = chosen ? IconMarkup("check", 16) : "";
             return $"<div class='{css}' role='menuitem' data-video-track-source='{Escape(source)}' " +
-                   $"data-video-track-kind='{kind}' data-video-track-id='{track.Id}'><span class='cupri-menu-label'>{Escape(track.Label)}</span>{check}</div>";
+                   $"data-video-track-kind='{kind}' data-video-track-id='{track.Id}'><span class='cupri-menu-label cupri-video-track-menu-label'>{Escape(track.Label)}</span>{check}</div>";
         }));
     }
 
@@ -248,7 +297,8 @@ public sealed class VideoTracksComponent : ComponentBase
         .cupri-video-tracks-row { display:flex; align-items:center; width:100%; border-bottom:1px var(--cupri-border,#d8dde6); }
         .cupri-video-tracks-row:last-child { border-bottom:0; }
         .cupri-video-tracks-header { color:var(--cupri-muted,#687184); font-size:10px; font-weight:bold; letter-spacing:1px; }
-        .cupri-video-tracks-cell { flex:1; min-width:0; padding:9px 12px; }
+        .cupri-video-tracks-cell { flex:1; min-width:0; padding:9px 12px; overflow:hidden; }
+        .cupri-video-tracks-name { overflow-wrap:anywhere; }
         .cupri-video-tracks-state { flex:none; width:82px; text-align:center; }
         .cupri-video-track-choice { color:var(--cupri-text,#1e2430); }
         .cupri-video-track-choice:hover, .cupri-video-track-choice.cupri-video-track-selected { background:var(--cupri-hover,#eef1f5); }
@@ -307,7 +357,7 @@ public sealed class VideoTracksComponent : ComponentBase
             return;
         }
         var heading = "<div class='cupri-video-tracks-row cupri-video-tracks-header' role='row'>" +
-                      "<span class='cupri-video-tracks-cell' role='columnheader'>TRACK</span>" +
+                      "<span class='cupri-video-tracks-cell cupri-video-tracks-name' role='columnheader'>TRACK</span>" +
                       "<span class='cupri-video-tracks-cell cupri-video-tracks-state' role='columnheader'>ACTIVE</span></div>";
         list.InnerHtml = heading + string.Join("", tracks.Select(track =>
         {
@@ -318,8 +368,76 @@ public sealed class VideoTracksComponent : ComponentBase
             var check = chosen ? IconMarkup("check", 16) : "";
             return $"<div class='{css}' role='row' tabindex='0' data-video-track-source='{VideoComponent.Escape(source)}' " +
                    $"data-video-track-kind='{kind}' data-video-track-id='{track.Id}'>" +
-                   $"<span class='cupri-video-tracks-cell' role='cell'>{VideoComponent.Escape(track.Label)}</span>" +
+                   $"<span class='cupri-video-tracks-cell cupri-video-tracks-name' role='cell'>{VideoComponent.Escape(track.Label)}</span>" +
                    $"<span class='cupri-video-tracks-cell cupri-video-tracks-state' role='cell'>{check}</span></div>";
+        }));
+    }
+}
+
+/// <summary>
+/// <c>&lt;cupri-video-chapters src="…"&gt;</c> is an opt-in companion table for a chapter-capable
+/// player. Selecting a row seeks to that chapter; omit it when an application should not expose
+/// chapter navigation.
+/// </summary>
+public sealed class VideoChaptersComponent : ComponentBase
+{
+    public override string Tag => "cupri-video-chapters";
+    public override string DefaultCss => """
+        .cupri-video-chapters { display:block; margin-top:10px; }
+        .cupri-video-chapters > strong { display:block; margin-bottom:8px; color:var(--cupri-muted,#687184);
+                                         font-size:11px; letter-spacing:1px; }
+        .cupri-video-chapters-table { display:flex; flex-direction:column; width:100%; overflow:hidden;
+                                      border:1px var(--cupri-border,#d8dde6); border-radius:8px; }
+        .cupri-video-chapter-row { display:flex; align-items:center; width:100%; border-bottom:1px var(--cupri-border,#d8dde6); }
+        .cupri-video-chapter-row:last-child { border-bottom:0; }
+        .cupri-video-chapter-header { color:var(--cupri-muted,#687184); font-size:10px; font-weight:bold; letter-spacing:1px; }
+        .cupri-video-chapter-cell { flex:1; min-width:0; padding:9px 12px; overflow:hidden; }
+        .cupri-video-chapter-number { flex:none; width:56px; text-align:center; }
+        .cupri-video-chapter-time { flex:none; width:94px; text-align:right; }
+        .cupri-video-chapter-name { overflow-wrap:anywhere; }
+        .cupri-video-chapter-choice { color:var(--cupri-text,#1e2430); }
+        .cupri-video-chapter-choice:hover, .cupri-video-chapter-choice.cupri-video-chapter-current { background:var(--cupri-hover,#eef1f5); }
+        .cupri-video-chapter-choice.cupri-video-chapter-current { color:var(--cupri-accent,#B87333); }
+        """;
+
+    public override void Expand(IElement el)
+    {
+        var source = Str(el, "src");
+        var label = Str(el, "label", "CHAPTERS");
+        el.ClassList.Add("cupri-video-chapters");
+        el.SetAttribute("data-video-chapter-controls", source);
+        el.InnerHtml = $"""
+            <strong>{VideoComponent.Escape(label)}</strong>
+            <div class='cupri-video-chapters-table' role='table' aria-label='Video chapters' data-video-chapter-list></div>
+            """;
+    }
+
+    internal static void Sync(IElement el, string source, Media.IVideoChapterProvider? provider)
+    {
+        if (el.QuerySelector("[data-video-chapter-list]") is not { } list) return;
+        var chapters = provider?.Chapters ?? [];
+        if (chapters.Count == 0)
+        {
+            list.InnerHtml = "<div class='cupri-video-chapter-row' role='row'><span class='cupri-video-chapter-cell' role='cell'>No chapter information</span></div>";
+            return;
+        }
+
+        const string heading = "<div class='cupri-video-chapter-row cupri-video-chapter-header' role='row'>" +
+                               "<span class='cupri-video-chapter-cell cupri-video-chapter-number' role='columnheader'>#</span>" +
+                               "<span class='cupri-video-chapter-cell' role='columnheader'>CHAPTER</span>" +
+                               "<span class='cupri-video-chapter-cell cupri-video-chapter-time' role='columnheader'>START</span>" +
+                               "<span class='cupri-video-chapter-cell cupri-video-chapter-time' role='columnheader'>DURATION</span></div>";
+        list.InnerHtml = heading + string.Join("", chapters.Select((chapter, displayIndex) =>
+        {
+            var css = chapter.Index == provider!.SelectedChapter
+                ? "cupri-video-chapter-row cupri-video-chapter-choice cupri-video-chapter-current"
+                : "cupri-video-chapter-row cupri-video-chapter-choice";
+            return $"<div class='{css}' role='row' tabindex='0' data-video-chapter-source='{VideoComponent.Escape(source)}' " +
+                   $"data-video-chapter-id='{chapter.Index}'>" +
+                   $"<span class='cupri-video-chapter-cell cupri-video-chapter-number' role='cell'>{displayIndex + 1}</span>" +
+                   $"<span class='cupri-video-chapter-cell cupri-video-chapter-name' role='cell'>{VideoComponent.Escape(chapter.Label)}</span>" +
+                   $"<span class='cupri-video-chapter-cell cupri-video-chapter-time' role='cell'>{VideoComponent.FormatTime(chapter.StartSeconds)}</span>" +
+                   $"<span class='cupri-video-chapter-cell cupri-video-chapter-time' role='cell'>{VideoComponent.FormatTime(chapter.DurationSeconds)}</span></div>";
         }));
     }
 }
