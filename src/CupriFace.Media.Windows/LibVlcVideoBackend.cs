@@ -106,7 +106,7 @@ public sealed class LibVlcVideoBackend : IVideoBackend, IDisposable
     }
 }
 
-internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IHostCompositedSurfaceSource
+internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IVideoChapterProvider, IHostCompositedSurfaceSource
 {
     private readonly object _gate = new();
     private readonly VideoSource _source;
@@ -118,6 +118,7 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IHo
     private nint _child;
     private int _hostThread;
     private bool _playWhenReady;
+    private bool _mediaOpened;
     private volatile bool _ready;
     private volatile bool _disposed;
     private volatile string? _failure;
@@ -126,6 +127,7 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IHo
     private (int W, int H)? _naturalSize;
     private VideoTrack[] _audioTracks = [];
     private VideoTrack[] _subtitleTracks = [];
+    private VideoChapter[] _chapters = [];
 
     private readonly Action<string> _log;
     private readonly Action<LibVlcVideoPlayer> _closed;
@@ -148,6 +150,7 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IHo
             EnableMouseInput = false,
         };
         _player.Playing += OnPlaying;
+        _player.ChapterChanged += OnChapterChanged;
         _player.EndReached += OnEnded;
         _player.EncounteredError += OnError;
         _ = PrepareAsync(libVlc);
@@ -191,6 +194,7 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IHo
 
     public event Action? Ended;
     public event Action? TracksChanged;
+    public event Action? ChaptersChanged;
 
     public IReadOnlyList<VideoTrack> AudioTracks
     {
@@ -204,6 +208,11 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IHo
 
     public int SelectedAudioTrack => _disposed ? -1 : _player.AudioTrack;
     public int SelectedSubtitleTrack => _disposed ? -1 : _player.Spu;
+    public IReadOnlyList<VideoChapter> Chapters
+    {
+        get { lock (_gate) return _chapters; }
+    }
+    public int SelectedChapter => _disposed ? -1 : _player.Chapter;
 
     public bool SelectAudioTrack(int trackId)
     {
@@ -220,6 +229,16 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IHo
         {
             if (_disposed || !_subtitleTracks.Any(track => track.Id == trackId)) return false;
             return _player.SetSpu(trackId);
+        }
+    }
+
+    public bool SelectChapter(int chapterIndex)
+    {
+        lock (_gate)
+        {
+            if (_disposed || !_chapters.Any(chapter => chapter.Index == chapterIndex)) return false;
+            _player.Chapter = chapterIndex;
+            return true;
         }
     }
 
@@ -351,8 +370,21 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IHo
         lock (_gate)
         {
             if (_disposed || !_playWhenReady || _child == 0 || _media is null || _player.IsPlaying) return;
-            _player.Play(_media);
-            _log("play requested with D3D11VA enabled");
+            if (!_mediaOpened)
+            {
+                _mediaOpened = _player.Play(_media);
+                _log(_mediaOpened
+                    ? "initial play requested with D3D11VA enabled"
+                    : "initial play request was refused");
+            }
+            else
+            {
+                // Play(media) assigns the media again and restarts a paused network stream from
+                // the beginning. Once opened, parameterless Play() resumes the existing input and
+                // preserves LibVLC's current time, decoder and buffered data.
+                _player.Play();
+                _log("resume requested");
+            }
         }
     }
 
@@ -364,6 +396,7 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IHo
         if (_player.Size(0, ref width, ref height) && width > 0 && height > 0)
             _naturalSize = ((int)width, (int)height);
         RefreshTracks();
+        RefreshChapters();
         _log($"playing; video output {_naturalSize?.W ?? 0}x{_naturalSize?.H ?? 0}");
         _context?.RequestFrame();
     }
@@ -397,6 +430,42 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IHo
     private static string TrackLabel(string? label, string fallback, int number) =>
         string.IsNullOrWhiteSpace(label) ? $"{fallback} {number}" : label.Trim();
 
+    private void RefreshChapters()
+    {
+        VideoChapter[] chapters;
+        try
+        {
+            chapters = _player.FullChapterDescriptions(-1)
+                .Select((chapter, index) => new VideoChapter(
+                    index,
+                    TrackLabel(chapter.Name, "Chapter", index + 1),
+                    Math.Max(0, chapter.TimeOffset / 1000.0),
+                    Math.Max(0, chapter.Duration / 1000.0)))
+                .ToArray();
+        }
+        catch
+        {
+            chapters = [];
+        }
+
+        var changed = false;
+        lock (_gate)
+        {
+            if (!_chapters.SequenceEqual(chapters))
+            {
+                _chapters = chapters;
+                changed = true;
+            }
+        }
+        if (changed) ChaptersChanged?.Invoke();
+    }
+
+    private void OnChapterChanged(object? sender, MediaPlayerChapterChangedEventArgs args)
+    {
+        ChaptersChanged?.Invoke();
+        _context?.RequestFrame();
+    }
+
     private void OnEnded(object? sender, EventArgs args)
     {
         if (_loop)
@@ -427,6 +496,7 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IHo
         _disposed = true;
         Detach();
         _player.Playing -= OnPlaying;
+        _player.ChapterChanged -= OnChapterChanged;
         _player.EndReached -= OnEnded;
         _player.EncounteredError -= OnError;
         _player.Stop();

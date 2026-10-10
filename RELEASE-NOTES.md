@@ -17,6 +17,13 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **Video chapters are an opt-in player capability.** Implement `IVideoChapterProvider`, add
+  `chapters` to `<cupri-video>` for chapter divisions and title tooltips on the seek bar, and add
+  `<cupri-video-chapters src="...">` for a selectable chapter table. The Windows LibVLC adapter
+  exposes embedded chapter names, offsets, durations, and seeking.
+- **Windows LibVLC playback resumes in place.** Pausing and resuming now preserves the current
+  time, decoder, and buffered input instead of reopening the media from the beginning.
+
 - **`position: sticky` now honours all four insets, per axis.** `bottom` pins an action bar to the
   bottom of the scrollport; `left` and `right` pin a frozen first column or a totals column in a
   table that scrolls sideways. Each axis is decided on its own, as CSS decides it, and the two can
@@ -81,7 +88,8 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 - **The companion video track selector now uses contained audio/subtitle tables.** Long track labels
   no longer paint into neighbouring choices, its default trigger reads `Audio / Video`, and selecting
-  a track leaves the panel open for further changes.
+  a track leaves the panel open for further changes. Long unbroken names wrap within the Track column,
+  and video track fly-out menus use a wider, high-contrast surface with bounded wrapping.
 
 - **A `position: sticky` element is now clicked where it is painted.** Paint, hit-testing and
   `ScreenBox`/`ActivationPoint` each worked out a stuck node's position separately, so a pinned
