@@ -627,7 +627,7 @@ public static class DesktopHost
     // When the engine declines, the ordinary click/hover/drag path still runs, so nothing that
     // worked before changes.
     private static bool DesktopPointerDown(CupriDocument doc, float x, float y, int clickCount, int pointerId = 0) =>
-        doc.DispatchPointer(pointerId, PointerPhase.Down, x, y) || doc.DispatchClick(x, y, clickCount);
+        doc.DispatchPointer(pointerId, PointerPhase.Down, x, y) || doc.DispatchPointerDown(x, y, clickCount);
 
     private static bool DesktopPointerMove(CupriDocument doc, float x, float y, int pointerId = 0) =>
         doc.DispatchPointer(pointerId, PointerPhase.Move, x, y) || doc.DispatchPointerMove(x, y);

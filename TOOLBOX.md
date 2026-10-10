@@ -484,7 +484,8 @@ controls handle their own state.
   finger; it does not take a mouse drag, because dragging across a page selects its text and turning
   every scroller into something a hand pushes would take that away everywhere. Put
   `data-drag-scroll` on one and a press that TRAVELS pans it instead. `<cupri-carousel>` sets it on
-  its own viewport.
+  its own viewport. Actionable children still activate on release when the pointer stays within the
+  drag threshold; once the gesture becomes a pan, their click is cancelled.
   Related, and the reason a carousel felt broken with an ordinary mouse: **a wheel over a scroller
   that can only move SIDEWAYS now moves it sideways**, as browsers do. A plain wheel has no
   horizontal component, so the one axis such a strip has was otherwise unreachable without a tilt
@@ -496,6 +497,8 @@ controls handle their own state.
   and releases when its containing block scrolls out. It paints above the content that slides under it, so
   give it an opaque background. (`relative`/`absolute`/`fixed` are also supported; `fixed` lifts to the
   top layer over the page.)
+  Sticky content remains interactive at its painted position, including a sticky scroll box that has
+  floated away from its original layout position.
   ```css
   .section-title { position: sticky; top: 0; background: var(--cupri-bg); border-bottom: 1px solid #ddd; }
   ```

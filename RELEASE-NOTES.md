@@ -53,6 +53,10 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- Fixed mouse drag-to-pan on `data-drag-scroll` containers: actionable children now activate on
+  release only when the gesture remains a click, and floating `position: sticky` scrollers are
+  hit-tested at their visible position.
+
 - **Maximizing a window on a secondary monitor no longer moves it to the primary one.** GLFW and
   SDL can inherit primary-monitor bounds when Windows asks their HWND for `WM_GETMINMAXINFO`, so
   the title bar's maximize button jumped the window across displays. The shell now answers that
@@ -170,7 +174,6 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   Silent across the Showcase, MobileApp, ControlsApp and SettingsApp at two viewport sizes — where
   four peer groups do reach the size comparison and agree, so that silence is the check running
   rather than finding nothing to look at.
-
 ## v0.39.0
 
 ### Added

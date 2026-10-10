@@ -22,11 +22,11 @@ public static class HitTesting
         Collect(root, overlays);
         foreach (var overlay in overlays.OrderByDescending(n => n.Style.ZIndex))
         {
-            var hit = Hit(overlay, 0, 0, x, y, inTopLayer: true);
+            var hit = Hit(overlay, 0, 0, x, y, inTopLayer: true, stickyCollect: null, float.NegativeInfinity);
             if (hit is not null) return hit;
         }
         // Then the normal content (top-layer subtrees are skipped).
-        return Hit(root, 0, 0, x, y, inTopLayer: false);
+        return Hit(root, 0, 0, x, y, inTopLayer: false, stickyCollect: null, float.NegativeInfinity);
     }
 
     private static void Collect(RenderNode node, List<RenderNode> overlays)
@@ -38,10 +38,23 @@ public static class HitTesting
         }
     }
 
-    private static RenderNode? Hit(RenderNode node, float originX, float originY, float x, float y, bool inTopLayer)
+    private static RenderNode? Hit(
+        RenderNode node,
+        float originX,
+        float originY,
+        float x,
+        float y,
+        bool inTopLayer,
+        List<StickyItem>? stickyCollect,
+        float scrollTop)
     {
         if (node.Style.Display == DisplayType.None) return null;
-        if (!inTopLayer && node.IsTopLayer) return null; // reached via the main pass — skip; tested in the overlay pass
+        if (!inTopLayer && node.IsTopLayer) return null;
+        if (stickyCollect is not null && node.Style.Position == PositionType.Sticky)
+        {
+            stickyCollect.Add(new StickyItem(node, originX, originY));
+            return null;
+        }
 
         var ax = originX + node.X;
         var ay = originY + node.Y;
@@ -112,12 +125,46 @@ public static class HitTesting
         // one" while the two agree. Once z-index reorders painting (#290), a scrim declared before
         // the photo it covers paints last and must also be what a click lands on — otherwise the
         // pointer falls through whatever is visibly in front of it.
+        var stickyOwn = node.IsScrollable ? new List<StickyItem>() : null;
+        var childSticky = node.IsScrollable ? stickyOwn : stickyCollect;
+        var childScrollTop = node.IsScrollable ? ay + node.BorderTopW : scrollTop;
         foreach (var child in Paint.PaintOrder.Children(node))
         {
-            var hit = Hit(child, childOx, childOy, x, y, inTopLayer);
+            var hit = Hit(child, childOx, childOy, x, y, inTopLayer, childSticky, childScrollTop);
             if (hit is not null) best = hit;
         }
+        if (stickyOwn is { Count: > 0 })
+            foreach (var item in stickyOwn)
+            {
+                var hit = HitSticky(item, childScrollTop, x, y, inTopLayer);
+                if (hit is not null) best = hit;
+            }
         return best;
+    }
+
+    private readonly record struct StickyItem(RenderNode Node, float OriginX, float OriginY);
+
+    private static RenderNode? HitSticky(
+        StickyItem item,
+        float scrollTop,
+        float x,
+        float y,
+        bool inTopLayer)
+    {
+        var node = item.Node;
+        var natural = item.OriginY + node.Y;
+        var top = node.Style.Top.IsDefinite ? node.Style.Top.Resolve(0f) : 0f;
+        var parentBottom = item.OriginY + (node.Parent?.Height ?? node.Height);
+        var stuck = MathF.Min(MathF.Max(natural, scrollTop + top), parentBottom - node.Height);
+        return Hit(
+            node,
+            item.OriginX,
+            item.OriginY + stuck - natural,
+            x,
+            y,
+            inTopLayer,
+            stickyCollect: null,
+            float.NegativeInfinity);
     }
 
     // Painter clips overflow to this same rounded padding box. The node itself still owns its
@@ -170,6 +217,33 @@ public static class HitTesting
     /// lands on the node even inside a scrolled container. (AbsoluteBox is the box where the node
     /// WOULD be unscrolled; this is where it IS.)</summary>
     private static (float X, float Y) Origin(RenderNode node)
+    {
+        var (x, y) = UnstuckOrigin(node);
+        // Sticky nodes and all of their descendants paint at the clamped position used by
+        // PaintSticky, not at their scrolled layout position. Apply the same displacement so
+        // accessibility bounds and synthesized activation coordinates agree with hit-testing.
+        for (var n = node; n is not null; n = n.Parent)
+            if (n.Style.Position == PositionType.Sticky)
+                y += StickyOffsetY(n);
+        return (x, y);
+    }
+
+    private static float StickyOffsetY(RenderNode node)
+    {
+        RenderNode? scroll = node.Parent;
+        while (scroll is not null && !scroll.IsScrollable) scroll = scroll.Parent;
+        if (scroll is null) return 0f;
+
+        var (_, natural) = UnstuckOrigin(node);
+        var (_, scrollY) = UnstuckOrigin(scroll);
+        var (_, parentY) = node.Parent is { } parent ? UnstuckOrigin(parent) : (0f, 0f);
+        var top = node.Style.Top.IsDefinite ? node.Style.Top.Resolve(0f) : 0f;
+        var parentBottom = parentY + (node.Parent?.Height ?? node.Height);
+        var stuck = MathF.Min(MathF.Max(natural, scrollY + scroll.BorderTopW + top), parentBottom - node.Height);
+        return stuck - natural;
+    }
+
+    private static (float X, float Y) UnstuckOrigin(RenderNode node)
     {
         float x = 0, y = 0;
         for (var n = node; n is not null; n = n.Parent)

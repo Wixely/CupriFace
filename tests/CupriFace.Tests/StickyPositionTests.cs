@@ -1,5 +1,6 @@
 using System.Linq;
 using CupriFace.Dom;
+using CupriFace.Interaction;
 using CupriFace.Paint;
 using SkiaSharp;
 using Xunit;
@@ -65,5 +66,42 @@ public class StickyPositionTests
         var headerIdx = cmds.FindIndex(c => c is FillRect { } f && f.Color == HeaderColor);
         var bodyIdx = cmds.FindLastIndex(c => c is FillRect { } f && f.Color == BodyColor);
         Assert.True(headerIdx > bodyIdx, $"sticky header ({headerIdx}) paints after/over the body ({bodyIdx})");
+    }
+
+    [Fact]
+    public void A_floating_horizontal_scroller_remains_clickable_and_draggable()
+    {
+        const string html = "<body><div class='scroll'><div class='section'>" +
+            "<div class='strip' data-drag-scroll><div class='item'>one</div>" +
+            "<div class='item'>two</div><div class='item'>three</div></div>" +
+            "<div class='fill'></div></div></div></body>";
+        const string css = "body{margin:0}.scroll{width:200px;height:120px;overflow:scroll}" +
+            ".section{height:400px}.strip{position:sticky;top:0;width:200px;height:40px;" +
+            "display:flex;overflow:scroll;background:#a00}.item{flex:none;width:140px;height:40px}" +
+            ".fill{height:360px}";
+        var clicks = 0;
+        using var t = new TestDoc(html, css, width: 240, height: 160);
+        t.Doc.OnClick(".item", _ => clicks++);
+        var scroll = t.FindClass("scroll");
+        scroll.ScrollY = 80;
+        t.Layout();
+
+        var strip = t.FindClass("strip");
+        var stripBox = HitTesting.ScreenBox(strip);
+        Assert.Equal(0f, stripBox.Y, 0.5f);
+        var first = t.FindClass("item");
+        var (clickX, clickY) = HitTesting.ActivationPoint(first);
+        Assert.InRange(clickY, 0f, 40f);
+
+        t.Doc.DispatchPointerDown(clickX, clickY);
+        t.Up(clickX, clickY);
+        Assert.Equal(1, clicks);
+
+        t.Doc.DispatchPointerDown(150, 20);
+        t.Move(60, 20);
+        t.Up(60, 20);
+
+        Assert.Equal(1, clicks);
+        Assert.True(t.FindClass("strip").ScrollX > 50);
     }
 }

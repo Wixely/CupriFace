@@ -126,6 +126,9 @@ public sealed partial class CupriDocument : IDisposable
     private string? _panPath;
     private float _panX0, _panY0, _panScrollX0, _panScrollY0;
     private bool _panEngaged;
+    private bool _panClickPending;
+    private float _panClickX, _panClickY;
+    private int _panClickCount;
     private const float PanSlopPx = 4f;
     private string? _scrollbarHotPath;  // the scrollbar the pointer is over (a path: the tree is rebuilt)
     private RenderNode? _scrollbarHotNode;
@@ -3042,10 +3045,17 @@ public sealed partial class CupriDocument : IDisposable
             ? Observe(Interaction.InputSource.Pointer, $"click {x:0},{y:0}", Interaction.InputRoute.Navigate,
                       () => Bump(DispatchClickCore(Zc(x), Zc(y), clickCount)))
             : Bump(DispatchClickCore(Zc(x), Zc(y), clickCount));
-    private bool DispatchClickCore(float x, float y, int clickCount, float adjustRadius = 0f)
+    private bool DispatchClickCore(
+        float x,
+        float y,
+        int clickCount,
+        float adjustRadius = 0f,
+        bool deferPanActivation = false,
+        bool armPan = true)
     {
         EnsureLaidOut();
         _textDrag = false;
+        if (deferPanActivation) _panClickPending = false;
 
         // An open context menu intercepts the next click: an item runs its command (without
         // blurring the underlying field, so the selection survives for Copy/Cut); a click
@@ -3092,15 +3102,27 @@ public sealed partial class CupriDocument : IDisposable
         // else — shared with the touch layer, which must know these drag from the FIRST touch.
         if (TryGrabDragSurface(hit, x, y)) return true;
 
-        // A pannable scroller under the pointer becomes a PAN CANDIDATE. Deliberately not a grab:
-        // the press must still reach whatever it landed on, because most presses on a carousel are
-        // someone clicking a card rather than starting a drag. Only travel past the slop turns it
-        // into a pan, and by then the click has already happened — which is how a real carousel
-        // behaves and why this is not in TryGrabDragSurface.
-        StartPanCandidate(hit, x, y);
+        // A pannable scroller under the pointer becomes a PAN CANDIDATE. Deliberately not a drag
+        // surface: most presses on a carousel are clicks, and only travel beyond the slop turns one
+        // into a pan. Native hosts defer activation until release so that transition can cancel it;
+        // DispatchClick callers already mean a completed click and continue to activate immediately.
+        var panCandidate = armPan && StartPanCandidate(hit, x, y);
 
         // :active press feedback — mark the pressed element chain (restyled below; cleared on pointer-up).
         SetActive(hit.Element);
+
+        // Native hosts do not know on pointer-down whether this is a click or a pan. Delay an
+        // actionable child of an opted-in scroller until pointer-up; travel beyond the slop cancels
+        // it. DispatchClick remains the immediate API for synthetic, already-complete clicks.
+        if (deferPanActivation && panCandidate)
+        {
+            _panClickPending = true;
+            _panClickX = x;
+            _panClickY = y;
+            _panClickCount = clickCount;
+            if (_activeChain.Count > 0) ReStyle();
+            return true;
+        }
 
         // Focus: a click inside a text/number field focuses it; elsewhere blurs.
         RenderNode? field = hit;
@@ -3154,19 +3176,32 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>Note a press on a scroller that has opted into drag-to-pan, without consuming it.
     /// The element opts in with <c>data-drag-scroll</c>; <c>&lt;cupri-carousel&gt;</c> sets it on its
     /// viewport, and an app can put it on any scroll box it wants a hand to be able to push.</summary>
-    private void StartPanCandidate(RenderNode hit, float x, float y)
+    private bool StartPanCandidate(RenderNode hit, float x, float y)
     {
         _panPath = null; _panEngaged = false;
         for (var n = hit; n is not null; n = n.Parent)
         {
             if (n.Element?.HasAttribute("data-drag-scroll") != true) continue;
-            if (!n.IsScrollableX && !n.IsScrollable) return;      // nothing to pan
+            if (!n.IsScrollableX && !n.IsScrollable) return false; // nothing to pan
             _panPath = PathOf(n);
             _panX0 = x; _panY0 = y;
             _panScrollX0 = n.ScrollX; _panScrollY0 = Math.Clamp(n.ScrollY, 0, n.MaxScrollY);
-            return;
+            return true;
         }
+        return false;
     }
+
+    /// <summary>
+    /// Dispatch a native pointer-down. Inside a <c>data-drag-scroll</c> box, activation waits for
+    /// pointer-up and is cancelled when movement engages the pan. Hosts should use this for mouse
+    /// down; accessibility and test callers that mean a completed click may use
+    /// <see cref="DispatchClick(float,float,int)"/>.
+    /// </summary>
+    public bool DispatchPointerDown(float x, float y, int clickCount = 1) =>
+        Outermost
+            ? Observe(Interaction.InputSource.Pointer, $"down {x:0},{y:0}", Interaction.InputRoute.Navigate,
+                      () => Bump(DispatchClickCore(Zc(x), Zc(y), clickCount, deferPanActivation: true)))
+            : Bump(DispatchClickCore(Zc(x), Zc(y), clickCount, deferPanActivation: true));
 
     /// <summary>One frame of a pan. Returns whether anything moved.</summary>
     private bool MovePan(float x, float y)
@@ -6611,8 +6646,17 @@ public sealed partial class CupriDocument : IDisposable
         if (_reorderItems is not null) { EndReorder(); return true; }
         if (_splitA is not null) { _splitA = null; _splitB = null; return true; }
         if (_colPath is not null) { _colPath = null; return true; }
+        var activatePanClick = _panClickPending && !_panEngaged;
+        var clickX = _panClickX;
+        var clickY = _panClickY;
+        var clickCount = _panClickCount;
+        _panClickPending = false;
         _panPath = null; _panEngaged = false;
-        _dragging = false; _dragSeek = null; _dragUndecided = false; _windowDrag = false; _textDrag = false; _scrollDrag = null; _resizeDrag = null; return ClearActive();
+        _dragging = false; _dragSeek = null; _dragUndecided = false; _windowDrag = false; _textDrag = false; _scrollDrag = null; _resizeDrag = null;
+        if (!activatePanClick) return ClearActive();
+
+        var activated = DispatchClickCore(clickX, clickY, clickCount, armPan: false);
+        return ClearActive() || activated;
     }
 
     /// <summary>Scroll wheel: scroll the nearest scrollable element under the pointer by pixels.</summary>
