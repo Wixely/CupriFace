@@ -17,6 +17,12 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **Video completion is observable.** Subscribe to `VideoEnded` to start follow-on playback after a
+  source reaches its natural end. It is raised **on the UI thread**, just before the rebuild that
+  follows, so a handler may swap the source directly and have it land in the same frame — no `Post`
+  needed. Chapter hover tooltips also cut through native video surfaces when chapter controls are
+  enabled.
+
 - **Video playback state has an application persistence boundary.** Subscribe to
   `VideoPlaybackStateChanged` to store position, duration, transport, volume, mute, and selected
   track IDs without depending on a concrete decoder. Reapply a snapshot with
@@ -92,6 +98,15 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   or another host-composited element; without it they are painted underneath it and are not visible.
 
 ### Changed
+
+- **`VideoTracksChanged` and `VideoChaptersChanged` are now raised on the UI thread**, like
+  `VideoEnded` and `VideoPlaybackStateChanged` beside them, instead of on whichever thread the
+  backend parsed on. You no longer need `Post` in a handler. Two behaviour changes come with it:
+  a backend that already knows its tracks announced them INLINE while the player was being opened —
+  that is, during a rebuild, so a handler calling `Refresh()` re-entered the rebuild that raised it
+  — and that notice now arrives on the next host pump instead, about a frame later. Read
+  `GetVideoAudioTracks` / `GetVideoChapters` directly if you need the data sooner; only the notice
+  is deferred, never the data.
 
 - **Breaking: a mouse press inside a `data-drag-scroll` box now activates on RELEASE in a hosted
   application.** `CupriApp.MouseActivation` defaults to `PointerActivation.OnRelease`, so a down + up
