@@ -15,6 +15,13 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ## Unreleased
 
+### Added
+
+- `TransparentHud --present-count N` adds a minimal GLFW/OpenGL reproduction for #212.
+  `Test-WindowsAlpha.ps1 -GlBaseline -PresentCount N` verifies the swap count, native DLL,
+  GPU alpha, and composited output. Acceptance captures now reject obscured backdrops
+  and indistinguishable panels. This is diagnostic tooling, not a transparency fix.
+
 ### Fixed
 
 - **Maximizing a window on a secondary monitor no longer moves it to the primary one.** GLFW and

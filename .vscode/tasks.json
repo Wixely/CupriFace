@@ -2,6 +2,13 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "build-transparent-hud",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["build", "${workspaceFolder}/samples/TransparentHud", "-c", "Debug"],
+      "problemMatcher": "$msCompile"
+    },
+    {
       "label": "build",
       "command": "dotnet",
       "type": "process",

@@ -2,6 +2,17 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "TransparentHud — one-swap alpha probe (#212)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build-transparent-hud",
+      "program": "${workspaceFolder}/samples/TransparentHud/bin/Debug/net10.0/TransparentHud.dll",
+      "args": ["--present-count", "1"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "stopAtEntry": false
+    },
+    {
       "name": "Web (raw WASM) — browser + debug",
       "type": "msedge",
       "request": "launch",
