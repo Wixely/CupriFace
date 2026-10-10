@@ -3164,7 +3164,7 @@ public sealed partial class CupriDocument : IDisposable
         // someone clicking a card rather than starting a drag. Only travel past the slop turns it
         // into a pan, and by then the click has already happened — which is how a real carousel
         // behaves and why this is not in TryGrabDragSurface.
-        StartPanCandidate(hit, x, y);
+        var panCandidate = StartPanCandidate(hit, x, y);
 
         // :active press feedback — mark the pressed element chain (restyled below; cleared on pointer-up).
         SetActive(hit.Element);
@@ -3185,12 +3185,15 @@ public sealed partial class CupriDocument : IDisposable
         _kbIndex = IndexOfFocusable(hit);
         _focusVisible = false;
 
-        // Built-in behaviour first (steppers, toggles, buttons, user handlers) — unless this document
-        // confirms a click on the RELEASE, in which case the press only remembers where it landed
-        // and DispatchPointerUp decides, once it is known whether a drag happened.
+        // Built-in behaviour first (steppers, toggles, buttons, user handlers) — unless the press
+        // landed in a PANNABLE scroller on a document that confirms those on the release, in which
+        // case it only remembers where it landed and DispatchPointerUp decides once it is known
+        // whether the press became a drag. Deliberately narrow: a button that is not inside a
+        // drag-scroll box has no gesture to lose the click to, so nothing is gained by making it
+        // wait, and everything that synthesises a bare press would stop working.
         var label = Observing ? ControlName(hit) : null;
         var handled = false;
-        if (MouseActivation == Interaction.PointerActivation.OnRelease)
+        if (panCandidate && MouseActivation == Interaction.PointerActivation.OnRelease)
         {
             _pendingActivation = PathOf(hit); _pendingX = x; _pendingY = y;
         }
@@ -3234,9 +3237,14 @@ public sealed partial class CupriDocument : IDisposable
     /// intercept the press itself.
     ///
     /// <para><see cref="Interaction.PointerActivation.OnRelease"/> makes a mouse down + up over the
-    /// same control the confirmed click, and a press that travels into a pan or a drag activates
-    /// nothing. That is exactly what touch has always done, so setting it makes a drag-to-pan
-    /// carousel behave the same under a finger and under a mouse.</para>
+    /// same control the confirmed click, and a press that travels into a pan activates nothing. That
+    /// is exactly what touch has always done, so setting it makes a drag-to-pan carousel behave the
+    /// same under a finger and under a mouse.</para>
+    ///
+    /// <para><b>It applies only inside a <c>data-drag-scroll</c> scroller.</b> Everywhere else a
+    /// press still activates on the press: there is no gesture it could turn into, so there is
+    /// nothing to wait for — and every caller that synthesises a bare press without a release would
+    /// otherwise stop working.</para>
     ///
     /// <para>Focus, <c>:active</c> feedback and caret placement still happen on the press either
     /// way — those are the press, not the click.</para>
@@ -3246,18 +3254,20 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>Note a press on a scroller that has opted into drag-to-pan, without consuming it.
     /// The element opts in with <c>data-drag-scroll</c>; <c>&lt;cupri-carousel&gt;</c> sets it on its
     /// viewport, and an app can put it on any scroll box it wants a hand to be able to push.</summary>
-    private void StartPanCandidate(RenderNode hit, float x, float y)
+    /// <returns>Whether the press landed in something that can actually be panned.</returns>
+    private bool StartPanCandidate(RenderNode hit, float x, float y)
     {
         _panPath = null; _panEngaged = false;
         for (var n = hit; n is not null; n = n.Parent)
         {
             if (n.Element?.HasAttribute("data-drag-scroll") != true) continue;
-            if (!n.IsScrollableX && !n.IsScrollable) return;      // nothing to pan
+            if (!n.IsScrollableX && !n.IsScrollable) return false; // nothing to pan
             _panPath = PathOf(n);
             _panX0 = x; _panY0 = y;
             _panScrollX0 = n.ScrollX; _panScrollY0 = Math.Clamp(n.ScrollY, 0, n.MaxScrollY);
-            return;
+            return true;
         }
+        return false;
     }
 
     /// <summary>One frame of a pan. Returns whether anything moved.</summary>

@@ -309,10 +309,24 @@ public abstract class CupriApp
     /// browser compatibility; native-only applications may opt in.</summary>
     public virtual bool AllowUnmutedVideoAutoplay => false;
 
-    /// <summary>When a mouse press activates what it landed on. The default activates on the press;
-    /// <see cref="Interaction.PointerActivation.OnRelease"/> waits for the release and cancels if
-    /// the press became a pan or a drag — the model touch already uses.</summary>
-    public virtual Interaction.PointerActivation MouseActivation => Interaction.PointerActivation.OnPress;
+    /// <summary>
+    /// When a mouse press inside a <c>data-drag-scroll</c> scroller activates what it landed on. An
+    /// APPLICATION defaults to <see cref="Interaction.PointerActivation.OnRelease"/>: a down + up
+    /// over the same control is the click, and a press that travels into a pan activates nothing —
+    /// which is what a finger has always done here, so a carousel behaves the same under both.
+    ///
+    /// <para>It reaches NOTHING else. A control outside a pannable scroller has no gesture to lose
+    /// its click to, so there is nothing to wait for and it still activates on the press.</para>
+    ///
+    /// <para>The engine itself still defaults to <see cref="Interaction.PointerActivation.OnPress"/>
+    /// (<see cref="CupriDocument.MouseActivation"/>), because a synthesised click — a test, an
+    /// accessibility action, a host replaying input — is already a COMPLETED click and has no
+    /// release to wait for. The default differs between the two deliberately.</para>
+    ///
+    /// <para>Override this to <see cref="Interaction.PointerActivation.OnPress"/> for an
+    /// application that would rather intercept the press itself.</para>
+    /// </summary>
+    public virtual Interaction.PointerActivation MouseActivation => Interaction.PointerActivation.OnRelease;
 
     /// <summary>Opt in to the commit-snapshot render-thread split (DESIGN §7.2): the UI thread builds
     /// the display list and a background thread rasterises it, so rasterisation never blocks input.

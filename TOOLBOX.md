@@ -491,15 +491,16 @@ controls handle their own state.
   wheel or a trackpad. At its end the wheel chains outward to the page, exactly as the vertical axis
   already did.
 
-  **When the press inside one becomes a click is yours to choose.** By default a mouse press
-  activates what it landed on immediately, so a press that later turns into a pan has *already*
-  clicked the card it started on — fine if your application intercepts the press itself, surprising
-  if it does not. `doc.MouseActivation = PointerActivation.OnRelease` (or
-  `CupriApp.MouseActivation`) instead treats a mouse down + up over the same control as the
-  confirmed click and activates nothing when the press travels into a pan or a drag. That is what a
-  finger has always done here, so turning it on makes the carousel behave the same under both.
-  Focus, `:active` and caret placement stay on the press either way — those are the press, not the
-  click.
+  **A press that becomes a pan does not click.** In a hosted application a mouse down + up over the
+  same control is the click, and a press that travels past the slop pans instead of activating what
+  it started on — which is what a finger has always done here, so the carousel behaves the same under
+  both. Focus, `:active` and caret placement stay on the press either way; those are the press, not
+  the click.
+
+  `CupriApp.MouseActivation` is the switch, and `PointerActivation.OnPress` restores the older
+  behaviour for an application that would rather intercept the press itself. A raw `CupriDocument`
+  stays on `OnPress`, because a synthesised click — a test, an accessibility action — is already a
+  completed click with no release coming.
 
 - **`position: sticky`.** An element flows normally, but while its scroll container is scrolled it holds
   at an edge of the scrollport instead of scrolling away, and releases when its containing block scrolls

@@ -35,12 +35,9 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 - **`CF0053`: `position: sticky` with no inset on any axis.** It parses, costs a deferred paint pass,
   and pins to nothing. The doctor now says so instead of leaving you to find it by scrolling.
 
-- **`doc.MouseActivation` chooses when a mouse press activates what it landed on** (`CupriApp.MouseActivation`
-  too). The default, `PointerActivation.OnPress`, is unchanged. `PointerActivation.OnRelease` makes a
-  mouse down + up over the same control the confirmed click, and a press that travels into a pan or a
-  drag activates nothing — the model touch has always used, so a `data-drag-scroll` carousel behaves
-  the same under a finger and under a mouse. Focus, `:active` and caret placement still happen on the
-  press either way. (#302)
+- **`doc.MouseActivation` chooses when a mouse press activates what it landed on**, and
+  `CupriApp.MouseActivation` sets it for a hosted application. Focus, `:active` and caret placement
+  still happen on the press either way — those are the press, not the click. (#302)
 
 - `TransparentHud --present-count N` adds a minimal GLFW/OpenGL reproduction for #212.
   `Test-WindowsAlpha.ps1 -GlBaseline -PresentCount N` verifies the swap count, native DLL,
@@ -77,6 +74,17 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   another host-composited element; without it they are painted underneath it and are not visible.
 
 ### Changed
+
+- **Breaking: a mouse press inside a `data-drag-scroll` box now activates on RELEASE in a hosted
+  application.** `CupriApp.MouseActivation` defaults to `PointerActivation.OnRelease`, so a down + up
+  over the same control is the click and a press that travels into a pan or a drag activates nothing
+  — what a finger has always done here, so a carousel finally behaves the same under both. Only the
+  press/release pairing changes; a plain click is unaffected. Override `MouseActivation` to
+  `OnPress` for an application that would rather intercept the press itself.
+
+  **`CupriDocument.MouseActivation` still defaults to `OnPress`**, and that difference is deliberate:
+  a synthesised click — a test, an accessibility action — is already a completed click with no
+  release coming, and waiting for one would mean it never fired. (#302)
 
 - **Breaking (small): `position: sticky` with no inset no longer pins to the top.** This engine used
   to invent `top: 0` when neither inset was given; CSS treats an axis whose insets are both `auto` as

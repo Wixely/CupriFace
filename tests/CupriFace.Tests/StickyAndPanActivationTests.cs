@@ -293,6 +293,41 @@ public class StickyAndPanActivationTests
 
     private sealed class Flag { public bool A { get; set; } }
 
+    private sealed class BareApp : CupriApp
+    {
+        public override string Html => "<body></body>";
+    }
+
+    [Fact]
+    public void OnRelease_reaches_only_presses_inside_a_pannable_scroller()
+    {
+        // The narrow scope is the whole point. A control with no pan to lose its click to must
+        // still fire on the press, or everything that synthesises a bare press stops working —
+        // which is exactly what a wider version of this broke.
+        var m = new Flag();
+        using var t = new TestDoc(
+            "<body><cupri-checkbox checked=\"{{A}}\"></cupri-checkbox></body>", "", m, components: true);
+        t.Doc.MouseActivation = PointerActivation.OnRelease;
+        var (x, y) = TestDoc.Center(t.FindRole("checkbox"));
+
+        t.Click(x, y);
+        Assert.True(m.A);   // outside a drag-scroll box: still activates on the press
+    }
+
+    [Fact]
+    public void An_application_defaults_to_OnRelease_and_a_raw_document_to_OnPress()
+    {
+        // Deliberately different. A hosted app sees real presses and releases, so a drag can cancel
+        // the click. A synthesised click — a test, an accessibility action — is already complete and
+        // has no release coming; waiting for one would mean it never fired at all.
+        Assert.Equal(PointerActivation.OnRelease, new BareApp().MouseActivation);
+        using var doc = CupriDocument.Load("<body></body>", "");
+        Assert.Equal(PointerActivation.OnPress, doc.MouseActivation);
+
+        using var app = new BareApp().CreateDocument();
+        Assert.Equal(PointerActivation.OnRelease, app.MouseActivation);
+    }
+
     [Fact]
     public void By_default_a_press_inside_a_pannable_scroller_still_activates_on_the_press()
     {
