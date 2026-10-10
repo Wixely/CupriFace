@@ -20,6 +20,8 @@ namespace CupriFace.Components.Controls;
 /// </summary>
 public sealed class VideoComponent : ComponentBase
 {
+    private static long _nextChapterAnchorId;
+
     public override string Tag => "cupri-video";
     public override string DefaultCss => """
         .cupri-video { display:block; position:relative; overflow:hidden; background:#0b0d10; }
@@ -38,10 +40,10 @@ public sealed class VideoComponent : ComponentBase
         .cupri-video-chapter-markers { position:absolute; left:0; right:0; top:0; bottom:0; }
         .cupri-video-chapter-segment { position:absolute; top:-8px; height:20px; }
         .cupri-video-chapter-marker { position:absolute; top:-2px; width:2px; height:8px; background:#0b0d10; }
-        .cupri-video-chapter-tooltip { display:none; position:absolute; left:50%; bottom:4px; z-index:2;
-                                       width:max-content; max-width:300px; padding:4px 8px; transform:translateX(-50%);
+        .cupri-video-chapter-tooltip { display:none; position:fixed; z-index:40;
+                                       width:max-content; max-width:70vw; padding:6px 10px;
                                        border-radius:6px; background:#161b24; color:#f4f6f9; font-size:12px;
-                                       line-height:1.2; white-space:nowrap; overflow:hidden; pointer-events:none;
+                                       line-height:1.3; white-space:normal; overflow-wrap:anywhere; pointer-events:none;
                                        box-shadow:0 3px 12px #00000080; }
         .cupri-video-chapter-segment:hover .cupri-video-chapter-tooltip { display:block; }
         .cupri-video-seek-thumb { position:absolute; top:-4px; width:12px; height:12px; background:white; border-radius:6px;
@@ -210,6 +212,7 @@ public sealed class VideoComponent : ComponentBase
             .Where(chapter => chapter.StartSeconds >= 0 && chapter.StartSeconds < duration)
             .OrderBy(chapter => chapter.StartSeconds)
             .ToArray();
+        var anchorSet = System.Threading.Interlocked.Increment(ref _nextChapterAnchorId);
         markers.InnerHtml = string.Join("", chapters.Select((chapter, index) =>
         {
             var start = Math.Clamp(chapter.StartSeconds / duration * 100, 0, 100);
@@ -222,9 +225,11 @@ public sealed class VideoComponent : ComponentBase
             var marker = index == 0
                 ? ""
                 : $"<span class='cupri-video-chapter-marker' style='left:{left}%'></span>";
-            return $"<span class='cupri-video-chapter-segment' style='left:{left}%;width:{width}%' " +
+            var anchorId = $"cupri-video-chapter-{anchorSet}-{index}";
+            return $"<span class='cupri-video-chapter-segment' id='{anchorId}' style='left:{left}%;width:{width}%' " +
                    $"data-video-chapter-title='{Escape(chapter.Label)}'>" +
-                   $"<span class='cupri-video-chapter-tooltip' role='tooltip'>{Escape(chapter.Label)}</span></span>{marker}";
+                   $"<span class='cupri-video-chapter-tooltip' role='tooltip' data-cupri-anchor='{anchorId}' " +
+                   $"data-cupri-placement='top'>{Escape(chapter.Label)}</span></span>{marker}";
         }));
     }
 
@@ -384,8 +389,12 @@ public sealed class VideoChaptersComponent : ComponentBase
     public override string Tag => "cupri-video-chapters";
     public override string DefaultCss => """
         .cupri-video-chapters { display:block; margin-top:10px; }
-        .cupri-video-chapters > strong { display:block; margin-bottom:8px; color:var(--cupri-muted,#687184);
-                                         font-size:11px; letter-spacing:1px; }
+        .cupri-video-chapters-toggle { display:inline-flex; align-items:center; gap:8px; padding:9px 14px;
+                                       border:1px var(--cupri-border,#d8dde6); border-radius:8px;
+                                       color:var(--cupri-text,#1e2430); font-weight:bold; }
+        .cupri-video-chapters-panel { display:none; margin-top:10px; }
+        .cupri-video-chapters-panel > strong { display:block; margin-bottom:8px; color:var(--cupri-muted,#687184);
+                                               font-size:11px; letter-spacing:1px; }
         .cupri-video-chapters-table { display:flex; flex-direction:column; width:100%; overflow:hidden;
                                       border:1px var(--cupri-border,#d8dde6); border-radius:8px; }
         .cupri-video-chapter-row { display:flex; align-items:center; width:100%; border-bottom:1px var(--cupri-border,#d8dde6); }
@@ -407,13 +416,23 @@ public sealed class VideoChaptersComponent : ComponentBase
         el.ClassList.Add("cupri-video-chapters");
         el.SetAttribute("data-video-chapter-controls", source);
         el.InnerHtml = $"""
-            <strong>{VideoComponent.Escape(label)}</strong>
-            <div class='cupri-video-chapters-table' role='table' aria-label='Video chapters' data-video-chapter-list></div>
+            <div class='cupri-video-chapters-toggle' role='button' tabindex='0' aria-expanded='false'
+                 data-video-chapter-toggle='{VideoComponent.Escape(source)}'>
+              {IconMarkup("menu", 18)}<span>{VideoComponent.Escape(label)}</span>
+            </div>
+            <div class='cupri-video-chapters-panel' data-video-chapter-panel>
+              <strong>{VideoComponent.Escape(label)}</strong>
+              <div class='cupri-video-chapters-table' role='table' aria-label='Video chapters' data-video-chapter-list></div>
+            </div>
             """;
     }
 
-    internal static void Sync(IElement el, string source, Media.IVideoChapterProvider? provider)
+    internal static void Sync(IElement el, string source, Media.IVideoChapterProvider? provider, bool open)
     {
+        if (el.QuerySelector("[data-video-chapter-panel]") is { } panel)
+            panel.SetAttribute("style", open ? "display:block" : "display:none");
+        if (el.QuerySelector("[data-video-chapter-toggle]") is { } toggle)
+            toggle.SetAttribute("aria-expanded", open ? "true" : "false");
         if (el.QuerySelector("[data-video-chapter-list]") is not { } list) return;
         var chapters = provider?.Chapters ?? [];
         if (chapters.Count == 0)

@@ -20,7 +20,8 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 - **Video chapters are an opt-in player capability.** Implement `IVideoChapterProvider`, add
   `chapters` to `<cupri-video>` for chapter divisions and title tooltips on the seek bar, and add
   `<cupri-video-chapters src="...">` for a selectable chapter table. The Windows LibVLC adapter
-  exposes embedded chapter names, offsets, durations, and seeking.
+  exposes embedded chapter names, offsets, durations, and seeking. The companion table is collapsed
+  behind a Chapters button by default and remains open while selecting rows.
 - **Windows LibVLC playback resumes in place.** Pausing and resuming now preserves the current
   time, decoder, and buffered input instead of reopening the media from the beginning.
 
