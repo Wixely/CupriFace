@@ -491,14 +491,40 @@ controls handle their own state.
   wheel or a trackpad. At its end the wheel chains outward to the page, exactly as the vertical axis
   already did.
 
+  **When the press inside one becomes a click is yours to choose.** By default a mouse press
+  activates what it landed on immediately, so a press that later turns into a pan has *already*
+  clicked the card it started on — fine if your application intercepts the press itself, surprising
+  if it does not. `doc.MouseActivation = PointerActivation.OnRelease` (or
+  `CupriApp.MouseActivation`) instead treats a mouse down + up over the same control as the
+  confirmed click and activates nothing when the press travels into a pan or a drag. That is what a
+  finger has always done here, so turning it on makes the carousel behave the same under both.
+  Focus, `:active` and caret placement stay on the press either way — those are the press, not the
+  click.
+
 - **`position: sticky`.** An element flows normally, but while its scroll container is scrolled it holds
-  at the top (its `top` offset from the scrollport) instead of scrolling away — pinning a section header —
-  and releases when its containing block scrolls out. It paints above the content that slides under it, so
-  give it an opaque background. (`relative`/`absolute`/`fixed` are also supported; `fixed` lifts to the
-  top layer over the page.)
+  at an edge of the scrollport instead of scrolling away, and releases when its containing block scrolls
+  out. It paints above the content that slides under it, so give it an opaque background — and it is
+  CLICKED where it is painted, so a pinned toolbar is usable rather than just visible.
+  (`relative`/`absolute`/`fixed` are also supported; `fixed` lifts to the top layer over the page.)
   ```css
-  .section-title { position: sticky; top: 0; background: var(--cupri-bg); border-bottom: 1px solid #ddd; }
+  .section-title { position: sticky; top: 0;    background: var(--cupri-bg); }   /* pins a header */
+  .action-bar    { position: sticky; bottom: 0; background: var(--cupri-bg); }   /* pins a footer */
   ```
+  **All four insets work, and each AXIS is decided on its own** — exactly as CSS decides it. `top` and
+  `bottom` pin to the scrollport's top and bottom edges; `left` and `right` pin to its left and right,
+  which is how you freeze a first column or hold a totals column against the right of a wide table. An
+  axis whose two insets are both `auto` is not sticky at all and behaves as `relative` there, so a header
+  with only `top` is still free to move sideways with the content.
+  ```css
+  .first-col { position: sticky; left: 0; background: var(--cupri-bg); }   /* frozen column */
+  ```
+  Set **both** insets on one axis and the start edge wins — the CSS rule whenever the box is smaller than
+  the scrollport; a box bigger than it cannot honour both whichever you pick first. The two axes can pin
+  to **different elements**: a cell inside a row that scrolls sideways, inside a page that scrolls down,
+  takes its `left` from the row and its `top` from the page.
+
+  `position: sticky` with no inset at all pins to nothing and scrolls away like any other block — which
+  is what the web does, and **CupriDoctor reports it as `CF0053`** rather than leaving you to notice.
 - **`z-index`.** Sorts SIBLINGS: lowest first, document order within a layer, and a negative value goes
   behind its siblings. It applies where CSS says it does — positioned elements, plus flex and grid items
   — so a `z-index` on a static block in normal flow is ignored, as in a browser. Hit-testing follows the

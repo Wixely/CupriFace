@@ -17,6 +17,23 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **`position: sticky` now honours all four insets, per axis.** `bottom` pins an action bar to the
+  bottom of the scrollport; `left` and `right` pin a frozen first column or a totals column in a
+  table that scrolls sideways. Each axis is decided on its own, as CSS decides it, and the two can
+  pin to different elements — a cell in a row that scrolls sideways inside a page that scrolls down
+  takes its `left` from the row and its `top` from the page. With both insets on one axis the start
+  edge wins. (#302)
+
+- **`CF0053`: `position: sticky` with no inset on any axis.** It parses, costs a deferred paint pass,
+  and pins to nothing. The doctor now says so instead of leaving you to find it by scrolling.
+
+- **`doc.MouseActivation` chooses when a mouse press activates what it landed on** (`CupriApp.MouseActivation`
+  too). The default, `PointerActivation.OnPress`, is unchanged. `PointerActivation.OnRelease` makes a
+  mouse down + up over the same control the confirmed click, and a press that travels into a pan or a
+  drag activates nothing — the model touch has always used, so a `data-drag-scroll` carousel behaves
+  the same under a finger and under a mouse. Focus, `:active` and caret placement still happen on the
+  press either way. (#302)
+
 - `TransparentHud --present-count N` adds a minimal GLFW/OpenGL reproduction for #212.
   `Test-WindowsAlpha.ps1 -GlBaseline -PresentCount N` verifies the swap count, native DLL,
   GPU alpha, and composited output. Acceptance captures now reject obscured backdrops
@@ -51,7 +68,28 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   engine's context menus are marked for you. Mark your own popups if they can open over a video or
   another host-composited element; without it they are painted underneath it and are not visible.
 
+### Changed
+
+- **Breaking (small): `position: sticky` with no inset no longer pins to the top.** This engine used
+  to invent `top: 0` when neither inset was given; CSS treats an axis whose insets are both `auto` as
+  `relative`, and now so does this. Markup ported from the web cannot have depended on the old
+  behaviour — it did nothing in a browser — so this only affects CupriFace-native markup written
+  against it. **Add the inset you meant** (`top: 0` for a header, `bottom: 0` for an action bar), and
+  `CF0053` names every element that needs one. (#302)
+
 ### Fixed
+
+- **A `position: sticky` element is now clicked where it is painted.** Paint, hit-testing and
+  `ScreenBox`/`ActivationPoint` each worked out a stuck node's position separately, so a pinned
+  header was painted in one place, clicked in another, and reported to assistive technology in a
+  third — it looked like sticky content simply could not be clicked. The rule now lives in one place
+  (`HitTesting.StickyShiftY`) that all three read, and hit-testing defers sticky nodes exactly as the
+  painter does, so a stuck element also wins over the content it visibly covers. (#302)
+
+- **`position: sticky` no longer disappears once you scroll past one scrollport of content.** The
+  clamp that keeps a stuck node inside its containing block measured that block with the scroll
+  container's *visible* height instead of its scrolled content height, which dragged the node off
+  the top and stopped it painting at all. Nothing to change in your markup. (#302)
 
 - **Maximizing a window on a secondary monitor no longer moves it to the primary one.** GLFW and
   SDL can inherit primary-monitor bounds when Windows asks their HWND for `WM_GETMINMAXINFO`, so
