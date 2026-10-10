@@ -510,14 +510,21 @@ controls handle their own state.
   .section-title { position: sticky; top: 0;    background: var(--cupri-bg); }   /* pins a header */
   .action-bar    { position: sticky; bottom: 0; background: var(--cupri-bg); }   /* pins a footer */
   ```
-  `top` pins to the scrollport's top edge and `bottom` to its bottom edge — a footer stays in view while
-  its own place is still further down the page, then stops pinning once the page scrolls far enough to
-  reach it. Set **both** and `top` wins, which is the CSS rule whenever the element is shorter than the
-  scrollport (a taller one cannot honour both, whichever you pick first).
+  **All four insets work, and each AXIS is decided on its own** — exactly as CSS decides it. `top` and
+  `bottom` pin to the scrollport's top and bottom edges; `left` and `right` pin to its left and right,
+  which is how you freeze a first column or hold a totals column against the right of a wide table. An
+  axis whose two insets are both `auto` is not sticky at all and behaves as `relative` there, so a header
+  with only `top` is still free to move sideways with the content.
+  ```css
+  .first-col { position: sticky; left: 0; background: var(--cupri-bg); }   /* frozen column */
+  ```
+  Set **both** insets on one axis and the start edge wins — the CSS rule whenever the box is smaller than
+  the scrollport; a box bigger than it cannot honour both whichever you pick first. The two axes can pin
+  to **different elements**: a cell inside a row that scrolls sideways, inside a page that scrolls down,
+  takes its `left` from the row and its `top` from the page.
 
-  **One deliberate deviation:** with NEITHER inset set, this engine pins to the top as if you had written
-  `top: 0`; the web leaves such a box unstuck. It is kept so existing documents do not silently stop
-  sticking. Write the inset you mean and the two agree.
+  `position: sticky` with no inset at all pins to nothing and scrolls away like any other block — which
+  is what the web does, and **CupriDoctor reports it as `CF0053`** rather than leaving you to notice.
 - **`z-index`.** Sorts SIBLINGS: lowest first, document order within a layer, and a negative value goes
   behind its siblings. It applies where CSS says it does — positioned elements, plus flex and grid items
   — so a `z-index` on a static block in normal flow is ignored, as in a browser. Hit-testing follows the

@@ -151,10 +151,10 @@ public class StickyAndPanActivationTests
     }
 
     [Fact]
-    public void Sticky_with_no_inset_still_pins_to_the_top()
+    public void Sticky_with_no_inset_on_an_axis_behaves_as_relative_on_that_axis()
     {
-        // A deliberate deviation from CSS, kept so an existing document does not silently stop
-        // sticking on upgrade. Bottom-only sticky must not inherit this default.
+        // CSS: an axis whose two insets are both auto is not sticky at all. This engine used to
+        // invent top:0 there, so a box nobody asked to pin pinned anyway.
         using var t = new TestDoc(
             StickyHtml.Replace("class='strip'", "class='strip noinset'"),
             StickyCss + " .noinset { top:auto; }", components: true);
@@ -163,7 +163,122 @@ public class StickyAndPanActivationTests
         t.Layout();
         var strip = t.Find(n => n.Element?.GetAttribute("aria-label") == "Strip")!;
 
-        Assert.Equal(0f, HitTesting.ScreenBox(strip).Y, 1);
+        // Natural y is 120; scrolled 340 it is simply gone, like any other block.
+        Assert.Equal(120f - 340f, HitTesting.ScreenBox(strip).Y, 1);
+    }
+
+    [Fact]
+    public void A_vertically_sticky_element_is_not_pinned_sideways()
+    {
+        // Each axis is decided on its own: `top` alone must leave the horizontal axis free.
+        const string css = """
+            .row  { width:200px; height:100px; overflow:scroll; display:flex; }
+            .head { position:sticky; top:0; width:120px; height:40px; flex:none; }
+            .wide { width:600px; height:300px; flex:none; }
+            """;
+        using var t = new TestDoc(
+            "<body><div class='row'><div class='head' role='button' aria-label='Head'></div>" +
+            "<div class='wide'></div></div></body>", css, components: true);
+        t.Layout();
+        t.Doc.DispatchWheel(50, 50, 0f, 150f);   // scroll sideways
+        t.Layout();
+        var head = t.Find(n => n.Element?.GetAttribute("aria-label") == "Head")!;
+
+        Assert.Equal(-150f, HitTesting.ScreenBox(head).X, 1);   // travelled with the content
+    }
+
+    private const string HorizCss = """
+        .row   { width:300px; height:100px; overflow:scroll; display:flex; }
+        .first { position:sticky; left:0; width:80px; height:60px; flex:none; }
+        .rest  { width:600px; height:60px; flex:none; }
+        """;
+
+    private const string HorizHtml = """
+        <body><div class='row'>
+          <div class='first' role='button' aria-label='First'></div>
+          <div class='rest' role='button' aria-label='Rest'></div>
+        </div></body>
+        """;
+
+    [Fact]
+    public void A_left_sticky_element_pins_to_the_scrollport_left_edge()
+    {
+        using var t = new TestDoc(HorizHtml, HorizCss, components: true);
+        t.Layout();
+        t.Doc.DispatchWheel(50, 50, 0f, 200f);    // scroll right
+        t.Layout();
+        var first = t.Find(n => n.Element?.GetAttribute("aria-label") == "First")!;
+
+        Assert.Equal(0f, HitTesting.ScreenBox(first).X, 1);     // pinned, not scrolled away
+        Assert.Equal("First", HitTesting.HitTest(t.Doc.Root, 40, 30)?.Element?.GetAttribute("aria-label"));
+        Assert.Equal("Rest", HitTesting.HitTest(t.Doc.Root, 200, 30)?.Element?.GetAttribute("aria-label"));
+    }
+
+    [Fact]
+    public void A_left_sticky_element_rides_out_with_its_containing_block()
+    {
+        using var t = new TestDoc(HorizHtml, HorizCss, components: true);
+        t.Layout();
+        var first = t.Find(n => n.Element?.GetAttribute("aria-label") == "First")!;
+
+        foreach (var requested in new[] { 0f, 50f, 200f, 400f })
+        {
+            using var d = new TestDoc(HorizHtml, HorizCss, components: true);
+            d.Layout();
+            if (requested > 0) d.Doc.DispatchWheel(50, 50, 0f, requested);
+            d.Layout();
+            var row = d.FindClass("row");
+            var f = d.Find(n => n.Element?.GetAttribute("aria-label") == "First")!;
+            // Pinned at the left edge for as long as its own place is off to the left of it.
+            Assert.Equal(MathF.Max(0f - row.ScrollX, 0f), HitTesting.ScreenBox(f).X, 1);
+        }
+        Assert.NotNull(first);
+    }
+
+    [Fact]
+    public void A_right_sticky_element_pins_to_the_scrollport_right_edge()
+    {
+        const string css = """
+            .row  { width:300px; height:100px; overflow:scroll; display:flex; }
+            .wide { width:600px; height:60px; flex:none; }
+            .last { position:sticky; right:0; width:80px; height:60px; flex:none; }
+            """;
+        using var t = new TestDoc(
+            "<body><div class='row'><div class='wide'></div>" +
+            "<div class='last' role='button' aria-label='Last'></div></div></body>", css, components: true);
+        t.Layout();
+        var last = t.Find(n => n.Element?.GetAttribute("aria-label") == "Last")!;
+
+        // Unscrolled, its own place (x=600) is far beyond the port, so it holds at 300-80=220.
+        Assert.Equal(220f, HitTesting.ScreenBox(last).X, 1);
+        Assert.Equal("Last", HitTesting.HitTest(t.Doc.Root, 260, 30)?.Element?.GetAttribute("aria-label"));
+    }
+
+    [Fact]
+    public void CF0053_reports_sticky_that_pins_to_nothing()
+    {
+        var report = CupriFace.Diagnostics.CupriDoctor.Check(
+            "<body><div class='page'><div class='ghost'>x</div><div class='tall'>y</div></div></body>",
+            ".page{width:200px;height:100px;overflow:scroll} .ghost{position:sticky;height:20px} .tall{height:400px}");
+
+        var f = Assert.Single(report.Findings, x => x.Code == "CF0053");
+        Assert.Contains("ghost", f.Message);
+        Assert.Contains("pins to nothing", f.Message);
+    }
+
+    [Theory]
+    [InlineData("top:0")]
+    [InlineData("bottom:0")]
+    [InlineData("left:0")]
+    [InlineData("right:0")]
+    public void CF0053_stays_quiet_once_an_inset_is_given(string inset)
+    {
+        var report = CupriFace.Diagnostics.CupriDoctor.Check(
+            "<body><div class='page'><div class='ghost'>x</div><div class='tall'>y</div></div></body>",
+            ".page{width:200px;height:100px;overflow:scroll} " +
+            $".ghost{{position:sticky;height:20px;{inset}}} .tall{{height:400px}}");
+
+        Assert.DoesNotContain(report.Findings, x => x.Code == "CF0053");
     }
 
     private const string PanHtml = """

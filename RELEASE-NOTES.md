@@ -17,12 +17,15 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
-- **`position: sticky` now honours `bottom`.** A sticky element with `bottom` pins to the bottom edge
-  of its scrollport — a toolbar or action bar that stays in view while its own place is still further
-  down the page — and releases once the page scrolls far enough to reach it. `top` is unchanged, and
-  with both set `top` wins (the CSS rule for an element shorter than the scrollport). An element with
-  NEITHER inset still pins to the top as before; the web would leave it unstuck, and that difference is
-  kept deliberately so existing documents do not silently stop sticking. (#302)
+- **`position: sticky` now honours all four insets, per axis.** `bottom` pins an action bar to the
+  bottom of the scrollport; `left` and `right` pin a frozen first column or a totals column in a
+  table that scrolls sideways. Each axis is decided on its own, as CSS decides it, and the two can
+  pin to different elements — a cell in a row that scrolls sideways inside a page that scrolls down
+  takes its `left` from the row and its `top` from the page. With both insets on one axis the start
+  edge wins. (#302)
+
+- **`CF0053`: `position: sticky` with no inset on any axis.** It parses, costs a deferred paint pass,
+  and pins to nothing. The doctor now says so instead of leaving you to find it by scrolling.
 
 - **`doc.MouseActivation` chooses when a mouse press activates what it landed on** (`CupriApp.MouseActivation`
   too). The default, `PointerActivation.OnPress`, is unchanged. `PointerActivation.OnRelease` makes a
@@ -64,6 +67,15 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 - **A popup marked `data-surface-occluder` hides a host-composited surface it overlaps.** The
   engine's context menus are marked for you. Mark your own popups if they can open over a video or
   another host-composited element; without it they are painted underneath it and are not visible.
+
+### Changed
+
+- **Breaking (small): `position: sticky` with no inset no longer pins to the top.** This engine used
+  to invent `top: 0` when neither inset was given; CSS treats an axis whose insets are both `auto` as
+  `relative`, and now so does this. Markup ported from the web cannot have depended on the old
+  behaviour — it did nothing in a browser — so this only affects CupriFace-native markup written
+  against it. **Add the inset you meant** (`top: 0` for a header, `bottom: 0` for an action bar), and
+  `CF0053` names every element that needs one. (#302)
 
 ### Fixed
 

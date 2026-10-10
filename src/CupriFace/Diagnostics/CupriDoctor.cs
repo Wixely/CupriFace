@@ -199,6 +199,7 @@ public static partial class CupriDoctor
             PeersThatDoNotLineUp(doc, registry, lines, findings);
             BoxesWithNothingBetweenThem(doc, registry, lines, findings);
             BackdropFilterOutsideTopLayer(doc, lines, findings);
+            StickyWithNothingToStickTo(doc, lines, findings);
             TextNobodyCanRead(doc, registry, lines, findings);
             if (model is not null) UnresolvedBindings(html, model, lines, findings);
             doc.Dispose();
@@ -948,6 +949,46 @@ public static partial class CupriDoctor
     /// semicolon. Deliberately not a bare substring — see the method above.</summary>
     [GeneratedRegex(@"@import\s[^;}]*;", RegexOptions.IgnoreCase)]
     private static partial Regex ImportStatement();
+
+    /// <summary>
+    /// <c>position: sticky</c> with no inset on either axis — it parses, it costs a deferred paint
+    /// pass, and it pins to nothing.
+    ///
+    /// <para>CSS decides stickiness per AXIS: a box whose two insets on an axis are both
+    /// <c>auto</c> is <c>relative</c> on that axis. With all four auto it is <c>relative</c>
+    /// outright, which is the one case nobody writes on purpose — the declaration looks like it
+    /// did something and the element scrolls away like any other block.</para>
+    ///
+    /// <para>Reported from the laid-out document rather than from the stylesheet, so a value that
+    /// arrives through a class combination, an inline style or a component's own CSS is caught the
+    /// same way one written in a rule is.</para>
+    /// </summary>
+    private static void StickyWithNothingToStickTo(CupriDocument doc, string[] lines, List<Finding> findings)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        Walk(doc.Root);
+
+        void Walk(Dom.RenderNode n)
+        {
+            var s = n.Style;
+            if (s.Position == Style.PositionType.Sticky
+                && !s.Top.IsDefinite && !s.Bottom.IsDefinite
+                && !s.Left.IsDefinite && !s.Right.IsDefinite
+                && n.Element is not null)
+            {
+                var what = Name(n);
+                if (seen.Add(what))
+                    findings.Add(new Finding(Severity.Warning, "CF0053",
+                        $"{what} is position:sticky with no top, right, bottom or left, so it pins to "
+                        + "nothing and scrolls away like any other block.",
+                        "Add the inset for the edge it should hold at — `top: 0` for a header, "
+                        + "`bottom: 0` for an action bar, `left: 0` for a first column. CSS treats an "
+                        + "axis whose insets are both auto as `relative`, so one per axis is needed.",
+                        LineOf(lines, ClassNeedle(n))));
+            }
+            foreach (var c in n.Children) Walk(c);
+        }
+    }
 
     /// <summary>
     /// <c>backdrop-filter</c> outside the top layer, where it parses and then paints nothing.
