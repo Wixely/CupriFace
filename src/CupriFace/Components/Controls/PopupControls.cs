@@ -47,7 +47,7 @@ public sealed class ContextMenuComponent : ComponentBase
     public override string Tag => "cupri-context-menu";
     public override string DefaultCss => """
         .cupri-ctx-host { display:block; }
-        .cupri-ctx-menu { position:fixed; display:none; background:var(--cupri-surface,white); border-radius:10px; padding:6px;
+        .cupri-ctx-menu { position:fixed; display:none; background:var(--cupri-surface,white); border-radius:0; padding:6px;
                           min-width:180px; z-index:60; border:1px var(--cupri-border,#e6e9f0); box-shadow:0 10px 28px #00000026; }
         """;
 
@@ -93,7 +93,7 @@ public sealed class MenuItemComponent : ComponentBase
         .cupri-menu-label { flex:1; min-width:0; }             /* push the chevron to the far edge without forcing overflow */
         .cupri-menu-parent { position:relative; }
         .cupri-submenu { position:absolute; left:100%; top:-7px; display:none; min-width:170px;
-                         background:var(--cupri-surface,white); border-radius:10px; padding:6px; z-index:31;
+                         background:var(--cupri-surface,white); border-radius:0; padding:6px; z-index:31;
                          border:1px var(--cupri-border,#e6e9f0); box-shadow:0 10px 28px #00000026; }
         .cupri-menu-parent:hover > .cupri-submenu { display:block; } /* fly out while the row (or its panel) is hovered */
         """;
@@ -118,6 +118,9 @@ public sealed class MenuItemComponent : ComponentBase
             var flyout = el.Owner!.CreateElement("div");
             flyout.ClassName = "cupri-submenu";
             flyout.SetAttribute("role", "menu");
+            // A host-composited surface must yield exactly where this engine-painted panel appears.
+            // Hidden submenus have no laid-out area, so the marker is safe to keep permanently.
+            flyout.SetAttribute("data-surface-occluder", "");
             foreach (var s in subItems) flyout.AppendChild(s);
 
             // The row's own label: the `label` attribute, else whatever text is left after the move.

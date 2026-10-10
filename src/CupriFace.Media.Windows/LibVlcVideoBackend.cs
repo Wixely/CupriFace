@@ -292,7 +292,8 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IVi
             placement.ClipTop,
             placement.ClipRight,
             placement.ClipBottom,
-            placement.ClipLeft);
+            placement.ClipLeft,
+            placement.Occlusions);
     }
 
     /// <summary>

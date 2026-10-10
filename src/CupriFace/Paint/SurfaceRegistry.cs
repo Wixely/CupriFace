@@ -138,7 +138,12 @@ public readonly record struct HostSurfacePlacement(
     bool Visible,
     string ObjectFit,
     HostSurfaceTransform Transform,
-    float DeviceScale);
+    float DeviceScale,
+    IReadOnlyList<HostSurfaceOcclusion>? Occlusions = null);
+
+/// <summary>A rectangular hole, relative to a host-composited surface's top-left corner, where
+/// engine-painted UI must remain visible above the native surface.</summary>
+public readonly record struct HostSurfaceOcclusion(float X, float Y, float Width, float Height);
 
 /// <summary>Geometry a host needs in order to place a host-composited surface correctly.</summary>
 public static class HostSurfaceGeometry
@@ -167,29 +172,40 @@ public static class HostSurfaceGeometry
     ///
     /// <para>A host-composited surface is presented OVER everything the engine draws, so a menu,
     /// dialog or dropdown that overlaps it is painted underneath and simply cannot be seen. There
-    /// is no z-order to correct — the hole IS the mechanism. So the surface steps aside while such
-    /// UI is over it: the popup is the thing the user just asked for, and a frame of poster beats a
-    /// menu that is not there.</para>
+    /// is no z-order to correct — the hole IS the mechanism. The host therefore cuts the popup's
+    /// overlap out of the native surface region while leaving the rest of the surface visible.</para>
     ///
     /// <para>Only real overlap counts. A popup opened beside the surface costs it nothing, and a
     /// closed one (laid out with no area) is not an occluder at all — which is why this can be
     /// marked once on the control rather than toggled as it opens.</para>
     /// </summary>
     public static bool IsOccluded(Dom.RenderNode root, float x, float y, float w, float h)
+        => GetOcclusions(root, x, y, w, h).Count > 0;
+
+    /// <summary>Find the visible portions of engine-painted occluders that overlap a surface.
+    /// Returned rectangles are relative to the supplied surface's top-left corner.</summary>
+    public static IReadOnlyList<HostSurfaceOcclusion> GetOcclusions(
+        Dom.RenderNode root, float x, float y, float w, float h)
     {
         ArgumentNullException.ThrowIfNull(root);
-        if (w <= 0 || h <= 0) return false;
-        return Scan(root);
+        if (w <= 0 || h <= 0) return [];
+        var matches = new List<HostSurfaceOcclusion>();
+        Scan(root);
+        return matches;
 
-        bool Scan(Dom.RenderNode n)
+        void Scan(Dom.RenderNode n)
         {
             if (n.LaidOut && n.Element?.HasAttribute("data-surface-occluder") == true)
             {
                 var (ox, oy, ow, oh) = Interaction.HitTesting.ScreenBox(n);
-                if (ow > 0 && oh > 0 && ox < x + w && ox + ow > x && oy < y + h && oy + oh > y) return true;
+                var left = MathF.Max(x, ox);
+                var top = MathF.Max(y, oy);
+                var right = MathF.Min(x + w, ox + ow);
+                var bottom = MathF.Min(y + h, oy + oh);
+                if (right > left && bottom > top)
+                    matches.Add(new(left - x, top - y, right - left, bottom - top));
             }
-            foreach (var child in n.Children) if (Scan(child)) return true;
-            return false;
+            foreach (var child in n.Children) Scan(child);
         }
     }
 

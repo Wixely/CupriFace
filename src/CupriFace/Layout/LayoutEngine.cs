@@ -54,6 +54,36 @@ public sealed class LayoutEngine
         root.Y = 0;
         LayoutFixedNodes(root, viewportWidth, viewportHeight);
         PositionAnchoredPopups(root, viewportWidth, viewportHeight);
+        PositionSubmenus(root, viewportWidth, viewportHeight);
+    }
+
+    /// <summary>Keep visible fly-out menus inside the viewport, preferring the right side but
+    /// flipping them to the left of their parent row when the right edge has no room.</summary>
+    private static void PositionSubmenus(RenderNode root, float vw, float vh)
+    {
+        Walk(root);
+
+        void Walk(RenderNode node)
+        {
+            foreach (var child in node.Children)
+            {
+                if (child.Style.Display != DisplayType.None
+                    && child.Element?.ClassList.Contains("cupri-submenu") == true
+                    && child.Parent is not null)
+                {
+                    var (x, y, _, _) = AbsoluteBox(child);
+                    if (x + child.Width > vw - 4f)
+                        child.X = -child.Width;
+
+                    (x, y, _, _) = AbsoluteBox(child);
+                    if (x < 4f) child.X += 4f - x;
+                    if (y + child.Height > vh - 4f) child.Y -= y + child.Height - (vh - 4f);
+                    (x, y, _, _) = AbsoluteBox(child);
+                    if (y < 4f) child.Y += 4f - y;
+                }
+                Walk(child);
+            }
+        }
     }
 
     /// <summary>Reposition fixed popups (data-cupri-anchor) relative to their anchor element.</summary>

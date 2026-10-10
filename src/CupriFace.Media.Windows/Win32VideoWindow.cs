@@ -84,7 +84,8 @@ internal static partial class Win32VideoWindow
         float clipTop,
         float clipRight,
         float clipBottom,
-        float clipLeft)
+        float clipLeft,
+        IReadOnlyList<CupriFace.Paint.HostSurfaceOcclusion>? occlusions)
     {
         var px = (int)MathF.Round(x);
         var py = (int)MathF.Round(y);
@@ -97,6 +98,21 @@ internal static partial class Win32VideoWindow
         var right = Math.Clamp(pw - (int)MathF.Round(clipRight), left, pw);
         var bottom = Math.Clamp(ph - (int)MathF.Round(clipBottom), top, ph);
         var region = CreateRectRgn(left, top, right, bottom);
+        if (region != 0 && occlusions is not null)
+        {
+            foreach (var occlusion in occlusions)
+            {
+                var cutLeft = Math.Clamp((int)MathF.Floor(occlusion.X), left, right);
+                var cutTop = Math.Clamp((int)MathF.Floor(occlusion.Y), top, bottom);
+                var cutRight = Math.Clamp((int)MathF.Ceiling(occlusion.X + occlusion.Width), cutLeft, right);
+                var cutBottom = Math.Clamp((int)MathF.Ceiling(occlusion.Y + occlusion.Height), cutTop, bottom);
+                if (cutRight <= cutLeft || cutBottom <= cutTop) continue;
+                var cutout = CreateRectRgn(cutLeft, cutTop, cutRight, cutBottom);
+                if (cutout == 0) continue;
+                CombineRgn(region, region, cutout, RegionDifference);
+                DeleteObject(cutout);
+            }
+        }
         if (region != 0 && SetWindowRgn(window, region, true) == 0) DeleteObject(region);
         ShowWindow(window, SwShowNoActivate);
     }
@@ -171,6 +187,11 @@ internal static partial class Win32VideoWindow
 
     [LibraryImport("gdi32.dll")]
     private static partial nint CreateRectRgn(int left, int top, int right, int bottom);
+
+    private const int RegionDifference = 4;
+
+    [LibraryImport("gdi32.dll")]
+    private static partial int CombineRgn(nint destination, nint source1, nint source2, int combineMode);
 
     [LibraryImport("user32.dll")]
     private static partial int SetWindowRgn(nint window, nint region, [MarshalAs(UnmanagedType.Bool)] bool redraw);

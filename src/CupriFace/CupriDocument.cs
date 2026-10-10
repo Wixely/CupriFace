@@ -509,6 +509,30 @@ public sealed partial class CupriDocument : IDisposable
     /// The callback may arrive from a decoder thread; use <see cref="Post"/> before changing UI state.</summary>
     public event Action<string>? VideoChaptersChanged;
 
+    /// <summary>Raised on the UI thread when transport, position, volume, or selected tracks change.
+    /// Applications can persist this portable snapshot without depending on a concrete backend.</summary>
+    public event Action<Media.VideoPlaybackState>? VideoPlaybackStateChanged;
+
+    public Media.VideoPlaybackState? GetVideoPlaybackState(string source) =>
+        _videoPlayers.TryGetValue(source, out var player) ? SnapshotVideoState(source, player) : null;
+
+    public bool RestoreVideoPlaybackState(string source, Media.VideoPlaybackState state)
+    {
+        if (!_videoPlayers.TryGetValue(source, out var player)) return false;
+        player.Muted = state.Muted;
+        player.Volume = Math.Clamp(state.Volume, 0, 1);
+        player.Position = Math.Max(0, state.PositionSeconds);
+        if (state.Playing) player.Play(); else player.Pause();
+        if (player is Media.IVideoTrackSelector tracks)
+        {
+            if (state.AudioTrackId is { } audioTrackId) tracks.SelectAudioTrack(audioTrackId);
+            if (state.SubtitleTrackId is { } subtitleTrackId) tracks.SelectSubtitleTrack(subtitleTrackId);
+        }
+        NotifyVideoPlaybackState(source, player);
+        Refresh();
+        return true;
+    }
+
     public IReadOnlyList<Media.VideoTrack> GetVideoAudioTracks(string source) =>
         _videoPlayers.TryGetValue(source, out var player) && player is Media.IVideoTrackSelector tracks
             ? tracks.AudioTracks
@@ -548,7 +572,11 @@ public sealed partial class CupriDocument : IDisposable
         if (!_videoPlayers.TryGetValue(source, out var player) || player is not Media.IVideoChapterProvider chapters)
             return false;
         var selected = chapters.SelectChapter(chapterIndex);
-        if (selected) Refresh();
+        if (selected)
+        {
+            NotifyVideoPlaybackState(source, player);
+            Refresh();
+        }
         return selected;
     }
 
@@ -557,9 +585,30 @@ public sealed partial class CupriDocument : IDisposable
         if (!_videoPlayers.TryGetValue(source, out var player) || player is not Media.IVideoTrackSelector tracks)
             return false;
         var selected = audio ? tracks.SelectAudioTrack(trackId) : tracks.SelectSubtitleTrack(trackId);
-        if (selected) Refresh();
+        if (selected)
+        {
+            NotifyVideoPlaybackState(source, player);
+            Refresh();
+        }
         return selected;
     }
+
+    private static Media.VideoPlaybackState SnapshotVideoState(string source, Media.IVideoPlayer player)
+    {
+        var tracks = player as Media.IVideoTrackSelector;
+        return new Media.VideoPlaybackState(
+            source,
+            player.Position,
+            player.Duration,
+            player.Playing,
+            player.Muted,
+            player.Volume,
+            tracks?.SelectedAudioTrack,
+            tracks?.SelectedSubtitleTrack);
+    }
+
+    private void NotifyVideoPlaybackState(string source, Media.IVideoPlayer player) =>
+        VideoPlaybackStateChanged?.Invoke(SnapshotVideoState(source, player));
 
     // Runs each rebuild, right after component expansion: open/adopt a player per visible source,
     // reflect its transport state into the fresh DOM's controls, retire players whose element is
@@ -627,6 +676,7 @@ public sealed partial class CupriDocument : IDisposable
         if (gone is null) return;
         foreach (var src in gone)
         {
+            NotifyVideoPlaybackState(src, _videoPlayers[src]);
             try { _videoPlayers[src].Dispose(); } catch { /* a dying decoder must not kill the rebuild */ }
             _videoPlayers.Remove(src);
             Surfaces.Unregister("video:" + src);
@@ -677,6 +727,7 @@ public sealed partial class CupriDocument : IDisposable
         // explicitly allow audible autoplay without weakening the default used by web hosts.
         if (el.HasAttribute("data-video-autoplay") && (player.Muted || AllowUnmutedVideoAutoplay))
             player.Play();
+        NotifyVideoPlaybackState(src, player);
         return player;
     }
 
@@ -714,6 +765,7 @@ public sealed partial class CupriDocument : IDisposable
             case "pause": player.Pause(); break;
             default: if (player.Playing) player.Pause(); else player.Play(); break;
         }
+        NotifyVideoPlaybackState(src, player);
         Refresh(); // the controls' glyphs + labels reflect the new state
         return true;
     }
@@ -782,6 +834,8 @@ public sealed partial class CupriDocument : IDisposable
     {
         if (System.Threading.Interlocked.Exchange(ref _videoStateChanged, 0) == 1)
         {
+            foreach (var (src, player) in _videoPlayers)
+                NotifyVideoPlaybackState(src, player);
             Refresh();
             return true;
         }
@@ -795,6 +849,7 @@ public sealed partial class CupriDocument : IDisposable
             var pos = player.Position;
             if (Math.Abs(pos - _reflectedPositions.GetValueOrDefault(src, -10)) < 0.95) continue;
             _reflectedPositions[src] = pos;
+            NotifyVideoPlaybackState(src, player);
             Refresh();
             return true;
         }
@@ -7238,8 +7293,11 @@ public sealed partial class CupriDocument : IDisposable
 
     public void Dispose()
     {
-        foreach (var player in _videoPlayers.Values)
+        foreach (var (src, player) in _videoPlayers)
+        {
+            NotifyVideoPlaybackState(src, player);
             try { player.Dispose(); } catch { /* a dying decoder must not block disposal */ }
+        }
         _videoPlayers.Clear();
         _fonts.Dispose();
         _images.Dispose();
