@@ -13,6 +13,16 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- **Maximizing a window on a secondary monitor no longer moves it to the primary one.** GLFW and
+  SDL can inherit primary-monitor bounds when Windows asks their HWND for `WM_GETMINMAXINFO`, so
+  the title bar's maximize button jumped the window across displays. The shell now answers that
+  message with the work area of the monitor the window is actually on. Nothing to call: it applies
+  to every desktop window, on both the GL and software paths, and is inert off Windows.
+
 ## v0.41.0
 
 ### Added
