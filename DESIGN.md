@@ -286,8 +286,12 @@ Three consequences worth designing around:
 - **An adapter that cannot express a placement must decline it, not approximate it.** A Win32 child
   window has a rectangular region and no affine transform, so a rotated or skewed element hides the
   surface instead of presenting it somewhere plausible-looking and wrong.
-- **UI that must sit over the surface belongs outside its box.** Where that is not possible on a
-  given host, say so in the component's documentation rather than letting it render into nothing.
+- **UI that must sit over the surface makes the surface stand down.** A popup marked
+  `data-surface-occluder` that overlaps the surface hides it for as long as the overlap lasts — the
+  engine's own context menus are marked, so a right-click menu over a video is visible rather than
+  painted into nothing. Overlap is what counts: a menu opened beside the surface costs it nothing,
+  and a closed popup lays out with no area and is not an occluder, so the marker can live on the
+  control permanently instead of being toggled.
 
 `IHostCompositedSurfaceSource` keeps platform handles out of portable code: the host offers features
 through `IHostSurfaceContext.GetFeature<T>()` (the desktop shell offers `Win32HostWindow`), so an

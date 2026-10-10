@@ -161,6 +161,38 @@ public static class HostSurfaceGeometry
     /// be resolved by shortening the box, so it is left alone and overdrawn rather than quietly
     /// mis-sizing the surface to hide it.</para>
     /// </summary>
+    /// <summary>
+    /// Whether engine-painted UI marked <c>data-surface-occluder</c> currently overlaps this
+    /// surface's box.
+    ///
+    /// <para>A host-composited surface is presented OVER everything the engine draws, so a menu,
+    /// dialog or dropdown that overlaps it is painted underneath and simply cannot be seen. There
+    /// is no z-order to correct — the hole IS the mechanism. So the surface steps aside while such
+    /// UI is over it: the popup is the thing the user just asked for, and a frame of poster beats a
+    /// menu that is not there.</para>
+    ///
+    /// <para>Only real overlap counts. A popup opened beside the surface costs it nothing, and a
+    /// closed one (laid out with no area) is not an occluder at all — which is why this can be
+    /// marked once on the control rather than toggled as it opens.</para>
+    /// </summary>
+    public static bool IsOccluded(Dom.RenderNode root, float x, float y, float w, float h)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+        if (w <= 0 || h <= 0) return false;
+        return Scan(root);
+
+        bool Scan(Dom.RenderNode n)
+        {
+            if (n.LaidOut && n.Element?.HasAttribute("data-surface-occluder") == true)
+            {
+                var (ox, oy, ow, oh) = Interaction.HitTesting.ScreenBox(n);
+                if (ow > 0 && oh > 0 && ox < x + w && ox + ow > x && oy < y + h && oy + oh > y) return true;
+            }
+            foreach (var child in n.Children) if (Scan(child)) return true;
+            return false;
+        }
+    }
+
     public static float OverlayBottomInset(Dom.RenderNode node, float top, float height)
     {
         ArgumentNullException.ThrowIfNull(node);

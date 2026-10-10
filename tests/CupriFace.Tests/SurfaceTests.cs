@@ -126,6 +126,48 @@ public class SurfaceTests
     }
 
     [Fact]
+    public void A_popup_over_a_host_composited_surface_makes_it_stand_down()
+    {
+        // The menu is painted by the engine and the surface is composited on top of the engine, so
+        // one of the two has to give. It is the surface: an invisible menu is never the right answer.
+        using var t = new TestDoc("""
+            <body><div class='pic' style='width:320px;height:180px'></div>
+            <div class='menu' data-surface-occluder></div></body>
+            """, ".menu { position:fixed; left:40px; top:60px; width:150px; height:90px; }");
+        t.Layout();
+        var pic = t.Find(n => n.Element?.ClassList.Contains("pic") == true)!;
+
+        Assert.True(HostSurfaceGeometry.IsOccluded(t.Doc.Root, 0, 0, 320, 180));
+        Assert.NotNull(pic);
+    }
+
+    [Fact]
+    public void A_popup_beside_a_host_composited_surface_costs_it_nothing()
+    {
+        using var t = new TestDoc("""
+            <body><div class='pic' style='width:320px;height:180px'></div>
+            <div class='menu' data-surface-occluder></div></body>
+            """, ".menu { position:fixed; left:400px; top:60px; width:150px; height:90px; }");
+        t.Layout();
+
+        Assert.False(HostSurfaceGeometry.IsOccluded(t.Doc.Root, 0, 0, 320, 180));
+    }
+
+    [Fact]
+    public void A_closed_popup_is_not_an_occluder()
+    {
+        // display:none lays out with no area, which is why the marker can live on the control for
+        // good rather than being toggled as it opens and closes.
+        using var t = new TestDoc("""
+            <body><div class='pic' style='width:320px;height:180px'></div>
+            <div class='menu' data-surface-occluder></div></body>
+            """, ".menu { position:fixed; display:none; left:40px; top:60px; width:150px; height:90px; }");
+        t.Layout();
+
+        Assert.False(HostSurfaceGeometry.IsOccluded(t.Doc.Root, 0, 0, 320, 180));
+    }
+
+    [Fact]
     public void Overlay_chrome_shortens_a_host_composited_surface_by_its_measured_height()
     {
         // A host-composited surface is presented OVER everything the engine paints, so engine

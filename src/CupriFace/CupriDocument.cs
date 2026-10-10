@@ -460,6 +460,7 @@ public sealed partial class CupriDocument : IDisposable
     // disposed when it no longer does (a hidden section stops its video).
     private Media.IVideoBackend? _videoBackend;
     private readonly Dictionary<string, Media.IVideoPlayer> _videoPlayers = new(StringComparer.Ordinal);
+    private string? _videoTrackPanelSource;
     private int _videoStateChanged; // set (any thread) by Ended → consumed on the UI thread
     private string? _fullscreenVideo; // src of the video currently element-fullscreened (web model: one at most)
 
@@ -496,6 +497,43 @@ public sealed partial class CupriDocument : IDisposable
         return this;
     }
 
+    /// <summary>Raised when a video's backend discovers or changes its selectable media tracks.
+    /// The callback may arrive from a decoder thread; use <see cref="Post"/> before changing UI state.</summary>
+    public event Action<string>? VideoTracksChanged;
+
+    public IReadOnlyList<Media.VideoTrack> GetVideoAudioTracks(string source) =>
+        _videoPlayers.TryGetValue(source, out var player) && player is Media.IVideoTrackSelector tracks
+            ? tracks.AudioTracks
+            : Array.Empty<Media.VideoTrack>();
+
+    public IReadOnlyList<Media.VideoTrack> GetVideoSubtitleTracks(string source) =>
+        _videoPlayers.TryGetValue(source, out var player) && player is Media.IVideoTrackSelector tracks
+            ? tracks.SubtitleTracks
+            : Array.Empty<Media.VideoTrack>();
+
+    public int? GetSelectedVideoAudioTrack(string source) =>
+        _videoPlayers.TryGetValue(source, out var player) && player is Media.IVideoTrackSelector tracks
+            ? tracks.SelectedAudioTrack
+            : null;
+
+    public int? GetSelectedVideoSubtitleTrack(string source) =>
+        _videoPlayers.TryGetValue(source, out var player) && player is Media.IVideoTrackSelector tracks
+            ? tracks.SelectedSubtitleTrack
+            : null;
+
+    public bool SelectVideoAudioTrack(string source, int trackId) => SelectVideoTrack(source, trackId, audio: true);
+
+    public bool SelectVideoSubtitleTrack(string source, int trackId) => SelectVideoTrack(source, trackId, audio: false);
+
+    private bool SelectVideoTrack(string source, int trackId, bool audio)
+    {
+        if (!_videoPlayers.TryGetValue(source, out var player) || player is not Media.IVideoTrackSelector tracks)
+            return false;
+        var selected = audio ? tracks.SelectAudioTrack(trackId) : tracks.SelectSubtitleTrack(trackId);
+        if (selected) Refresh();
+        return selected;
+    }
+
     // Runs each rebuild, right after component expansion: open/adopt a player per visible source,
     // reflect its transport state into the fresh DOM's controls, retire players whose element is
     // gone. (Expansion skips display:none subtrees, so switching a section away stops its video.)
@@ -507,12 +545,31 @@ public sealed partial class CupriDocument : IDisposable
             if (el.GetAttribute("data-cupri-video") is not { Length: > 0 } src) continue;
             (seen ??= new HashSet<string>(StringComparer.Ordinal)).Add(src);
             if (GetOrOpenPlayer(src, el) is { } player)
+            {
                 Components.Controls.VideoComponent.SyncControls(el, player);
+                Components.Controls.VideoComponent.SyncTracks(el, src, player as Media.IVideoTrackSelector);
+            }
             else
+            {
                 Components.Controls.VideoComponent.MarkInert(el);   // no backend: honest controls
+                Components.Controls.VideoComponent.SyncTracks(el, src, null);
+            }
             // The fresh DOM starts windowed; re-mark the fullscreen one each rebuild.
             if (src == _fullscreenVideo)
                 Components.Controls.VideoComponent.ApplyFullscreenState(el);
+        }
+
+        // Each companion track form, refreshed against its video's player — including the ones whose
+        // src names no player, which is how "No selectable tracks" is reached rather than a stale list.
+        foreach (var el in dom.QuerySelectorAll("[data-video-track-controls]"))
+        {
+            var src = el.GetAttribute("data-video-track-controls") ?? "";
+            _videoPlayers.TryGetValue(src, out var player);
+            Components.Controls.VideoTracksComponent.Sync(
+                el,
+                src,
+                player as Media.IVideoTrackSelector,
+                string.Equals(src, _videoTrackPanelSource, StringComparison.Ordinal));
         }
 
         // The fullscreen video's element left the DOM (section switched away) — nothing is
@@ -533,6 +590,8 @@ public sealed partial class CupriDocument : IDisposable
             try { _videoPlayers[src].Dispose(); } catch { /* a dying decoder must not kill the rebuild */ }
             _videoPlayers.Remove(src);
             Surfaces.Unregister("video:" + src);
+            if (string.Equals(_videoTrackPanelSource, src, StringComparison.Ordinal))
+                _videoTrackPanelSource = null;
         }
     }
 
@@ -551,6 +610,16 @@ public sealed partial class CupriDocument : IDisposable
         _videoPlayers[src] = player;
         Surfaces.Register("video:" + src, player.Surface);
         player.Ended += () => System.Threading.Interlocked.Exchange(ref _videoStateChanged, 1);
+        if (player is Media.IVideoTrackSelector tracks)
+        {
+            tracks.TracksChanged += () =>
+            {
+                System.Threading.Interlocked.Exchange(ref _videoStateChanged, 1);
+                VideoTracksChanged?.Invoke(src);
+            };
+            if (tracks.AudioTracks.Count > 0 || tracks.SubtitleTracks.Count > 0)
+                VideoTracksChanged?.Invoke(src);
+        }
         player.Loop = el.HasAttribute("data-video-loop");
         player.Muted = el.HasAttribute("data-video-muted");
         // Browsers reject audible autoplay, so muted remains the portable default. A native app can
@@ -596,6 +665,33 @@ public sealed partial class CupriDocument : IDisposable
         }
         Refresh(); // the controls' glyphs + labels reflect the new state
         return true;
+    }
+
+    /// <summary>A click on the opt-in track UI: the companion form's open/close toggle, or one
+    /// audio/subtitle choice from either the form or the video's context menu. A disabled entry
+    /// ("No selectable tracks") reports handled so the click does not fall through to the
+    /// transport underneath it.</summary>
+    private bool VideoTrackAction(AngleSharp.Dom.IElement el)
+    {
+        if (el.HasAttribute("data-video-track-disabled")) return true;
+        if (el.GetAttribute("data-video-track-toggle") is { } toggleSource)
+        {
+            _videoTrackPanelSource = string.Equals(_videoTrackPanelSource, toggleSource, StringComparison.Ordinal)
+                ? null
+                : toggleSource;
+            Refresh();
+            return true;
+        }
+        if (el.GetAttribute("data-video-track-source") is not { } source ||
+            el.GetAttribute("data-video-track-kind") is not { } kind ||
+            !int.TryParse(el.GetAttribute("data-video-track-id"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var trackId))
+            return false;
+
+        var selected = string.Equals(kind, "audio", StringComparison.Ordinal)
+            ? SelectVideoAudioTrack(source, trackId)
+            : string.Equals(kind, "subtitle", StringComparison.Ordinal) && SelectVideoSubtitleTrack(source, trackId);
+        if (selected) _videoTrackPanelSource = null;
+        return selected;
     }
 
     /// <summary>The host's fullscreen state changed OUTSIDE the engine's own commands — the
@@ -3460,6 +3556,13 @@ public sealed partial class CupriDocument : IDisposable
 
             // Number stepper: +/- button adjusts the nearest numeric field's bound value.
             if (el.GetAttribute("data-cupri-step") is { Length: > 0 } stepRaw) return StepNumber(node, stepRaw);
+
+            // Opt-in embedded audio/subtitle selection, shared by the video's context menu and
+            // its companion <cupri-video-tracks> form.
+            if (el.HasAttribute("data-video-track-toggle") ||
+                el.HasAttribute("data-video-track-id") ||
+                el.HasAttribute("data-video-track-disabled"))
+                return VideoTrackAction(el);
 
             // Video transport (play/pause toggle, mute) for the nearest enclosing <cupri-video>.
             if (el.GetAttribute("data-video-cmd") is { Length: > 0 } videoCmd) return VideoCommand(node, videoCmd);

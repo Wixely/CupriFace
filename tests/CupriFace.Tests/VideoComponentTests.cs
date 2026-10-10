@@ -20,7 +20,7 @@ public class VideoComponentTests
         public bool Ticking { get; set; }
     }
 
-    private sealed class FakePlayer : IVideoPlayer
+    private sealed class FakePlayer : IVideoPlayer, IVideoTrackSelector
     {
         public FakeSurface Fake { get; } = new();
         public ISurfaceSource Surface => Fake;
@@ -32,9 +32,34 @@ public class VideoComponentTests
         public double Position { get; set; }
         public bool Disposed { get; private set; }
         public event Action? Ended;
+        public event Action? TracksChanged;
+        public IReadOnlyList<VideoTrack> AudioTracks { get; private set; } = [];
+        public IReadOnlyList<VideoTrack> SubtitleTracks { get; private set; } = [];
+        public int SelectedAudioTrack { get; private set; } = -1;
+        public int SelectedSubtitleTrack { get; private set; } = -1;
         public void Play() { Playing = true; Fake.Ticking = true; }
         public void Pause() { Playing = false; Fake.Ticking = false; }
         public void RaiseEnded() { Playing = false; Fake.Ticking = false; Ended?.Invoke(); }
+        public void PublishTracks(IReadOnlyList<VideoTrack> audio, IReadOnlyList<VideoTrack> subtitles)
+        {
+            AudioTracks = audio;
+            SubtitleTracks = subtitles;
+            SelectedAudioTrack = audio.FirstOrDefault()?.Id ?? -1;
+            SelectedSubtitleTrack = subtitles.FirstOrDefault()?.Id ?? -1;
+            TracksChanged?.Invoke();
+        }
+        public bool SelectAudioTrack(int trackId)
+        {
+            if (!AudioTracks.Any(track => track.Id == trackId)) return false;
+            SelectedAudioTrack = trackId;
+            return true;
+        }
+        public bool SelectSubtitleTrack(int trackId)
+        {
+            if (!SubtitleTracks.Any(track => track.Id == trackId)) return false;
+            SelectedSubtitleTrack = trackId;
+            return true;
+        }
         public void Dispose() { Disposed = true; Fake.Ticking = false; }
     }
 
@@ -101,6 +126,68 @@ public class VideoComponentTests
         t.Doc.Refresh();
         t.Doc.Refresh();
         Assert.Equal(new[] { "clip.webm" }, backend.Opened);   // cached by src, not re-opened
+    }
+
+    [Fact]
+    public void Selectable_tracks_are_reported_and_changed_through_the_document()
+    {
+        var backend = new FakeBackend();
+        using var t = new TestDoc(Html, "", components: true);
+        string? changedSource = null;
+        t.Doc.VideoTracksChanged += source => changedSource = source;
+        t.Doc.UseVideo(backend);
+        t.Layout();
+
+        backend.Players["clip.webm"].PublishTracks(
+            [new VideoTrack(1, "English"), new VideoTrack(2, "Commentary")],
+            [new VideoTrack(-1, "Off"), new VideoTrack(4, "English CC")]);
+
+        Assert.Equal("clip.webm", changedSource);
+        Assert.Equal(["English", "Commentary"], t.Doc.GetVideoAudioTracks("clip.webm").Select(track => track.Label));
+        Assert.Equal(["Off", "English CC"], t.Doc.GetVideoSubtitleTracks("clip.webm").Select(track => track.Label));
+        Assert.True(t.Doc.SelectVideoAudioTrack("clip.webm", 2));
+        Assert.True(t.Doc.SelectVideoSubtitleTrack("clip.webm", 4));
+        Assert.Equal(2, t.Doc.GetSelectedVideoAudioTrack("clip.webm"));
+        Assert.Equal(4, t.Doc.GetSelectedVideoSubtitleTrack("clip.webm"));
+        Assert.False(t.Doc.SelectVideoAudioTrack("clip.webm", 99));
+    }
+
+    [Fact]
+    public void Track_selection_ui_is_opt_in_and_uses_the_player_capability()
+    {
+        var backend = new FakeBackend();
+        using var t = new TestDoc("""
+            <body>
+              <cupri-video src='clip.webm' controls tracks style='width:320px;height:180px'></cupri-video>
+              <cupri-video-tracks src='clip.webm'></cupri-video-tracks>
+            </body>
+            """, "", components: true);
+        t.Doc.UseVideo(backend);
+        t.Layout();
+        backend.Players["clip.webm"].PublishTracks(
+            [new VideoTrack(1, "English"), new VideoTrack(2, "Commentary")],
+            [new VideoTrack(-1, "Off"), new VideoTrack(4, "English CC")]);
+        t.Doc.Refresh();
+        t.Layout();
+
+        Assert.NotNull(t.Find(n => n.Element?.HasAttribute("data-cupri-ctx-host") == true));
+        t.ClickMatch(n => n.Element?.HasAttribute("data-video-track-toggle") == true);
+        t.Layout();
+        Assert.Equal("display:flex", t.Find(n => n.Element?.HasAttribute("data-video-track-panel") == true)!.Element!.GetAttribute("style"));
+        Assert.NotNull(t.Find(n => n.Element?.GetAttribute("data-video-track-id") == "4"));
+        t.ClickMatch(n => n.Element?.ClassList.Contains("cupri-video-track-choice") == true &&
+                          n.Element.GetAttribute("data-video-track-kind") == "audio" &&
+                          n.Element.GetAttribute("data-video-track-id") == "2");
+        Assert.Equal(2, backend.Players["clip.webm"].SelectedAudioTrack);
+    }
+
+    [Fact]
+    public void Track_selection_ui_is_absent_by_default()
+    {
+        using var t = new TestDoc("<body><cupri-video src='clip.webm' controls></cupri-video></body>", "", components: true);
+
+        Assert.Null(t.Find(n => n.Element?.HasAttribute("data-cupri-ctx-host") == true));
+        Assert.Null(t.Find(n => n.Element?.HasAttribute("data-video-track-toggle") == true));
     }
 
     [Fact]

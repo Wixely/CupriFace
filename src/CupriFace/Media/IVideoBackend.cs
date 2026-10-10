@@ -86,3 +86,25 @@ public interface IVideoPlayer : IDisposable
     /// null: a backend with nothing to report costs nothing.</summary>
     string? DiagnosticsSummary => null;
 }
+
+/// <summary>A selectable audio or subtitle stream exposed by a video backend.</summary>
+public sealed record VideoTrack(int Id, string Label);
+
+/// <summary>
+/// Optional capability implemented by players that can enumerate and switch embedded audio and
+/// subtitle streams. The base <see cref="IVideoPlayer"/> stays minimal, so a single-track decoder
+/// does not need to pretend it supports selection.
+/// </summary>
+public interface IVideoTrackSelector
+{
+    IReadOnlyList<VideoTrack> AudioTracks { get; }
+    IReadOnlyList<VideoTrack> SubtitleTracks { get; }
+    int SelectedAudioTrack { get; }
+    int SelectedSubtitleTrack { get; }
+
+    bool SelectAudioTrack(int trackId);
+    bool SelectSubtitleTrack(int trackId);
+
+    /// <summary>Raised when tracks become available or their descriptions change. Any thread.</summary>
+    event Action? TracksChanged;
+}

@@ -89,7 +89,7 @@ internal sealed class HostSurfaceCoordinator(
         foreach (var child in node.Children) Walk(child, scale, seen);
     }
 
-    private static HostSurfacePlacement Placement(RenderNode node, float scale)
+    private HostSurfacePlacement Placement(RenderNode node, float scale)
     {
         if (!node.LaidOut)
             return new(0, 0, 0, 0, 0, 0, 0, 0, false, "contain", HostSurfaceTransform.Identity, scale);
@@ -109,7 +109,8 @@ internal sealed class HostSurfaceCoordinator(
         // Engine-painted chrome the host's surface would otherwise cover (see the overlay note below).
         var surfaceH = MathF.Max(0, h - HostSurfaceGeometry.OverlayBottomInset(node, y, h));
 
-        var visible = w > 0 && surfaceH > 0 && visR > visL && visB > visT;
+        var visible = w > 0 && surfaceH > 0 && visR > visL && visB > visT
+                      && !HostSurfaceGeometry.IsOccluded(document.Root, x, y, w, surfaceH);
         var matrix = HitTesting.ScreenTransform(node);
         var transform = matrix.IsIdentity
             ? HostSurfaceTransform.Identity

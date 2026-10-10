@@ -66,6 +66,9 @@ public sealed class ContextMenuComponent : ComponentBase
         menu.ClassName = "cupri-ctx-menu";
         menu.SetAttribute("role", "menu");
         menu.SetAttribute("data-cupri-ctx-menu", "");
+        // Engine-painted, so a host-composited surface underneath it has to stand down while it is
+        // open — otherwise the menu is drawn beneath the surface and is not there at all.
+        menu.SetAttribute("data-surface-occluder", "");
         menu.SetAttribute("data-focus-scope", "");
         foreach (var it in items) menu.AppendChild(it); // relocate (keeps identity, still gets expanded)
         el.AppendChild(menu);
