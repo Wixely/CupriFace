@@ -5,12 +5,24 @@ using CupriFace.Style;
 
 namespace CupriFace.Shell;
 
-/// <summary>The Win32 parent-window feature offered to optional desktop surface adapters.</summary>
+/// <summary>
+/// The Win32 parent-window feature offered to optional desktop surface adapters.
+///
+/// <para>Constructible by anyone who HAS such a window, not just this shell: a host built on WPF,
+/// WinForms or a bespoke message loop offers the same feature to the same adapters, and so does a
+/// test harness standing one up on purpose. Keeping the constructor internal would have meant the
+/// only way to feed an adapter was to be this assembly, which is the opposite of what the feature
+/// registry is for.</para>
+///
+/// <para>The handle is read through a callback rather than captured, because a window can be
+/// recreated underneath a long-lived adapter.</para>
+/// </summary>
 public sealed class Win32HostWindow
 {
     private readonly Func<nint?> _handle;
 
-    internal Win32HostWindow(Func<nint?> handle) => _handle = handle;
+    public Win32HostWindow(Func<nint?> handle) =>
+        _handle = handle ?? throw new ArgumentNullException(nameof(handle));
 
     public nint Handle => _handle() ?? 0;
 }

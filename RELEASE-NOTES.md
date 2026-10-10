@@ -17,6 +17,19 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **CI now loads LibVLC for real.** A `media-windows` job drives the shipped Windows adapter on a
+  runner: it constructs the backend (so the single-file native discovery is exercised, not just
+  asserted by the packaging gate), parents a child window to a real HWND, plays the repo's existing
+  9 KB fixture, enumerates tracks, and checks that pausing and resuming keeps its place. Both faults
+  the media-player integration found are covered by it. It does NOT cover D3D11VA hardware decode or
+  the child window composited over a GL surface — the runner has no GPU and takes the software path,
+  so those still need real hardware, and the job says so.
+
+- **`Win32HostWindow` is constructable by any host**, not only `CupriFace.Shell`. A host built on
+  WPF, WinForms or a bespoke message loop offers the same feature to the same adapters, and so does
+  a test harness; an internal constructor meant the only possible supplier was this one assembly,
+  which is the opposite of what the feature registry is for.
+
 - **Video chapters are an opt-in player capability.** Implement `IVideoChapterProvider`, add
   `chapters` to `<cupri-video>` for chapter divisions and title tooltips on the seek bar, and add
   `<cupri-video-chapters src="...">` for a selectable chapter table. The Windows LibVLC adapter

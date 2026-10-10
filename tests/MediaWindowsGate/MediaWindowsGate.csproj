@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The Windows media gate: drives the REAL CupriFace.Media.Windows adapter against LibVLC, on a
+       runner with no GPU and no audio device. Deliberately NOT in the solution, for the same reason
+       UiaSmoke is not: this is Windows-only and pulls the LibVLC natives, while the solution
+       restores and builds on Linux and macOS in CI.
+
+       Run it with `dotnet run` from this folder, passing a media file as the single argument. CI
+       runs it as a blocking step on the win-x64 job.
+
+       What it CANNOT prove, so that nobody reads a green tick for more than it is: the runner has
+       no GPU, so D3D11VA hardware decode never happens here and playback falls back to software —
+       and the engine's own window takes the SDL software path, so the child HWND compositing OVER a
+       GL surface is not exercised either. Those two still need real hardware. -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CupriFace.Media.Windows\CupriFace.Media.Windows.csproj" />
+  </ItemGroup>
+
+</Project>
