@@ -95,6 +95,20 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **Fullscreen stays on the monitor the window is on, and restores where it came from.** Asking the
+  windowing layer for fullscreen without naming a monitor gets you the PRIMARY display, so a window
+  on a second screen jumped across every time. It now picks the monitor containing the window's
+  centre and puts the exact previous bounds back on exit (a maximized window still returns
+  maximized). GLFW's own monitor API, so Linux and macOS multi-monitor get it too; the SDL software
+  window was already correct. (#304)
+
+- **The desktop host now tells the document what fullscreen actually did.** Only the web host ever
+  called `NotifyHostFullscreen`, so leaving fullscreen by a route the engine cannot see — Escape,
+  the window manager, the title bar — left a `<cupri-video>` element-fullscreened around a window
+  that was not, or the reverse. Both desktop paths report the state they ENDED in rather than the
+  one they were asked for, which also covers a host that refuses. Hosts outside this repo should do
+  the same. (#304)
+
 - **`overflow: scroll` now scrolls CROSS-axis overflow.** In a flex row the vertical axis is the
   cross axis, and a child taller than the line added nothing to the scroll extent — so the box
   reported itself unscrollable, took no wheel, and painted its content straight out of itself with

@@ -313,7 +313,7 @@ public static class DesktopHost
                 Mark(handled);
                 // Escape the document didn't consume (no overlay open) exits fullscreen — the OS
                 // convention. Overlays keep winning: dismissing one returns handled above.
-                if (!handled && k == EditKey.Escape && window.IsFullscreen) window.SetFullscreen(false);
+                if (!handled && k == EditKey.Escape && window.IsFullscreen) SyncFullscreen(doc, window, false);
             };
             // Releases, so directional navigation can tell "pressed together" from "pressed in turn"
             // by what is still DOWN rather than by how fast they arrived. Forgetting them on focus
@@ -345,7 +345,7 @@ public static class DesktopHost
             doc.ContextRequested += cmd => { ContextAction(doc, cmd, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             // A copy button (data-cupri-copy) supplies its own text rather than copying a selection.
             doc.ClipboardWriteRequested += v => window.ClipboardText = v;
-            doc.WindowCommandRequested += cmd => window.SetFullscreen(cmd switch
+            doc.WindowCommandRequested += cmd => SyncFullscreen(doc, window, cmd switch
             {
                 WindowCommand.EnterFullscreen => true,
                 WindowCommand.ExitFullscreen => false,
@@ -558,7 +558,7 @@ public static class DesktopHost
             {
                 var handled = doc.DispatchKey(null, k, mods);
                 Mark(handled);
-                if (!handled && k == EditKey.Escape && window.IsFullscreen) window.SetFullscreen(false);
+                if (!handled && k == EditKey.Escape && window.IsFullscreen) SyncFullscreen(doc, window, false);
             };
             // Releases, so directional navigation can tell "pressed together" from "pressed in turn"
             // by what is still DOWN rather than by how fast they arrived. Forgetting them on focus
@@ -590,7 +590,7 @@ public static class DesktopHost
             doc.ContextRequested += cmd => { ContextAction(doc, cmd, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             // A copy button (data-cupri-copy) supplies its own text rather than copying a selection.
             doc.ClipboardWriteRequested += v => window.ClipboardText = v;
-            doc.WindowCommandRequested += cmd => window.SetFullscreen(cmd switch
+            doc.WindowCommandRequested += cmd => SyncFullscreen(doc, window, cmd switch
             {
                 WindowCommand.EnterFullscreen => true,
                 WindowCommand.ExitFullscreen => false,
@@ -626,6 +626,32 @@ public static class DesktopHost
     //
     // When the engine declines, the ordinary click/hover/drag path still runs, so nothing that
     // worked before changes.
+    /// <summary>
+    /// Change fullscreen and tell the DOCUMENT what actually happened.
+    ///
+    /// <para>The engine element-fullscreens a video and asks the host to follow; the host owns the
+    /// window and can refuse, or can be taken out of fullscreen by a route the engine never sees —
+    /// Escape, the window manager, the title bar. Only the host knows the answer, so it reports the
+    /// state it ended in rather than the state it was asked for. Without that the two drift apart
+    /// and you get a window still fullscreen around a video that has gone back into the layout, or
+    /// the reverse (#304).</para>
+    ///
+    /// <para>Reporting the OBSERVED state also makes this idempotent: asking for a state the window
+    /// is already in changes nothing and confirms the same answer.</para>
+    /// </summary>
+    private static void SyncFullscreen(CupriDocument doc, SkiaWindow window, bool on)
+    {
+        window.SetFullscreen(on);
+        doc.NotifyHostFullscreen(window.IsFullscreen);
+    }
+
+    /// <inheritdoc cref="SyncFullscreen(CupriDocument, SkiaWindow, bool)"/>
+    private static void SyncFullscreen(CupriDocument doc, SdlSoftwareWindow window, bool on)
+    {
+        window.SetFullscreen(on);
+        doc.NotifyHostFullscreen(window.IsFullscreen);
+    }
+
     private static bool DesktopPointerDown(CupriDocument doc, float x, float y, int clickCount, int pointerId = 0) =>
         doc.DispatchPointer(pointerId, PointerPhase.Down, x, y) || doc.DispatchClick(x, y, clickCount);
 
