@@ -12,10 +12,13 @@ var failures = 0;
 void Fail(string why) { Console.WriteLine($"::error::{why}"); failures++; }
 void Ok(string what) => Console.WriteLine($"  ok   {what}");
 
-var media = args.Length > 0 ? args[0] : null;
+// Absolute from the start: CI passes a repo-relative path, and a relative one reaches `new Uri`
+// as something it cannot classify. Normalising once here keeps the existence check and the URI
+// talking about the same file.
+var media = args.Length > 0 ? Path.GetFullPath(args[0]) : null;
 if (media is null || !File.Exists(media))
 {
-    Fail($"usage: dotnet run -- <media-file>   (got {media ?? "nothing"})");
+    Fail($"usage: dotnet run -- <media-file>   (got {(args.Length > 0 ? args[0] : "nothing")})");
     return 1;
 }
 Console.WriteLine($"media: {media} ({new FileInfo(media).Length} bytes)");
@@ -108,8 +111,9 @@ file sealed class VideoSourceProbe(string path)
 {
     public VideoSource Source { get; } =
         (VideoSource)typeof(VideoSource)
-            .GetConstructors(System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)[0]
-            .Invoke([new Uri(path).AbsoluteUri, null, null]);
+            .GetConstructors(System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+            .Single(c => c.GetParameters().Length == 3)
+            .Invoke([new Uri(Path.GetFullPath(path)).AbsoluteUri, null, null]);
 }
 
 /// <summary>The one host feature the Windows adapter asks for.</summary>
