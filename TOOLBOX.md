@@ -823,7 +823,16 @@ Embedded audio/subtitle selection is deliberately **off by default**. A backend 
 `IVideoTrackSelector`; add `tracks` to the video only when users should be allowed to switch those
 tracks. That adds an Audio/Subtitles right-click menu. Add the optional
 `<cupri-video-tracks src="…">` companion immediately below the player for the same choices in a
-collapsible, keyboard/remote-friendly form. Omitting both UI opt-ins does not expose track switching.
+collapsible, keyboard/remote-friendly pair of tables. Its panel remains open while tracks are selected,
+so several settings can be compared or changed without reopening it. Omitting both UI opt-ins does not
+expose track switching.
+
+Embedded chapter navigation is also opt-in. A backend implements `IVideoChapterProvider`; add
+`chapters` to `<cupri-video>` to divide its seek bar at chapter boundaries and show each chapter's
+name when its section is hovered, and add a matching
+`<cupri-video-chapters src="movie.mkv">` below it for a selectable table of chapter number, name,
+start, and duration. The companion table is collapsed behind its Chapters button by default and
+stays open after selection. Decoders without chapter metadata show an empty-state row and an undivided bar.
 
 On a host that composites the video itself (a native video window), the engine cannot paint ON TOP
 of the picture, so opening the right-click menu hides the video for as long as the menu is up. That
@@ -844,6 +853,8 @@ play from the same resolved bytes, so every scheme works on every host.
 <cupri-video src="https://example.com/trailer.webm" controls muted></cupri-video>
 <cupri-video src="movie.mkv" controls tracks></cupri-video>
 <cupri-video-tracks src="movie.mkv"></cupri-video-tracks>
+<cupri-video src="chaptered.mkv" controls chapters></cupri-video>
+<cupri-video-chapters src="chaptered.mkv"></cupri-video-chapters>
 ```
 **Wiring a backend.** The web host has one built in (the browser decodes). On desktop, add the
 optional **`CupriFace.Media`** package — WebM/VP9+Opus, with decoders for every desktop RID inside

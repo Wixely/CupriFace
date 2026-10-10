@@ -90,7 +90,7 @@ public sealed class MenuItemComponent : ComponentBase
         .cupri-menu-item { display:flex; align-items:center; gap:8px; padding:9px 12px; border-radius:6px;
                            color:var(--cupri-text,#1e2430); font-size:14px; }
         .cupri-menu-item:hover { background:var(--cupri-hover,#eef1f5); }
-        .cupri-menu-label { flex:1; }                         /* push the chevron to the far edge */
+        .cupri-menu-label { flex:1; min-width:0; }             /* push the chevron to the far edge without forcing overflow */
         .cupri-menu-parent { position:relative; }
         .cupri-submenu { position:absolute; left:100%; top:-7px; display:none; min-width:170px;
                          background:var(--cupri-surface,white); border-radius:10px; padding:6px; z-index:31;

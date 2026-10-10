@@ -464,6 +464,7 @@ public sealed partial class CupriDocument : IDisposable
     private Media.IVideoBackend? _videoBackend;
     private readonly Dictionary<string, Media.IVideoPlayer> _videoPlayers = new(StringComparer.Ordinal);
     private string? _videoTrackPanelSource;
+    private string? _videoChapterPanelSource;
     private int _videoStateChanged; // set (any thread) by Ended → consumed on the UI thread
     private string? _fullscreenVideo; // src of the video currently element-fullscreened (web model: one at most)
 
@@ -504,6 +505,10 @@ public sealed partial class CupriDocument : IDisposable
     /// The callback may arrive from a decoder thread; use <see cref="Post"/> before changing UI state.</summary>
     public event Action<string>? VideoTracksChanged;
 
+    /// <summary>Raised when a video's backend discovers chapters or changes the current chapter.
+    /// The callback may arrive from a decoder thread; use <see cref="Post"/> before changing UI state.</summary>
+    public event Action<string>? VideoChaptersChanged;
+
     public IReadOnlyList<Media.VideoTrack> GetVideoAudioTracks(string source) =>
         _videoPlayers.TryGetValue(source, out var player) && player is Media.IVideoTrackSelector tracks
             ? tracks.AudioTracks
@@ -528,6 +533,25 @@ public sealed partial class CupriDocument : IDisposable
 
     public bool SelectVideoSubtitleTrack(string source, int trackId) => SelectVideoTrack(source, trackId, audio: false);
 
+    public IReadOnlyList<Media.VideoChapter> GetVideoChapters(string source) =>
+        _videoPlayers.TryGetValue(source, out var player) && player is Media.IVideoChapterProvider chapters
+            ? chapters.Chapters
+            : Array.Empty<Media.VideoChapter>();
+
+    public int? GetSelectedVideoChapter(string source) =>
+        _videoPlayers.TryGetValue(source, out var player) && player is Media.IVideoChapterProvider chapters
+            ? chapters.SelectedChapter
+            : null;
+
+    public bool SelectVideoChapter(string source, int chapterIndex)
+    {
+        if (!_videoPlayers.TryGetValue(source, out var player) || player is not Media.IVideoChapterProvider chapters)
+            return false;
+        var selected = chapters.SelectChapter(chapterIndex);
+        if (selected) Refresh();
+        return selected;
+    }
+
     private bool SelectVideoTrack(string source, int trackId, bool audio)
     {
         if (!_videoPlayers.TryGetValue(source, out var player) || player is not Media.IVideoTrackSelector tracks)
@@ -551,11 +575,13 @@ public sealed partial class CupriDocument : IDisposable
             {
                 Components.Controls.VideoComponent.SyncControls(el, player);
                 Components.Controls.VideoComponent.SyncTracks(el, src, player as Media.IVideoTrackSelector);
+                Components.Controls.VideoComponent.SyncChapters(el, player as Media.IVideoChapterProvider, player.Duration);
             }
             else
             {
                 Components.Controls.VideoComponent.MarkInert(el);   // no backend: honest controls
                 Components.Controls.VideoComponent.SyncTracks(el, src, null);
+                Components.Controls.VideoComponent.SyncChapters(el, null, 0);
             }
             // The fresh DOM starts windowed; re-mark the fullscreen one each rebuild.
             if (src == _fullscreenVideo)
@@ -573,6 +599,17 @@ public sealed partial class CupriDocument : IDisposable
                 src,
                 player as Media.IVideoTrackSelector,
                 string.Equals(src, _videoTrackPanelSource, StringComparison.Ordinal));
+        }
+
+        foreach (var el in dom.QuerySelectorAll("[data-video-chapter-controls]"))
+        {
+            var src = el.GetAttribute("data-video-chapter-controls") ?? "";
+            _videoPlayers.TryGetValue(src, out var player);
+            Components.Controls.VideoChaptersComponent.Sync(
+                el,
+                src,
+                player as Media.IVideoChapterProvider,
+                string.Equals(src, _videoChapterPanelSource, StringComparison.Ordinal));
         }
 
         // The fullscreen video's element left the DOM (section switched away) — nothing is
@@ -595,6 +632,8 @@ public sealed partial class CupriDocument : IDisposable
             Surfaces.Unregister("video:" + src);
             if (string.Equals(_videoTrackPanelSource, src, StringComparison.Ordinal))
                 _videoTrackPanelSource = null;
+            if (string.Equals(_videoChapterPanelSource, src, StringComparison.Ordinal))
+                _videoChapterPanelSource = null;
         }
     }
 
@@ -622,6 +661,15 @@ public sealed partial class CupriDocument : IDisposable
             };
             if (tracks.AudioTracks.Count > 0 || tracks.SubtitleTracks.Count > 0)
                 VideoTracksChanged?.Invoke(src);
+        }
+        if (player is Media.IVideoChapterProvider chapters)
+        {
+            chapters.ChaptersChanged += () =>
+            {
+                System.Threading.Interlocked.Exchange(ref _videoStateChanged, 1);
+                VideoChaptersChanged?.Invoke(src);
+            };
+            if (chapters.Chapters.Count > 0) VideoChaptersChanged?.Invoke(src);
         }
         player.Loop = el.HasAttribute("data-video-loop");
         player.Muted = el.HasAttribute("data-video-muted");
@@ -693,8 +741,24 @@ public sealed partial class CupriDocument : IDisposable
         var selected = string.Equals(kind, "audio", StringComparison.Ordinal)
             ? SelectVideoAudioTrack(source, trackId)
             : string.Equals(kind, "subtitle", StringComparison.Ordinal) && SelectVideoSubtitleTrack(source, trackId);
-        if (selected) _videoTrackPanelSource = null;
         return selected;
+    }
+
+    private bool VideoChapterAction(AngleSharp.Dom.IElement el)
+    {
+        if (el.HasAttribute("data-video-chapter-disabled")) return true;
+        if (el.GetAttribute("data-video-chapter-toggle") is { } toggleSource)
+        {
+            _videoChapterPanelSource = string.Equals(_videoChapterPanelSource, toggleSource, StringComparison.Ordinal)
+                ? null
+                : toggleSource;
+            Refresh();
+            return true;
+        }
+        if (el.GetAttribute("data-video-chapter-source") is not { } source ||
+            !int.TryParse(el.GetAttribute("data-video-chapter-id"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var chapterId))
+            return false;
+        return SelectVideoChapter(source, chapterId);
     }
 
     /// <summary>The host's fullscreen state changed OUTSIDE the engine's own commands — the
@@ -3591,6 +3655,11 @@ public sealed partial class CupriDocument : IDisposable
                 el.HasAttribute("data-video-track-id") ||
                 el.HasAttribute("data-video-track-disabled"))
                 return VideoTrackAction(el);
+
+            if (el.HasAttribute("data-video-chapter-toggle") ||
+                el.HasAttribute("data-video-chapter-id") ||
+                el.HasAttribute("data-video-chapter-disabled"))
+                return VideoChapterAction(el);
 
             // Video transport (play/pause toggle, mute) for the nearest enclosing <cupri-video>.
             if (el.GetAttribute("data-video-cmd") is { Length: > 0 } videoCmd) return VideoCommand(node, videoCmd);

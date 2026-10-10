@@ -17,6 +17,14 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **Video chapters are an opt-in player capability.** Implement `IVideoChapterProvider`, add
+  `chapters` to `<cupri-video>` for chapter divisions and title tooltips on the seek bar, and add
+  `<cupri-video-chapters src="...">` for a selectable chapter table. The Windows LibVLC adapter
+  exposes embedded chapter names, offsets, durations, and seeking. The companion table is collapsed
+  behind a Chapters button by default and remains open while selecting rows.
+- **Windows LibVLC playback resumes in place.** Pausing and resuming now preserves the current
+  time, decoder, and buffered input instead of reopening the media from the beginning.
+
 - **`position: sticky` now honours all four insets, per axis.** `bottom` pins an action bar to the
   bottom of the scrollport; `left` and `right` pin a frozen first column or a totals column in a
   table that scrolls sideways. Each axis is decided on its own, as CSS decides it, and the two can
@@ -79,17 +87,27 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **The companion video track selector now uses contained audio/subtitle tables.** Long track labels
+  no longer paint into neighbouring choices, its default trigger reads `Audio / Video`, and selecting
+  a track leaves the panel open for further changes. Long unbroken names wrap within the Track column,
+  and video track fly-out menus use a wider, high-contrast surface with bounded wrapping.
+
 - **A `position: sticky` element is now clicked where it is painted.** Paint, hit-testing and
   `ScreenBox`/`ActivationPoint` each worked out a stuck node's position separately, so a pinned
   header was painted in one place, clicked in another, and reported to assistive technology in a
   third — it looked like sticky content simply could not be clicked. The rule now lives in one place
-  (`HitTesting.StickyShiftY`) that all three read, and hit-testing defers sticky nodes exactly as the
+  (`HitTesting.StickyShift`) that all three read, and hit-testing defers sticky nodes exactly as the
   painter does, so a stuck element also wins over the content it visibly covers. (#302)
 
 - **`position: sticky` no longer disappears once you scroll past one scrollport of content.** The
   clamp that keeps a stuck node inside its containing block measured that block with the scroll
   container's *visible* height instead of its scrolled content height, which dragged the node off
   the top and stopped it painting at all. Nothing to change in your markup. (#302)
+
+- **The Windows media backend finds external LibVLC beside a single-file application.** It now
+  resolves the RID-specific native directory beside `Environment.ProcessPath`, falling back to
+  `AppContext.BaseDirectory`, rather than assuming the extracted managed assembly directory.
+  This keeps the LGPL libraries replaceable and loadable even with all-content self-extraction.
 
 - **Maximizing a window on a secondary monitor no longer moves it to the primary one.** GLFW and
   SDL can inherit primary-monitor bounds when Windows asks their HWND for `WM_GETMINMAXINFO`, so
