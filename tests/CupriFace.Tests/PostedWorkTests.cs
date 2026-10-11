@@ -126,9 +126,12 @@ public class PostedWorkTests
     public void A_pending_post_wakes_a_render_on_demand_host()
     {
         using var t = new TestDoc(Html, Css, width: 400, height: 300);
+        var frameRequests = 0;
+        t.Doc.FrameRequested += () => Interlocked.Increment(ref frameRequests);
         Assert.False(t.Doc.HasActiveAnimations, "nothing is pending yet");
 
         t.Doc.Post(() => { });
+        Assert.Equal(1, frameRequests);
         Assert.True(t.Doc.HasActiveAnimations,
             "a host polls THIS to decide whether to draw; without it the queue is never reached");
 

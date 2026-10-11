@@ -128,6 +128,21 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **A post now wakes a PARKED render thread, not just a polling one.** `HasActiveAnimations` reports
+  pending work to a host that asks, but a `RENDERMODE_WHEN_DIRTY` GLSurfaceView has stopped asking —
+  so work queued with `CupriDocument.Post` from a background thread waited for a frame that was
+  itself waiting for a reason to happen, and on an idle Android screen never arrived at all.
+  `Post` now also raises the new `FrameRequested` event, and the Android host maps it to
+  `RequestRender`. **A host of your own that draws on demand should subscribe to `FrameRequested`
+  and signal its render thread from it** — raised on the POSTING thread, so the handler must only
+  signal; document work still belongs in the posted action.
+
+- **A CLOSED popup no longer traps keyboard or controller focus.** A hidden overlay panel still won
+  the topmost-`data-focus-scope` election, and focus was then confined to a scope with nothing
+  focusable in it — so with a `<cupri-context-menu>` in the markup, arrow and Tab navigation moved
+  nowhere until it had been opened and dismissed once. The scope walk now skips what is hidden, as
+  the focusable walk beside it already did. Nothing to change in your markup.
+
 - **Native video stays visible around context menus.** Host-composited surfaces now receive precise
   popup cut-outs instead of disappearing wholesale, and fly-out submenus flip or clamp at viewport
   edges rather than opening off-screen. Windows media adapters should apply `Occlusions` when

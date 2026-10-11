@@ -3934,6 +3934,7 @@ public sealed partial class CupriDocument : IDisposable
         RenderNode? scope = null;
         void Walk(RenderNode n)
         {
+            if (IsHiddenFromFocus(n)) return;
             if (n.Element?.HasAttribute("data-focus-scope") == true) scope = n; // last wins → topmost
             foreach (var c in n.Children) Walk(c);
         }
@@ -4053,8 +4054,8 @@ public sealed partial class CupriDocument : IDisposable
     /// <para><b>Posting wakes a sleeping host.</b> A render-on-demand window draws only when something
     /// says it must, and the queue is drained inside a frame — so without this, posted work would wait
     /// for a frame that was itself waiting for a reason to happen, and an idle window would simply
-    /// never receive it. A pending post is reported through <see cref="HasActiveAnimations"/>, which
-    /// is the signal every host polls to decide whether to draw at all.</para>
+    /// never receive it. A pending post is reported through <see cref="HasActiveAnimations"/> for
+    /// hosts that poll, and <see cref="FrameRequested"/> wakes hosts whose render thread is parked.</para>
     ///
     /// <para>Queued work runs in the order it was posted, before the frame lays out — so anything it
     /// changes is visible in that same frame rather than the one after. An exception thrown by posted
@@ -4066,7 +4067,15 @@ public sealed partial class CupriDocument : IDisposable
     {
         ArgumentNullException.ThrowIfNull(work);
         _posted.Enqueue(work);
+        FrameRequested?.Invoke();
     }
+
+    /// <summary>
+    /// Raised after thread-safe work is queued by <see cref="Post(Action)"/>, so a render-on-demand
+    /// host can wake a parked render thread. The handler may run on any thread and must only signal
+    /// the host; document work still belongs in the posted action and runs at the start of a frame.
+    /// </summary>
+    public event Action? FrameRequested;
 
     /// <summary>Run everything posted from other threads. First thing in a frame, so posted work is
     /// indistinguishable from input that arrived on this thread.</summary>
