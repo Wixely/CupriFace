@@ -741,6 +741,7 @@ public sealed class AndroidHost : IDisposable
     {
         _doc.FrameRequested -= MarkDirty;
         _doc.Dispose();
+        _video?.Dispose();
     }
 
     private static bool _consoleBridged;

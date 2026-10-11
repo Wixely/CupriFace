@@ -21,7 +21,7 @@ namespace CupriFace.Android;
 /// paints ON TOP of the hole, but a rounded corner or a rotation on the video element clips the
 /// hole, not the video beneath it. That is stated here rather than discovered later.
 /// </summary>
-internal sealed class AndroidPlayer : IVideoPlayer, ISurfaceSource
+internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, ISurfaceSource
 {
     private readonly AndroidVideoBackend _backend;
     private MediaPlayer? _mp;
@@ -29,6 +29,10 @@ internal sealed class AndroidPlayer : IVideoPlayer, ISurfaceSource
     private double _volume = 1;
     private double _pendingSeek = -1;
     private bool _playWhenReady;
+    private IReadOnlyList<VideoTrack> _audioTracks = [];
+    private IReadOnlyList<VideoTrack> _subtitleTracks = [];
+    private int _selectedAudioTrack = -1;
+    private int _selectedSubtitleTrack = -1;
 
     /// <summary>The view showing this player's frames. Created and positioned on the UI thread by
     /// the host; null until then.</summary>
@@ -58,12 +62,14 @@ internal sealed class AndroidPlayer : IVideoPlayer, ISurfaceSource
     {
         _playWhenReady = true;
         if (_prepared) Safe(() => _mp?.Start());
+        _backend.PlayerStateChanged(this);
     }
 
     public void Pause()
     {
         _playWhenReady = false;
         if (_prepared) Safe(() => _mp?.Pause());
+        _backend.PlayerStateChanged(this);
     }
 
     public bool Muted
@@ -88,17 +94,47 @@ internal sealed class AndroidPlayer : IVideoPlayer, ISurfaceSource
 
     public double Position
     {
-        get => _prepared && _mp is { } mp ? mp.CurrentPosition / 1000.0 : Math.Max(0, _pendingSeek);
+        get => _pendingSeek >= 0
+            ? _pendingSeek
+            : _prepared && _mp is { } mp ? mp.CurrentPosition / 1000.0 : 0;
         set
         {
             // A seek before prepare is remembered rather than dropped: the controls are live as
             // soon as the element exists, and a scrub during load must not vanish.
-            if (!_prepared) { _pendingSeek = value; return; }
-            Safe(() => _mp?.SeekTo((int)(value * 1000)));
+            _pendingSeek = Math.Max(0, value);
+            if (_prepared) SeekToPendingPosition();
         }
     }
 
     public event Action? Ended;
+    public event Action? TracksChanged;
+
+    public IReadOnlyList<VideoTrack> AudioTracks => _audioTracks;
+    public IReadOnlyList<VideoTrack> SubtitleTracks => _subtitleTracks;
+    public int SelectedAudioTrack => _selectedAudioTrack;
+    public int SelectedSubtitleTrack => _selectedSubtitleTrack;
+
+    public bool SelectAudioTrack(int trackId) => SelectTrack(MediaTrackType.Audio, trackId);
+
+    public bool SelectSubtitleTrack(int trackId)
+    {
+        if (!_prepared || _mp is null || !_subtitleTracks.Any(track => track.Id == trackId)) return false;
+        var changed = false;
+        Safe(() =>
+        {
+            if (trackId < 0)
+            {
+                var selected = _mp.GetSelectedTrack(MediaTrackType.Subtitle);
+                if (selected < 0) selected = _mp.GetSelectedTrack(MediaTrackType.Timedtext);
+                if (selected >= 0) _mp.DeselectTrack(selected);
+            }
+            else _mp.SelectTrack(trackId);
+            _selectedSubtitleTrack = trackId;
+            changed = true;
+        });
+        if (changed) TracksChanged?.Invoke();
+        return changed;
+    }
 
     public string Diagnostics =>
         $"android MediaPlayer · {(Ready ? "ready" : "loading")} · {(Playing ? "playing" : "paused")} · " +
@@ -115,6 +151,19 @@ internal sealed class AndroidPlayer : IVideoPlayer, ISurfaceSource
             _mp = new MediaPlayer();
             _mp.SetSurface(surface);
             _mp.Looping = _loop;
+            _mp.SeekComplete += (_, _) =>
+            {
+                // Multiple drag samples can enqueue multiple platform seeks. An older completion
+                // must not clear a newer target, otherwise the controls read the old native
+                // position and snap the thumb backwards. Keep/reissue the newest target until the
+                // decoder reports that it actually reached it.
+                if (_pendingSeek >= 0 && _mp is { } seeking
+                    && Math.Abs(seeking.CurrentPosition / 1000.0 - _pendingSeek) > 1.5)
+                    SeekToPendingPosition();
+                else
+                    _pendingSeek = -1;
+                _backend.PlayerStateChanged(this);
+            };
 
             // The engine resolves every media source through ONE pipeline (embedded asset, file,
             // data: URI, policied https) — so the bytes are already ours. MediaPlayer wants a file
@@ -127,9 +176,11 @@ internal sealed class AndroidPlayer : IVideoPlayer, ISurfaceSource
             {
                 _prepared = true;
                 Ready = true;
+                Safe(() => _mp?.SetVideoScalingMode(VideoScalingMode.ScaleToFit));
                 if (_mp is { } m) Natural = (m.VideoWidth, m.VideoHeight);
+                RefreshTracks();
                 ApplyVolume();
-                if (_pendingSeek >= 0) { Safe(() => _mp?.SeekTo((int)(_pendingSeek * 1000))); _pendingSeek = -1; }
+                if (_pendingSeek >= 0) SeekToPendingPosition();
                 if (_playWhenReady) Safe(() => _mp?.Start());
                 // The gate's only window into playback: CI cannot see through a punched hole, but
                 // it can see that the clip resolved, the platform decoder accepted it and reported
@@ -137,8 +188,13 @@ internal sealed class AndroidPlayer : IVideoPlayer, ISurfaceSource
                 // visible — which is a z-order question, not a decode one.
                 Console.WriteLine($"cupri-gate: video ready {Natural?.W ?? 0}x{Natural?.H ?? 0}");
                 _backend.Invalidate();      // HostComposited flipped on → repaint punches the hole
+                _backend.PlayerStateChanged(this);
             };
-            _mp.Completion += (_, _) => { if (!_loop) Ended?.Invoke(); };
+            _mp.Completion += (_, _) =>
+            {
+                _backend.PlayerStateChanged(this);
+                if (!_loop) Ended?.Invoke();
+            };
             _mp.PrepareAsync();
         }
         catch (Exception ex)
@@ -153,6 +209,78 @@ internal sealed class AndroidPlayer : IVideoPlayer, ISurfaceSource
         Safe(() => _mp?.SetVolume(v, v));
     }
 
+    private void SeekToPendingPosition()
+    {
+        if (_mp is not { } mp || _pendingSeek < 0) return;
+        var milliseconds = (long)Math.Round(_pendingSeek * 1000);
+        Safe(() =>
+        {
+            if (OperatingSystem.IsAndroidVersionAtLeast(26))
+                mp.SeekTo(milliseconds, MediaPlayerSeekMode.Closest);
+            else
+                mp.SeekTo((int)Math.Min(int.MaxValue, milliseconds));
+        });
+        _backend.PlayerStateChanged(this);
+    }
+
+    private bool SelectTrack(MediaTrackType type, int trackId)
+    {
+        if (!_prepared || _mp is null || !_audioTracks.Any(track => track.Id == trackId)) return false;
+        var changed = false;
+        Safe(() =>
+        {
+            _mp.SelectTrack(trackId);
+            _selectedAudioTrack = trackId;
+            changed = true;
+        });
+        if (changed) TracksChanged?.Invoke();
+        return changed;
+    }
+
+    private void RefreshTracks()
+    {
+        if (_mp is not { } mp) return;
+        var audio = new List<VideoTrack>();
+        var subtitles = new List<VideoTrack> { new(-1, "Off") };
+        var audioNumber = 0;
+        var subtitleNumber = 0;
+        var infos = mp.GetTrackInfo() ?? [];
+        for (var index = 0; index < infos.Length; index++)
+        {
+            var info = infos[index];
+            if (info.TrackType == MediaTrackType.Audio)
+                audio.Add(new VideoTrack(index, TrackLabel(info, "Audio", ++audioNumber)));
+            else if (info.TrackType is MediaTrackType.Subtitle or MediaTrackType.Timedtext)
+                subtitles.Add(new VideoTrack(index, TrackLabel(info, "Subtitle", ++subtitleNumber)));
+        }
+
+        _audioTracks = audio;
+        _subtitleTracks = subtitles;
+        _selectedAudioTrack = SafeSelectedTrack(mp, MediaTrackType.Audio);
+        var selectedSubtitle = SafeSelectedTrack(mp, MediaTrackType.Subtitle);
+        if (selectedSubtitle < 0) selectedSubtitle = SafeSelectedTrack(mp, MediaTrackType.Timedtext);
+        _selectedSubtitleTrack = selectedSubtitle;
+        TracksChanged?.Invoke();
+    }
+
+    private static string TrackLabel(MediaPlayer.TrackInfo info, string fallback, int number)
+    {
+        var language = info.Language;
+        return string.IsNullOrWhiteSpace(language) || string.Equals(language, "und", StringComparison.OrdinalIgnoreCase)
+            ? $"{fallback} {number}"
+            : $"{fallback} {number} · {language}";
+    }
+
+    private static int SafeSelectedTrack(MediaPlayer player, MediaTrackType type)
+    {
+        try { return player.GetSelectedTrack(type); }
+        catch (Exception ex)
+        {
+            global::Android.Util.Log.Warn(AndroidHost.Tag, $"video tracks: {ex.Message}");
+            return -1;
+        }
+    }
+
     // MediaPlayer throws IllegalState for any call in the wrong state, and a video that fails must
     // leave the poster up rather than take the app down with it.
     private static void Safe(Action a)
@@ -163,9 +291,9 @@ internal sealed class AndroidPlayer : IVideoPlayer, ISurfaceSource
 
     public void Dispose()
     {
-        _backend.Close(this);
         Safe(() => { _mp?.Release(); _mp = null; });
         _prepared = false;
         Ready = false;
+        _backend.Close(this);
     }
 }

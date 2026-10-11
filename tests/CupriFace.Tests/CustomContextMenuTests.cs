@@ -19,7 +19,7 @@ public class CustomContextMenuTests
         "  <div>Right-click me</div>" +
         "  <cupri-menu-item class='act-rename'>Rename</cupri-menu-item>" +
         "  <cupri-menu-item label='Share'>" +
-        "    <cupri-menu-item>Email link</cupri-menu-item>" +
+        "    <cupri-menu-item class='act-email'>Email link</cupri-menu-item>" +
         "  </cupri-menu-item>" +
         "  <cupri-menu-item class='act-del'>Delete</cupri-menu-item>" +
         "</cupri-context-menu>" +
@@ -63,6 +63,28 @@ public class CustomContextMenuTests
 
         Assert.Equal("rename", clicked);   // the row's handler fired
         Assert.Null(Menu(t));              // and the menu closed
+    }
+
+    [Fact]
+    public void Tapping_a_submenu_parent_reveals_a_touch_selectable_flyout()
+    {
+        var clicked = false;
+        using var t = new TestDoc(Html, "", components: true, width: 400, height: 300);
+        t.Doc.OnClick(".act-email", _ => clicked = true);
+
+        var (rx, ry) = TestDoc.Center(t.FindClass("cupri-ctx-host"));
+        t.Doc.DispatchContextMenu(rx, ry); t.Layout();
+        Assert.Null(t.Find(n => n.Element?.ClassList.Contains("cupri-submenu") == true && n.Style.Display != DisplayType.None));
+
+        var (px, py) = TestDoc.Center(t.FindClass("cupri-menu-parent"));
+        t.Click(px, py); t.Layout();
+        var flyout = t.Find(n => n.Element?.ClassList.Contains("cupri-submenu") == true && n.Style.Display != DisplayType.None);
+        Assert.NotNull(flyout);
+
+        var (ix, iy) = TestDoc.Center(t.FindClass("act-email"));
+        t.Click(ix, iy);
+        Assert.True(clicked);
+        Assert.Null(Menu(t));
     }
 
     [Fact]

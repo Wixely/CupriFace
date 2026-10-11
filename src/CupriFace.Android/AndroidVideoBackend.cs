@@ -14,13 +14,14 @@ namespace CupriFace.Android;
 /// and web backends: <c>CupriActivity</c> attaches it, so an app's markup is identical on every
 /// platform and only the decoder differs.
 /// </summary>
-internal sealed class AndroidVideoBackend : IVideoBackend
+internal sealed class AndroidVideoBackend : IVideoBackend, IDisposable
 {
     private readonly Context _context;
     private readonly FrameLayout _underlays;      // sits BEHIND the GL surface
     private readonly Action _invalidate;
     private readonly Action<Action> _runOnUi;
     private readonly List<AndroidPlayer> _players = new();
+    private readonly AndroidMediaSession _mediaSession;
 
     internal AndroidVideoBackend(Context context, FrameLayout underlays, Action invalidate, Action<Action> runOnUi)
     {
@@ -28,9 +29,11 @@ internal sealed class AndroidVideoBackend : IVideoBackend
         _underlays = underlays;
         _invalidate = invalidate;
         _runOnUi = runOnUi;
+        _mediaSession = new AndroidMediaSession(context, runOnUi);
     }
 
     internal void Invalidate() => _invalidate();
+    internal void PlayerStateChanged(AndroidPlayer player) => _mediaSession.Update(player);
 
     /// <summary>True while any player can show pixels — the paint path only needs to hand back
     /// transparent holes once something is actually underneath them.</summary>
@@ -68,6 +71,7 @@ internal sealed class AndroidVideoBackend : IVideoBackend
     internal void Close(AndroidPlayer player)
     {
         lock (_players) _players.Remove(player);
+        _mediaSession.Remove(player);
         var view = player.View;
         player.View = null;
         if (view is not null) _runOnUi(() => _underlays.RemoveView(view));
@@ -177,4 +181,6 @@ internal sealed class AndroidVideoBackend : IVideoBackend
 
         public void SurfaceDestroyed(ISurfaceHolder holder) { }
     }
+
+    public void Dispose() => _mediaSession.Dispose();
 }

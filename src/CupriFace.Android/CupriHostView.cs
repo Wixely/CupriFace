@@ -636,10 +636,28 @@ public sealed class CupriHostView : SKGLSurfaceView
             }
             case MotionEventActions.Move:
             {
-                var moves = new (int Id, float X, float Y)[e.PointerCount];
+                // Android batches MOVE samples. Reading only the newest point throws away almost
+                // all of the velocity evidence on a busy UI thread, so a release often looked
+                // stationary and the scroller could not fling. Copy every historical sample now
+                // (MotionEvent is recycled after return) and replay them in timestamp order.
+                var samples = new (double Time, (int Id, float X, float Y)[] Points)[e.HistorySize + 1];
+                for (var h = 0; h < e.HistorySize; h++)
+                {
+                    var points = new (int Id, float X, float Y)[e.PointerCount];
+                    for (var i = 0; i < e.PointerCount; i++)
+                        points[i] = (e.GetPointerId(i), e.GetHistoricalX(i, h), e.GetHistoricalY(i, h));
+                    samples[h] = (e.GetHistoricalEventTime(h) / 1000.0, points);
+                }
+                var current = new (int Id, float X, float Y)[e.PointerCount];
                 for (var i = 0; i < e.PointerCount; i++)
-                    moves[i] = (e.GetPointerId(i), e.GetX(i), e.GetY(i));
-                QueueEvent(() => { foreach (var (id, mx, my) in moves) _host.PointerMove(id, mx, my, t); });
+                    current[i] = (e.GetPointerId(i), e.GetX(i), e.GetY(i));
+                samples[^1] = (t, current);
+                QueueEvent(() =>
+                {
+                    foreach (var sample in samples)
+                        foreach (var (id, mx, my) in sample.Points)
+                            _host.PointerMove(id, mx, my, sample.Time);
+                });
                 return true;
             }
             case MotionEventActions.Up:

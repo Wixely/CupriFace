@@ -3220,7 +3220,14 @@ public sealed partial class CupriDocument : IDisposable
         {
             var ctxHit = HitTesting.HitTest(_root, x, y);
             if (!InCustomContextMenu(ctxHit)) { _ctxCustomIndex = -1; Refresh(); return true; } // outside → dismiss
-            if (!OnLeafMenuItem(ctxHit)) return true;                                            // parent/padding → keep open
+            if (!OnLeafMenuItem(ctxHit))
+            {
+                // A mouse reveals a fly-out through :hover. Touch has no hover phase, so tapping
+                // a submenu parent must deliberately establish the same hover chain. A second tap
+                // can then choose the now-visible child without dismissing the custom menu.
+                if (OnParentMenuItem(ctxHit)) UpdateHover(x, y);
+                return true;                                                                      // parent/padding → keep open
+            }
             _ctxCustomIndex = -1;                                                                // leaf → close, then fall through
         }
 
@@ -5859,6 +5866,14 @@ public sealed partial class CupriDocument : IDisposable
         for (; n is not null; n = n.Parent)
             if (n.Element?.ClassList.Contains("cupri-menu-item") == true)
                 return !n.Element.ClassList.Contains("cupri-menu-parent");
+        return false;
+    }
+
+    private static bool OnParentMenuItem(RenderNode? n)
+    {
+        for (; n is not null; n = n.Parent)
+            if (n.Element?.ClassList.Contains("cupri-menu-item") == true)
+                return n.Element.ClassList.Contains("cupri-menu-parent");
         return false;
     }
 

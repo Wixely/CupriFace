@@ -34,6 +34,13 @@ public abstract class CupriActivity : global::Android.App.Activity
     /// which is portable code).</summary>
     protected virtual void ConfigureDocument(CupriDocument document) { }
 
+    /// <summary>
+    /// Opts a video-oriented application into rotating immersive fullscreen to landscape. The
+    /// default remains orientation-neutral because CupriFace also hosts forms and other apps whose
+    /// fullscreen views should follow the device instead.
+    /// </summary>
+    protected virtual bool PreferLandscapeFullscreen => false;
+
     /// <summary>The running host; available after OnCreate.</summary>
     protected AndroidHost Host => _host ?? throw new InvalidOperationException("not created yet");
 
@@ -263,9 +270,20 @@ public abstract class CupriActivity : global::Android.App.Activity
     // ---- immersive fullscreen (the document's ⛶ request) -------------------------------------
 
     private bool _immersive;
+    private global::Android.Content.PM.ScreenOrientation? _orientationBeforeFullscreen;
 
     private void SetImmersive(bool on)
     {
+        if (on && !_immersive && PreferLandscapeFullscreen)
+        {
+            _orientationBeforeFullscreen = RequestedOrientation;
+            RequestedOrientation = global::Android.Content.PM.ScreenOrientation.SensorLandscape;
+        }
+        else if (!on && _immersive && _orientationBeforeFullscreen is { } previous)
+        {
+            RequestedOrientation = previous;
+            _orientationBeforeFullscreen = null;
+        }
         _immersive = on;
         if (_padder is not null)
         {
