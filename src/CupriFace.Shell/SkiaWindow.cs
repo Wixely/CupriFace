@@ -98,8 +98,31 @@ public sealed class SkiaWindow : IDisposable
         w.Position = new Silk.NET.Maths.Vector2D<int>(w.Position.X + dx, w.Position.Y + dy);
     }
 
-    /// <summary>True while the window is OS-fullscreen (see <see cref="SetFullscreen"/>).</summary>
-    public bool IsFullscreen => _window?.WindowState == WindowState.Fullscreen;
+    /// <summary>True while the window is OS-fullscreen (see <see cref="SetFullscreen"/>).
+    ///
+    /// <para>GLFW is asked for the window's MONITOR rather than Silk being asked for its state.
+    /// Silk's <c>WindowState</c> getter reports Iconified and Maximized AHEAD of Fullscreen, and
+    /// GLFW keeps the maximized attribute set while a maximized window is fullscreen — so a window
+    /// maximized before it went fullscreen reported "Maximized", which reads as "not fullscreen".
+    /// Everything downstream then went wrong at once: <see cref="SetFullscreen"/> saw the state it
+    /// was asked for and returned early, so exit left the window fullscreen; Escape never exited;
+    /// and the host told the document fullscreen had FAILED, which dropped the video back into the
+    /// layout around a window that was still fullscreen (#304). Having the monitor is GLFW's own
+    /// definition of fullscreen and is immune to that precedence.</para></summary>
+    public bool IsFullscreen => GlfwFullscreen ?? _window?.WindowState == WindowState.Fullscreen;
+
+    /// <summary>Whether GLFW has this window on a monitor — fullscreen, by GLFW's own definition.
+    /// Null when GLFW is not the windowing layer underneath, which leaves the caller on Silk's
+    /// answer, exactly as every non-GLFW host already relied on.</summary>
+    private unsafe bool? GlfwFullscreen
+    {
+        get
+        {
+            if (GlfwWindowHandle is not { } handle) return null;
+            try { return GlfwApi.GetWindowMonitor((GlfwWindow*)handle) is not null; }
+            catch { return null; }   // an optional nicety must never take the window down
+        }
+    }
 
     // The state to restore on exit — a maximized window must come back maximized, not Normal.
     private WindowState _beforeFullscreen = WindowState.Normal;

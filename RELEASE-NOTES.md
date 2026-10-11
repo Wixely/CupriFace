@@ -146,6 +146,17 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   one they were asked for, which also covers a host that refuses. Hosts outside this repo should do
   the same. (#304)
 
+- **…and a MAXIMIZED window now reports that state correctly.** Reporting observed state made
+  `SkiaWindow.IsFullscreen` load-bearing in three places — the `SetFullscreen` guard, Escape-exits,
+  and what the document is told — and deriving it from Silk's `WindowState` was wrong for one window
+  in particular. That getter ranks the states and checks Maximized before Fullscreen, while GLFW
+  keeps the maximized attribute set on a maximized window that is fullscreen, so such a window
+  reported "not fullscreen" the whole time it was fullscreen: exit returned early and left it
+  fullscreen, Escape did nothing, and the document was told fullscreen had failed and dropped the
+  video back into the layout around a still-fullscreen window. It now asks GLFW for the window's
+  monitor, which is GLFW's own definition and ranks nothing, and falls back to Silk only where GLFW
+  is not the windowing layer. Nothing for a caller to change. (#304)
+
 - **`overflow: scroll` now scrolls CROSS-axis overflow.** In a flex row the vertical axis is the
   cross axis, and a child taller than the line added nothing to the scroll extent — so the box
   reported itself unscrollable, took no wheel, and painted its content straight out of itself with
