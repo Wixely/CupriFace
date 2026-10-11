@@ -15,6 +15,11 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ## Unreleased
 
+### Fixed
+
+- Android render-on-demand hosts now wake when background work is queued with `CupriDocument.Post`, so async UI updates are applied even when the GL thread is idle.
+- Closed context menus no longer trap keyboard or controller focus inside their hidden popup.
+
 ### Added
 
 - **Video completion is observable.** Subscribe to `VideoEnded` to start follow-on playback after a

@@ -81,4 +81,20 @@ public class CustomContextMenuTests
         t.Click(6, 6);                     // far corner, outside the popup
         Assert.Null(Menu(t));
     }
+
+    [Fact]
+    public void Closed_context_menu_does_not_trap_directional_focus()
+    {
+        const string html =
+            "<body><cupri-button aria-label='Browse'>Browse</cupri-button>" +
+            "<cupri-context-menu style='width:200px;height:120px'>" +
+            "<div>Right-click me</div><cupri-menu-item>Favourite</cupri-menu-item>" +
+            "</cupri-context-menu></body>";
+        using var t = new TestDoc(html, "body{display:flex;gap:20px}", components: true, width: 400, height: 300);
+
+        Assert.Null(Menu(t));
+        Assert.True(t.Doc.MoveFocus(NavigationDirection.Right));
+        t.Layout();
+        Assert.Equal("Browse", t.FocusedName());
+    }
 }

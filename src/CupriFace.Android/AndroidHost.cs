@@ -138,6 +138,11 @@ public sealed class AndroidHost : IDisposable
     /// app gets a fresh document, and each one needs the identical wiring.</summary>
     private void WireDocument(CupriDocument doc)
     {
+        // WHEN_DIRTY parks the GL thread completely. HasActiveAnimations can keep an already-running
+        // frame loop alive, but it cannot wake a thread that has stopped polling. Post may be called
+        // from any thread, and RequestRender is the thread-safe signal that starts the next frame.
+        doc.FrameRequested += MarkDirty;
+
         // This host forwards key releases (CupriHostView.OnKeyUp), so directional navigation can use
         // held state instead of guessing a corner from arrival times. Declared rather than inferred:
         // nothing has been released when the first arrow of a session is pressed, so inferring it
@@ -243,6 +248,7 @@ public sealed class AndroidHost : IDisposable
     {
         if (pushCurrent) _stack.Add(_app);
         var old = _doc;
+        old.FrameRequested -= MarkDirty;
         _app = next;
         _doc = next.CreateDocument();
         _doc.InputProfile = InputProfile.Touch;
@@ -731,7 +737,11 @@ public sealed class AndroidHost : IDisposable
             ? cm.PrimaryClip?.GetItemAt(0)?.Text
             : null;
 
-    public void Dispose() => _doc.Dispose();
+    public void Dispose()
+    {
+        _doc.FrameRequested -= MarkDirty;
+        _doc.Dispose();
+    }
 
     private static bool _consoleBridged;
 
