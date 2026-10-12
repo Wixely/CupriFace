@@ -1,3 +1,4 @@
+using CupriFace.Android;
 using CupriFace.Media;
 using CupriFace.Paint;
 using LibVLCSharp.Shared;
@@ -8,7 +9,7 @@ using VlcMedia = LibVLCSharp.Shared.Media;
 using VlcMediaPlayer = LibVLCSharp.Shared.MediaPlayer;
 using VideoSource = CupriFace.Media.VideoSource;
 
-namespace CupriFace.Android;
+namespace CupriFace.Media.Android;
 
 /// <summary>
 /// <c>&lt;cupri-video&gt;</c> on Android, rendered by LibVLC into its native video view.
@@ -20,7 +21,7 @@ namespace CupriFace.Android;
 internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoChapterProvider, IVideoBufferingState, ISurfaceSource
 {
     private readonly object _gate = new();
-    private readonly AndroidVideoBackend _backend;
+    private readonly VlcVideoBackend _backend;
     private readonly LibVLC _libVlc;
     private readonly VlcMediaPlayer _player;
     private VlcMedia? _media;
@@ -31,8 +32,19 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
     private bool _loop;
     private double _volume = 1;
     private double _pendingSeek = -1;
+    // A seek is only BELIEVED for this long. _pendingSeek makes Position report the target rather
+    // than the decoder's own time, which is what stops a drag snapping backwards — but it is
+    // cleared by a TimeChanged near the target, and a seek past the seekable range (or a source
+    // that stops reporting time) never produces one. Without a deadline the scrubber then reads
+    // the target for ever while playback carries on somewhere else.
+    private const long SeekBeliefMs = 15_000;
+    private long _seekDeadlineMs;
     private int _metadataRefreshQueued;
     private int _seekVersion;
+    // Workers currently inside a LibVLC call. Dispose waits for this to drain, because the native
+    // player is freed there and a worker that merely checked _disposed a moment earlier would
+    // otherwise be calling into freed memory — a process crash, not an exception.
+    private int _nativeBusy;
     private bool _buffering;
     private CupriVideoTrack[] _audioTracks = [];
     private CupriVideoTrack[] _subtitleTracks = [];
@@ -43,7 +55,7 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
     internal bool Ready => _ready;
     internal VideoSource Source { get; }
 
-    internal AndroidPlayer(AndroidVideoBackend backend, LibVLC libVlc, VideoSource source)
+    internal AndroidPlayer(VlcVideoBackend backend, LibVLC libVlc, VideoSource source)
     {
         _backend = backend;
         _libVlc = libVlc;
@@ -113,14 +125,60 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
 
     public double Duration => _disposed ? 0 : Math.Max(0, _player.Length / 1000.0);
 
+    /// <summary>Whether a requested seek is still worth believing. Expires it in passing, so every
+    /// reader — the position, the buffering indicator, the retry on Playing — agrees about it and
+    /// none of them can be left waiting on a seek that will never report completion. Call under
+    /// <c>_gate</c>.</summary>
+    private bool PendingSeekLive()
+    {
+        if (_pendingSeek < 0) return false;
+        if (Environment.TickCount64 <= _seekDeadlineMs) return true;
+        _pendingSeek = -1;
+        return false;
+    }
+
+    // Under _gate: arm a seek and start its clock.
+    private void SetPendingSeek(double seconds)
+    {
+        _pendingSeek = Math.Max(0, seconds);
+        _seekDeadlineMs = Environment.TickCount64 + SeekBeliefMs;
+    }
+
     public double Position
     {
-        get { lock (_gate) return _pendingSeek >= 0 ? _pendingSeek : _disposed ? 0 : Math.Max(0, _player.Time / 1000.0); }
+        get
+        {
+            lock (_gate)
+            {
+                if (PendingSeekLive()) return _pendingSeek;
+                return _disposed ? 0 : Math.Max(0, _player.Time / 1000.0);
+            }
+        }
         set
         {
-            lock (_gate) _pendingSeek = Math.Max(0, value);
+            lock (_gate) SetPendingSeek(value);
             SetBuffering(true);
             if (_mediaOpened) QueuePendingSeek();
+        }
+    }
+
+    /// <summary>Enter a LibVLC call from a worker. False when the player is being torn down, which
+    /// is the caller's cue to do nothing at all.</summary>
+    private bool TryEnterNative()
+    {
+        lock (_gate)
+        {
+            if (_disposed) return false;
+            _nativeBusy++;
+            return true;
+        }
+    }
+
+    private void ExitNative()
+    {
+        lock (_gate)
+        {
+            if (--_nativeBusy <= 0) Monitor.PulseAll(_gate);
         }
     }
 
@@ -165,16 +223,18 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
         {
             if (_disposed || (chapter = _chapters.FirstOrDefault(candidate => candidate.Index == chapterIndex)) is null)
                 return false;
-            _pendingSeek = chapter.StartSeconds;
+            SetPendingSeek(chapter.StartSeconds);
         }
 
         SetBuffering(true);
         _ = Task.Run(() =>
         {
-            if (_disposed) return;
             // Changing chapters may trigger the same remote range request as a timeline seek.
-            // Keep it away from Android's GL/document thread so the loading state can render.
-            _player.Chapter = chapter.Index;
+            // Keep it away from Android's GL/document thread so the loading state can render —
+            // and inside the gate, because a blocked request outliving Dispose is a freed player.
+            if (!TryEnterNative()) return;
+            try { _player.Chapter = chapter.Index; }
+            finally { ExitNative(); }
             _backend.PlayerStateChanged(this);
         });
         return true;
@@ -207,8 +267,16 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
             else
             {
                 var path = await Task.Run(() => _backend.MaterialiseToCache(Source)).ConfigureAwait(false);
-                if (path is null || _disposed) return;
-                _media = new VlcMedia(_libVlc, path, FromType.FromPath);
+                if (path is null) return;
+                // Spooling can outlast the element. Publish the native Media under the gate and
+                // check the flag there: assigned after Dispose has already run its _media?.Dispose(),
+                // it would never be freed at all.
+                var media = new VlcMedia(_libVlc, path, FromType.FromPath);
+                lock (_gate)
+                {
+                    if (_disposed) { media.Dispose(); return; }
+                    _media = media;
+                }
             }
             TryStart();
         }
@@ -234,16 +302,19 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
         int version;
         lock (_gate)
         {
-            if (_disposed || _pendingSeek < 0) return;
+            if (_disposed || !PendingSeekLive()) return;
             target = _pendingSeek;
             version = ++_seekVersion;
         }
         _ = Task.Run(() =>
         {
-            if (_disposed || version != Volatile.Read(ref _seekVersion)) return;
+            if (version != Volatile.Read(ref _seekVersion)) return;
             // LibVLC can synchronously wait for a remote range response here. Keeping that call on
-            // a worker is what prevents a slow seek from freezing Android's GL/document thread.
-            _player.Time = (long)Math.Round(target * 1000);
+            // a worker is what prevents a slow seek from freezing Android's GL/document thread —
+            // and the gate is what stops Dispose freeing the player underneath it while it waits.
+            if (!TryEnterNative()) return;
+            try { _player.Time = (long)Math.Round(target * 1000); }
+            finally { ExitNative(); }
             _backend.PlayerStateChanged(this);
         });
     }
@@ -255,14 +326,19 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
         // queries to a worker after the callback returns.
         _ = Task.Run(() =>
         {
-            uint width = 0, height = 0;
-            if (_player.Size(0, ref width, ref height) && width > 0 && height > 0)
-                Natural = ((int)width, (int)height);
+            if (!TryEnterNative()) return;
             bool hasPendingSeek;
-            lock (_gate) hasPendingSeek = _pendingSeek >= 0;
+            try
+            {
+                uint width = 0, height = 0;
+                if (_player.Size(0, ref width, ref height) && width > 0 && height > 0)
+                    Natural = ((int)width, (int)height);
+                lock (_gate) hasPendingSeek = PendingSeekLive();
+                RefreshTracks();
+                RefreshChapters();
+            }
+            finally { ExitNative(); }
             if (hasPendingSeek) QueuePendingSeek();
-            RefreshTracks();
-            RefreshChapters();
             _backend.Invalidate();
             _backend.PlayerStateChanged(this);
             Console.WriteLine($"cupri-gate: video ready {Natural?.W ?? 0}x{Natural?.H ?? 0}");
@@ -282,9 +358,13 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
             // Let that callback complete and coalesce a burst of discoveries into one UI update.
             await Task.Delay(100).ConfigureAwait(false);
             Interlocked.Exchange(ref _metadataRefreshQueued, 0);
-            if (_disposed) return;
-            RefreshTracks();
-            RefreshChapters();
+            if (!TryEnterNative()) return;
+            try
+            {
+                RefreshTracks();
+                RefreshChapters();
+            }
+            finally { ExitNative(); }
             _backend.Invalidate();
         });
     }
@@ -293,7 +373,7 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
     {
         lock (_gate)
         {
-            if (_pendingSeek < 0 || Math.Abs(args.Time / 1000.0 - _pendingSeek) > 2) return;
+            if (!PendingSeekLive() || Math.Abs(args.Time / 1000.0 - _pendingSeek) > 2) return;
             _pendingSeek = -1;
         }
         SetBuffering(false);
@@ -302,7 +382,7 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
     private void OnBuffering(object? sender, MediaPlayerBufferingEventArgs args)
     {
         bool seekPending;
-        lock (_gate) seekPending = _pendingSeek >= 0;
+        lock (_gate) seekPending = PendingSeekLive();
         SetBuffering(seekPending || args.Cache < 100f);
     }
 
@@ -391,9 +471,9 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
         {
             _ = Task.Run(() =>
             {
-                if (_disposed) return;
-                _player.Stop();
-                _player.Play();
+                if (!TryEnterNative()) return;
+                try { _player.Stop(); _player.Play(); }
+                finally { ExitNative(); }
             });
             return;
         }
@@ -411,8 +491,16 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
 
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true;
+        // Claim the teardown and WAIT for any worker already inside a LibVLC call. Setting the flag
+        // under _gate is what makes TryEnterNative a real gate rather than a racing read: a worker
+        // either got in before this and is waited for, or is refused. Without the wait, a seek
+        // worker blocked on a remote range response would return into a freed native player.
+        lock (_gate)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            while (_nativeBusy > 0) Monitor.Wait(_gate);
+        }
         _player.Playing -= OnPlaying;
         _player.TimeChanged -= OnTimeChanged;
         _player.Buffering -= OnBuffering;

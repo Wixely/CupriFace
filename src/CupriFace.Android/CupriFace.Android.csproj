@@ -24,9 +24,6 @@
     <PackageReference Include="SkiaSharp.Views" Version="3.116.1" />
     <PackageReference Include="SkiaSharp.NativeAssets.Android" Version="3.116.1" />
     <PackageReference Include="HarfBuzzSharp.NativeAssets.Android" Version="8.3.0.1" />
-    <PackageReference Include="LibVLCSharp" Version="3.10.1" />
-    <PackageReference Include="LibVLCSharp.Android.AWindowModern" Version="3.10.1" />
-    <PackageReference Include="VideoLAN.LibVLC.Android" Version="3.6.5" />
   </ItemGroup>
 
   <ItemGroup>
@@ -37,12 +34,6 @@
          (#172) — the pin spent its whole life in .targets and never fired once. -->
     <None Include="buildTransitive\CupriFace.Android.props" Pack="true" PackagePath="buildTransitive\" />
     <None Include="buildTransitive\CupriFace.Android.targets" Pack="true" PackagePath="buildTransitive\" />
-    <None Include="THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\CupriFace.Media.Windows\licenses\third-party\LibVLC-LGPL-2.1-or-later.txt"
-          Link="licenses\third-party\LibVLC-LGPL-2.1-or-later.txt"
-          Pack="true"
-          PackagePath="licenses\third-party\LibVLC-LGPL-2.1-or-later.txt"
-          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 

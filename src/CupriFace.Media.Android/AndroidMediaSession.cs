@@ -1,9 +1,10 @@
+using CupriFace.Android;
 using Android.App;
 using Android.Content;
 using Android.Media.Session;
 using Android.OS;
 
-namespace CupriFace.Android;
+namespace CupriFace.Media.Android;
 
 /// <summary>
 /// Bridges the active CupriFace video to Android's system media surface. That gives applications

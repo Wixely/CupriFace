@@ -27,7 +27,9 @@ public sealed class AndroidHost : IDisposable
     public sealed record Snapshot(int ContentVersion, float LogicalWidth, float LogicalHeight,
         float InputScale, TextInputState TextInput);
 
-    internal const string Tag = "cupri";                 // the logcat channel the CI gate asserts on
+    /// <summary>The logcat channel the CI gate asserts on. Public because a video backend in
+    /// another package logs to the same channel — the gate greps one tag, not several.</summary>
+    public const string Tag = "cupri";
 
     private CupriApp _app;
     private CupriDocument _doc;
@@ -292,20 +294,32 @@ public sealed class AndroidHost : IDisposable
     // The platform decodes; the engine paints a hole. Attached by CupriActivity once it has a
     // container to put underlays in — an app's markup is identical on every host, only the
     // decoder differs (desktop ships codecs, the browser and Android use the platform's).
-    private AndroidVideoBackend? _video;
+    private IAndroidVideoBackend? _video;
 
-    internal void UseVideo(global::Android.Content.Context context, global::Android.Widget.FrameLayout underlays)
+    /// <summary>Attach a video backend. The host does NOT bring a decoder: the backend comes from
+    /// a separate package (<c>CupriFace.Media.Android</c>) or from the application, exactly as the
+    /// desktop shell takes <c>CupriFace.Media</c>, so an app with no video carries no native media
+    /// libraries. <c>CupriActivity</c> calls this when
+    /// <c>CupriActivity.CreateVideoBackend</c> returns one.</summary>
+    public void UseVideo(IAndroidVideoBackend backend)
     {
-        _video = new AndroidVideoBackend(context, underlays, MarkDirty, RunOnUi);
-        _doc.UseVideo(_video);
+        ArgumentNullException.ThrowIfNull(backend);
+        _video = backend;
+        _doc.UseVideo(backend);
     }
+
+    /// <summary>The services a backend in another package needs to construct itself; the activity
+    /// supplies the view layer it owns.</summary>
+    internal AndroidVideoServices VideoServices(global::Android.Content.Context context,
+                                                global::Android.Widget.FrameLayout underlays) =>
+        new(context, underlays, MarkDirty, RunOnUi);
 
     /// <summary>True while a video underlay can show pixels: the frame must then clear to
     /// TRANSPARENT so the engine's punched hole actually reveals what is beneath it. With no
     /// video ready this stays false and the app paints its opaque background exactly as before.</summary>
     private bool VideoUnderlayReady => _video?.AnyReady == true;
 
-    private void RunOnUi(Action action)
+    internal void RunOnUi(Action action)
     {
         if (_view?.Handler is { } h) h.Post(action);
         else action();

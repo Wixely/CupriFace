@@ -35,6 +35,25 @@ public abstract class CupriActivity : global::Android.App.Activity
     protected virtual void ConfigureDocument(CupriDocument document) { }
 
     /// <summary>
+    /// Supply the video backend for <c>&lt;cupri-video&gt;</c>, or null (the default) for an app
+    /// that shows none.
+    ///
+    /// <para>The host brings no decoder, exactly as the desktop shell brings none: reference
+    /// <c>CupriFace.Media.Android</c> and return its backend. That package carries LibVLC's native
+    /// libraries — tens of megabytes across the ABIs — and its LGPL obligations, so an app that
+    /// never plays a video should not pay for either.</para>
+    ///
+    /// <code>
+    /// protected override IAndroidVideoBackend? CreateVideoBackend(AndroidVideoServices services)
+    ///     =&gt; new VlcVideoBackend(services);
+    /// </code>
+    ///
+    /// <para>Called once, on the UI thread, after the underlay layer exists and before the first
+    /// frame.</para>
+    /// </summary>
+    protected virtual IAndroidVideoBackend? CreateVideoBackend(AndroidVideoServices services) => null;
+
+    /// <summary>
     /// Opts a video-oriented application into rotating immersive fullscreen to landscape. The
     /// default remains orientation-neutral because CupriFace also hosts forms and other apps whose
     /// fullscreen views should follow the device instead.
@@ -125,7 +144,11 @@ public abstract class CupriActivity : global::Android.App.Activity
             var underlays = new global::Android.Widget.FrameLayout(this);
             container.AddView(underlays);
             container.AddView(_view);
-            _host!.UseVideo(this, underlays);
+            // Video is OPT-IN, and deliberately so: the decoder lives in another package, so an
+            // app that shows no <cupri-video> carries neither LibVLC's native libraries nor its
+            // licence obligations. Override CreateVideoBackend to bring one.
+            if (CreateVideoBackend(_host!.VideoServices(this, underlays)) is { } videoBackend)
+                _host!.UseVideo(videoBackend);
             // The IME inset is also the only report of the keyboard GOING AWAY on the platform's
             // own initiative (Back, the keyboard's hide button): nothing else tells the app, which
             // is half of #288. The view keeps the belief; this is what refreshes it.

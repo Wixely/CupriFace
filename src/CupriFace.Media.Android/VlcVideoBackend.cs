@@ -1,11 +1,12 @@
 ﻿using Android.Content;
 using Android.Widget;
+using CupriFace.Android;
 using CupriFace.Media;
 using LibVLCSharp.Shared;
 using AndroidVlcVideoView = LibVLCSharp.Platforms.Android.VideoView;
 using VideoSource = CupriFace.Media.VideoSource;
 
-namespace CupriFace.Android;
+namespace CupriFace.Media.Android;
 
 /// <summary>
 /// Opens <c>&lt;cupri-video&gt;</c> sources with the platform's decoder, and keeps each player's
@@ -15,7 +16,7 @@ namespace CupriFace.Android;
 /// and web backends: <c>CupriActivity</c> attaches it, so an app's markup is identical on every
 /// platform and only the decoder differs.
 /// </summary>
-internal sealed class AndroidVideoBackend : IVideoBackend, IDisposable
+public sealed class VlcVideoBackend : IAndroidVideoBackend
 {
     private readonly Context _context;
     private readonly FrameLayout _underlays;      // sits BEHIND the GL surface
@@ -25,13 +26,17 @@ internal sealed class AndroidVideoBackend : IVideoBackend, IDisposable
     private readonly AndroidMediaSession _mediaSession;
     private readonly LibVLC _libVlc;
 
-    internal AndroidVideoBackend(Context context, FrameLayout underlays, Action invalidate, Action<Action> runOnUi)
+    /// <summary>Construct from the services the host hands to
+    /// <c>CupriActivity.CreateVideoBackend</c>. Initialising LibVLC here, rather than at type load,
+    /// keeps an app that never overrides that hook from loading the native libraries at all.</summary>
+    public VlcVideoBackend(AndroidVideoServices services)
     {
-        _context = context;
-        _underlays = underlays;
-        _invalidate = invalidate;
-        _runOnUi = runOnUi;
-        _mediaSession = new AndroidMediaSession(context, runOnUi);
+        ArgumentNullException.ThrowIfNull(services);
+        _context = services.Context;
+        _underlays = services.Underlays;
+        _invalidate = services.Invalidate;
+        _runOnUi = services.RunOnUi;
+        _mediaSession = new AndroidMediaSession(services.Context, services.RunOnUi);
         Core.Initialize();
         _libVlc = new LibVLC("--no-video-title-show", "--no-snapshot-preview");
     }
@@ -41,7 +46,7 @@ internal sealed class AndroidVideoBackend : IVideoBackend, IDisposable
 
     /// <summary>True while any player can show pixels — the paint path only needs to hand back
     /// transparent holes once something is actually underneath them.</summary>
-    internal bool AnyReady
+    public bool AnyReady
     {
         get { lock (_players) { foreach (var p in _players) if (p.Ready) return true; } return false; }
     }
@@ -109,7 +114,7 @@ internal sealed class AndroidVideoBackend : IVideoBackend, IDisposable
     /// <summary>Called after each painted frame: move every underlay to its element's on-screen
     /// box, in PHYSICAL pixels. The engine has already punched a transparent hole there, so the
     /// two must agree to the pixel or the video shows a seam.</summary>
-    internal void SyncRects(CupriDocument doc, float inputScale)
+    public void SyncRects(CupriDocument doc, float inputScale)
     {
         List<AndroidPlayer> snapshot;
         lock (_players)

@@ -1,0 +1,42 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    LibVLC video for <cupri-video> on Android — the mobile sibling of CupriFace.Media, and
+    OPTIONAL for the same reason.
+
+    It lives apart from CupriFace.Android because the cost is not the managed code: VideoLAN's
+    native libraries weigh tens of megabytes across the ABIs, and they are LGPL, which an app
+    redistributing them must honour. A settings form with no <cupri-video> in it should pay for
+    neither, so the host package brings no decoder and an app opts in by overriding
+    CupriActivity.CreateVideoBackend.
+
+    Same layering law as everywhere else: the ENGINE has no idea Android or LibVLC exists.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-android</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <SupportedOSPlatformVersion>24.0</SupportedOSPlatformVersion>
+    <Description>Optional LibVLC-backed video for CupriFace on Android: audio/subtitle track and chapter selection, network seeking, buffering state, and media-session controls. Bundles VideoLAN's LGPL native libraries — see THIRD-PARTY-NOTICES.md.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CupriFace.Android\CupriFace.Android.csproj" />
+    <PackageReference Include="LibVLCSharp" Version="3.10.1" />
+    <PackageReference Include="LibVLCSharp.Android.AWindowModern" Version="3.10.1" />
+    <PackageReference Include="VideoLAN.LibVLC.Android" Version="3.6.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The notices and the licence text travel WITH the native libraries, which is the package
+         that actually redistributes them. Shared by link with the Windows media package so there
+         is one copy of the LGPL text in the repo. -->
+    <None Include="THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\CupriFace.Media.Windows\licenses\third-party\LibVLC-LGPL-2.1-or-later.txt"
+          Link="licenses\third-party\LibVLC-LGPL-2.1-or-later.txt"
+          Pack="true"
+          PackagePath="licenses\third-party\LibVLC-LGPL-2.1-or-later.txt"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
