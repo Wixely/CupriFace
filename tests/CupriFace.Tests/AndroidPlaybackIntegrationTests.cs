@@ -19,24 +19,32 @@ public class AndroidPlaybackIntegrationTests
     }
 
     [Fact]
-    public void Android_video_preserves_aspect_ratio_and_exposes_platform_tracks()
+    public void Android_video_uses_libvlc_for_tracks_and_chapters()
     {
         var source = Android("AndroidVideo.cs");
 
         Assert.Contains("IVideoTrackSelector", source, StringComparison.Ordinal);
-        Assert.Contains("SetVideoScalingMode(VideoScalingMode.ScaleToFit)", source, StringComparison.Ordinal);
-        Assert.Contains("GetTrackInfo()", source, StringComparison.Ordinal);
-        Assert.Contains("SelectTrack(trackId)", source, StringComparison.Ordinal);
+        Assert.Contains("IVideoChapterProvider", source, StringComparison.Ordinal);
+        Assert.Contains("AudioTrackDescription", source, StringComparison.Ordinal);
+        Assert.Contains("SpuDescription", source, StringComparison.Ordinal);
+        Assert.Contains("FullChapterDescriptions", source, StringComparison.Ordinal);
+        Assert.Contains("ESAdded += OnElementaryStreamChanged", source, StringComparison.Ordinal);
+        Assert.Contains("TitleChanged += OnTitleChanged", source, StringComparison.Ordinal);
+        Assert.Contains("SetAudioTrack(trackId)", source, StringComparison.Ordinal);
+        Assert.Contains("SetSpu(trackId)", source, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Android_seek_keeps_the_requested_position_until_native_completion()
+    public void Android_seek_keeps_the_requested_position_until_libvlc_reaches_it()
     {
         var source = Android("AndroidVideo.cs");
 
         Assert.Contains("_pendingSeek >= 0", source, StringComparison.Ordinal);
-        Assert.Contains("SeekComplete", source, StringComparison.Ordinal);
-        Assert.Contains("MediaPlayerSeekMode.Closest", source, StringComparison.Ordinal);
+        Assert.Contains("TimeChanged", source, StringComparison.Ordinal);
+        Assert.Contains("_player.Time =", source, StringComparison.Ordinal);
+        Assert.Contains("IVideoBufferingState", source, StringComparison.Ordinal);
+        Assert.Contains("Task.Run", source, StringComparison.Ordinal);
+        Assert.Contains(":input-fast-seek", source, StringComparison.Ordinal);
     }
 
     [Fact]

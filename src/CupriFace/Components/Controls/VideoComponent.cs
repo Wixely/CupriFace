@@ -27,12 +27,16 @@ public sealed class VideoComponent : ComponentBase
         .cupri-video { display:block; position:relative; overflow:hidden; background:#0b0d10; }
         .cupri-video-bar { position:absolute; left:0; right:0; bottom:0; display:flex; gap:6px; align-items:center;
                            padding:6px 10px; background:rgba(10,12,16,0.55); }
+        .cupri-video-controls-hidden .cupri-video-bar { display:none; }
         .cupri-video-btn { display:inline-flex; align-items:center; justify-content:center;
                            width:32px; height:32px; border-radius:6px; color:#ffffff; }
         .cupri-video-btn:hover { background:rgba(255,255,255,0.18); }
         .cupri-video-btn.disabled { opacity:0.35; }
         .cupri-video-btn.disabled:hover { background:transparent; }
         .cupri-video-time { color:#e6e9ef; font-size:12px; flex:none; }
+        .cupri-video-buffering { position:absolute; left:50%; top:50%; display:none; align-items:center; gap:8px;
+                                 padding:8px 12px; transform:translate(-50%,-50%); background:#0a0c10d9;
+                                 color:#f4f6f9; border-radius:6px; font-size:12px; z-index:20; }
         .cupri-video-seek { flex:1; padding:8px 2px; cursor:pointer; }
         .cupri-video-seek.disabled { opacity:0.35; cursor:not-allowed; }
         .cupri-video-seek-track { position:relative; height:4px; background:rgba(255,255,255,0.28); border-radius:2px; }
@@ -50,11 +54,19 @@ public sealed class VideoComponent : ComponentBase
                                   box-shadow:0 1px 4px #00000059; }
         .cupri-video-fs { z-index:90; background:#000; }
         .cupri-video .cupri-ctx-menu, .cupri-video .cupri-submenu { background:#161b24; color:#f4f6f9; }
-        .cupri-video .cupri-submenu { width:360px; max-width:70vw; }
+        .cupri-video .cupri-submenu { width:360px; max-width:calc(100vw - 16px); max-height:calc(100vh - 16px);
+                                      overflow:auto; }
         .cupri-video .cupri-menu-item { color:#f4f6f9; }
         .cupri-video .cupri-menu-item:hover { background:#273244; color:#ffffff; }
-        .cupri-video .cupri-video-track-menu-label { overflow-wrap:anywhere; }
+        .cupri-video .cupri-video-track-menu-label { min-width:0; white-space:normal; overflow-wrap:anywhere; }
         .cupri-video .cupri-video-track-selected { color:var(--cupri-accent,#B87333); }
+        @media (max-width:600px) {
+          /* On touch-sized viewports a fly-out replaces the parent visually. Keeping it almost
+             viewport-wide both exposes useful context from long codec labels and prevents the
+             sibling parent rows showing through around a narrow panel. */
+          .cupri-video .cupri-submenu { width:calc(100vw - 16px); }
+          .cupri-video .cupri-submenu .cupri-menu-item { align-items:flex-start; }
+        }
         """;
 
     public override void Expand(IElement el)
@@ -108,7 +120,8 @@ public sealed class VideoComponent : ComponentBase
               <div class='cupri-video-btn' role='button' aria-label='Fullscreen' data-video-role='fullscreen' data-video-cmd='fullscreen'>{IconMarkup("fullscreen", 18)}</div>
             </div>
             """;
-        el.InnerHtml = controls + (tracks ? TrackContextMenuMarkup() : "");
+        el.InnerHtml = "<div class='cupri-video-buffering' data-video-buffering data-surface-overlay>Loading…</div>" +
+                       controls + (tracks ? TrackContextMenuMarkup() : "");
     }
 
     internal static string FormatTime(double seconds)
@@ -138,9 +151,10 @@ public sealed class VideoComponent : ComponentBase
     /// (`style="width:320px"` would defeat a class); appended last, so it wins within the
     /// attribute too. position:fixed puts it in the top layer — painted above everything,
     /// hit-tested first — and the class brings z-index + the black letterbox background.</summary>
-    internal static void ApplyFullscreenState(IElement el)
+    internal static void ApplyFullscreenState(IElement el, bool controlsHidden = false)
     {
         el.ClassList.Add("cupri-video-fs");
+        if (controlsHidden) el.ClassList.Add("cupri-video-controls-hidden");
         // transition:none — entering fullscreen SNAPS, like the browser. An author's own
         // width/height transition (the resize demo has one) must not tween into fullscreen.
         el.SetAttribute("style", (el.GetAttribute("style") ?? "")
@@ -157,6 +171,9 @@ public sealed class VideoComponent : ComponentBase
     /// wired). Glyphs + accessible labels flip together, so Narrator and the pixels agree.</summary>
     internal static void SyncControls(IElement el, Media.IVideoPlayer player)
     {
+        if (el.QuerySelector("[data-video-buffering]") is { } buffering)
+            buffering.SetAttribute("style", player is Media.IVideoBufferingState { Buffering: true }
+                ? "display:flex" : "display:none");
         if (el.QuerySelector("[data-video-role='toggle']") is { } toggle)
         {
             toggle.InnerHtml = IconMarkup(player.Playing ? "pause" : "play", 18);

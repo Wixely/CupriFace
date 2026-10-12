@@ -220,7 +220,8 @@ public class SurfaceTests
             "<body><cupri-video src='c.webm' controls style='width:320px;height:180px'></cupri-video></body>",
             "", components: true);
         withBar.Layout();
-        var bar = withBar.Find(n => n.Element?.HasAttribute("data-surface-overlay") == true);
+        var bar = withBar.Find(n => n.Element?.ClassList.Contains("cupri-video-bar") == true
+            && n.Element.HasAttribute("data-surface-overlay"));
         Assert.NotNull(bar);
 
         // controls="false" is absent-by-Flag, so there is no bar AND nothing to inset for — the
@@ -229,7 +230,7 @@ public class SurfaceTests
             "<body><cupri-video src='c.webm' controls='false' style='width:320px;height:180px'></cupri-video></body>",
             "", components: true);
         off.Layout();
-        Assert.Null(off.Find(n => n.Element?.HasAttribute("data-surface-overlay") == true));
+        Assert.Null(off.Find(n => n.Element?.ClassList.Contains("cupri-video-bar") == true));
         var video = off.Find(n => n.Element?.HasAttribute("data-cupri-video") == true)!;
         Assert.Equal(0f, HostSurfaceGeometry.OverlayBottomInset(video, 0, 180), 1);
     }

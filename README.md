@@ -91,8 +91,10 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
   field, so the browser's own editor, IME and password manager work on what the canvas paints.
 - **Android** — the same `CupriApp` on a phone: `CupriFace.Android` brings a GL surface,
   touch gestures (tap-on-release, momentum fling, long-press), the soft keyboard with real
-  IME composition, TalkBack, native video track selection, and Android media-session controls.
-  CoreCLR runtime, ~20 MB APK, driven end-to-end on an emulator by CI. Applications targeting
+  IME composition, TalkBack, LibVLC-backed video with audio/subtitle track and chapter selection,
+  reliable network seeking, and Android media-session controls. The VideoLAN components are LGPL
+  dependencies documented in `src/CupriFace.Android/THIRD-PARTY-NOTICES.md`; CupriFace remains MIT.
+  CoreCLR runtime, driven end-to-end on an emulator by CI. Applications targeting
   Android 13 or later must request `POST_NOTIFICATIONS` if playback controls should appear in the
   notification shade.
 - **Video** — `<cupri-video>` with engine-drawn controls and fullscreen. The browser decodes
@@ -118,7 +120,7 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 |---|---|
 | `src/CupriFace` | The engine (DOM, CSS, layout, text, paint, binding, components) |
 | `src/CupriFace.Shell` | Desktop windows: GL (GLFW) by default, or SDL — software present, or its own GL context with `CUPRIFACE_SDL_GL=1` — with multi-touch, per-monitor DPI, layered alpha on Windows, and the profiler HUD |
-| `src/CupriFace.Android` | Android host: `CupriActivity` + GL surface + touch/IME + TalkBack bridge (needs `dotnet workload install android`) |
+| `src/CupriFace.Android` | Android host: `CupriActivity` + GL surface + touch/IME + TalkBack bridge + LibVLC video (MIT CupriFace code with separately licensed LGPL VideoLAN dependencies; needs `dotnet workload install android`) |
 | `src/CupriFace.Web.NativeAot` | **Recommended browser host**, compiled AOT (NativeAOT-LLVM): `WebHost.Run` + canvas blit + touch/IME + ARIA mirror + browser-decoded video (no Blazor). Experimental toolchain, builds on x64 Windows and x64/arm64 Linux |
 | `src/CupriFace.Web.Mono` | The same browser host on the Mono wasm runtime — identical `WebHost.Run`, builds anywhere, engine runs interpreted. The fallback when the preview feed is not an option |
 | `src/CupriFace.Media` | Optional: WebM (VP9 + Opus) video for `<cupri-video>` on desktop |

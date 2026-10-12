@@ -17,6 +17,12 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **Android video now uses LibVLC for full media metadata and reliable remote playback.** The
+  Android host exposes embedded audio/subtitle tracks and chapters, performs potentially blocking
+  remote seeks away from the UI thread, reports optional `IVideoBufferingState`, keeps long track
+  menus usable on phone-sized viewports, and auto-hides fullscreen controls until the next tap.
+  Android packages must retain the bundled VideoLAN LGPL notice and licence assets.
+
 - **Video completion is observable.** Subscribe to `VideoEnded` to start follow-on playback after a
   source reaches its natural end. It is raised **on the UI thread**, just before the rebuild that
   follows, so a handler may swap the source directly and have it land in the same frame — no `Post`

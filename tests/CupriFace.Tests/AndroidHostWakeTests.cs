@@ -100,4 +100,18 @@ public class AndroidHostWakeTests(ITestOutputHelper output)
         Assert.Contains("FrameRequested -= MarkDirty", Body(src, "public void Dispose()"),
                         StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void An_active_animation_schedules_a_future_wake_instead_of_parking_on_an_early_frame()
+    {
+        var src = Android("AndroidHost.cs");
+        var paint = Body(src, "internal void PaintFrame(");
+        var schedule = Body(src, "private void ScheduleAnimationWake(double delaySeconds)");
+
+        Assert.Contains("ScheduleAnimationWake(interval)", paint, StringComparison.Ordinal);
+        Assert.Contains("PostDelayed", schedule, StringComparison.Ordinal);
+        Assert.Contains("RequestRender", src, StringComparison.Ordinal);
+        Assert.DoesNotContain("FrameCeiling.Due", paint, StringComparison.Ordinal);
+        output.WriteLine("Android animations schedule their next permitted frame before WHEN_DIRTY parks");
+    }
 }
