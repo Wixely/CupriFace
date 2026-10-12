@@ -474,9 +474,23 @@ public sealed partial class CupriDocument : IDisposable
     private readonly System.Collections.Concurrent.ConcurrentQueue<string> _videoTracksFound = new();
     private readonly System.Collections.Concurrent.ConcurrentQueue<string> _videoChaptersFound = new();
     private string? _fullscreenVideo; // src of the video currently element-fullscreened (web model: one at most)
-    private const double FullscreenVideoControlsSeconds = 3;
     private double _videoControlsHideAt = double.NaN;
     private bool _videoControlsHidden;
+
+    /// <summary>
+    /// How long a FULLSCREEN video's control bar stays up once playback is running, in seconds.
+    /// Default 3. <b>Zero or less keeps it up for ever</b> — "off" means the bar does not leave,
+    /// not that it leaves at once, which is what anyone disabling a timeout is asking for.
+    ///
+    /// <para>Only fullscreen, and only while PLAYING: a paused video keeps its controls, because
+    /// there is nothing moving for them to be in the way of. Any tap or click brings the bar back
+    /// and is swallowed, so the gesture that reveals it cannot also press what was under it.
+    /// Leaving fullscreen always restores it.</para>
+    ///
+    /// <para>Set it per document, or for a whole application with
+    /// <see cref="CupriApp.FullscreenControlsHideSeconds"/>.</para>
+    /// </summary>
+    public double FullscreenControlsHideSeconds { get; set; } = 3;
 
     /// <summary>Allow an unmuted video with <c>autoplay</c> to start immediately. The default is
     /// false because browsers reject audible autoplay; native applications may opt in explicitly.</summary>
@@ -1469,11 +1483,12 @@ public sealed partial class CupriDocument : IDisposable
     public bool Animate(double timeSeconds)
     {
         var any = false;
-        if (_fullscreenVideo is not null && !_videoControlsHidden
+        if (FullscreenControlsHideSeconds > 0 && _fullscreenVideo is not null && !_videoControlsHidden
             && _videoPlayers.TryGetValue(_fullscreenVideo, out var fullscreenPlayer)
             && fullscreenPlayer.Playing)
         {
-            if (double.IsNaN(_videoControlsHideAt)) _videoControlsHideAt = timeSeconds + FullscreenVideoControlsSeconds;
+            if (double.IsNaN(_videoControlsHideAt))
+                _videoControlsHideAt = timeSeconds + FullscreenControlsHideSeconds;
             if (timeSeconds >= _videoControlsHideAt)
             {
                 _videoControlsHidden = true;
@@ -1537,7 +1552,11 @@ public sealed partial class CupriDocument : IDisposable
     /// while a masked field peeks its last-typed char (see <see cref="HasActiveTransitions"/>),
     /// and while any live surface (a playing video) is producing frames.</summary>
     public bool HasActiveAnimations => (_hasActiveAnim && _animRunning) || _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || Surfaces.AnyTicking || FlingActive || OverscrollActive || _pendingNav is not null || !_posted.IsEmpty
-        || (_fullscreenVideo is { } fullscreenSource && !_videoControlsHidden
+        // …and while a fullscreen control bar is still counting down, because the hide happens in
+        // Animate and a render-on-demand host would otherwise stop pumping and never reach it.
+        // Gated on the timeout being ENABLED: without that, switching it off would leave every
+        // fullscreen player asking for frames for the whole film and never using one.
+        || (FullscreenControlsHideSeconds > 0 && _fullscreenVideo is { } fullscreenSource && !_videoControlsHidden
             && _videoPlayers.TryGetValue(fullscreenSource, out var fullscreenPlayer) && fullscreenPlayer.Playing);
     private bool _hasActiveAnim;
     private bool _animRunning = true;
@@ -6794,6 +6813,12 @@ public sealed partial class CupriDocument : IDisposable
     private bool DispatchPointerMoveCore(float x, float y)
     {
         EnsureLaidOut();
+        // A mouse has no tap, and MOVING is the gesture that asks for a hidden control bar back —
+        // clicking to see the controls would be a click the user did not mean to spend. Deliberately
+        // not consumed: hover still has to reach whatever is under the pointer. The reveal also
+        // re-arms the countdown, so the bar follows the pointer's activity and leaves again once it
+        // stops.
+        RevealFullscreenVideoControls();
         // Which scrollbar the pointer is over, before anything else looks at the position. While a
         // thumb is being dragged the pointer may well have left the column — the bar stays hot,
         // because the gesture is still about it.

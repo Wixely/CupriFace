@@ -328,6 +328,12 @@ public abstract class CupriApp
     /// </summary>
     public virtual Interaction.PointerActivation MouseActivation => Interaction.PointerActivation.OnRelease;
 
+    /// <summary>How long a FULLSCREEN video's control bar stays up once playback is running, in
+    /// seconds. Default 3; zero or less keeps it up for ever. See
+    /// <see cref="CupriDocument.FullscreenControlsHideSeconds"/> for the exact rules — notably that
+    /// a paused video keeps its controls and that any tap brings them back.</summary>
+    public virtual double FullscreenControlsHideSeconds => 3;
+
     /// <summary>Opt in to the commit-snapshot render-thread split (DESIGN §7.2): the UI thread builds
     /// the display list and a background thread rasterises it, so rasterisation never blocks input.
     /// Wired for the CPU/SDL software path; the GL path renders inline. Default off.</summary>
@@ -530,6 +536,7 @@ public abstract class CupriApp
         doc.FontPolicy = FontPolicy;
         doc.AllowUnmutedVideoAutoplay = AllowUnmutedVideoAutoplay;
         doc.MouseActivation = MouseActivation;
+        doc.FullscreenControlsHideSeconds = FullscreenControlsHideSeconds;
         foreach (var font in Fonts) doc.LoadFont(font);
         if (Model is { } model) doc.Bind(model);
         doc.DebugOverlay = DebugOverlay;

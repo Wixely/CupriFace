@@ -181,11 +181,18 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Changed
 
-- **Fullscreen video controls now hide themselves after 3 seconds of playback**, and any tap or
-  click brings them straight back without also pressing whatever was underneath. This is the
-  ENGINE, not one host: every host that drives `Animate` gets it, so a desktop or web app with a
-  fullscreen `<cupri-video>` behaves this way too, not only Android. Controls never hide while
-  paused, and leaving fullscreen always restores them.
+- **Fullscreen video controls now hide themselves after 3 seconds of playback**, and **the delay is
+  configurable**: set `doc.FullscreenControlsHideSeconds`, or `CupriApp.FullscreenControlsHideSeconds`
+  for a whole application. **Zero or less keeps the bar up for ever** — off means it does not leave,
+  not that it leaves at once, which is what anyone disabling a timeout is asking for (a kiosk, a
+  review tool). This is the ENGINE, not one host: every host that drives `Animate` gets it, so a
+  desktop or web app with a fullscreen `<cupri-video>` behaves this way too, not only Android.
+
+  Bringing it back takes whatever gesture the device has. **Moving the mouse reveals it** and
+  restarts the countdown, so the bar follows the pointer's activity and leaves again once it stops —
+  a move is not consumed, so hover still reaches what is under it. A **tap or click** also reveals
+  it, and that one IS swallowed, so the gesture cannot press the control it just uncovered. A paused
+  video keeps its controls, and leaving fullscreen always restores them.
 
 - **`VideoTracksChanged` and `VideoChaptersChanged` are now raised on the UI thread**, like
   `VideoEnded` and `VideoPlaybackStateChanged` beside them, instead of on whichever thread the

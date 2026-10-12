@@ -180,6 +180,9 @@ internal sealed class MediaApp(string mediaPath) : CupriApp
               <li>Seek jumps without freezing the UI — the adapter seeks off the UI thread.</li>
               <li>Fullscreen (⛶) goes to THIS monitor and comes back to the same bounds.</li>
               <li>Opening a second file swaps the decoder without restarting the app.</li>
+              <li>In fullscreen the bottom bar leaves after a few seconds, and comes back when you
+                move the mouse — <code>FullscreenControlsHideSeconds</code> sets the delay, and 0
+                keeps it up for ever.</li>
             </ul>
           </div>
         </body>
