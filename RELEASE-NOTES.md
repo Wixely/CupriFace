@@ -19,8 +19,13 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 - **Android video, in a NEW optional package: `CupriFace.Media.Android`.** LibVLC-backed, it
   exposes embedded audio/subtitle tracks and chapters, performs potentially blocking remote seeks
-  away from the UI thread, reports optional `IVideoBufferingState`, keeps long track menus usable on
-  phone-sized viewports, and auto-hides fullscreen controls until the next tap.
+  away from the UI thread, reports optional `IVideoBufferingState`, and keeps long track menus
+  usable on phone-sized viewports.
+
+  **It also registers an Android media session**, so playback gets lock-screen and
+  notification-shade controls and responds to hardware play/pause and seek buttons — the reason an
+  app targeting Android 13 or later wants `POST_NOTIFICATIONS` (below). The portable document knows
+  nothing about any of it.
 
   **It is a separate package on purpose, and `CupriFace.Android` no longer carries a decoder at
   all.** VideoLAN's native libraries weigh tens of megabytes across the ABIs and are LGPL, which an
@@ -69,6 +74,18 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   licence assets, which now travel with the media package. Apps targeting Android 13 or later still
   need `POST_NOTIFICATIONS` for playback controls in the notification shade.
 
+- **`AllowUnmutedVideoAutoplay` lets a native app autoplay WITH SOUND.** `<cupri-video autoplay>`
+  starts muted unless you say otherwise, because browsers reject audible autoplay and the portable
+  default has to be the one that works everywhere. An application that only ever runs natively can
+  set `CupriApp.AllowUnmutedVideoAutoplay` (or `doc.AllowUnmutedVideoAutoplay`) to opt in, without
+  weakening the default the web hosts rely on.
+
+- **`CupriActivity.PreferLandscapeFullscreen` rotates immersive fullscreen to landscape** on
+  Android, for a video-oriented app. Off by default, deliberately: CupriFace also hosts forms,
+  whose fullscreen view should follow the device rather than fight it. Entering fullscreen
+  remembers the previous `RequestedOrientation` and exit restores it, so the setting cannot leak
+  into the rest of the app.
+
 - **Video completion is observable.** Subscribe to `VideoEnded` to start follow-on playback after a
   source reaches its natural end. It is raised **on the UI thread**, just before the rebuild that
   follows, so a handler may swap the source directly and have it land in the same frame — no `Post`
@@ -77,8 +94,9 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 - **Video playback state has an application persistence boundary.** Subscribe to
   `VideoPlaybackStateChanged` to store position, duration, transport, volume, mute, and selected
-  track IDs without depending on a concrete decoder. Reapply a snapshot with
-  `RestoreVideoPlaybackState`; track-discovering backends can retry from `VideoTracksChanged`.
+  track IDs without depending on a concrete decoder, or read one on demand with
+  `GetVideoPlaybackState(src)`. Reapply a snapshot with `RestoreVideoPlaybackState`;
+  track-discovering backends can retry from `VideoTracksChanged`.
 
 - **CI now loads LibVLC for real.** A `media-windows` job drives the shipped Windows adapter on a
   runner: it constructs the backend (so the single-file native discovery is exercised, not just
@@ -121,8 +139,8 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   and indistinguishable panels. This is diagnostic tooling, not a transparency fix.
 
 - **`CupriFace.Media.Windows` provides optional LibVLC/D3D11VA playback for Windows applications.**
-  Reference the package, keep the backend alive for the host lifetime, and register it with
-  `document.UseVideo(video)`. The backend streams HTTPS sources directly, renders into a
+  Reference the package, construct `new LibVlcVideoBackend()` (optionally with a cache directory),
+  keep it alive for the host lifetime, and register it with `document.UseVideo(video)`. The backend streams HTTPS sources directly, renders into a
   host-composited child window and uses a black native-video background. The package remains MIT
   licensed, carries pinned LibVLC dependencies with their LGPL notice, licence text and
   corresponding-source links, and keeps those
@@ -151,14 +169,20 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Changed
 
+- **Fullscreen video controls now hide themselves after 3 seconds of playback**, and any tap or
+  click brings them straight back without also pressing whatever was underneath. This is the
+  ENGINE, not one host: every host that drives `Animate` gets it, so a desktop or web app with a
+  fullscreen `<cupri-video>` behaves this way too, not only Android. Controls never hide while
+  paused, and leaving fullscreen always restores them.
+
 - **`VideoTracksChanged` and `VideoChaptersChanged` are now raised on the UI thread**, like
   `VideoEnded` and `VideoPlaybackStateChanged` beside them, instead of on whichever thread the
   backend parsed on. You no longer need `Post` in a handler. Two behaviour changes come with it:
   a backend that already knows its tracks announced them INLINE while the player was being opened —
   that is, during a rebuild, so a handler calling `Refresh()` re-entered the rebuild that raised it
   — and that notice now arrives on the next host pump instead, about a frame later. Read
-  `GetVideoAudioTracks` / `GetVideoChapters` directly if you need the data sooner; only the notice
-  is deferred, never the data.
+  `GetVideoAudioTracks` / `GetVideoSubtitleTracks` / `GetVideoChapters` directly if you need the
+  data sooner; only the notice is deferred, never the data.
 
 - **Breaking: a mouse press inside a `data-drag-scroll` box now activates on RELEASE in a hosted
   application.** `CupriApp.MouseActivation` defaults to `PointerActivation.OnRelease`, so a down + up
@@ -179,6 +203,19 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   `CF0053` names every element that needs one. (#302)
 
 ### Fixed
+
+- **A fling works on Android.** The host read only the newest pointer sample from each batched
+  `MotionEvent`, throwing away nearly all of the velocity evidence on a busy UI thread — so a
+  release often looked stationary and the scroller refused to fling at all. Every historical sample
+  is now copied before the event is recycled and replayed in timestamp order, which is what the
+  velocity estimate needs to see. Nothing to change in your app.
+
+- **Tapping a submenu parent in a `<cupri-context-menu>` now opens the fly-out.** A fly-out is
+  revealed by `:hover`, and touch has no hover phase, so a finger could reach a submenu's parent row
+  and nothing would happen — the menu stayed open around an item that appeared inert. A press on a
+  parent row now establishes the same hover chain a mouse would, and a second tap chooses from the
+  revealed child without dismissing the menu. `<cupri-video tracks>`'s Audio and Subtitles rows are
+  the case this was found on.
 
 - **A post now wakes a PARKED render thread, not just a polling one.** `HasActiveAnimations` reports
   pending work to a host that asks, but a `RENDERMODE_WHEN_DIRTY` GLSurfaceView has stopped asking —
