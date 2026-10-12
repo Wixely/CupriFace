@@ -98,6 +98,16 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   `GetVideoPlaybackState(src)`. Reapply a snapshot with `RestoreVideoPlaybackState`;
   track-discovering backends can retry from `VideoTracksChanged`.
 
+- **`samples/MediaWindows` runs the Windows media adapter in a real window.** The companion to
+  the `media-windows` CI gate, which cannot: the gate parents its video child to a hidden `STATIC`
+  window on a runner with no GPU, so neither D3D11VA hardware decode nor the child HWND composited
+  OVER a GL surface is ever exercised there. Both need a desktop, and this is how you look at them.
+  `dotnet run --project samples/MediaWindows -- <file>`, or the two **MediaWindows** entries in
+  `.vscode/launch.json`. No argument plays the repo's audio+video fixture; pass an MKV to exercise
+  several audio/subtitle tracks and chapters. It also prints what the document discovers through
+  `GetVideoAudioTracks` / `GetVideoSubtitleTracks` / `GetVideoChapters`, so a run leaves a readable
+  trace and not only a window.
+
 - **CI now loads LibVLC for real.** A `media-windows` job drives the shipped Windows adapter on a
   runner: it constructs the backend (so the single-file native discovery is exercised, not just
   asserted by the packaging gate), parents a child window to a real HWND, plays the repo's existing

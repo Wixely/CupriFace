@@ -132,6 +132,36 @@
       "stopAtEntry": false
     },
     {
+      // CupriFace.Media.Windows in a REAL window — the half tests/MediaWindowsGate says it cannot
+      // reach: D3D11VA hardware decode (the runner has no GPU) and the video child HWND composited
+      // over a GL surface (the gate parents its child to a hidden STATIC window).
+      //
+      // No args plays the repo's 9 KB demo.webm, which has one audio track and no chapters. Use the
+      // entry below to point it at a real MKV, which is what exercises track and chapter switching.
+      "name": "MediaWindows — LibVLC in a live window (stays open)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build-media-windows",
+      "program": "${workspaceFolder}/samples/MediaWindows/bin/Debug/net10.0/MediaWindows.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "stopAtEntry": false
+    },
+    {
+      // Same app, prompting for the file — an MKV with several audio/subtitle tracks and chapters is
+      // what makes the track menu and the chapter table worth looking at.
+      "name": "MediaWindows — LibVLC, pick a media file",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build-media-windows",
+      "program": "${workspaceFolder}/samples/MediaWindows/bin/Debug/net10.0/MediaWindows.dll",
+      "args": ["${input:mediaFile}"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "stopAtEntry": false
+    },
+    {
       // The optional CupriFace.Lottie package, opted into. Desktop only: Skottie rides the same
       // libSkiaSharp the engine loads, which the desktop hosts have; the web hosts are untested.
       "name": "LottieDemo — cupri-lottie (stays open)",
@@ -223,6 +253,13 @@
       "env": {
         "CUPRI_HEADLESS": "90"
       }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "mediaFile",
+      "type": "promptString",
+      "description": "Path to a media file (an MKV with multiple tracks/chapters shows the most)"
     }
   ]
 }

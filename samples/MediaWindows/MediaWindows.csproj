@@ -1,0 +1,39 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The OPTIONAL CupriFace.Media.Windows package, opted into and shown in a REAL window.
+       The companion to tests/MediaWindowsGate, which deliberately cannot do this.
+
+       The gate proves the adapter's native discovery, track enumeration and resume path on a CI
+       runner, and its own header lists the two things it cannot reach: D3D11VA hardware decode
+       (the runner has no GPU) and the video child HWND composited OVER a GL surface (the gate
+       parents its child to a hidden STATIC window, and the engine there takes the SDL software
+       path). Both of those need a real desktop with a real driver, which is exactly what running
+       this sample is.
+
+       Plain net10.0 and in the solution, like the adapter it references: the adapter targets
+       net10.0 too, so nothing here breaks a Linux or macOS restore. Off Windows the host simply
+       offers no Win32HostWindow feature, the adapter declines, and the element keeps its poster —
+       which is the feature registry working, and is worth being able to see. -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>CupriFace.Samples.MediaWindows</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CupriFace.Shell\CupriFace.Shell.csproj" />
+    <ProjectReference Include="..\..\src\CupriFace.Media.Windows\CupriFace.Media.Windows.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The repo's own 9 KB fixture, so the sample runs with no arguments — the audio+video one,
+         because demo.webm has no audio track at all and a media test that cannot report one is
+         answering the wrong question. Pass a path to a real MKV to exercise what neither fixture
+         can: several audio and subtitle tracks, chapters, and a hardware-decodable stream. -->
+    <None Include="..\DemoApp\Assets\demo-av.webm" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+
+</Project>

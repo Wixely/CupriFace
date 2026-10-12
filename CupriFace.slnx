@@ -20,6 +20,7 @@
     <Project Path="samples/KeyboardNav/KeyboardNav.csproj" />
     <Project Path="samples/LottieDemo/LottieDemo.csproj" />
     <Project Path="samples/MediaProbe/MediaProbe.csproj" />
+    <Project Path="samples/MediaWindows/MediaWindows.csproj" />
     <Project Path="samples/Motion/Motion.csproj" />
     <Project Path="samples/NativeControls/NativeControls.csproj" />
     <Project Path="samples/NumberInput/NumberInput.csproj" />
