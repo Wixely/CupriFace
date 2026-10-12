@@ -103,8 +103,10 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   window on a runner with no GPU, so neither D3D11VA hardware decode nor the child HWND composited
   OVER a GL surface is ever exercised there. Both need a desktop, and this is how you look at them.
   `dotnet run --project samples/MediaWindows -- <file>`, or the two **MediaWindows** entries in
-  `.vscode/launch.json`. No argument plays the repo's audio+video fixture; pass an MKV to exercise
-  several audio/subtitle tracks and chapters. It also prints what the document discovers through
+  `.vscode/launch.json`. No argument plays the repo's audio+video fixture; pass an MKV — or use the
+  sample's **Open a media file…** button, the real Windows open-file dialog — to exercise several
+  audio/subtitle tracks and chapters. The source is model-bound, so picking a second file retires
+  the first decoder and opens the new one without restarting. It also prints what the document discovers through
   `GetVideoAudioTracks` / `GetVideoSubtitleTracks` / `GetVideoChapters`, so a run leaves a readable
   trace and not only a window.
 

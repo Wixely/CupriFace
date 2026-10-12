@@ -20,6 +20,9 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!-- The open-file dialog is reached with LibraryImport (CLAUDE.md prefers it over DllImport for
+         AOT), and its generator emits unsafe code. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>CupriFace.Samples.MediaWindows</RootNamespace>
   </PropertyGroup>
 

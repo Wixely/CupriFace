@@ -113,25 +113,48 @@ internal static class Program
 }
 
 /// <summary>The app itself: one video with every opt-in capability turned on, so the control bar,
-/// the track menu and the chapter table are all on screen over a native surface.</summary>
+/// the track menu and the chapter table are all on screen over a native surface.
+///
+/// <para>The source is BOUND rather than baked into the markup, which is what lets the picker
+/// change it without restarting: players are keyed by <c>src</c>, and a rebuild retires any whose
+/// source is no longer in the DOM, so writing a new path into the model and calling
+/// <c>Refresh()</c> disposes the old decoder and opens the new one.</para></summary>
 internal sealed class MediaApp(string mediaPath) : CupriApp
 {
-    // file:// rather than a bare Windows path: a backslash-bearing path in an HTML attribute is a
-    // different question from a URI, and the engine resolves either — so pick the unambiguous one.
-    private readonly string _src = new Uri(mediaPath).AbsoluteUri;
-    private readonly string _name = Path.GetFileName(mediaPath);
+    private readonly MediaModel _model = new(mediaPath);
 
-    public override string Title => $"CupriFace — Windows media ({Path.GetFileName(mediaPath)})";
+    public override string Title => "CupriFace — Windows media";
     public override int Width => 980;
-    public override int Height => 680;
+    public override int Height => 700;
     public override SKColor Background => new(0x14, 0x17, 0x1d);
+    public override object Model => _model;
 
     // Audible autoplay is off by default because browsers reject it; this sample is native-only and
     // the whole point is to hear whether the audio track switched, so it opts in. (Documented in
     // RELEASE-NOTES under AllowUnmutedVideoAutoplay.)
     public override bool AllowUnmutedVideoAutoplay => true;
 
-    public override string Html => $$"""
+    public override void Configure(CupriDocument doc) =>
+        doc.OnClick(".pick", _ =>
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                doc.Toast("The picker is the Windows open-file dialog; pass a path on the command line instead.");
+                return;
+            }
+
+            // Modal: the window stops drawing until the dialog closes. Nothing is animating behind
+            // it that the user can reach, so that is the right trade rather than a defect.
+            if (FilePicker.Open() is not { Length: > 0 } picked) return;
+
+            Console.WriteLine($"picked  : {picked}");
+            _model.SetPath(picked);
+            doc.Refresh();      // retires the previous player and opens one for the new source
+        });
+
+    // NOT an interpolated raw string: `{{Src}}` has to survive into the markup for the BINDER to
+    // resolve, and `$$"""` would eat it as an interpolation hole at compile time.
+    public override string Html => """
         <body>
           <div class="wrap">
             <div class="title">CupriFace.Media.Windows — live window</div>
@@ -140,21 +163,23 @@ internal sealed class MediaApp(string mediaPath) : CupriApp
               bar and menus below paint on top of the picture, which is what a host-composited
               surface needs marking for.</p>
 
-            <cupri-video src="{{_src}}" controls tracks chapters autoplay
-                         label="{{_name}}" class="player"></cupri-video>
+            <cupri-video src="{{Src}}" controls tracks chapters autoplay
+                         label="{{Name}}" class="player"></cupri-video>
 
             <div class="row">
-              <cupri-button class="pick">Open a different file…</cupri-button>
-              <span class="hint">Right-click the picture for the audio/subtitle menu. Pass a path on
-                the command line to play a real MKV — the bundled fixture has one track and no
-                chapters, so it cannot show either off.</span>
+              <cupri-button class="pick">Open a media file…</cupri-button>
+              <span class="now">{{Name}}</span>
             </div>
+            <span class="hint">Right-click the picture for the audio/subtitle menu. An MKV with
+              several audio tracks and chapters is what makes the menu and the chapter table worth
+              looking at — the bundled fixture has one track and none.</span>
 
             <ul class="check">
               <li>Picture sits inside the element's box, and stays there while the window resizes.</li>
               <li>Control bar and track menu paint OVER the picture, not behind it.</li>
               <li>Seek jumps without freezing the UI — the adapter seeks off the UI thread.</li>
               <li>Fullscreen (⛶) goes to THIS monitor and comes back to the same bounds.</li>
+              <li>Opening a second file swaps the decoder without restarting the app.</li>
             </ul>
           </div>
         </body>
@@ -167,13 +192,29 @@ internal sealed class MediaApp(string mediaPath) : CupriApp
         .sub { color:#9aa6b8; font-size:13px; max-width:760px; margin:0; }
         .player { width:100%; height:380px; }
         .row { display:flex; align-items:center; gap:14px; }
-        .hint { color:#7d8798; font-size:12px; }
+        .now { color:#cfd6e2; font-size:13px; }
+        .hint { color:#7d8798; font-size:12px; max-width:760px; }
         .check { color:#9aa6b8; font-size:12.5px; }
         .check li { padding:2px 0; }
         """;
+}
 
-    public override void Configure(CupriDocument doc) =>
-        // Nothing to open from here — the file comes from the command line. Kept as the obvious
-        // place to add a picker, and so the button is not a dead control.
-        doc.OnClick(".pick", _ => doc.Toast("Pass a media path on the command line: MediaWindows <file>"));
+/// <summary>
+/// The bound state: which file is playing. <c>Src</c> is a <c>file://</c> URI rather than a bare
+/// Windows path — a backslash-bearing path in an HTML attribute is a different question from a URI,
+/// and the engine resolves either, so this picks the unambiguous one.
+/// </summary>
+public sealed class MediaModel
+{
+    public MediaModel(string path) => SetPath(path);
+
+    public string Src { get; private set; } = "";
+    public string Name { get; private set; } = "";
+
+    public void SetPath(string path)
+    {
+        var full = Path.GetFullPath(path);
+        Src = new Uri(full).AbsoluteUri;
+        Name = Path.GetFileName(full);
+    }
 }
