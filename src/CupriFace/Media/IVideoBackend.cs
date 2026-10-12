@@ -139,3 +139,12 @@ public interface IVideoChapterProvider
     /// <summary>Raised when chapters become available or the current chapter changes. Any thread.</summary>
     event Action? ChaptersChanged;
 }
+
+/// <summary>Optional transient buffering state for backends whose network or seek operations can
+/// outlive the input event that started them. The document uses it only for a non-blocking visual
+/// indicator; transport remains available while buffering.</summary>
+public interface IVideoBufferingState
+{
+    bool Buffering { get; }
+    event Action? BufferingChanged;
+}

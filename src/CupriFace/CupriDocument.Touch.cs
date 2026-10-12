@@ -34,8 +34,11 @@ public sealed partial class CupriDocument
     /// taps and <see cref="DispatchClick"/> for mouse buttons; the engine cannot tell the two apart
     /// from coordinates alone, and must not guess, because a mouse that snapped would be a bug.
     /// </summary>
-    public bool DispatchTap(float x, float y, int clickCount = 1) =>
-        Bump(DispatchClickCore(Zc(x), Zc(y), clickCount, Zc(TouchAdjustRadius)));
+    public bool DispatchTap(float x, float y, int clickCount = 1)
+    {
+        if (RevealFullscreenVideoControls()) return true;
+        return Bump(DispatchClickCore(Zc(x), Zc(y), clickCount, Zc(TouchAdjustRadius)));
+    }
 
     /// <summary>Move a tap that hit nothing interactive onto the nearest interactive element within
     /// <paramref name="radius"/> (document units). Returns the original triple when the tap already

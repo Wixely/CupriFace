@@ -91,8 +91,9 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
   field, so the browser's own editor, IME and password manager work on what the canvas paints.
 - **Android** — the same `CupriApp` on a phone: `CupriFace.Android` brings a GL surface,
   touch gestures (tap-on-release, momentum fling, long-press), the soft keyboard with real
-  IME composition, and TalkBack. CoreCLR runtime, ~20 MB APK, driven end-to-end on an
-  emulator by CI.
+  IME composition, and TalkBack. CoreCLR runtime, driven end-to-end on an emulator by CI. Video is
+  **not** included: the optional `CupriFace.Media.Android` package brings it, so an app that shows
+  none carries neither LibVLC's native libraries nor its licence terms.
 - **Video** — `<cupri-video>` with engine-drawn controls and fullscreen. The browser decodes
   on the web host (no codecs in the wasm binary); on desktop the optional `CupriFace.Media`
   package plays WebM (VP9 + Opus) with decoders for every desktop RID in **one** package —
@@ -116,10 +117,11 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 |---|---|
 | `src/CupriFace` | The engine (DOM, CSS, layout, text, paint, binding, components) |
 | `src/CupriFace.Shell` | Desktop windows: GL (GLFW) by default, or SDL — software present, or its own GL context with `CUPRIFACE_SDL_GL=1` — with multi-touch, per-monitor DPI, layered alpha on Windows, and the profiler HUD |
-| `src/CupriFace.Android` | Android host: `CupriActivity` + GL surface + touch/IME + TalkBack bridge (needs `dotnet workload install android`) |
+| `src/CupriFace.Android` | Android host: `CupriActivity` + GL surface + touch/IME + TalkBack bridge — no decoder (needs `dotnet workload install android`) |
 | `src/CupriFace.Web.NativeAot` | **Recommended browser host**, compiled AOT (NativeAOT-LLVM): `WebHost.Run` + canvas blit + touch/IME + ARIA mirror + browser-decoded video (no Blazor). Experimental toolchain, builds on x64 Windows and x64/arm64 Linux |
 | `src/CupriFace.Web.Mono` | The same browser host on the Mono wasm runtime — identical `WebHost.Run`, builds anywhere, engine runs interpreted. The fallback when the preview feed is not an option |
 | `src/CupriFace.Media` | Optional: WebM (VP9 + Opus) video for `<cupri-video>` on desktop |
+| `src/CupriFace.Media.Android` | Optional: LibVLC video for `<cupri-video>` on Android — audio/subtitle tracks, chapters, network seeking, media-session controls. MIT code, **LGPL** VideoLAN native libraries (see its `THIRD-PARTY-NOTICES.md`); CupriFace itself stays MIT |
 | `src/CupriFace.Media.Windows` | Optional Windows hardware video: LibVLC/D3D11VA in an embedded child window; LGPL dependencies are isolated here |
 | `src/CupriFace.Gl` | Optional: an OpenGL viewport bound to an element — the `IGpuSurfaceSource` seam packaged, on all three hosts |
 | `src/CupriFace.Lottie` | Optional: Lottie (After Effects JSON) playback via `<cupri-lottie>`, through Skia's own Skottie — managed only |
@@ -244,6 +246,11 @@ DesktopHost.Run(new SettingsApp());                    // desktop  (GL → SDL w
 ```csharp
 public sealed class MainActivity : CupriActivity {     // Android (GL surface, touch, IME, TalkBack)
     protected override CupriApp CreateApp() => new SettingsApp();
+    protected override bool PreferLandscapeFullscreen => true; // optional, useful for video apps
+    // Video is opt-in — reference CupriFace.Media.Android and hand the host a backend.
+    // Apps targeting Android 13+ also need POST_NOTIFICATIONS for shade controls.
+    protected override IAndroidVideoBackend? CreateVideoBackend(AndroidVideoServices s)
+        => new VlcVideoBackend(s);
 }
 ```
 

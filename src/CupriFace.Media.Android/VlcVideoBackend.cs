@@ -1,10 +1,12 @@
 ﻿using Android.Content;
-using Android.Views;
 using Android.Widget;
+using CupriFace.Android;
 using CupriFace.Media;
+using LibVLCSharp.Shared;
+using AndroidVlcVideoView = LibVLCSharp.Platforms.Android.VideoView;
 using VideoSource = CupriFace.Media.VideoSource;
 
-namespace CupriFace.Android;
+namespace CupriFace.Media.Android;
 
 /// <summary>
 /// Opens <c>&lt;cupri-video&gt;</c> sources with the platform's decoder, and keeps each player's
@@ -14,53 +16,55 @@ namespace CupriFace.Android;
 /// and web backends: <c>CupriActivity</c> attaches it, so an app's markup is identical on every
 /// platform and only the decoder differs.
 /// </summary>
-internal sealed class AndroidVideoBackend : IVideoBackend
+public sealed class VlcVideoBackend : IAndroidVideoBackend
 {
     private readonly Context _context;
     private readonly FrameLayout _underlays;      // sits BEHIND the GL surface
     private readonly Action _invalidate;
     private readonly Action<Action> _runOnUi;
     private readonly List<AndroidPlayer> _players = new();
+    private readonly AndroidMediaSession _mediaSession;
+    private readonly LibVLC _libVlc;
 
-    internal AndroidVideoBackend(Context context, FrameLayout underlays, Action invalidate, Action<Action> runOnUi)
+    /// <summary>Construct from the services the host hands to
+    /// <c>CupriActivity.CreateVideoBackend</c>. Initialising LibVLC here, rather than at type load,
+    /// keeps an app that never overrides that hook from loading the native libraries at all.</summary>
+    public VlcVideoBackend(AndroidVideoServices services)
     {
-        _context = context;
-        _underlays = underlays;
-        _invalidate = invalidate;
-        _runOnUi = runOnUi;
+        ArgumentNullException.ThrowIfNull(services);
+        _context = services.Context;
+        _underlays = services.Underlays;
+        _invalidate = services.Invalidate;
+        _runOnUi = services.RunOnUi;
+        _mediaSession = new AndroidMediaSession(services.Context, services.RunOnUi);
+        Core.Initialize();
+        _libVlc = new LibVLC("--no-video-title-show", "--no-snapshot-preview");
     }
 
     internal void Invalidate() => _invalidate();
+    internal void PlayerStateChanged(AndroidPlayer player) => _mediaSession.Update(player);
 
     /// <summary>True while any player can show pixels — the paint path only needs to hand back
     /// transparent holes once something is actually underneath them.</summary>
-    internal bool AnyReady
+    public bool AnyReady
     {
         get { lock (_players) { foreach (var p in _players) if (p.Ready) return true; } return false; }
     }
 
     public IVideoPlayer Open(VideoSource source)
     {
-        var player = new AndroidPlayer(this, source);
+        var player = new AndroidPlayer(this, _libVlc, source);
         lock (_players) _players.Add(player);
 
         _runOnUi(() =>
         {
-            // A SurfaceView, not a TextureView: it is the composited path the platform's decoders
-            // write into directly, which is what makes this zero-copy. It is added at index 0 so
-            // it stays beneath the translucent GL surface the engine paints on.
-            var view = new SurfaceView(_context);
-            view.SetZOrderMediaOverlay(false);
-            // VISIBLE from birth, at 1x1: an INVISIBLE SurfaceView is never given a surface, so
-            // its holder callback never fires and no decoder is ever attached — which is exactly
-            // how the first version reached CI with a video that never opened. A 1x1 view in the
-            // corner shows nothing; SyncRects gives it a real rect on the next painted frame.
+            // LibVLC's VideoView owns the Android AWindow/surfaces. It is added at index 0 so it
+            // remains beneath the translucent GL surface where CupriFace punches the video hole.
+            var view = new AndroidVlcVideoView(_context);
             var lp = new FrameLayout.LayoutParams(1, 1);
             view.LayoutParameters = lp;
-            view.Visibility = ViewStates.Visible;
-            view.Holder!.AddCallback(new HolderCallback(player));
-            player.View = view;
             _underlays.AddView(view, 0);
+            player.AttachView(view);
         });
         return player;
     }
@@ -68,9 +72,15 @@ internal sealed class AndroidVideoBackend : IVideoBackend
     internal void Close(AndroidPlayer player)
     {
         lock (_players) _players.Remove(player);
+        _mediaSession.Remove(player);
         var view = player.View;
         player.View = null;
-        if (view is not null) _runOnUi(() => _underlays.RemoveView(view));
+        if (view is not null) _runOnUi(() =>
+        {
+            view.MediaPlayer = null;
+            _underlays.RemoveView(view);
+            view.Dispose();
+        });
     }
 
     /// <summary>MediaPlayer wants a path or descriptor, and the engine resolves every media source
@@ -104,7 +114,7 @@ internal sealed class AndroidVideoBackend : IVideoBackend
     /// <summary>Called after each painted frame: move every underlay to its element's on-screen
     /// box, in PHYSICAL pixels. The engine has already punched a transparent hole there, so the
     /// two must agree to the pixel or the video shows a seam.</summary>
-    internal void SyncRects(CupriDocument doc, float inputScale)
+    public void SyncRects(CupriDocument doc, float inputScale)
     {
         List<AndroidPlayer> snapshot;
         lock (_players)
@@ -150,7 +160,7 @@ internal sealed class AndroidVideoBackend : IVideoBackend
 
     // Off-screen and 1x1 — not hidden. See the note where the view is created: visibility is what
     // decides whether a SurfaceView has a surface at all.
-    private static void Park(SurfaceView view)
+    private static void Park(AndroidVlcVideoView view)
     {
         if (view.LayoutParameters is not FrameLayout.LayoutParams lp) return;
         lp.Width = 1; lp.Height = 1; lp.LeftMargin = -10; lp.TopMargin = -10;
@@ -166,15 +176,12 @@ internal sealed class AndroidVideoBackend : IVideoBackend
         return null;
     }
 
-    private sealed class HolderCallback(AndroidPlayer player) : global::Java.Lang.Object, ISurfaceHolderCallback
+    public void Dispose()
     {
-        public void SurfaceCreated(ISurfaceHolder holder)
-        {
-            if (holder.Surface is { } s) player.AttachSurface(s);
-        }
-
-        public void SurfaceChanged(ISurfaceHolder holder, global::Android.Graphics.Format format, int w, int h) { }
-
-        public void SurfaceDestroyed(ISurfaceHolder holder) { }
+        AndroidPlayer[] players;
+        lock (_players) players = _players.ToArray();
+        foreach (var player in players) player.Dispose();
+        _mediaSession.Dispose();
+        _libVlc.Dispose();
     }
 }

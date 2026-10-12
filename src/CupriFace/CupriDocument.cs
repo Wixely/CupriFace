@@ -474,6 +474,9 @@ public sealed partial class CupriDocument : IDisposable
     private readonly System.Collections.Concurrent.ConcurrentQueue<string> _videoTracksFound = new();
     private readonly System.Collections.Concurrent.ConcurrentQueue<string> _videoChaptersFound = new();
     private string? _fullscreenVideo; // src of the video currently element-fullscreened (web model: one at most)
+    private const double FullscreenVideoControlsSeconds = 3;
+    private double _videoControlsHideAt = double.NaN;
+    private bool _videoControlsHidden;
 
     /// <summary>Allow an unmuted video with <c>autoplay</c> to start immediately. The default is
     /// false because browsers reject audible autoplay; native applications may opt in explicitly.</summary>
@@ -670,7 +673,7 @@ public sealed partial class CupriDocument : IDisposable
             }
             // The fresh DOM starts windowed; re-mark the fullscreen one each rebuild.
             if (src == _fullscreenVideo)
-                Components.Controls.VideoComponent.ApplyFullscreenState(el);
+                Components.Controls.VideoComponent.ApplyFullscreenState(el, _videoControlsHidden);
         }
 
         // Each companion track form, refreshed against its video's player — including the ones whose
@@ -749,6 +752,8 @@ public sealed partial class CupriDocument : IDisposable
             chapters.ChaptersChanged += () => QueueVideoNotice(_videoChaptersFound, src);
             if (chapters.Chapters.Count > 0) QueueVideoNotice(_videoChaptersFound, src);
         }
+        if (player is Media.IVideoBufferingState buffering)
+            buffering.BufferingChanged += () => System.Threading.Interlocked.Exchange(ref _videoStateChanged, 1);
         player.Loop = el.HasAttribute("data-video-loop");
         player.Muted = el.HasAttribute("data-video-muted");
         // Browsers reject audible autoplay, so muted remains the portable default. A native app can
@@ -778,6 +783,8 @@ public sealed partial class CupriDocument : IDisposable
         {
             var entering = _fullscreenVideo != src;
             _fullscreenVideo = entering ? src : null;
+            _videoControlsHidden = false;
+            _videoControlsHideAt = double.NaN;
             WindowCommandRequested?.Invoke(entering
                 ? Interaction.WindowCommand.EnterFullscreen
                 : Interaction.WindowCommand.ExitFullscreen);
@@ -849,6 +856,8 @@ public sealed partial class CupriDocument : IDisposable
     {
         if (active || _fullscreenVideo is null) return;
         _fullscreenVideo = null;
+        _videoControlsHidden = false;
+        _videoControlsHideAt = double.NaN;
         Refresh();
     }
 
@@ -1460,6 +1469,19 @@ public sealed partial class CupriDocument : IDisposable
     public bool Animate(double timeSeconds)
     {
         var any = false;
+        if (_fullscreenVideo is not null && !_videoControlsHidden
+            && _videoPlayers.TryGetValue(_fullscreenVideo, out var fullscreenPlayer)
+            && fullscreenPlayer.Playing)
+        {
+            if (double.IsNaN(_videoControlsHideAt)) _videoControlsHideAt = timeSeconds + FullscreenVideoControlsSeconds;
+            if (timeSeconds >= _videoControlsHideAt)
+            {
+                _videoControlsHidden = true;
+                _videoControlsHideAt = double.NaN;
+                Rebuild();
+            }
+            else any = true;
+        }
         // Advance the toast stack first: a phase flip rebuilds and Detects a new opacity/transform target,
         // so the transition below applies it the SAME frame — the toast starts from its off-screen state
         // instead of flashing at the target for one frame before the transition kicks in.
@@ -1514,7 +1536,9 @@ public sealed partial class CupriDocument : IDisposable
     /// set only changes when the tree does), so a host may poll it every frame for free. Also true
     /// while a masked field peeks its last-typed char (see <see cref="HasActiveTransitions"/>),
     /// and while any live surface (a playing video) is producing frames.</summary>
-    public bool HasActiveAnimations => (_hasActiveAnim && _animRunning) || _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || Surfaces.AnyTicking || FlingActive || OverscrollActive || _pendingNav is not null || !_posted.IsEmpty;
+    public bool HasActiveAnimations => (_hasActiveAnim && _animRunning) || _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || Surfaces.AnyTicking || FlingActive || OverscrollActive || _pendingNav is not null || !_posted.IsEmpty
+        || (_fullscreenVideo is { } fullscreenSource && !_videoControlsHidden
+            && _videoPlayers.TryGetValue(fullscreenSource, out var fullscreenPlayer) && fullscreenPlayer.Playing);
     private bool _hasActiveAnim;
     private bool _animRunning = true;
 
@@ -3190,11 +3214,24 @@ public sealed partial class CupriDocument : IDisposable
     /// toggle, slider set) and user handlers along the bubble path, write back to the
     /// bound model, and refresh. Returns true if anything handled it (→ needs repaint).
     /// </summary>
-    public bool DispatchClick(float x, float y, int clickCount = 1) =>
-        Outermost
+    public bool DispatchClick(float x, float y, int clickCount = 1)
+    {
+        if (RevealFullscreenVideoControls()) return true;
+        return Outermost
             ? Observe(Interaction.InputSource.Pointer, $"click {x:0},{y:0}", Interaction.InputRoute.Navigate,
                       () => Bump(DispatchClickCore(Zc(x), Zc(y), clickCount)))
             : Bump(DispatchClickCore(Zc(x), Zc(y), clickCount));
+    }
+
+    private bool RevealFullscreenVideoControls()
+    {
+        if (_fullscreenVideo is null) return false;
+        _videoControlsHideAt = double.NaN;
+        if (!_videoControlsHidden) return false;
+        _videoControlsHidden = false;
+        Refresh();
+        return true;
+    }
     private bool DispatchClickCore(float x, float y, int clickCount, float adjustRadius = 0f)
     {
         EnsureLaidOut();
@@ -3220,7 +3257,14 @@ public sealed partial class CupriDocument : IDisposable
         {
             var ctxHit = HitTesting.HitTest(_root, x, y);
             if (!InCustomContextMenu(ctxHit)) { _ctxCustomIndex = -1; Refresh(); return true; } // outside → dismiss
-            if (!OnLeafMenuItem(ctxHit)) return true;                                            // parent/padding → keep open
+            if (!OnLeafMenuItem(ctxHit))
+            {
+                // A mouse reveals a fly-out through :hover. Touch has no hover phase, so tapping
+                // a submenu parent must deliberately establish the same hover chain. A second tap
+                // can then choose the now-visible child without dismissing the custom menu.
+                if (OnParentMenuItem(ctxHit)) UpdateHover(x, y);
+                return true;                                                                      // parent/padding → keep open
+            }
             _ctxCustomIndex = -1;                                                                // leaf → close, then fall through
         }
 
@@ -5859,6 +5903,14 @@ public sealed partial class CupriDocument : IDisposable
         for (; n is not null; n = n.Parent)
             if (n.Element?.ClassList.Contains("cupri-menu-item") == true)
                 return !n.Element.ClassList.Contains("cupri-menu-parent");
+        return false;
+    }
+
+    private static bool OnParentMenuItem(RenderNode? n)
+    {
+        for (; n is not null; n = n.Parent)
+            if (n.Element?.ClassList.Contains("cupri-menu-item") == true)
+                return n.Element.ClassList.Contains("cupri-menu-parent");
         return false;
     }
 

@@ -646,6 +646,32 @@ public class VideoComponentTests
     }
 
     [Fact]
+    public void Fullscreen_controls_hide_after_inactivity_and_first_tap_only_reveals_them()
+    {
+        var backend = new FakeBackend();
+        using var t = new TestDoc(
+            "<body><cupri-video src='clip.webm' controls style='width:320px;height:180px'></cupri-video></body>",
+            "", components: true, width: 800, height: 500);
+        t.Doc.UseVideo(backend);
+        t.Layout();
+        t.ClickMatch(n => n.Element?.GetAttribute("data-video-cmd") == "fullscreen");
+        t.Doc.DispatchClick(400, 200); // start playback
+        Assert.True(backend.Players["clip.webm"].Playing);
+
+        t.Doc.Animate(1);
+        t.Doc.Animate(4.1);
+        t.Layout();
+        Assert.Contains("cupri-video-controls-hidden",
+            t.Find(n => n.Element?.GetAttribute("data-cupri-video") == "clip.webm")!.Element!.ClassList);
+
+        Assert.True(t.Doc.DispatchTap(400, 200));
+        t.Layout();
+        Assert.DoesNotContain("cupri-video-controls-hidden",
+            t.Find(n => n.Element?.GetAttribute("data-cupri-video") == "clip.webm")!.Element!.ClassList);
+        Assert.True(backend.Players["clip.webm"].Playing); // reveal did not also pause
+    }
+
+    [Fact]
     public void Escape_exits_video_fullscreen_and_releases_the_window()
     {
         using var t = new TestDoc(Html, "", components: true, width: 800, height: 500);

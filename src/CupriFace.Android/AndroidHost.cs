@@ -27,7 +27,9 @@ public sealed class AndroidHost : IDisposable
     public sealed record Snapshot(int ContentVersion, float LogicalWidth, float LogicalHeight,
         float InputScale, TextInputState TextInput);
 
-    internal const string Tag = "cupri";                 // the logcat channel the CI gate asserts on
+    /// <summary>The logcat channel the CI gate asserts on. Public because a video backend in
+    /// another package logs to the same channel — the gate greps one tag, not several.</summary>
+    public const string Tag = "cupri";
 
     private CupriApp _app;
     private CupriDocument _doc;
@@ -292,20 +294,32 @@ public sealed class AndroidHost : IDisposable
     // The platform decodes; the engine paints a hole. Attached by CupriActivity once it has a
     // container to put underlays in — an app's markup is identical on every host, only the
     // decoder differs (desktop ships codecs, the browser and Android use the platform's).
-    private AndroidVideoBackend? _video;
+    private IAndroidVideoBackend? _video;
 
-    internal void UseVideo(global::Android.Content.Context context, global::Android.Widget.FrameLayout underlays)
+    /// <summary>Attach a video backend. The host does NOT bring a decoder: the backend comes from
+    /// a separate package (<c>CupriFace.Media.Android</c>) or from the application, exactly as the
+    /// desktop shell takes <c>CupriFace.Media</c>, so an app with no video carries no native media
+    /// libraries. <c>CupriActivity</c> calls this when
+    /// <c>CupriActivity.CreateVideoBackend</c> returns one.</summary>
+    public void UseVideo(IAndroidVideoBackend backend)
     {
-        _video = new AndroidVideoBackend(context, underlays, MarkDirty, RunOnUi);
-        _doc.UseVideo(_video);
+        ArgumentNullException.ThrowIfNull(backend);
+        _video = backend;
+        _doc.UseVideo(backend);
     }
+
+    /// <summary>The services a backend in another package needs to construct itself; the activity
+    /// supplies the view layer it owns.</summary>
+    internal AndroidVideoServices VideoServices(global::Android.Content.Context context,
+                                                global::Android.Widget.FrameLayout underlays) =>
+        new(context, underlays, MarkDirty, RunOnUi);
 
     /// <summary>True while a video underlay can show pixels: the frame must then clear to
     /// TRANSPARENT so the engine's punched hole actually reveals what is beneath it. With no
     /// video ready this stays false and the app paints its opaque background exactly as before.</summary>
     private bool VideoUnderlayReady => _video?.AnyReady == true;
 
-    private void RunOnUi(Action action)
+    internal void RunOnUi(Action action)
     {
         if (_view?.Handler is { } h) h.Post(action);
         else action();
@@ -471,28 +485,47 @@ public sealed class AndroidHost : IDisposable
         _wasFlinging = _doc.FlingActive;
 
         // Render-on-demand's other half: WHEN_DIRTY parks the GL thread after this frame, so an
-        // active animation must chain the next one itself. Image arrivals ride the same check.
-        // Continuous animation, at the app's ceiling (CupriApp.MaxFrameRateFor, default 120 on every
-        // host). This host had no ceiling and the web hosts had a hard-coded 30 fps; one shared knob
-        // replaces both. An image ARRIVING is not continuous animation and is never throttled.
-        //
-        // The density and the dp size are this frame's own, so an app that wants 60 on a phone and
-        // 120 on a tablet has the numbers to say so (#227).
-        if (_doc.HasActiveAnimations &&
-            FrameCeiling.Due(_clock.Elapsed.TotalSeconds, _lastAnimFrame,
-                _app.MaxFrameRateFor(new DeviceProfile(HostKind.Android, density, dpW, dpH))))
+        // active animation must arrange a FUTURE wake itself. Requesting immediately and then
+        // rejecting an early frame at the rate ceiling parks the thread forever: there is nobody
+        // left to notice when that frame becomes due. Schedule the wake for the next permitted
+        // instant instead. This is especially visible for a fling, whose release frame often lands
+        // only a millisecond or two after the last drag frame.
+        if (_doc.HasActiveAnimations)
         {
-            _lastAnimFrame = _clock.Elapsed.TotalSeconds;
-            MarkDirty();
+            var interval = FrameCeiling.IntervalSeconds(
+                _app.MaxFrameRateFor(new DeviceProfile(HostKind.Android, density, dpW, dpH)));
+            ScheduleAnimationWake(interval);
         }
         if (_doc.ConsumeImageArrived()) MarkDirty();
     }
 
-    private double _lastAnimFrame = double.NaN;   // NaN = nothing animated yet, so the first frame is due
+    private int _animationWakePending;
     private bool _wasFlinging;
     private TalkBackBridge? _talkBack;
     private int _a11yVersion = -1;
     private float _a11yWidth, _a11yHeight;
+
+    /// <summary>Wake a WHEN_DIRTY surface for the next animation frame without stacking one UI
+    /// callback per render. Android's handler supplies the clock wait; RequestRender remains the
+    /// only cross-thread operation and the document stays exclusively on the GL thread.</summary>
+    private void ScheduleAnimationWake(double delaySeconds)
+    {
+        if (Interlocked.Exchange(ref _animationWakePending, 1) != 0) return;
+
+        var delayMs = delaySeconds <= 0 ? 0L : Math.Max(1L, (long)Math.Ceiling(delaySeconds * 1000));
+        if (_view?.Handler is not { } handler)
+        {
+            Volatile.Write(ref _animationWakePending, 0);
+            MarkDirty();
+            return;
+        }
+
+        handler.PostDelayed(() =>
+        {
+            Volatile.Write(ref _animationWakePending, 0);
+            if (_doc.HasActiveAnimations) MarkDirty();
+        }, delayMs);
+    }
 
     /// <summary>An accessibility client asked the view for its provider: start publishing, and
     /// force a frame so the first query doesn't read an empty tree.</summary>
@@ -741,6 +774,7 @@ public sealed class AndroidHost : IDisposable
     {
         _doc.FrameRequested -= MarkDirty;
         _doc.Dispose();
+        _video?.Dispose();
     }
 
     private static bool _consoleBridged;

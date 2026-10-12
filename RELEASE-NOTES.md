@@ -17,6 +17,28 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **Android video, in a NEW optional package: `CupriFace.Media.Android`.** LibVLC-backed, it
+  exposes embedded audio/subtitle tracks and chapters, performs potentially blocking remote seeks
+  away from the UI thread, reports optional `IVideoBufferingState`, keeps long track menus usable on
+  phone-sized viewports, and auto-hides fullscreen controls until the next tap.
+
+  **It is a separate package on purpose, and `CupriFace.Android` no longer carries a decoder at
+  all.** VideoLAN's native libraries weigh tens of megabytes across the ABIs and are LGPL, which an
+  app redistributing them has to honour — so an app with no `<cupri-video>` in it now pays for
+  neither. **To play video on Android, reference `CupriFace.Media.Android` and override
+  `CupriActivity.CreateVideoBackend`:**
+
+  ```csharp
+  protected override IAndroidVideoBackend? CreateVideoBackend(AndroidVideoServices services)
+      => new VlcVideoBackend(services);
+  ```
+
+  That mirrors the desktop shell, which has always taken its decoder from `CupriFace.Media` rather
+  than shipping one. A host of your own can implement `IAndroidVideoBackend` instead. Packages
+  redistributing the native libraries must retain the bundled VideoLAN LGPL notice and licence
+  assets, which now travel with the media package. Apps targeting Android 13 or later still need
+  `POST_NOTIFICATIONS` for playback controls in the notification shade.
+
 - **Video completion is observable.** Subscribe to `VideoEnded` to start follow-on playback after a
   source reaches its natural end. It is raised **on the UI thread**, just before the rebuild that
   follows, so a handler may swap the source directly and have it land in the same frame — no `Post`
