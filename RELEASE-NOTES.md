@@ -34,10 +34,40 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   ```
 
   That mirrors the desktop shell, which has always taken its decoder from `CupriFace.Media` rather
-  than shipping one. A host of your own can implement `IAndroidVideoBackend` instead. Packages
-  redistributing the native libraries must retain the bundled VideoLAN LGPL notice and licence
-  assets, which now travel with the media package. Apps targeting Android 13 or later still need
-  `POST_NOTIFICATIONS` for playback controls in the notification shade.
+  than shipping one. A host of your own can implement `IAndroidVideoBackend` instead.
+
+  **Your APP must also reference the native package itself**, or it builds fine and throws on the
+  device:
+
+  ```xml
+  <PackageReference Include="VideoLAN.LibVLC.Android" Version="3.6.5" />
+  ```
+
+  VideoLAN ships `libvlc.so` from its `build\*.targets`, as `AndroidNativeLibrary` items
+  conditioned on the ABIs or `RuntimeIdentifiers` of the project importing them — and NuGet imports
+  a package's `build\*.targets` only into the project that references that package. In a LIBRARY
+  both properties are empty, so the declaration in `CupriFace.Media.Android` contributes no native
+  library at all; in an APP the Android SDK has set `RuntimeIdentifiers`, so the same declaration
+  there contributes one. Referencing `CupriFace.Media.Android` alone therefore gets you the managed
+  binding with no `.so` behind it, and nothing fails until LibVLC is constructed.
+  `samples/AndroidViewer` is the worked example.
+
+  Budget for the size: `libvlc.so` is ~43 MB per ABI (51 MB for x86_64), so narrow
+  `RuntimeIdentifiers` to the ABIs you ship — the sample pins `android-x64` for the emulator gate
+  and lands at 47 MB.
+
+  One build warning is expected and is **not** a blocker: **XA0141**, because every native library
+  in LibVLC 3.6.5 is 4 KB-page-aligned (`p_align=0x1000`) rather than 16 KB. Despite the warning's
+  wording this does not stop it running on Android 16 — 16 KB pages are a per-DEVICE configuration,
+  4 KB-aligned libraries load normally on a 4 KB-page device, and even a 16 KB device offers a
+  backcompat mode. Playback has been confirmed on real Android 16 hardware. What it does affect is
+  **Google Play**, which requires apps targeting API 35+ to support 16 KB pages for updates
+  published from **1 February 2027** — so a shipping app needs VideoLAN to realign before then, or
+  a `libvlc.so` of its own.
+
+  Packages redistributing the native libraries must retain the bundled VideoLAN LGPL notice and
+  licence assets, which now travel with the media package. Apps targeting Android 13 or later still
+  need `POST_NOTIFICATIONS` for playback controls in the notification shade.
 
 - **Video completion is observable.** Subscribe to `VideoEnded` to start follow-on playback after a
   source reaches its natural end. It is raised **on the UI thread**, just before the rebuild that

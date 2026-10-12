@@ -20,6 +20,19 @@
          forensics in samples/AndroidProbe/MONO-CRASH.md). The nupkg carries this default via
          buildTransitive; a ProjectReference does not, hence explicit here. -->
     <UseMonoRuntime>false</UseMonoRuntime>
+    <!-- One ABI, for the Android CI gate's sake. Opting into LibVLC costs ~43 MB of libvlc.so PER
+         ABI, which took this APK from 49 MB to 91 MB at the default two — and the gate installs it
+         on an x86_64 emulator, so the arm64 copy is 43 MB the gate pays to never load. A SIZE
+         choice, not a correctness one: the PackageReference below is what makes the native library
+         package at all. Widen it to sideload onto a real phone (`android-arm64`).
+         RuntimeIdentifiers and not AndroidSupportedAbis: the latter is no longer supported and
+         warns XA0036, and VideoLAN's targets read either. -->
+    <RuntimeIdentifiers>android-x64</RuntimeIdentifiers>
+    <!-- NAMED ABIs, because LibVLC's native libraries depend on it. VideoLAN.LibVLC.Android adds
+         its libvlc.so through AndroidNativeLibrary items conditioned on AndroidSupportedAbis (or
+         RuntimeIdentifiers) CONTAINING each abi - so a project that names neither, which is the
+         default, packages the managed binding and no native library at all. Nothing fails at
+         build time; LibVLC throws when it is constructed, on a device. -->
   </PropertyGroup>
 
   <ItemGroup>
@@ -29,6 +42,20 @@
          every host and must not carry a renderer. -->
     <ProjectReference Include="..\Khalkos3dBridge\Khalkos3dBridge.csproj" />
     <ProjectReference Include="..\..\src\CupriFace.Android\CupriFace.Android.csproj" />
+    <!-- Video is opt-in since the decoder left the host package: MobileApp and ShowcaseApp both
+         show a <cupri-video>, so this sample asks for a backend. An Android app that shows none
+         should NOT reference this - it is what carries LibVLC's native libraries (tens of MB
+         across the ABIs) and their LGPL terms. See MainActivity.CreateVideoBackend. -->
+    <ProjectReference Include="..\..\src\CupriFace.Media.Android\CupriFace.Media.Android.csproj" />
+    <!-- …and the native package DIRECTLY. This is the line that matters, and a ProjectReference
+         cannot stand in for it: VideoLAN ships libvlc.so from its build\*.targets, which NuGet
+         imports only into the project that references the package itself, and those items are
+         conditioned on the ABIs/RuntimeIdentifiers of THAT project. A library has neither (both
+         properties are empty there), so declaring it in CupriFace.Media.Android creates no native
+         library at all; an app has RuntimeIdentifiers from the Android SDK, so declaring it here
+         does. Without this line the app gets the managed binding and no .so, builds perfectly, and
+         throws when LibVLC is constructed. -->
+    <PackageReference Include="VideoLAN.LibVLC.Android" Version="3.6.5" />
   </ItemGroup>
 
 </Project>

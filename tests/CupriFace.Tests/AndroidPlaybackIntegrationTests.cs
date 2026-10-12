@@ -179,6 +179,49 @@ public class AndroidPlaybackIntegrationTests
         }
     }
 
+    /// <summary>
+    /// The in-repo consumer must actually be able to PLAY, and one line decides it — a line that
+    /// looks redundant beside the ProjectReference above it and would not survive a tidy-up.
+    ///
+    /// <para>VideoLAN.LibVLC.Android ships <c>libvlc.so</c> from its <c>build\*.targets</c>, as
+    /// AndroidNativeLibrary items conditioned on the ABIs or RuntimeIdentifiers of the project
+    /// importing them — and NuGet imports those targets only into the project that references the
+    /// package. Measured here: in a LIBRARY both properties are empty
+    /// (CupriFace.Media.Android: AndroidSupportedAbis="", RuntimeIdentifiers=""), so declaring it
+    /// there contributes nothing; in an APP the Android SDK has set them
+    /// (AndroidViewer: RuntimeIdentifiers="android-x64"), so declaring it here contributes the
+    /// library. Referencing CupriFace.Media.Android alone yields the managed binding with no .so
+    /// behind it, and nothing fails until LibVLC is constructed — on a device, which is the one
+    /// place this suite cannot look.</para>
+    ///
+    /// <para>RuntimeIdentifiers is a SIZE choice rather than a correctness one (libvlc.so is ~43 MB
+    /// per ABI) and is asserted only because the emulator gate installs this APK.</para>
+    /// </summary>
+    [Fact]
+    public void The_android_sample_packages_the_native_decoder_it_opts_into()
+    {
+        var sample = Sample("AndroidViewer", "AndroidViewer.csproj");
+
+        Assert.Contains("CupriFace.Media.Android.csproj", sample, StringComparison.Ordinal);
+        Assert.Contains("VideoLAN.LibVLC.Android", sample, StringComparison.Ordinal);
+        Assert.Contains("<RuntimeIdentifiers>", sample, StringComparison.Ordinal);
+        // Unsupported since .NET Android 36 — it warns XA0036 and is ignored.
+        Assert.DoesNotContain("<AndroidSupportedAbis>", sample, StringComparison.Ordinal);
+
+        // And it opts in through the seam rather than reaching past it.
+        var activity = Sample("AndroidViewer", "MainActivity.cs");
+        Assert.Contains("CreateVideoBackend", activity, StringComparison.Ordinal);
+        Assert.Contains("new VlcVideoBackend(services)", activity, StringComparison.Ordinal);
+    }
+
+    private static string Sample(string directory, string file)
+    {
+        var d = new DirectoryInfo(AppContext.BaseDirectory);
+        while (d is not null && !File.Exists(Path.Combine(d.FullName, "CupriFace.slnx"))) d = d.Parent;
+        var root = d?.FullName ?? throw new InvalidOperationException("repo root not found");
+        return File.ReadAllText(Path.Combine(root, "samples", directory, file));
+    }
+
     private static string Project(string directory, string file)
     {
         var d = new DirectoryInfo(AppContext.BaseDirectory);

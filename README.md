@@ -247,8 +247,10 @@ DesktopHost.Run(new SettingsApp());                    // desktop  (GL → SDL w
 public sealed class MainActivity : CupriActivity {     // Android (GL surface, touch, IME, TalkBack)
     protected override CupriApp CreateApp() => new SettingsApp();
     protected override bool PreferLandscapeFullscreen => true; // optional, useful for video apps
-    // Video is opt-in — reference CupriFace.Media.Android and hand the host a backend.
-    // Apps targeting Android 13+ also need POST_NOTIFICATIONS for shade controls.
+    // Video is opt-in — reference CupriFace.Media.Android and hand the host a backend. The APP
+    // must also PackageReference VideoLAN.LibVLC.Android itself (a library cannot package the
+    // native .so for you — see RELEASE-NOTES), else this throws on the device.
+    // samples/AndroidViewer is the worked example. Android 13+ also wants POST_NOTIFICATIONS.
     protected override IAndroidVideoBackend? CreateVideoBackend(AndroidVideoServices s)
         => new VlcVideoBackend(s);
 }

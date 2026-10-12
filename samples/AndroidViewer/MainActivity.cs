@@ -4,6 +4,7 @@ using CupriFace;
 using CupriFace.Dom;
 using CupriFace.Android;
 using CupriFace.Demo;
+using CupriFace.Media.Android;
 
 namespace CupriFace.AndroidViewer;
 
@@ -20,6 +21,23 @@ public class MainActivity : CupriActivity
         var app = new MobileApp();
         app.LaunchRequested = _ => Host.Push(new ShowcaseApp());
         return app;
+    }
+
+    /// <summary>
+    /// Bring a decoder, because this app shows video: both MobileApp and the pushed ShowcaseApp
+    /// contain a <c>&lt;cupri-video&gt;</c>.
+    ///
+    /// <para>Opting in is the whole contract — <c>CupriFace.Android</c> ships no decoder, so an app
+    /// that plays nothing carries neither LibVLC's native libraries nor their LGPL terms. The cost
+    /// is real (tens of megabytes across the ABIs), which is why it is not the default. Without
+    /// this override the element would lay out and stay EMPTY, with nothing logged and nothing
+    /// thrown: exactly the silent kind of wrong this engine is prone to, so it is worth knowing
+    /// that a blank video box means nobody asked for a backend.</para>
+    /// </summary>
+    protected override IAndroidVideoBackend? CreateVideoBackend(AndroidVideoServices services)
+    {
+        global::Android.Util.Log.Info("cupri", "cupri-gate: video backend = LibVLC (CupriFace.Media.Android)");
+        return new VlcVideoBackend(services);
     }
 
     /// <summary>
