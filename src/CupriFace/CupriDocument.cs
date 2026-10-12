@@ -492,6 +492,26 @@ public sealed partial class CupriDocument : IDisposable
     /// </summary>
     public double FullscreenControlsHideSeconds { get; set; } = 3;
 
+    /// <summary>
+    /// How much of the scrollport to keep clear BEYOND a control that keyboard or controller focus
+    /// has just scrolled into view, in document units. Default 48 — about one row.
+    ///
+    /// <para>Why a margin at all: scrolling only far enough to make the focused control visible
+    /// parks it flush against the edge it came in from, which tells the user nothing about what
+    /// comes next — and "what comes next" is exactly what they are about to press Down for. The
+    /// margin is the glimpse of the row beyond.</para>
+    ///
+    /// <para>Zero scrolls only as far as it must; it does not switch scrolling off, because a
+    /// selection nobody can see is not a selection. A margin larger than the scrollport cannot be
+    /// honoured on both sides at once, and visibility wins — the control is never pushed off-screen
+    /// to satisfy an impossible request.</para>
+    ///
+    /// <para>Only KEYBOARD and CONTROLLER focus scrolls. A pointer cannot click what it cannot see,
+    /// so a mouse click never moves the view. Set it for a whole application with
+    /// <see cref="CupriApp.FocusScrollMargin"/>.</para>
+    /// </summary>
+    public float FocusScrollMargin { get; set; } = 48;
+
     /// <summary>Allow an unmuted video with <c>autoplay</c> to start immediately. The default is
     /// false because browsers reject audible autoplay; native applications may opt in explicitly.</summary>
     public bool AllowUnmutedVideoAutoplay { get; set; }
@@ -3162,8 +3182,10 @@ public sealed partial class CupriDocument : IDisposable
         if (i < 0) return false;
         _kbIndex = i;
         _focusVisible = true;
-        var el = Focusables()[i].Element;
+        var focusables = Focusables();
+        var el = focusables[i].Element;
         UpdateFocus(el?.GetAttribute("role") is "textbox" or "spinbutton" ? el : null);
+        ScrollFocusIntoView(focusables[i]);
         Refresh();
         return true;
     }
@@ -3240,6 +3262,71 @@ public sealed partial class CupriDocument : IDisposable
             ? Observe(Interaction.InputSource.Pointer, $"click {x:0},{y:0}", Interaction.InputRoute.Navigate,
                       () => Bump(DispatchClickCore(Zc(x), Zc(y), clickCount)))
             : Bump(DispatchClickCore(Zc(x), Zc(y), clickCount));
+    }
+
+    /// <summary>
+    /// Scroll every scrollable ancestor so <paramref name="node"/> sits inside its scrollport, clear
+    /// of <see cref="FocusScrollMargin"/> at the edge it would otherwise hug.
+    ///
+    /// <para>Innermost first, and each scroll shifts the node for the ancestors still to be
+    /// considered — a row inside a scrolling panel inside a scrolling page has to end up visible in
+    /// all three, and the boxes do not move until the next layout, so the shift is tracked here
+    /// rather than read back.</para>
+    ///
+    /// <para>Scroll offsets are interaction state carried across the rebuild that follows, so
+    /// setting them before <c>Refresh()</c> is what makes the new position the one that paints.</para>
+    /// </summary>
+    private void ScrollFocusIntoView(Dom.RenderNode? node)
+    {
+        if (node is null) return;
+        EnsureLaidOut();
+        var margin = MathF.Max(0, FocusScrollMargin);
+        var (nx, ny, nw, nh) = Interaction.HitTesting.ScreenBox(node);
+        float shiftX = 0, shiftY = 0;   // what the scrolls decided so far move this node by
+
+        for (var scroller = node.Parent; scroller is not null; scroller = scroller.Parent)
+        {
+            if (!scroller.IsScrollable && !scroller.IsScrollableX) continue;
+            var (sx, sy, _, _) = Interaction.HitTesting.ScreenBox(scroller);
+
+            if (scroller.IsScrollable)
+            {
+                var top = sy + scroller.ContentTopInset;
+                var height = scroller.ContentBoxHeight;
+                // A margin is only ever needed on the edge the control came in from, so the limit is
+                // the room left once the control itself is placed — not half of it. Clamping to half
+                // would quietly cap any margin past (port - control) / 2, which for a 40px row in a
+                // 200px port is a cap of 80 on a perfectly satisfiable 90.
+                var m = MathF.Min(margin, MathF.Max(0, height - nh));
+                var y = ny - shiftY;
+                var over = (y + nh) - (top + height - m);   // past the bottom edge
+                var under = y - (top + m);                  // short of the top edge
+                var delta = under < 0 ? under : over > 0 ? over : 0;
+                if (delta != 0)
+                {
+                    var want = Math.Clamp(scroller.ScrollY + delta, 0, scroller.MaxScrollY);
+                    shiftY += want - scroller.ScrollY;
+                    scroller.ScrollY = want;
+                }
+            }
+
+            if (scroller.IsScrollableX)
+            {
+                var left = sx + scroller.ContentLeftInset;
+                var width = scroller.ContentBoxWidth;
+                var m = MathF.Min(margin, MathF.Max(0, width - nw));
+                var x = nx - shiftX;
+                var over = (x + nw) - (left + width - m);
+                var under = x - (left + m);
+                var delta = under < 0 ? under : over > 0 ? over : 0;
+                if (delta != 0)
+                {
+                    var want = Math.Clamp(scroller.ScrollX + delta, 0, scroller.MaxScrollX);
+                    shiftX += want - scroller.ScrollX;
+                    scroller.ScrollX = want;
+                }
+            }
+        }
     }
 
     private bool RevealFullscreenVideoControls()
@@ -4691,6 +4778,7 @@ public sealed partial class CupriDocument : IDisposable
         _focusVisible = true;
         var el = f[_kbIndex].Element;
         UpdateFocus(el?.GetAttribute("role") is "textbox" or "spinbutton" ? el : null);
+        ScrollFocusIntoView(f[_kbIndex]);
         Refresh();
         Note(Interaction.InputAction.Navigate, ControlName(f[_kbIndex]));
         return true;
@@ -4833,6 +4921,7 @@ public sealed partial class CupriDocument : IDisposable
         // If the newly focused control is a text field, start editing it; otherwise blur text.
         var el = f[_kbIndex].Element;
         UpdateFocus(el?.GetAttribute("role") is "textbox" or "spinbutton" ? el : null);
+        ScrollFocusIntoView(f[_kbIndex]);
         Refresh();
         return true;
     }
@@ -4987,6 +5076,7 @@ public sealed partial class CupriDocument : IDisposable
         var next = radios[(pos + dir + radios.Count) % radios.Count];
         _kbIndex = f.FindIndex(n => ReferenceEquals(n, next));
         _focusVisible = true;
+        ScrollFocusIntoView(next);
         var ok = group is { Length: > 0 } && _model is not null
             && BindingEngine.TrySet(_model, group, next.Element!.GetAttribute("value"));
         Refresh();

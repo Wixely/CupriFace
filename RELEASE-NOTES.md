@@ -223,6 +223,26 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **Keyboard and controller focus now scrolls what it focuses into view.** Walking a D-pad or Tab
+  down a list inside an `overflow:scroll` box used to leave the selection past the fold: the focus
+  moved, the scroller did not, and the user was pressing Down at a control they had no way of
+  seeing. Every scrollable ancestor is now brought along — a row inside a scrolling panel inside a
+  scrolling page ends up visible in all three.
+
+  **It scrolls with a margin rather than to the edge**, because a control parked flush against the
+  edge it arrived from says nothing about what comes next, and what comes next is exactly what the
+  user is about to press Down for. `doc.FocusScrollMargin` (or `CupriApp.FocusScrollMargin`) sets
+  it; the default is 48 document units, about one row. Zero still scrolls — just no further than it
+  must — because a selection nobody can see is not a selection, and a margin wider than the
+  scrollport is reduced rather than obeyed, so the control is never pushed off-screen to satisfy an
+  impossible request. Near the start or end of a list the content itself limits the margin: there is
+  no row above the first one to reveal.
+
+  Only keyboard and controller focus moves the view. A **mouse click never scrolls**, because a
+  pointer cannot click what it cannot see — the one case that needed no fixing. Tab, directional
+  and controller navigation, arrow-stepping a radio group, and a screen reader's `SetFocus` all go
+  through it.
+
 - **A fling works on Android.** The host read only the newest pointer sample from each batched
   `MotionEvent`, throwing away nearly all of the velocity evidence on a busy UI thread — so a
   release often looked stationary and the scroller refused to fling at all. Every historical sample

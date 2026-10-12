@@ -334,6 +334,12 @@ public abstract class CupriApp
     /// a paused video keeps its controls and that any tap brings them back.</summary>
     public virtual double FullscreenControlsHideSeconds => 3;
 
+    /// <summary>How much of the scrollport to keep clear beyond a control that keyboard or
+    /// controller focus has scrolled into view, in document units. Default 48 — about one row, so
+    /// the user can see what they are about to move onto. See
+    /// <see cref="CupriDocument.FocusScrollMargin"/>.</summary>
+    public virtual float FocusScrollMargin => 48;
+
     /// <summary>Opt in to the commit-snapshot render-thread split (DESIGN §7.2): the UI thread builds
     /// the display list and a background thread rasterises it, so rasterisation never blocks input.
     /// Wired for the CPU/SDL software path; the GL path renders inline. Default off.</summary>
@@ -537,6 +543,7 @@ public abstract class CupriApp
         doc.AllowUnmutedVideoAutoplay = AllowUnmutedVideoAutoplay;
         doc.MouseActivation = MouseActivation;
         doc.FullscreenControlsHideSeconds = FullscreenControlsHideSeconds;
+        doc.FocusScrollMargin = FocusScrollMargin;
         foreach (var font in Fonts) doc.LoadFont(font);
         if (Model is { } model) doc.Bind(model);
         doc.DebugOverlay = DebugOverlay;
