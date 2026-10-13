@@ -13,6 +13,13 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Changed
+
+- **The Android Viewer package ID is now `com.wixely.cuprifaceviewer`.** Existing installations
+  use a different Android application identity and must be uninstalled before installing this build.
+
 ## v0.42.0
 
 ### Added

@@ -838,7 +838,7 @@ jobs:
           set -x
           adb logcat -c || true
           adb install -r out/x64/*-Signed.apk
-          ACTIVITY=$(adb shell cmd package resolve-activity --brief com.cupriface.viewer | tail -1 | tr -d '\r')
+          ACTIVITY=$(adb shell cmd package resolve-activity --brief com.wixely.cuprifaceviewer | tail -1 | tr -d '\r')
           adb shell am start -n "$ACTIVITY" 2>&1 | tee start.log
           ! grep -q "Error:" start.log
           for i in $(seq 1 30); do
@@ -1576,10 +1576,10 @@ jobs:
         run: |
           set -x
           adb logcat -c || true
-          ACTIVITY=$(adb shell cmd package resolve-activity --brief com.cupriface.viewer | tail -1 | tr -d '\r')
+          ACTIVITY=$(adb shell cmd package resolve-activity --brief com.wixely.cuprifaceviewer | tail -1 | tr -d '\r')
           # --es section 3d starts in the Showcase on the 3D page; the surface only renders while
           # its element is laid out, so a gate that just launched the app would measure nothing.
-          adb shell am force-stop com.cupriface.viewer || true
+          adb shell am force-stop com.wixely.cuprifaceviewer || true
           adb shell am start -n "$ACTIVITY" --es section 3d 2>&1 | tee start3d.log
           ! grep -q "Error:" start3d.log
 
