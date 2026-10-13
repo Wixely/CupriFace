@@ -134,6 +134,25 @@ public class VideoComponentTests
     }
 
     [Fact]
+    public void The_mobile_sample_autoplays_its_video_so_the_android_gate_can_see_a_decoder()
+    {
+        // The Android gate waits for the LibVLC player's "video ready" marker, which only fires
+        // once playback actually STARTS — and nothing on that page presses play but this
+        // attribute. Dropping `autoplay` from the sample leaves every layer working and the gate
+        // timing out against a correctly paused video, which cost a release: the emulator is the
+        // only thing that notices, 8 minutes in, and reports it as a missing decoder. Asserted
+        // here against the REAL sample markup so the premise breaks in 1 second instead.
+        var app = new Demo.MobileApp();
+        var backend = new FakeBackend();
+        using var t = new TestDoc(app.Html, app.Css, components: true);
+        t.Doc.UseVideo(backend);
+        t.Layout();
+
+        var player = Assert.Contains("Assets/demo.webm", backend.Players);
+        Assert.True(player.Playing, "the sample's video must autoplay — the Android gate's only play trigger");
+    }
+
+    [Fact]
     public void A_player_opens_once_and_survives_the_per_keystroke_rebuild()
     {
         var backend = new FakeBackend();
