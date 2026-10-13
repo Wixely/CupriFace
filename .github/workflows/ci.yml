@@ -845,7 +845,33 @@ jobs:
             adb logcat -d -s cupri:I | grep -q "FIRST FRAME" && break
             sleep 2
           done
-          adb logcat -d -s cupri:I | grep -q "FIRST FRAME"
+          # A bare grep here says only "no first frame", which cannot tell a CRASH from a HANG
+          # from a process that never started -- and those have nothing in common but the symptom.
+          # The one question that splits them is whether the process is still alive, so ask the
+          # platform that first and let its own log answer the rest. (The video step below learned
+          # this the hard way; the same reasoning applies to the frame that precedes it.)
+          if ! adb logcat -d -s cupri:I | grep -q "FIRST FRAME"; then
+            PID=$(adb shell pidof com.cupriface.viewer | tr -dc '0-9' || true)
+            if [ -n "$PID" ]; then
+              echo "--- the process is ALIVE ($PID) and has not painted: a HANG, not a crash ---"
+              # SIGQUIT makes ART dump every thread's stack where it is stuck. Printed whole:
+              # the wedged thread is the finding, and guessing which one it is from a filter is
+              # how a deadlock gets blamed on the last thing that happened to log.
+              adb shell kill -3 "$PID" || true
+              sleep 3
+              adb shell "cat /data/anr/traces.txt 2>/dev/null || true" | head -120 \n                || echo "(no ANR traces readable -- unrooted image)"
+            else
+              echo "--- the process is GONE: it started and then DIED, so look for a crash ---"
+            fi
+            echo "--- crash buffer ---"
+            adb logcat -d -b crash | tail -40 || echo "(crash buffer empty)"
+            echo "--- our own log, whole: how far did startup actually get? ---"
+            adb logcat -d -s cupri:I | tail -40 || echo "(the app logged NOTHING, which is itself a finding)"
+            echo "--- the platform on this package (runtime, native loads, ANR) ---"
+            adb logcat -d | grep -iE "cupriface|AndroidRuntime|FATAL|ANR |not responding|libvlc|vlc|dlopen|UnsatisfiedLink" \n              | tail -60 || echo "(the platform had nothing to say about this package)"
+            echo "::error::the app installed and started but never painted a first frame"
+            exit 1
+          fi
 
       - name: Touch, momentum, keyboard, rotation
         run: |
