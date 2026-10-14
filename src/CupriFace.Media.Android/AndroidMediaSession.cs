@@ -92,7 +92,13 @@ internal sealed class AndroidMediaSession : IDisposable
         var intent = new Intent(ActionPlayPause).SetPackage(_context.PackageName);
         var pending = PendingIntent.GetBroadcast(_context, 0, intent,
             PendingIntentFlags.UpdateCurrent | PendingIntentFlags.Immutable);
-        var icon = _context.ApplicationInfo?.Icon ?? global::Android.Resource.Drawable.IcMediaPlay;
+        // ApplicationInfo.Icon is an int, so `?? IcMediaPlay` only ever covered a NULL
+        // ApplicationInfo: an app with no android:icon has Icon == 0, which sailed through to
+        // SetSmallIcon(0), and Android rejects that notification on the main thread -- an
+        // IllegalArgumentException inside a posted Runnable, which kills the process the moment
+        // playback starts. The sample app declares no icon, so the emulator gate was that app.
+        var appIcon = _context.ApplicationInfo?.Icon ?? 0;
+        var icon = appIcon != 0 ? appIcon : global::Android.Resource.Drawable.IcMediaPlay;
         var actionIcon = player.Playing
             ? global::Android.Resource.Drawable.IcMediaPause
             : global::Android.Resource.Drawable.IcMediaPlay;
@@ -117,7 +123,15 @@ internal sealed class AndroidMediaSession : IDisposable
             .SetOnlyAlertOnce(true)
             .SetStyle(style)
             .AddAction(action);
-        _notifications?.Notify(NotificationId, builder.Build()!);
+        // A notification Android will not take must never take playback -- or the process --
+        // down with it. This runs on the main thread inside a Runnable the host posted, where
+        // nothing above us catches, so this is the last chance to turn a crash into a log line.
+        try { _notifications?.Notify(NotificationId, builder.Build()!); }
+        catch (Exception exception)
+        {
+            global::Android.Util.Log.Warn(CupriFace.Android.AndroidHost.Tag,
+                $"media notification rejected: {exception.GetType().Name}: {exception.Message}");
+        }
     }
 
     private static string PlaybackTitle(string source)
