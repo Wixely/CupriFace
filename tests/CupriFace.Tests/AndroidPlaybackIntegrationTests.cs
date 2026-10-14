@@ -77,6 +77,12 @@ public class AndroidPlaybackIntegrationTests
         Assert.Contains("MediaSession", session, StringComparison.Ordinal);
         Assert.Contains("Notification.MediaStyle", session, StringComparison.Ordinal);
         Assert.Contains("ActionSeekTo", session, StringComparison.Ordinal);
+        // The notification's small icon must fall back when the app declares NO icon (Icon == 0),
+        // and a rejected notification must be logged, not thrown: Android kills the process for
+        // either, on the main thread, the moment playback starts. The sample app has no icon, so
+        // the emulator gate is the real check -- this only pins the two lines it depends on.
+        Assert.Contains("appIcon != 0 ? appIcon", session, StringComparison.Ordinal);
+        Assert.Contains("try { _notifications?.Notify(", session, StringComparison.Ordinal);
     }
 
     /// <summary>
