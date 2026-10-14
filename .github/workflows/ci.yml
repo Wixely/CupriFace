@@ -1858,6 +1858,7 @@ jobs:
           for proj in src/CupriFace/CupriFace.csproj src/CupriFace.Shell/CupriFace.Shell.csproj \
                       src/CupriFace.Media/CupriFace.Media.csproj \
                       src/CupriFace.Media.Windows/CupriFace.Media.Windows.csproj \
+                      src/CupriFace.Media.Android/CupriFace.Media.Android.csproj \
                       src/CupriFace.Lottie/CupriFace.Lottie.csproj \
                       src/CupriFace.Svg/CupriFace.Svg.csproj \
                       src/CupriFace.Gl/CupriFace.Gl.csproj \
@@ -1905,6 +1906,18 @@ jobs:
             echo "::error::CupriFace.Media.Windows lost its LGPL single-file exclusion"
             cat windows-media.targets; exit 1
           }
+          # The Android media package makes the same LGPL claim in its own Description, so it owes
+          # the same two files. It has no buildTransitive targets: the native .so reaches an app
+          # through its own VideoLAN PackageReference, not through this package.
+          ANDROID_MEDIA_PKG="dist/CupriFace.Media.Android.$VERSION.nupkg"
+          unzip -l "$ANDROID_MEDIA_PKG" > android-media-pkg.txt
+          for path in THIRD-PARTY-NOTICES.md \
+                      licenses/third-party/LibVLC-LGPL-2.1-or-later.txt; do
+            grep -q "$path" android-media-pkg.txt || {
+              echo "::error::CupriFace.Media.Android packed without $path"
+              cat android-media-pkg.txt; exit 1
+            }
+          done
           unzip -p "$WINDOWS_MEDIA_PKG" CupriFace.Media.Windows.nuspec > windows-media.nuspec
           grep -q '<license type="expression">MIT</license>' windows-media.nuspec || {
             echo "::error::CupriFace.Media.Windows is not explicitly packed as MIT"
