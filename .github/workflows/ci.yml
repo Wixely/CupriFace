@@ -854,12 +854,12 @@ jobs:
             PID=$(adb shell pidof com.cupriface.viewer | tr -dc '0-9' || true)
             if [ -n "$PID" ]; then
               echo "--- the process is ALIVE ($PID) and has not painted: a HANG, not a crash ---"
-              # SIGQUIT makes ART dump every thread's stack where it is stuck. Printed whole:
-              # the wedged thread is the finding, and guessing which one it is from a filter is
-              # how a deadlock gets blamed on the last thing that happened to log.
-              adb shell kill -3 "$PID" || true
-              sleep 3
-              adb shell "cat /data/anr/traces.txt 2>/dev/null || true" | head -120 \n                || echo "(no ANR traces readable -- unrooted image)"
+              # debuggerd -b prints EVERY thread's stack, Java and native, to stdout: the wedged
+              # thread is the finding, and a native frame inside libvlc names its other half.
+              # It needs root for a release build and this image grants it. (kill -3 writes
+              # /data/anr/anr_<stamp>, root-only; /data/anr/traces.txt is gone since Android 11.)
+              adb root > /dev/null 2>&1 || true; adb wait-for-device
+              adb shell debuggerd -b "$PID" 2>&1 | head -200 || echo "(debuggerd unavailable)"
             else
               echo "--- the process is GONE: it started and then DIED, so look for a crash ---"
             fi
@@ -868,7 +868,7 @@ jobs:
             echo "--- our own log, whole: how far did startup actually get? ---"
             adb logcat -d -s cupri:I | tail -40 || echo "(the app logged NOTHING, which is itself a finding)"
             echo "--- the platform on this package (runtime, native loads, ANR) ---"
-            adb logcat -d | grep -iE "cupriface|AndroidRuntime|FATAL|ANR |not responding|libvlc|vlc|dlopen|UnsatisfiedLink" \n              | tail -60 || echo "(the platform had nothing to say about this package)"
+            adb logcat -d | grep -iE "cupriface|AndroidRuntime|FATAL|ANR |not responding|libvlc|vlc|dlopen|UnsatisfiedLink" | tail -60 || echo "(the platform had nothing to say about this package)"
             echo "::error::the app installed and started but never painted a first frame"
             exit 1
           fi
@@ -881,9 +881,31 @@ jobs:
           # log is wide rather than deep — 40 lines was not enough to reach the ActivityManager
           # entry that explains a restart, which left the cause of one failure inferred rather than
           # read. am get-config names the configuration the activity is actually running under.
+          # Before an assertion accuses the engine: is the process alive, and if so, what is every
+          # thread doing? A tap that produced nothing has three shapes -- the app died, a thread
+          # is wedged, or the touch went to another window -- and the logcat tail below cannot
+          # tell them apart. The thread dump names a wedge; the window/input dumps name a touch
+          # that was delivered somewhere else.
+          testify() {
+            local pid; pid=$(adb shell pidof com.cupriface.viewer | tr -dc '0-9' || true)
+            if [ -z "$pid" ]; then
+              echo "--- the process is GONE: it died, so look for the crash ---"
+              adb logcat -d -b crash | tail -40 || true
+              return
+            fi
+            echo "--- the process is ALIVE ($pid): every thread's stack, Java and native ---"
+            adb root > /dev/null 2>&1 || true; adb wait-for-device
+            adb shell debuggerd -b "$pid" 2>&1 | head -200 || echo "(debuggerd unavailable)"
+            echo "--- input: which window owns focus and touch right now ---"
+            adb shell dumpsys window 2>/dev/null | grep -iE "mCurrentFocus|mFocusedApp|mInputMethodTarget" | head -6 || true
+            adb shell dumpsys input 2>/dev/null | grep -iE "FocusedWindow|TouchedWindow|FocusedApplication|Anr" | head -10 || true
+            echo "--- the view hierarchy: where the video view sits and how big it is ---"
+            adb shell dumpsys activity top 2>/dev/null | grep -iE "SurfaceView|VideoView|CupriHostView" | head -10 || true
+          }
           fail() {
             echo "::error::$1"
             adb logcat -d -s cupri:I | tail -80
+            testify
             echo "--- device configuration ---"; adb shell am get-config 2>&1 | head -5
             echo "--- system log ---"; adb logcat -d | tail -200
             exit 1
