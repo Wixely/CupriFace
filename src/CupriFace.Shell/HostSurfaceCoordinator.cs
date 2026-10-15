@@ -65,8 +65,13 @@ internal sealed class HostSurfaceCoordinator(
 
     internal void Sync(float scale)
     {
+        // ScreenBox is expressed in the document's post-layout coordinate space. Page zoom is
+        // applied later while the display list is rasterised, so a native child HWND needs that
+        // same extra factor explicitly or it stays at its unzoomed size and drifts away from the
+        // transparent hole painted for it.
+        var physicalScale = HostSurfaceGeometry.ComposePhysicalScale(scale, document.Zoom);
         var seen = new HashSet<IHostCompositedSurfaceSource>(ReferenceEqualityComparer.Instance);
-        Walk(document.Root, Math.Max(scale, 0.01f), seen);
+        Walk(document.Root, physicalScale, seen);
 
         if (_attached.Count == seen.Count && _attached.SetEquals(seen)) return;
         foreach (var source in _attached.ToArray())
@@ -107,22 +112,13 @@ internal sealed class HostSurfaceCoordinator(
             return new(0, 0, 0, 0, 0, 0, 0, 0, false, "contain", HostSurfaceTransform.Identity, scale);
 
         var (x, y, w, h) = HitTesting.ScreenBox(node);
-        float visL = x, visT = y, visR = x + w, visB = y + h;
-        for (var ancestor = node.Parent; ancestor is not null; ancestor = ancestor.Parent)
-        {
-            if (ancestor.Style.Overflow == OverflowMode.Visible) continue;
-            var (ax, ay, aw, ah) = HitTesting.ScreenBox(ancestor);
-            visL = MathF.Max(visL, ax);
-            visT = MathF.Max(visT, ay);
-            visR = MathF.Min(visR, ax + aw);
-            visB = MathF.Min(visB, ay + ah);
-        }
+        var (visL, visT, visR, visB) = HostSurfaceGeometry.VisibleBounds(node, x, y, w, h);
 
         // Engine-painted chrome the host's surface would otherwise cover (see the overlay note below).
         var surfaceH = MathF.Max(0, h - HostSurfaceGeometry.OverlayBottomInset(node, y, h));
 
         var visible = w > 0 && surfaceH > 0 && visR > visL && visB > visT;
-        var occlusions = HostSurfaceGeometry.GetOcclusions(document.Root, x, y, w, surfaceH)
+        var occlusions = HostSurfaceGeometry.GetOcclusions(document.Root, x, y, w, surfaceH, node)
             .Select(overlap => new HostSurfaceOcclusion(
                 overlap.X * scale,
                 overlap.Y * scale,

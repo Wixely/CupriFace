@@ -125,6 +125,83 @@ public class SurfaceTests
         public void Detach() => Detached++;
     }
 
+    [Theory]
+    [InlineData(1f, 1f, 1f)]
+    [InlineData(1.5f, 2f, 3f)]
+    [InlineData(2f, 0.5f, 1f)]
+    public void Native_surface_scale_composes_host_and_page_zoom(float hostScale, float pageZoom, float expected) =>
+        Assert.Equal(expected, HostSurfaceGeometry.ComposePhysicalScale(hostScale, pageZoom), 3);
+
+    [Fact]
+    public void Fixed_fullscreen_surface_escapes_document_ancestor_clipping()
+    {
+        using var t = new TestDoc("""
+            <body><div class='content'><div class='video'></div></div></body>
+            """, """
+            .content { position:absolute; left:224px; top:0; width:1696px; height:1080px; overflow:hidden; }
+            .video { position:fixed; left:0; top:0; width:1920px; height:1080px; }
+            """, width: 1920, height: 1080);
+        var video = t.Find(n => n.Element?.ClassList.Contains("video") == true)!;
+        var (x, y, width, height) = CupriFace.Interaction.HitTesting.ScreenBox(video);
+
+        var visible = HostSurfaceGeometry.VisibleBounds(video, x, y, width, height);
+
+        Assert.Equal((0f, 0f, 1920f, 1080f), visible);
+    }
+
+    [Fact]
+    public void Ordinary_surface_still_honours_document_ancestor_clipping()
+    {
+        using var t = new TestDoc("""
+            <body><div class='content'><div class='video'></div></div></body>
+            """, """
+            .content { position:absolute; left:224px; top:0; width:1696px; height:1080px; overflow:hidden; }
+            .video { position:absolute; left:-224px; top:0; width:1920px; height:1080px; }
+            """, width: 1920, height: 1080);
+        var video = t.Find(n => n.Element?.ClassList.Contains("video") == true)!;
+        var (x, y, width, height) = CupriFace.Interaction.HitTesting.ScreenBox(video);
+
+        var visible = HostSurfaceGeometry.VisibleBounds(video, x, y, width, height);
+
+        Assert.Equal((224f, 0f, 1920f, 1080f), visible);
+    }
+
+    [Fact]
+    public void Contained_host_surface_is_fitted_and_centred_before_reaching_the_native_adapter()
+    {
+        var placement = new HostSurfacePlacement(
+            0, 0, 1920, 1036,
+            0, 0, 0, 0,
+            true, "contain", HostSurfaceTransform.Identity, 1);
+
+        var fitted = HostSurfaceGeometry.ApplyObjectFit(placement, (3840, 2160));
+
+        Assert.Equal(39.11f, fitted.X, 2);
+        Assert.Equal(0f, fitted.Y, 2);
+        Assert.Equal(1841.78f, fitted.Width, 2);
+        Assert.Equal(1036f, fitted.Height, 2);
+    }
+
+    [Fact]
+    public void Contained_host_surface_moves_clips_and_occluders_into_the_fitted_window()
+    {
+        var placement = new HostSurfacePlacement(
+            100, 200, 400, 300,
+            30, 20, 40, 10,
+            true, "contain", HostSurfaceTransform.Identity, 1,
+            [new HostSurfaceOcclusion(120, 80, 50, 60)]);
+
+        var fitted = HostSurfaceGeometry.ApplyObjectFit(placement, (1600, 900));
+
+        Assert.Equal(100f, fitted.X, 2);
+        Assert.Equal(237.5f, fitted.Y, 2);
+        Assert.Equal(400f, fitted.Width, 2);
+        Assert.Equal(225f, fitted.Height, 2);
+        Assert.Equal(0f, fitted.ClipTop, 2);
+        Assert.Equal(2.5f, fitted.ClipBottom, 2);
+        Assert.Equal(42.5f, Assert.Single(fitted.Occlusions!).Y, 2);
+    }
+
     [Fact]
     public void A_popup_over_a_host_composited_surface_makes_it_stand_down()
     {
@@ -233,6 +310,27 @@ public class SurfaceTests
         Assert.Null(off.Find(n => n.Element?.ClassList.Contains("cupri-video-bar") == true));
         var video = off.Find(n => n.Element?.HasAttribute("data-cupri-video") == true)!;
         Assert.Equal(0f, HostSurfaceGeometry.OverlayBottomInset(video, 0, 180), 1);
+    }
+
+    [Fact]
+    public void Fullscreen_control_bar_punches_an_overlay_without_resizing_the_video_surface()
+    {
+        using var t = new TestDoc(
+            "<body><cupri-video src='c.webm' controls style='width:320px;height:180px'></cupri-video></body>",
+            "", components: true, width: 800, height: 500);
+        t.ClickMatch(n => n.Element?.GetAttribute("data-video-role") == "fullscreen");
+        t.Layout();
+
+        var video = t.Find(n => n.Element?.HasAttribute("data-cupri-video") == true)!;
+        var bar = t.Find(n => n.Element?.ClassList.Contains("cupri-video-bar") == true)!;
+        Assert.False(bar.Element!.HasAttribute("data-surface-overlay"));
+        Assert.True(bar.Element.HasAttribute("data-surface-occluder"));
+        Assert.Equal(0f, HostSurfaceGeometry.OverlayBottomInset(video, 0, 500), 1);
+
+        var holes = HostSurfaceGeometry.GetOcclusions(t.Doc.Root, 0, 0, 800, 500);
+        var hole = Assert.Single(holes);
+        Assert.Equal(800f, hole.Width, 1);
+        Assert.Equal(500f, hole.Y + hole.Height, 1);
     }
 
     [Fact]

@@ -15,6 +15,22 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ## Unreleased
 
+### Added
+
+- **A second window can show the same transport without a second decoder.** Build a control-only
+  document containing the same `<cupri-video controls>` markup and call
+  `UseVideoControls(source, existingPlayer)`. The document BORROWS the player: ordinary button,
+  seek, chapter and fullscreen handling all apply, while the original document keeps ownership and
+  disposal. Nothing to change in your app.
+- **`<cupri-video volume-controls>` adds an application-owned volume slider.** Hovering the
+  existing mute button reveals an accessible pointer/keyboard vertical slider; clicking the speaker
+  still toggles mute. Omitted by default, so phone and TV hosts keep leaving volume to the platform.
+- **`panel-only` on the video track and chapter companions** drops their own toggle button, so an
+  application-owned tab strip can drive one stable content region without a nested control.
+- Added focused desktop video shortcuts for a fullscreen player: Left/Right seek ten seconds,
+  Shift+Left/Right seek five minutes, Up/Down adjust volume, Space toggles playback. Embedded
+  players and unfocused windows are unaffected, and no global hotkeys are registered.
+
 ### Changed
 
 - **The Android gate's nav taps are verified rather than assumed.** `MobileModel.Page` now prints
@@ -30,8 +46,6 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   "Started but never settled" is the momentum integrator. Run 734 was the first, and the message
   named the second.
 
-### Changed
-
 - **The Android Viewer package ID is now `com.wixely.cuprifaceviewer`.** Existing installations
   use a different Android application identity and must be uninstalled before installing this build.
 
@@ -41,10 +55,62 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   `pidof` kept the old one, so a LIVE app answered "no such process" and every failure read as a
   crash — including the hangs the diagnostic exists to tell apart.
 
+### Fixed
+
+- **A fixed element nested inside another fixed element is no longer painted twice-offset.** Every
+  top-layer node owns viewport coordinates, so an inner one inherited its ancestor's origin and
+  added those offsets a second time — which put a chapter label inside a fullscreen video wholly
+  off-screen. Painting and hit-testing now agree about where it is. Nothing to change in your app.
+- **Fullscreen native video no longer exposes lower page layers through stale cut-outs.** Surface
+  occlusions now respect top-layer stacking order, so sticky navigation and mini-player controls
+  painted below a fullscreen video cannot leave transparent strips or button-shaped artifacts.
+  Higher overlays and the video's own transport, menus and chapter labels still punch the precise
+  holes they need. Nothing to change in your app.
+- **Fullscreen playback controls no longer resize the video as they appear and hide.** Native video
+  keeps its full-screen geometry while the visible control bar is composited through a temporary
+  cut-out above it. Embedded players retain their measured control strip.
+- **Contained Windows video stays centred in fullscreen.** The Windows adapter applies
+  `object-fit: contain` to its own native surface window before handing it to LibVLC, and fixed
+  fullscreen surfaces no longer inherit clipping from the page's sidebar/content ancestors —
+  a stale clip there could remove the left side of the picture. The adapter also ignores desktop
+  VLC preferences and resets inherited zoom, crop, aspect-ratio and alignment overrides. (#304)
+- **Fullscreen media stays visible when another application takes focus.** The GLFW and SDL desktop
+  hosts no longer auto-minimize a fullscreen window on focus loss, which is right for a player on a
+  second screen. Explicit minimization still works.
+- Fixed host-composited surfaces, including Windows native video, staying at their unzoomed size
+  and drifting away from their element when whole-page zoom changed. Native placement now composes
+  monitor/application scale with document zoom.
+- Fixed the built-in keyboard focus ring using unscrolled document coordinates: after arrow-key
+  navigation scrolled a menu down and back up, the ring stayed behind.
+- Fixed Windows next-item autoplay being able to freeze while retiring a naturally-ended LibVLC
+  player. That teardown no longer issues a redundant synchronous stop while the native end callback
+  may still be unwinding.
+
 ## v0.42.0
 
 ### Added
 
+- **Windows media backends can expose a single-decoder pop-out player.** The new optional
+  `IVideoPopOutPlayer` capability and `CupriDocument.SetVideoPoppedOut` API let track-enabled video
+  context menus move native playback into a draggable, resizable, always-on-top tool window and
+  return it without reopening the source or losing position. The LibVLC implementation remembers
+  the pop-out's normal bounds across sessions, clamps restored bounds to an available monitor, and
+  applies dark native chrome. It is a standard resizable Windows window so Snap Layouts and edge
+  snapping work; closing its native X docks the live decoder back into the application. A pop-out
+  request may be made before native attachment, allowing a replacement source to inherit the same
+  pop-out placement instead of briefly becoming an embedded player. Maximized state is persisted
+  independently from bounds, so replacement playback remains maximized to the monitor work area.
+  Full-monitor Windows Snap zones are detected from their monitor-filling rectangle because Windows
+  reports those windows as normal rather than maximized.
+- **The Windows LibVLC pop-out has a synchronized native transport overlay.** It provides
+  play/pause, mute, time, seek, chapter markers and hover labels, fullscreen/restore, and
+  audio/subtitle context menus over the same decoder. The bar overlays rather than resizes video
+  and auto-hides during fullscreen playback.
+- **Android video hosts can opt into native picture-in-picture.** Override
+  `CupriActivity.EnablePictureInPicture`, declare `SupportsPictureInPicture = true` on the activity,
+  and use an Android backend implementing the PiP seam. CupriFace's LibVLC backend keeps the same
+  decoder and MediaSession alive, fills the system PiP window, and restores the document surface on
+  return.
 - **Android video, in a NEW optional package: `CupriFace.Media.Android`.** LibVLC-backed, it
   exposes embedded audio/subtitle tracks and chapters, performs potentially blocking remote seeks
   away from the UI thread, reports optional `IVideoBufferingState`, and keeps long track menus

@@ -42,7 +42,16 @@ public sealed class LibVlcVideoBackend : IVideoBackend, IDisposable
         Core.Initialize(nativeDirectory);
         var options = new List<string>
         {
+            // CupriFace owns the player presentation contract. Inheriting VLC desktop preferences
+            // can bring across a saved zoom, crop or aspect override and visibly offset the video
+            // even though every host HWND has the correct fullscreen bounds.
+            "--ignore-config",
             "--avcodec-hw=d3d11va",
+            // A LibVLC instance can inherit the user's VLC alignment preference. Values are a
+            // bit-field (left/right/top/bottom), so a saved top-right value makes a contained
+            // movie cling to that corner even though CupriFace has correctly made the child HWND
+            // fill the fullscreen element. CupriFace's `fit="contain"` contract is centred.
+            "--align=0",
             "--no-video-title-show",
             "--no-snapshot-preview",
         };
@@ -119,6 +128,7 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IVi
     private int _hostThread;
     private bool _playWhenReady;
     private bool _mediaOpened;
+    private volatile bool _endReached;
     private volatile bool _ready;
     private volatile bool _disposed;
     private volatile string? _failure;
@@ -276,6 +286,10 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IVi
     public void Arrange(HostSurfacePlacement placement)
     {
         if (_child == 0) return;
+        // Give LibVLC an aspect-correct child HWND instead of a full-element window with spare
+        // space on one axis. Its private D3D child can otherwise misalign the picture on mixed-DPI
+        // Windows displays even when VLC's own alignment preference is centred.
+        placement = HostSurfaceGeometry.ApplyObjectFit(placement, _naturalSize);
         if (!placement.Visible || !placement.Transform.IsIdentity || !_ready)
         {
             Win32VideoWindow.Hide(_child);
@@ -391,8 +405,14 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IVi
 
     private void OnPlaying(object? sender, EventArgs args)
     {
+        _endReached = false;
         _failure = null;
         _ready = true;
+        // Instance options prevent persisted preferences being loaded, while these resets also
+        // cover state retained by LibVLC when the same player advances to another media item.
+        _player.Scale = 0;
+        _player.AspectRatio = null;
+        _player.CropGeometry = string.Empty;
         uint width = 0, height = 0;
         if (_player.Size(0, ref width, ref height) && width > 0 && height > 0)
             _naturalSize = ((int)width, (int)height);
@@ -479,6 +499,10 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IVi
             });
             return;
         }
+        // Stop() is synchronous and joins LibVLC's playback threads. Once EndReached has fired the
+        // input is already stopped, and calling Stop() while that native callback is still
+        // unwinding can deadlock an autoplay source replacement on the UI thread.
+        _endReached = true;
         Ended?.Invoke();
         _context?.RequestFrame();
     }
@@ -500,7 +524,7 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IVi
         _player.ChapterChanged -= OnChapterChanged;
         _player.EndReached -= OnEnded;
         _player.EncounteredError -= OnError;
-        _player.Stop();
+        if (!_endReached) _player.Stop();
         _media?.Dispose();
         _player.Dispose();
         _closed(this);

@@ -22,7 +22,7 @@ public static class HitTesting
         Collect(root, overlays);
         foreach (var overlay in overlays.OrderByDescending(n => n.Style.ZIndex))
         {
-            var hit = Hit(overlay, 0, 0, x, y, inTopLayer: true);
+            var hit = HitTopLayerGroup(overlay, x, y);
             if (hit is not null) return hit;
         }
         // Then the normal content (top-layer subtrees are skipped).
@@ -34,8 +34,17 @@ public static class HitTesting
         foreach (var child in node.Children)
         {
             if (child.IsTopLayer) overlays.Add(child);
-            Collect(child, overlays);
+            else Collect(child, overlays);
         }
+    }
+
+    private static RenderNode? HitTopLayerGroup(RenderNode layer, float x, float y)
+    {
+        var nested = new List<RenderNode>();
+        Collect(layer, nested);
+        foreach (var child in nested.OrderByDescending(node => node.Style.ZIndex))
+            if (HitTopLayerGroup(child, x, y) is { } hit) return hit;
+        return Hit(layer, 0, 0, x, y, inTopLayer: true, activeTopLayer: layer);
     }
 
     /// <summary>
@@ -111,10 +120,12 @@ public static class HitTesting
 
     private static RenderNode? Hit(RenderNode node, float originX, float originY, float x, float y, bool inTopLayer,
                                     RenderNode? parent = null, StickyPort port = default,
-                                    List<StickyHit>? stickyCollect = null)
+                                    List<StickyHit>? stickyCollect = null, RenderNode? activeTopLayer = null)
     {
         if (node.Style.Display == DisplayType.None) return null;
-        if (!inTopLayer && node.IsTopLayer) return null; // reached via the main pass — skip; tested in the overlay pass
+        // A nested fixed node owns another viewport-coordinate top-layer pass. Do not also test it
+        // through the outer fixed ancestor's origin; that would disagree with where Painter puts it.
+        if (node.IsTopLayer && !ReferenceEquals(node, activeTopLayer)) return null;
 
         // Deferred exactly as Painter defers it: a sticky node is lifted out of the normal walk and
         // tested after its scroll container's content, because that is when it is PAINTED. Testing
@@ -214,7 +225,7 @@ public static class HitTesting
         // pointer falls through whatever is visibly in front of it.
         foreach (var child in Paint.PaintOrder.Children(node))
         {
-            var hit = Hit(child, childOx, childOy, x, y, inTopLayer, node, childPort, childSticky);
+            var hit = Hit(child, childOx, childOy, x, y, inTopLayer, node, childPort, childSticky, activeTopLayer);
             if (hit is not null) best = hit;
         }
 
@@ -222,7 +233,8 @@ public static class HitTesting
         if (stickyOwn is { Count: > 0 })
             foreach (var it in stickyOwn)
             {
-                var hit = Hit(it.Node, it.OriginX, it.OriginY, x, y, inTopLayer, it.Node.Parent, childPort);
+                var hit = Hit(it.Node, it.OriginX, it.OriginY, x, y, inTopLayer, it.Node.Parent, childPort,
+                    activeTopLayer: activeTopLayer);
                 if (hit is not null) best = hit;
             }
         return best;

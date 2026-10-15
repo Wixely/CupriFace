@@ -102,11 +102,24 @@ public sealed class LayoutEngine
                 {
                     var (ax, ay, aw, ah) = AbsoluteBox(anchor);
                     var placement = child.Element?.GetAttribute("data-cupri-placement") ?? "bottom";
-                    var gap = 4f;
+                    var followsPointer = float.TryParse(
+                        child.Element?.GetAttribute("data-cupri-pointer-x"),
+                        System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out var pointerX);
+                    var followsPointerY = float.TryParse(
+                        child.Element?.GetAttribute("data-cupri-pointer-y"),
+                        System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out var pointerY);
+                    var gap = followsPointerY ? 10f : 4f;
                     float x, y;
                     switch (placement)
                     {
-                        case "top": x = ax; y = ay - child.Height - gap; break;
+                        case "top":
+                            x = followsPointer ? pointerX - child.Width / 2f : ax;
+                            y = (followsPointerY ? pointerY : ay) - child.Height - gap;
+                            break;
                         case "right": x = ax + aw + gap; y = ay; break;
                         case "left": x = ax - child.Width - gap; y = ay; break;
                         default: x = ax; y = ay + ah + gap; break; // bottom
