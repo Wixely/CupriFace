@@ -230,6 +230,12 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **Android playback no longer crashes an app that declares no launcher icon.** The media
+  session's notification took `ApplicationInfo.Icon` with a null-coalescing fallback that an `int`
+  can never trigger, so an app without `android:icon` posted a notification with small icon 0 and
+  Android killed the process on the main thread the moment playback started. The fallback now
+  applies when the icon is 0, and a notification Android rejects is logged under `cupri` instead
+  of taking playback down. Nothing to do unless your app has no icon -- then update.
 - **Keyboard and controller focus now scrolls what it focuses into view.** Walking a D-pad or Tab
   down a list inside an `overflow:scroll` box used to leave the selection past the fold: the focus
   moved, the scroller did not, and the user was pressing Down at a control they had no way of
