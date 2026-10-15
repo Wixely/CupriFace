@@ -20,6 +20,12 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 - **The Android Viewer package ID is now `com.wixely.cuprifaceviewer`.** Existing installations
   use a different Android application identity and must be uninstalled before installing this build.
 
+  The CI gate now takes that name from one `ANDROID_PKG` variable rather than repeating the
+  literal. The rename was written before the gate grew its hang-versus-crash diagnostic, and that
+  diagnostic looks the app up BY NAME: left as two literals, the install used the new id while
+  `pidof` kept the old one, so a LIVE app answered "no such process" and every failure read as a
+  crash — including the hangs the diagnostic exists to tell apart.
+
 ## v0.42.0
 
 ### Added
