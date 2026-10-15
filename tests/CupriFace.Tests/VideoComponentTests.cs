@@ -1,6 +1,7 @@
 using CupriFace.Media;
 using CupriFace.Paint;
 using CupriFace.Diagnostics;
+using CupriFace.Interaction;
 using SkiaSharp;
 using Xunit;
 
@@ -29,7 +30,7 @@ public class VideoComponentTests
         public bool Muted { get; set; }
         public double Volume { get; set; } = 1;
         public bool Loop { get; set; }
-        public double Duration => 10;
+        public double Duration { get; set; } = 10;
         public double Position { get; set; }
         public bool Disposed { get; private set; }
         public bool IsPoppedOut { get; private set; }
@@ -172,6 +173,37 @@ public class VideoComponentTests
         t.Doc.Refresh();
         t.Doc.Refresh();
         Assert.Equal(new[] { "clip.webm" }, backend.Opened);   // cached by src, not re-opened
+    }
+
+    [Fact]
+    public void Desktop_playback_shortcuts_are_gated_to_the_fullscreen_video()
+    {
+        var backend = new FakeBackend();
+        using var t = new TestDoc(Html, "", components: true);
+        t.Doc.UseVideo(backend);
+        t.Layout();
+        var player = backend.Players["clip.webm"];
+        player.Duration = 1000;
+        player.Position = 400;
+        player.Volume = 0.5;
+
+        Assert.False(t.Doc.DispatchFullscreenVideoPlaybackShortcut(EditKey.Right));
+        Assert.Equal(400, player.Position);
+
+        Assert.True(t.Doc.ToggleVideoFullscreen("clip.webm"));
+        Assert.True(t.Doc.DispatchFullscreenVideoPlaybackShortcut(EditKey.Right));
+        Assert.Equal(410, player.Position);
+        Assert.True(t.Doc.DispatchFullscreenVideoPlaybackShortcut(EditKey.Left, KeyMods.Shift));
+        Assert.Equal(110, player.Position);
+        Assert.True(t.Doc.DispatchFullscreenVideoPlaybackShortcut(EditKey.Up));
+        Assert.Equal(0.55, player.Volume, 2);
+        Assert.True(t.Doc.DispatchFullscreenVideoPlaybackShortcut(EditKey.Down));
+        Assert.Equal(0.5, player.Volume, 2);
+        player.Pause();
+        Assert.True(t.Doc.DispatchFullscreenVideoPlaybackShortcut(EditKey.Space));
+        Assert.True(player.Playing);
+        Assert.True(t.Doc.DispatchFullscreenVideoPlaybackShortcut(EditKey.Space));
+        Assert.False(player.Playing);
     }
 
     [Fact]

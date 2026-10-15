@@ -105,4 +105,14 @@ public class HostFullscreenStateTests(ITestOutputHelper output)
         Assert.Contains("\"0\"", sdl[sdl.IndexOf("SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS", StringComparison.Ordinal)..],
             StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Desktop_hosts_only_route_playback_shortcuts_while_the_video_window_is_fullscreen()
+    {
+        var host = Shell("DesktopHost.cs");
+        const string gated = "window.IsFullscreen && doc.DispatchFullscreenVideoPlaybackShortcut(k, mods)";
+
+        Assert.Equal(2, host.Split(gated, StringSplitOptions.None).Length - 1); // GPU and software hosts
+        Assert.DoesNotContain("RegisterHotKey", host, StringComparison.Ordinal);
+    }
 }

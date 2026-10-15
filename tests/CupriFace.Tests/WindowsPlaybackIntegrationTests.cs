@@ -41,6 +41,22 @@ public class WindowsPlaybackIntegrationTests
     }
 
     [Fact]
+    public void Focused_popout_routes_local_playback_keys_and_escape()
+    {
+        var chrome = Media("Win32PopOutChrome.cs");
+        var window = Media("Win32VideoWindow.cs");
+
+        Assert.Contains("case 0x0100: // WM_KEYDOWN", chrome, StringComparison.Ordinal);
+        Assert.Contains("DispatchVideoPlaybackShortcut(ControlSource, key, PopOutKeyMods())", chrome, StringComparison.Ordinal);
+        Assert.Contains("0x25 => EditKey.Left", chrome, StringComparison.Ordinal);
+        Assert.Contains("0x20 => EditKey.Space", chrome, StringComparison.Ordinal);
+        Assert.Contains("GetKeyState(0x10)", chrome, StringComparison.Ordinal);
+        Assert.Contains("registration.CloseRequested()", window, StringComparison.Ordinal);
+        Assert.DoesNotContain("RegisterHotKey", chrome, StringComparison.Ordinal);
+        Assert.DoesNotContain("RegisterHotKey", window, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Popout_client_areas_use_the_standard_arrow_cursor()
     {
         var videoHost = Media("Win32VideoWindow.cs");

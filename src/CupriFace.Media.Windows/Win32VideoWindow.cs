@@ -102,6 +102,14 @@ internal static partial class Win32VideoWindow
             registration.CloseRequested();
             return 0;
         }
+        // Escape in a focused, non-fullscreen pop-out has the same meaning as its native close
+        // button: dock the live decoder back into the owning application. Fullscreen Escape is
+        // consumed by Win32PopOutChrome first and only leaves fullscreen.
+        if (registration is not null && message == 0x0100 && (int)wordParameter == 0x1B) // WM_KEYDOWN, VK_ESCAPE
+        {
+            registration.CloseRequested();
+            return 0;
+        }
         return DefWindowProcW(window, message, wordParameter, longParameter);
     }
 

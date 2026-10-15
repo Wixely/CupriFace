@@ -1,5 +1,9 @@
 # Release notes
 
+- Added focused desktop video shortcuts for fullscreen and pop-out playback: Left/Right seek ten
+  seconds, Shift+Left/Right seek five minutes, Up/Down adjust volume, Space toggles playback, and
+  Escape leaves fullscreen or docks a non-fullscreen pop-out. Embedded players and unfocused
+  windows are unaffected; no global hotkeys are registered.
 - Fixed the built-in keyboard focus ring using unscrolled document coordinates. After arrow-key
   navigation scrolled a menu down and then back up, the ring now remains around the selected item.
 - Fixed Windows next-item autoplay potentially freezing while retiring a naturally-ended LibVLC

@@ -135,16 +135,42 @@ internal static partial class Win32PopOutChrome
                 ShowTrackMenu(state, SignedLow(longParameter), SignedHigh(longParameter));
                 return true;
             case 0x0201: // WM_LBUTTONDOWN over the disabled native video child
+                SetFocus(state.Parent);
                 state.LastInteraction = Environment.TickCount64;
                 state.Controls.TogglePlayback();
                 InvalidateRect(state.Overlay, 0, false);
                 return true;
-            case 0x0100 when (int)wordParameter == 0x1B && state.Fullscreen: // Escape
-                ToggleFullscreen(state);
-                return true;
+            case 0x0100: // WM_KEYDOWN — delivered only while this pop-out window owns focus
+                if ((int)wordParameter == 0x1B && state.Fullscreen) // Escape leaves fullscreen first.
+                {
+                    ToggleFullscreen(state);
+                    return true;
+                }
+                if (PopOutEditKey((int)wordParameter) is { } key
+                    && state.Document?.DispatchVideoPlaybackShortcut(ControlSource, key, PopOutKeyMods()) == true)
+                {
+                    state.LastInteraction = Environment.TickCount64;
+                    state.Controls.RequestFrame();
+                    InvalidateRect(state.Overlay, 0, false);
+                    return true;
+                }
+                break;
         }
         return false;
     }
+
+    private static EditKey? PopOutEditKey(int virtualKey) => virtualKey switch
+    {
+        0x25 => EditKey.Left,
+        0x26 => EditKey.Up,
+        0x27 => EditKey.Right,
+        0x28 => EditKey.Down,
+        0x20 => EditKey.Space,
+        _ => null,
+    };
+
+    private static KeyMods PopOutKeyMods() =>
+        (GetKeyState(0x10) & 0x8000) != 0 ? KeyMods.Shift : KeyMods.None; // VK_SHIFT
 
     internal static PopOutBounds? CaptureBounds(nint parent)
     {
@@ -316,11 +342,6 @@ internal static partial class Win32PopOutChrome
         if (!tooltip && message == 0x0215) // WM_CAPTURECHANGED
         {
             state.PointerDown = false;
-            return 0;
-        }
-        if (!tooltip && message == 0x0100 && (int)wordParameter == 0x1B && state.Fullscreen)
-        {
-            ToggleFullscreen(state);
             return 0;
         }
         if (!tooltip && message == 0x007B) // WM_CONTEXTMENU
@@ -548,6 +569,7 @@ internal static partial class Win32PopOutChrome
     [LibraryImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static partial bool DestroyMenu(nint menu);
     [LibraryImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static partial bool SetForegroundWindow(nint window);
     [LibraryImport("user32.dll")] private static partial nint SetFocus(nint window);
+    [LibraryImport("user32.dll")] private static partial short GetKeyState(int virtualKey);
     [LibraryImport("user32.dll")] private static partial nint SetCapture(nint window);
     [LibraryImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static partial bool ReleaseCapture();
     [LibraryImport("user32.dll", EntryPoint = "LoadCursorW")] private static partial nint LoadCursorW(nint instance, nint cursorName);

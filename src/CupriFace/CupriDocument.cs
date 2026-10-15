@@ -630,6 +630,47 @@ public sealed partial class CupriDocument : IDisposable
         return true;
     }
 
+    /// <summary>Apply the focused desktop player's conventional playback keys to an already-open
+    /// video: Left/Right seek 10 seconds (five minutes with Shift), Up/Down change volume by five
+    /// percentage points, and Space toggles playback.</summary>
+    /// <remarks>This method deliberately does not install or imply a global shortcut. A desktop
+    /// host calls it only for a focused fullscreen or pop-out player window; ordinary embedded
+    /// document input therefore keeps its existing navigation behaviour.</remarks>
+    public bool DispatchVideoPlaybackShortcut(string source, Interaction.EditKey key,
+        Interaction.KeyMods mods = Interaction.KeyMods.None)
+    {
+        if (!_videoPlayers.TryGetValue(source, out var player)) return false;
+        switch (key)
+        {
+            case Interaction.EditKey.Left:
+            case Interaction.EditKey.Right:
+                var seconds = mods.HasFlag(Interaction.KeyMods.Shift) ? 300d : 10d;
+                var target = player.Position + (key == Interaction.EditKey.Left ? -seconds : seconds);
+                player.Position = Math.Clamp(target, 0, player.Duration > 0 ? player.Duration : double.MaxValue);
+                break;
+            case Interaction.EditKey.Up:
+                player.Volume = Math.Clamp(player.Volume + 0.05, 0, 1);
+                break;
+            case Interaction.EditKey.Down:
+                player.Volume = Math.Clamp(player.Volume - 0.05, 0, 1);
+                break;
+            case Interaction.EditKey.Space:
+                if (player.Playing) player.Pause(); else player.Play();
+                break;
+            default:
+                return false;
+        }
+        NotifyVideoPlaybackState(source, player);
+        Refresh();
+        return true;
+    }
+
+    /// <summary>Apply a playback shortcut only when this document currently owns an
+    /// element-fullscreen video. Desktop hosts use this gate before ordinary document input.</summary>
+    public bool DispatchFullscreenVideoPlaybackShortcut(Interaction.EditKey key,
+        Interaction.KeyMods mods = Interaction.KeyMods.None) =>
+        _fullscreenVideo is { } source && DispatchVideoPlaybackShortcut(source, key, mods);
+
     /// <summary>Toggle an already-rendered video between element and host fullscreen. The source
     /// must still be present in the document; a decoder is not required.</summary>
     public bool ToggleVideoFullscreen(string source)
