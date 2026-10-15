@@ -6,6 +6,13 @@ on:
     tags: [ 'v*' ]      # a version tag builds the same jobs and then publishes a Release
   pull_request:
 
+# One name for the Android package. The gate's own diagnostics look the app up BY NAME, so a
+# rename that reaches the install but misses a `pidof` makes that call answer "no such process"
+# for an app that is running perfectly — which reads as "it crashed" and sends the next person
+# hunting a crash that never happened. Naming it once is what stops the two drifting apart.
+env:
+  ANDROID_PKG: com.wixely.cuprifaceviewer
+
 jobs:
   # All three desktop OSes: the suite renders through Skia, and font metrics differ per platform — a
   # test that silently encoded one machine's font already slipped through once (the underline test,
@@ -838,7 +845,7 @@ jobs:
           set -x
           adb logcat -c || true
           adb install -r out/x64/*-Signed.apk
-          ACTIVITY=$(adb shell cmd package resolve-activity --brief com.cupriface.viewer | tail -1 | tr -d '\r')
+          ACTIVITY=$(adb shell cmd package resolve-activity --brief "$ANDROID_PKG" | tail -1 | tr -d '\r')
           adb shell am start -n "$ACTIVITY" 2>&1 | tee start.log
           ! grep -q "Error:" start.log
           for i in $(seq 1 30); do
@@ -851,7 +858,7 @@ jobs:
           # platform that first and let its own log answer the rest. (The video step below learned
           # this the hard way; the same reasoning applies to the frame that precedes it.)
           if ! adb logcat -d -s cupri:I | grep -q "FIRST FRAME"; then
-            PID=$(adb shell pidof com.cupriface.viewer | tr -dc '0-9' || true)
+            PID=$(adb shell pidof "$ANDROID_PKG" | tr -dc '0-9' || true)
             if [ -n "$PID" ]; then
               echo "--- the process is ALIVE ($PID) and has not painted: a HANG, not a crash ---"
               # debuggerd -b prints EVERY thread's stack, Java and native, to stdout: the wedged
@@ -887,7 +894,7 @@ jobs:
           # tell them apart. The thread dump names a wedge; the window/input dumps name a touch
           # that was delivered somewhere else.
           testify() {
-            local pid; pid=$(adb shell pidof com.cupriface.viewer | tr -dc '0-9' || true)
+            local pid; pid=$(adb shell pidof "$ANDROID_PKG" | tr -dc '0-9' || true)
             if [ -z "$pid" ]; then
               echo "--- the process is GONE: it died, so look for the crash ---"
               adb logcat -d -b crash | tail -40 || true
@@ -1624,10 +1631,10 @@ jobs:
         run: |
           set -x
           adb logcat -c || true
-          ACTIVITY=$(adb shell cmd package resolve-activity --brief com.cupriface.viewer | tail -1 | tr -d '\r')
+          ACTIVITY=$(adb shell cmd package resolve-activity --brief "$ANDROID_PKG" | tail -1 | tr -d '\r')
           # --es section 3d starts in the Showcase on the 3D page; the surface only renders while
           # its element is laid out, so a gate that just launched the app would measure nothing.
-          adb shell am force-stop com.cupriface.viewer || true
+          adb shell am force-stop "$ANDROID_PKG" || true
           adb shell am start -n "$ACTIVITY" --es section 3d 2>&1 | tee start3d.log
           ! grep -q "Error:" start3d.log
 

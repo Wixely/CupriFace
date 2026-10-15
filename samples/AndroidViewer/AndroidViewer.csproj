@@ -11,7 +11,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ImplicitUsings>enable</ImplicitUsings>
     <SupportedOSPlatformVersion>24.0</SupportedOSPlatformVersion>
-    <ApplicationId>com.cupriface.viewer</ApplicationId>
+    <ApplicationId>com.wixely.cuprifaceviewer</ApplicationId>
     <ApplicationVersion>1</ApplicationVersion>
     <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
     <AndroidPackageFormat>apk</AndroidPackageFormat>
