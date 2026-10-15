@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using SkiaSharp;
 
 namespace CupriFace.Media.Windows;
 
@@ -10,6 +11,7 @@ internal static partial class Win32VideoWindow
     private const string WindowClassName = "CupriFace.Media.Windows.VideoHost";
     private const int BlackBrush = 4;
     private const int ErrorClassAlreadyExists = 1410;
+    private const int IdcArrow = 32512;
     private const uint WsChild = 0x40000000;
     private const uint WsClipChildren = 0x02000000;
     private const uint WsClipSiblings = 0x04000000;
@@ -25,7 +27,7 @@ internal static partial class Win32VideoWindow
     private static nint _moduleInstance;
     private static readonly Dictionary<nint, PopOutRegistration> PopOutChildren = [];
 
-    private sealed record PopOutRegistration(nint Child, Action CloseRequested);
+    private sealed record PopOutRegistration(nint Child, Action CloseRequested, nint LargeIcon, nint SmallIcon);
 
     internal static nint Create(nint parent)
     {
@@ -64,6 +66,7 @@ internal static partial class Win32VideoWindow
                     WindowProcedure = (nint)(delegate* unmanaged[Stdcall]<nint, uint, nuint, nint, nint>)&WindowProcedure,
                     Instance = _moduleInstance,
                     Background = GetStockObject(BlackBrush),
+                    Cursor = LoadCursorW(0, new nint(IdcArrow)),
                     ClassName = (nint)className,
                 };
 
@@ -110,6 +113,7 @@ internal static partial class Win32VideoWindow
         float width,
         float height,
         PopOutBounds? restoredBounds,
+        VideoPopOutWindowOptions windowOptions,
         Action closeRequested,
         PopOutPlayerControls controls)
     {
@@ -130,7 +134,7 @@ internal static partial class Win32VideoWindow
         var window = CreateWindowExW(
             WsExTopmost,
             WindowClassName,
-            "Luma player",
+            string.IsNullOrWhiteSpace(windowOptions.Title) ? "Video player" : windowOptions.Title,
             WsOverlappedWindow,
             wanted.X,
             wanted.Y,
@@ -142,7 +146,8 @@ internal static partial class Win32VideoWindow
             0);
         if (window == 0) throw new InvalidOperationException("Could not create the picture-in-picture window.");
         ApplyLumaTheme(window);
-        lock (PopOutChildren) PopOutChildren[window] = new PopOutRegistration(child, closeRequested);
+        var icons = ApplyWindowIcons(window, windowOptions);
+        lock (PopOutChildren) PopOutChildren[window] = new PopOutRegistration(child, closeRequested, icons.Large, icons.Small);
         SetParent(child, window);
         FillClient(child, window);
         ShowWindow(window, wanted.Maximized ? SwShowMaximized : SwShowNoActivate);
@@ -162,11 +167,78 @@ internal static partial class Win32VideoWindow
             bounds = captured with { Maximized = captured.Maximized || FillsAvailableMonitorBounds(rect) };
         }
         Win32PopOutChrome.Detach(popOut);
-        lock (PopOutChildren) PopOutChildren.Remove(popOut);
+        PopOutRegistration? registration;
+        lock (PopOutChildren)
+        {
+            PopOutChildren.Remove(popOut, out registration);
+        }
         ShowWindow(popOut, SwHide);
         SetParent(child, parent);
         DestroyWindow(popOut);
+        if (registration?.LargeIcon is { } large && large != 0) DestroyIcon(large);
+        if (registration?.SmallIcon is { } small && small != 0 && small != registration.LargeIcon) DestroyIcon(small);
         return bounds;
+    }
+
+    private static (nint Large, nint Small) ApplyWindowIcons(nint window, VideoPopOutWindowOptions options)
+    {
+        if (options.Icon is not { Length: > 0 } encoded) return default;
+        var large = CreatePopOutIcon(encoded, 32, options.DecorateIcon);
+        var small = CreatePopOutIcon(encoded, 16, options.DecorateIcon);
+        if (large != 0) _ = SendMessageW(window, 0x0080, 1, large); // WM_SETICON, ICON_BIG
+        if (small != 0) _ = SendMessageW(window, 0x0080, 0, small); // WM_SETICON, ICON_SMALL
+        return (large, small);
+    }
+
+    private static unsafe nint CreatePopOutIcon(byte[] encoded, int size, bool decorate)
+    {
+        using var source = SKBitmap.Decode(encoded);
+        if (source is null) return 0;
+        using var bitmap = new SKBitmap(new SKImageInfo(size, size, SKColorType.Bgra8888, SKAlphaType.Premul));
+        using (var canvas = new SKCanvas(bitmap))
+        {
+            canvas.Clear(SKColors.Transparent);
+            var scale = Math.Min(size / (float)source.Width, size / (float)source.Height);
+            var width = source.Width * scale;
+            var height = source.Height * scale;
+            var destination = SKRect.Create((size - width) / 2f, (size - height) / 2f, width, height);
+            canvas.DrawBitmap(source, destination);
+            if (decorate) DrawPictureInPictureBadge(canvas, size);
+            canvas.Flush();
+        }
+        using var image = SKImage.FromBitmap(bitmap);
+        using var png = image.Encode(SKEncodedImageFormat.Png, 100);
+        var bytes = png.ToArray();
+        fixed (byte* bits = bytes)
+            return CreateIconFromResourceEx(bits, (uint)bytes.Length, true, 0x00030000, size, size, 0);
+    }
+
+    private static void DrawPictureInPictureBadge(SKCanvas canvas, int size)
+    {
+        var badgeSize = size * 0.53f;
+        var badge = SKRect.Create(size - badgeSize, size - badgeSize, badgeSize, badgeSize);
+        using var background = new SKPaint { Color = new SKColor(0x08, 0x0B, 0x12, 0xF2), IsAntialias = true };
+        canvas.DrawRoundRect(badge, badgeSize * 0.24f, badgeSize * 0.24f, background);
+        var frame = SKRect.Create(
+            badge.Left + badgeSize * 0.18f,
+            badge.Top + badgeSize * 0.24f,
+            badgeSize * 0.64f,
+            badgeSize * 0.48f);
+        using var accent = new SKPaint
+        {
+            Color = new SKColor(0xD8, 0xFF, 0x59),
+            IsAntialias = true,
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = Math.Max(1f, size / 16f),
+        };
+        canvas.DrawRoundRect(frame, Math.Max(1f, size / 32f), Math.Max(1f, size / 32f), accent);
+        using var inset = new SKPaint { Color = accent.Color, IsAntialias = true };
+        canvas.DrawRect(
+            frame.Right - badgeSize * 0.29f,
+            frame.Bottom - badgeSize * 0.23f,
+            badgeSize * 0.22f,
+            badgeSize * 0.16f,
+            inset);
     }
 
     private static PopOutBounds ClampToVisibleWorkArea(PopOutBounds bounds)
@@ -319,6 +391,19 @@ internal static partial class Win32VideoWindow
 
     [LibraryImport("user32.dll", EntryPoint = "DefWindowProcW")]
     private static partial nint DefWindowProcW(nint window, uint message, nuint wordParameter, nint longParameter);
+
+    [LibraryImport("user32.dll", EntryPoint = "LoadCursorW")]
+    private static partial nint LoadCursorW(nint instance, nint cursorName);
+
+    [LibraryImport("user32.dll", EntryPoint = "SendMessageW")]
+    private static partial nint SendMessageW(nint window, uint message, nuint wordParameter, nint longParameter);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool DestroyIcon(nint icon);
+
+    [LibraryImport("user32.dll")]
+    private static unsafe partial nint CreateIconFromResourceEx(byte* bits, uint size, [MarshalAs(UnmanagedType.Bool)] bool icon, uint version, int desiredWidth, int desiredHeight, uint flags);
 
     [LibraryImport("dwmapi.dll")]
     private static partial int DwmSetWindowAttribute(nint window, int attribute, ref int value, int size);

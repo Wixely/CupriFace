@@ -5,7 +5,9 @@ Optional Windows video backend for `<cupri-video>`. It implements CupriFace's po
 desktop host-composited-surface lifecycle.
 
 ```csharp
-using var video = new LibVlcVideoBackend();
+using var video = new LibVlcVideoBackend(
+    popOutWindow: new VideoPopOutWindowOptions(
+        "My app player", appIconBytes, ShowVolumeControls: true));
 DesktopHost.Run(app, document => document.UseVideo(video));
 ```
 

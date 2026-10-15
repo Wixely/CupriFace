@@ -129,4 +129,20 @@ public class ZIndexTests
         var hit = HitTesting.HitTest(t.Root, 60, 30);
         Assert.Equal("p", hit?.Element?.ClassList.ToString());
     }
+
+    [Fact]
+    public void A_fixed_child_of_a_fixed_layer_keeps_viewport_coordinates()
+    {
+        using var t = new TestDoc(
+            "<body><div class='outer'><div class='tip'></div></div></body>",
+            "body{margin:0;background:#fff}"
+            + ".outer{position:fixed;left:80px;top:60px;width:100px;height:80px;background:#0000ff;z-index:10}"
+            + ".tip{position:fixed;left:10px;top:10px;width:20px;height:20px;background:#ff8800;z-index:20}",
+            width: 220, height: 160);
+
+        using var bmp = t.Render(SKColors.White);
+        Assert.Equal(Orange, bmp.GetPixel(15, 15));
+        Assert.Equal(Blue, bmp.GetPixel(95, 75));
+        Assert.Equal("tip", HitTesting.HitTest(t.Root, 15, 15)?.Element?.ClassList.ToString());
+    }
 }

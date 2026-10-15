@@ -4,13 +4,12 @@ namespace CupriFace.Media.Windows;
 
 internal sealed class PopOutPlayerControls
 {
+    internal required IVideoPlayer Player { get; init; }
+    internal required Action RequestFrame { get; init; }
     internal required Func<bool> IsPlaying { get; init; }
     internal required Action TogglePlayback { get; init; }
-    internal required Func<bool> IsMuted { get; init; }
-    internal required Action ToggleMute { get; init; }
-    internal required Func<double> Position { get; init; }
+    internal required bool ShowVolumeControls { get; init; }
     internal required Func<double> Duration { get; init; }
-    internal required Action<double> Seek { get; init; }
     internal required Func<IReadOnlyList<VideoTrack>> AudioTracks { get; init; }
     internal required Func<IReadOnlyList<VideoTrack>> SubtitleTracks { get; init; }
     internal required Func<int> SelectedAudioTrack { get; init; }

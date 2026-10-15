@@ -1,12 +1,20 @@
 # Release notes
 
+- Added opt-in `volume-controls` to `<cupri-video>`. Hovering the existing mute button reveals an
+  accessible pointer/keyboard volume slider without changing click-to-mute; Windows pop-outs can
+  enable the same shared control through `VideoPopOutWindowOptions.ShowVolumeControls`.
 - Fixed popping a video out from its fullscreen context menu leaving the original application
   window fullscreen around an empty video element. CupriFace now exits element/host fullscreen
   before transferring the existing decoder to the pop-out window.
 - Added `panel-only` presentation for the reusable video track and chapter companions, allowing an
   application-owned tab strip to control one stable content region without nested toggle controls.
-- Fixed the Windows pop-out player's seek bar so it captures the pointer and continuously seeks
-  while dragged, including in fullscreen, instead of treating every press as a single click seek.
+- Unified the Windows pop-out transport with the engine-drawn `<cupri-video>` control bar. Embedded,
+  fullscreen, and pop-out playback now share the same HTML, CSS, glyphs, and seek-drag behavior;
+  the secondary control document borrows the existing decoder without reopening or disposing it.
+- Clicking the Windows pop-out video surface now toggles play/pause, matching the embedded player.
+- Fixed the Windows pop-out client area inheriting a stale horizontal-resize cursor. Applications
+  can now provide a native pop-out title and icon; the backend can add a picture-in-picture badge
+  so the secondary window remains related to, but distinguishable from, the main application.
 
 Per-release notes that CI splices into the GitHub release, so a breaking change is recorded in
 the SAME commit that makes it rather than reconstructed from memory at tag time.

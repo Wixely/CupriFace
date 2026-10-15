@@ -20,10 +20,11 @@ public sealed class LibVlcVideoBackend : IVideoBackend, IDisposable
     private readonly string _cacheDirectory;
     private readonly bool _debug;
     private readonly PopOutPlacementStore _popOutPlacement;
+    private readonly VideoPopOutWindowOptions _popOutWindowOptions;
     private readonly HashSet<LibVlcVideoPlayer> _players = [];
     private bool _disposed;
 
-    public LibVlcVideoBackend(string? cacheDirectory = null)
+    public LibVlcVideoBackend(string? cacheDirectory = null, VideoPopOutWindowOptions? popOutWindow = null)
     {
         if (!OperatingSystem.IsWindows())
             throw new PlatformNotSupportedException("The LibVLC Windows backend requires Windows.");
@@ -74,6 +75,7 @@ public sealed class LibVlcVideoBackend : IVideoBackend, IDisposable
         _cacheDirectory = cacheDirectory ?? Path.Combine(Path.GetTempPath(), "CupriFace.Media.Windows");
         Directory.CreateDirectory(_cacheDirectory);
         _popOutPlacement = new PopOutPlacementStore(Path.Combine(_cacheDirectory, "popout-window.bounds"));
+        _popOutWindowOptions = popOutWindow ?? new VideoPopOutWindowOptions();
     }
 
     private static string ArchitectureDirectory() => RuntimeInformation.ProcessArchitecture switch
@@ -89,7 +91,7 @@ public sealed class LibVlcVideoBackend : IVideoBackend, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         var player = new LibVlcVideoPlayer(_libVlc, source, _cacheDirectory,
-            _popOutPlacement,
+            _popOutPlacement, _popOutWindowOptions,
             message => { if (_debug) Console.WriteLine("[cupri-media] " + message); },
             closed => { lock (_players) _players.Remove(closed); });
         lock (_players) _players.Add(player);
@@ -147,18 +149,21 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IVi
     private readonly Action<string> _log;
     private readonly Action<LibVlcVideoPlayer> _closed;
     private readonly PopOutPlacementStore _popOutPlacement;
+    private readonly VideoPopOutWindowOptions _popOutWindowOptions;
 
     internal LibVlcVideoPlayer(
         LibVLC libVlc,
         VideoSource source,
         string cacheDirectory,
         PopOutPlacementStore popOutPlacement,
+        VideoPopOutWindowOptions popOutWindow,
         Action<string> log,
         Action<LibVlcVideoPlayer> closed)
     {
         _source = source;
         _cacheDirectory = cacheDirectory;
         _popOutPlacement = popOutPlacement;
+        _popOutWindowOptions = popOutWindow;
         _log = log;
         _closed = closed;
         _player = new VlcMediaPlayer(libVlc)
@@ -365,16 +370,16 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IVi
             _lastPlacement.Width,
             _lastPlacement.Height,
             _popOutPlacement.Load(),
+            _popOutWindowOptions,
             () => SetPoppedOut(false),
             new PopOutPlayerControls
             {
+                Player = this,
+                RequestFrame = () => _context?.RequestFrame(),
                 IsPlaying = () => Playing,
                 TogglePlayback = () => { if (Playing) Pause(); else Play(); _context?.RequestFrame(); },
-                IsMuted = () => Muted,
-                ToggleMute = () => { Muted = !Muted; _context?.RequestFrame(); },
-                Position = () => Position,
+                ShowVolumeControls = _popOutWindowOptions.ShowVolumeControls,
                 Duration = () => Duration,
-                Seek = seconds => { Position = seconds; _context?.RequestFrame(); },
                 AudioTracks = () => AudioTracks,
                 SubtitleTracks = () => SubtitleTracks,
                 SelectedAudioTrack = () => SelectedAudioTrack,

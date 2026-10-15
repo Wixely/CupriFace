@@ -463,6 +463,10 @@ public sealed partial class CupriDocument : IDisposable
     // disposed when it no longer does (a hidden section stops its video).
     private Media.IVideoBackend? _videoBackend;
     private readonly Dictionary<string, Media.IVideoPlayer> _videoPlayers = new(StringComparer.Ordinal);
+    // A control-only document may borrow a player owned by another document/backend. It can use
+    // the ordinary <cupri-video> transport and input paths, but must never dispose the shared
+    // decoder or unregister the surface it did not register.
+    private readonly HashSet<string> _borrowedVideoPlayers = new(StringComparer.Ordinal);
     private string? _videoTrackPanelSource;
     private string? _videoChapterPanelSource;
     private int _videoStateChanged; // set (any thread) by Ended → consumed on the UI thread
@@ -543,6 +547,27 @@ public sealed partial class CupriDocument : IDisposable
     {
         _videoBackend = backend;
         Refresh(); // wire any <cupri-video> already in the tree
+        return this;
+    }
+
+    /// <summary>Bind an existing player to a control-only <c>&lt;cupri-video&gt;</c> with the given
+    /// source. The document borrows the player: it uses the normal HTML controls and input logic,
+    /// but neither owns nor disposes the decoder and does not register its video surface.</summary>
+    /// <remarks>This is intended for secondary native chrome such as a picture-in-picture window
+    /// which must present the same transport as the owning document without opening a second
+    /// player. The source must match the control element's <c>src</c>.</remarks>
+    public CupriDocument UseVideoControls(string source, Media.IVideoPlayer player)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(source);
+        ArgumentNullException.ThrowIfNull(player);
+        if (_videoPlayers.TryGetValue(source, out var existing))
+        {
+            if (_borrowedVideoPlayers.Contains(source) && ReferenceEquals(existing, player)) return this;
+            throw new InvalidOperationException($"A video player is already registered for '{source}'.");
+        }
+        _videoPlayers[source] = player;
+        _borrowedVideoPlayers.Add(source);
+        Refresh();
         return this;
     }
 
@@ -797,9 +822,12 @@ public sealed partial class CupriDocument : IDisposable
         foreach (var src in gone)
         {
             NotifyVideoPlaybackState(src, _videoPlayers[src]);
-            try { _videoPlayers[src].Dispose(); } catch { /* a dying decoder must not kill the rebuild */ }
+            if (!_borrowedVideoPlayers.Remove(src))
+            {
+                try { _videoPlayers[src].Dispose(); } catch { /* a dying decoder must not kill the rebuild */ }
+                Surfaces.Unregister("video:" + src);
+            }
             _videoPlayers.Remove(src);
-            Surfaces.Unregister("video:" + src);
             if (string.Equals(_videoTrackPanelSource, src, StringComparison.Ordinal))
                 _videoTrackPanelSource = null;
             if (string.Equals(_videoChapterPanelSource, src, StringComparison.Ordinal))
@@ -950,10 +978,18 @@ public sealed partial class CupriDocument : IDisposable
     /// browser's Esc key ends fullscreen without the engine ever seeing a keystroke. Hosts call
     /// this from their fullscreen-change notification; leaving fullscreen releases any
     /// element-fullscreened video back into the layout.</summary>
-    public void NotifyHostFullscreen(bool active)
+    public void NotifyHostFullscreen(bool active, string? videoSource = null)
     {
-        if (active || _fullscreenVideo is null) return;
-        _fullscreenVideo = null;
+        if (active)
+        {
+            if (string.IsNullOrWhiteSpace(videoSource) || !_videoPlayers.ContainsKey(videoSource)) return;
+            _fullscreenVideo = videoSource;
+        }
+        else
+        {
+            if (_fullscreenVideo is null) return;
+            _fullscreenVideo = null;
+        }
         _videoControlsHidden = false;
         _videoControlsHideAt = double.NaN;
         Refresh();
@@ -1226,6 +1262,7 @@ public sealed partial class CupriDocument : IDisposable
         // here — so a control appearing or disappearing anywhere earlier silently slides the
         // selection onto a different thing. Carry an identity across instead and re-find it below.
         var focus = CaptureFocus();
+        var hoveredVolumeSource = HoveredVolumeSource();
         CancelOrphanedPointerDrags(); // any node the pointer was dragging is about to be orphaned
 
         _dom?.Dispose();
@@ -1249,6 +1286,7 @@ public sealed partial class CupriDocument : IDisposable
         // Expand custom elements after binding so components see concrete attribute values.
         _components?.Expand(dom);
         SyncVideos(dom); // players follow the DOM: open for new sources, label controls, retire gone ones
+        RestoreHoveredVolume(dom, hoveredVolumeSource);
         // …and the same moment, opened up. A surface producer outside this assembly — a Lottie player,
         // and the 3D viewport or camera SurfaceRegistry already anticipates — needs exactly what
         // SyncVideos needs: the expanded DOM, every rebuild, so it can open sources that appeared and
@@ -1569,7 +1607,15 @@ public sealed partial class CupriDocument : IDisposable
     public bool Animate(double timeSeconds)
     {
         var any = false;
-        if (FullscreenControlsHideSeconds > 0 && _fullscreenVideo is not null && !_videoControlsHidden
+        var volumeHovered = HoveredVolumeSource() is not null;
+        if (volumeHovered && _fullscreenVideo is not null && !_videoControlsHidden)
+        {
+            // A stationary pointer on the fly-out is still active interaction. Keep both the popup
+            // and its transport bar present until the pointer actually leaves the volume control.
+            _videoControlsHideAt = double.NaN;
+            any = true;
+        }
+        if (!volumeHovered && FullscreenControlsHideSeconds > 0 && _fullscreenVideo is not null && !_videoControlsHidden
             && _videoPlayers.TryGetValue(_fullscreenVideo, out var fullscreenPlayer)
             && fullscreenPlayer.Playing)
         {
@@ -3288,6 +3334,13 @@ public sealed partial class CupriDocument : IDisposable
             Refresh();
             return true;
         }
+        if (VolumePlayerOf(el) is { } volumePlayer)
+        {
+            volumePlayer.Volume = Math.Clamp(value, 0, 100) / 100;
+            NotifyVideoPlaybackStateFor(volumePlayer);
+            Refresh();
+            return true;
+        }
         if (_model is null) return false;
         if (el.GetAttribute("data-bind-value") is not { Length: > 0 } bind) return false;
         var min = ParseAttr(el, "min", 0);
@@ -4040,7 +4093,7 @@ public sealed partial class CupriDocument : IDisposable
             switch (el.GetAttribute("role"))
             {
                 case "switch" or "checkbox" or "radio": return ActivateControl(el);
-                case "slider": return StartSliderDrag(node, el, x);
+                case "slider": return StartSliderDrag(node, el, x, y);
                 default:
                     var any = false;
                     foreach (var (_, compiled, handler) in _clickHandlers)
@@ -5158,6 +5211,14 @@ public sealed partial class CupriDocument : IDisposable
         if (SeekPlayerOf(el) is { } seekPlayer)
         {
             seekPlayer.Position = Math.Clamp(seekPlayer.Position + dir * 5, 0, Math.Max(seekPlayer.Duration, 0));
+            _focusVisible = true;
+            Refresh();
+            return true;
+        }
+        if (VolumePlayerOf(el) is { } volumePlayer)
+        {
+            volumePlayer.Volume = Math.Clamp(volumePlayer.Volume + dir * 0.05, 0, 1);
+            NotifyVideoPlaybackStateFor(volumePlayer);
             _focusVisible = true;
             Refresh();
             return true;
@@ -6496,15 +6557,47 @@ public sealed partial class CupriDocument : IDisposable
     // has no player — no backend — in which case the bar is marked disabled anyway).
     private Media.IVideoPlayer? SeekPlayerOf(IElement el)
     {
-        if (el.GetAttribute("data-video-role") != "seek" || el.GetAttribute("aria-disabled") == "true") return null;
+        if (el.GetAttribute("data-video-role") != "seek") return null;
+        return VideoPlayerOf(el);
+    }
+
+    private Media.IVideoPlayer? VolumePlayerOf(IElement el)
+    {
+        if (el.GetAttribute("data-video-role") != "volume") return null;
+        return VideoPlayerOf(el);
+    }
+
+    private Media.IVideoPlayer? VideoPlayerOf(IElement el)
+    {
+        if (el.GetAttribute("aria-disabled") == "true") return null;
         for (var e = (IElement?)el; e is not null; e = e.ParentElement)
             if (e.GetAttribute("data-cupri-video") is { Length: > 0 } src && _videoPlayers.TryGetValue(src, out var p))
                 return p;
         return null;
     }
 
+    private void NotifyVideoPlaybackStateFor(Media.IVideoPlayer player)
+    {
+        foreach (var (source, candidate) in _videoPlayers)
+            if (ReferenceEquals(candidate, player))
+            {
+                NotifyVideoPlaybackState(source, player);
+                return;
+            }
+    }
+
+    private void SyncVideoControlsFor(Media.IVideoPlayer player)
+    {
+        if (_dom is null) return;
+        foreach (var video in _dom.QuerySelectorAll("[data-cupri-video]"))
+            if (video.GetAttribute("data-cupri-video") is { Length: > 0 } source
+                && _videoPlayers.TryGetValue(source, out var candidate)
+                && ReferenceEquals(candidate, player))
+                Components.Controls.VideoComponent.SyncControls(video, player);
+    }
+
     // Begin a slider interaction: cache its geometry so drag-moves don't need the node.
-    private bool StartSliderDrag(RenderNode node, IElement el, float x)
+    private bool StartSliderDrag(RenderNode node, IElement el, float x, float y)
     {
         // The video seek bar: same geometry mapping, but the value goes to the PLAYER (there is
         // no model path). Scrubbing works because Position-setting presents the landing frame.
@@ -6520,7 +6613,26 @@ public sealed partial class CupriDocument : IDisposable
             _dragPath = null;
             _dragClampMin = _dragClampMax = null;
             _dragSeek = seekPlayer;
-            return ApplySliderValue(x);
+            _dragVolume = null;
+            _dragVertical = false;
+            return ApplySliderValue(x, y);
+        }
+
+        if (VolumePlayerOf(el) is { } volumePlayer)
+        {
+            var sBox = HitTesting.ScreenBox(node);
+            _dragging = true;
+            _dragY0 = sBox.Y;
+            _dragVerticalPad = node.ContentTopInset;
+            _dragInnerH = sBox.H - node.VerticalInsets;
+            _dragMin = 0;
+            _dragMax = 100;
+            _dragPath = null;
+            _dragClampMin = _dragClampMax = null;
+            _dragSeek = null;
+            _dragVolume = volumePlayer;
+            _dragVertical = true;
+            return ApplySliderValue(x, y);
         }
 
         var path = el.GetAttribute("data-bind-value");
@@ -6554,6 +6666,8 @@ public sealed partial class CupriDocument : IDisposable
         _dragClampMax = el.HasAttribute("data-clamp-max") ? ParseAttr(el, "data-clamp-max", _dragMax) : null;
         _dragPath = path;
         _dragSeek = null;
+        _dragVolume = null;
+        _dragVertical = false;
         _dragUndecided = false;
 
         // BOTH THUMBS ON THE SAME VALUE. Only the one painted last is hit-testable there, so every
@@ -6585,7 +6699,7 @@ public sealed partial class CupriDocument : IDisposable
                 return true;
             }
         }
-        return ApplySliderValue(x);
+        return ApplySliderValue(x, y);
     }
 
     // A press that landed where both range thumbs sit. Which one is being dragged is decided by the
@@ -6614,15 +6728,20 @@ public sealed partial class CupriDocument : IDisposable
     }
 
     private Media.IVideoPlayer? _dragSeek; // the seek bar's player while a scrub drag is live
+    private Media.IVideoPlayer? _dragVolume; // the volume slider's player while a drag is live
+    private bool _dragVertical;
+    private float _dragY0, _dragVerticalPad, _dragInnerH;
     // A bound the dragged thumb may not pass, distinct from the scale it is measured on.
     private double? _dragClampMin, _dragClampMax;
 
-    private bool ApplySliderValue(float x)
+    private bool ApplySliderValue(float x, float y)
     {
         // A deferred range drag decides which thumb it is on the first real movement.
         if (_dragUndecided && !DecideRangeThumb(x)) return false;
 
-        var ratio = _dragInnerW > 0 ? Math.Clamp((x - _dragX0 - _dragPad) / _dragInnerW, 0, 1) : 0;
+        var ratio = _dragVertical
+            ? (_dragInnerH > 0 ? 1 - Math.Clamp((y - _dragY0 - _dragVerticalPad) / _dragInnerH, 0, 1) : 0)
+            : (_dragInnerW > 0 ? Math.Clamp((x - _dragX0 - _dragPad) / _dragInnerW, 0, 1) : 0);
         var value = _dragMin + ratio * (_dragMax - _dragMin);
         // A thumb may be limited by something other than the scale — the other thumb of a range.
         if (_dragClampMin is { } lo) value = Math.Max(value, lo);
@@ -6631,6 +6750,15 @@ public sealed partial class CupriDocument : IDisposable
         {
             seek.Position = value;   // unrounded: sub-second scrubbing
             Refresh();               // clocks + fill track the thumb while dragging
+            return true;
+        }
+        if (_dragVolume is { } volume)
+        {
+            volume.Volume = value / 100;
+            // Keep the current DOM and its hover ancestry while the pointer moves through this
+            // out-of-flow popup. Re-parsing the template would hide it before it could be hit-tested.
+            SyncVideoControlsFor(volume);
+            ReStyle();
             return true;
         }
         if (_dragPath is null || _model is null) return false;
@@ -6752,6 +6880,25 @@ public sealed partial class CupriDocument : IDisposable
                 items[i].DragTargetY = t;
             }
         }
+    }
+
+    private string? HoveredVolumeSource()
+    {
+        if (!_hoverChain.Any(element => element.ClassList.Contains("cupri-video-volume"))) return null;
+        return _hoverChain.Select(element => element.GetAttribute("data-cupri-video"))
+            .FirstOrDefault(source => !string.IsNullOrEmpty(source));
+    }
+
+    private static void RestoreHoveredVolume(IDocument dom, string? source)
+    {
+        if (source is null) return;
+        foreach (var volume in dom.QuerySelectorAll(".cupri-video-volume"))
+            for (var parent = volume.ParentElement; parent is not null; parent = parent.ParentElement)
+                if (string.Equals(parent.GetAttribute("data-cupri-video"), source, StringComparison.Ordinal))
+                {
+                    volume.SetAttribute("data-hover", "");
+                    return;
+                }
     }
 
     // Ease each shifting row toward its target offset (the lifted row is skipped — it tracks the pointer).
@@ -7023,8 +7170,13 @@ public sealed partial class CupriDocument : IDisposable
         }
         if (_dragging)
         {
-            if (!ApplySliderValue(x)) return false;
-            Refresh();
+            // A slider write rebuilds the document. Preserve the drag pointer, not the position
+            // from before the press, so an out-of-flow hover popup remains hovered under the
+            // pointer throughout the drag and after release.
+            _lastHitX = x;
+            _lastHitY = y;
+            if (!ApplySliderValue(x, y)) return false;
+            if (_dragVolume is null) Refresh();
             return true;
         }
         // Drag-select text: extend the selection caret to the pointer (anchor stays put).
@@ -7049,7 +7201,8 @@ public sealed partial class CupriDocument : IDisposable
         if (_colPath is not null) { _colPath = null; return true; }
         var activated = ResolvePendingActivation();
         _panPath = null; _panEngaged = false;
-        _dragging = false; _dragSeek = null; _dragUndecided = false; _windowDrag = false; _textDrag = false; _scrollDrag = null; _resizeDrag = null;
+        if (_dragVolume is { } volume) NotifyVideoPlaybackStateFor(volume);
+        _dragging = false; _dragSeek = null; _dragVolume = null; _dragUndecided = false; _windowDrag = false; _textDrag = false; _scrollDrag = null; _resizeDrag = null;
         return ClearActive() | activated;
     }
 
@@ -7370,7 +7523,8 @@ public sealed partial class CupriDocument : IDisposable
         var hit = HitTesting.HitTest(_root, x, y);
         _lastHit = hit; _lastHitRoot = _root; _lastHitX = x; _lastHitY = y; // reused by CursorAt
         var target = hit?.Element;
-        if (_hoverChain.Count > 0 && ReferenceEquals(_hoverChain[0], target)) return false;
+        var pointerAnchorChanged = UpdatePointerAnchoredTooltip(target, x, y);
+        if (_hoverChain.Count > 0 && ReferenceEquals(_hoverChain[0], target)) return pointerAnchorChanged;
 
         foreach (var e in _hoverChain) e.RemoveAttribute("data-hover");
         _hoverChain.Clear();
@@ -7381,6 +7535,23 @@ public sealed partial class CupriDocument : IDisposable
         }
         ReStyle();
         return true;
+    }
+
+    private static bool UpdatePointerAnchoredTooltip(IElement? target, float x, float y)
+    {
+        for (var element = target; element is not null; element = element.ParentElement)
+        {
+            if (!element.HasAttribute("data-video-chapter-title")) continue;
+            if (element.QuerySelector("[data-cupri-follow-pointer]") is not { } tooltip) return false;
+            var xValue = x.ToString("0.###", CultureInfo.InvariantCulture);
+            var yValue = y.ToString("0.###", CultureInfo.InvariantCulture);
+            if (tooltip.GetAttribute("data-cupri-pointer-x") == xValue
+                && tooltip.GetAttribute("data-cupri-pointer-y") == yValue) return false;
+            tooltip.SetAttribute("data-cupri-pointer-x", xValue);
+            tooltip.SetAttribute("data-cupri-pointer-y", yValue);
+            return true;
+        }
+        return false;
     }
 
     // Mark data-active (CSS :active) on the pressed element + ancestors — set on pointer-down (the
@@ -7570,9 +7741,11 @@ public sealed partial class CupriDocument : IDisposable
         foreach (var (src, player) in _videoPlayers)
         {
             NotifyVideoPlaybackState(src, player);
-            try { player.Dispose(); } catch { /* a dying decoder must not block disposal */ }
+            if (!_borrowedVideoPlayers.Contains(src))
+                try { player.Dispose(); } catch { /* a dying decoder must not block disposal */ }
         }
         _videoPlayers.Clear();
+        _borrowedVideoPlayers.Clear();
         _fonts.Dispose();
         _images.Dispose();
         _dom?.Dispose();
