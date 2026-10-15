@@ -6,35 +6,38 @@ name: Codecs
 # Pinned tags; decode-only configure keeps the output small. Runs when this file changes (or on
 # demand); the artifacts feed the CupriFace.Media pack and local development.
 #
-# RELEASES DEPEND ON THESE ARTIFACTS, and they are mortal: retention is 14 days, and a storage
-# sweep can delete them early — v0.5.0 shipped a 25KB CupriFace.Media (no decoders, green run)
-# because the sweep that introduced the retention limit also emptied the run the release then
-# fetched from. If the latest green run here is stale or bare, RE-RUN THIS WORKFLOW before
-# tagging; the release job now fails loudly when it finds no natives at all instead of packing
-# a hollow nupkg.
+# THIS WORKFLOW IS A CANARY. No release reads its artifacts any more — ci.yml builds its own, in
+# the run that packs them, on a tag. What this one still does is run MONTHLY against the same
+# pinned tags, so an upstream tag that moved, a runner image that broke a configure flag, or a
+# toolchain that stopped shipping a compiler is discovered weeks before a release would meet it.
+# A red run here is advance warning, not a blocked release. It also keeps the portability gate
+# below, which is the only place the managed binding is actually run against these libraries on
+# all six platforms.
 #
-# So if you are reclaiming Actions storage: the six `cupricodecs-*` artifacts on the latest green
-# run of THIS workflow are the only ones another run reads, and they are ~4 MB in total — deleting
-# them saves nothing and breaks the next release. The post-release sweep in ci.yml knows this and
-# keeps anything named `cupricodecs-*`; any other cleanup must do the same. Everything else in this repo is an intra-run
-# handoff (`mediaprobe-*`) or a release input built only on tags (`viewer-*`, `androidviewer-apk`),
-# all of which expire in a day on their own and are safe to delete at any time.
+# It used to be the release's supplier, and that is the single most reliable way this repository
+# has broken a release. Three times, same shape: v0.5.0 shipped a 25KB CupriFace.Media with no
+# decoders under a fully green run, because the sweep that introduced a retention limit emptied
+# the run the release then fetched from. v0.31.0 failed outright one day after v0.30.0 shipped
+# fine, because 14-day retention had outlived the last codec edit. And before v0.43.0 the
+# artifacts were simply gone. The lesson is not a bigger retention number — 90 days is the
+# CEILING for a public repository and an artifact always has a deadline — it is that a release
+# must not depend on a different run surviving.
+#
+# If you are reclaiming Actions storage: everything here now expires on its own, and nothing
+# outside a run reads it. The post-release sweep in ci.yml nevertheless still preserves
+# `cupricodecs-*`, because TAGGING AN OLDER COMMIT remains possible and an older commit's release
+# job does fetch from the latest green run of this workflow. ~4 MB is a cheap price for a point
+# release cut from before the change still being reproducible.
 
 on:
   workflow_dispatch:
   push:
     branches: [ main, feature/video ]
     paths: [ '.github/workflows/codecs.yml' ]
-  # MONTHLY, even though nothing changed. These artifacts are an INPUT TO EVERY RELEASE -- the
-  # release job downloads them into CupriFace.Media -- but they are only rebuilt when this file
-  # changes, which can be months. At the old 14-day retention that guaranteed a broken release for
-  # any tag pushed more than a fortnight after the last codec edit, and it duly broke v0.31.0: the
-  # release failed on "no codec natives for ANY rid", one day after v0.30.0 had shipped fine.
-  #
-  # Retention is now 90 days and this rebuilds every month, so the artifacts are at most ~31 days
-  # old when a release wants them and there are two spare cycles before they could ever expire. The
-  # release-side guard stays as the backstop: a hollow CupriFace.Media must be a red release rather
-  # than a warning nobody reads (that is how v0.5.0 shipped 25KB of nothing).
+  # MONTHLY, even though nothing changed — and now for warning rather than for supply. A release
+  # builds its own copy of these libraries, so this schedule exists to find out that libvpx's
+  # configure, the MSYS2 CLANGARM64 toolchain, or the macos-15-intel image has broken BEFORE a tag
+  # meets it. Thirty-one days is tighter than the gap between most releases, which is the point.
   #
   # Free: this repository is public, so Actions minutes are not billed.
   schedule:

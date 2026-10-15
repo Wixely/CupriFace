@@ -12,6 +12,16 @@ on:
 # hunting a crash that never happened. Naming it once is what stops the two drifting apart.
 env:
   ANDROID_PKG: com.wixely.cuprifaceviewer
+  # The codec sources, pinned. These are the ONLY thing that decides what decoders a release
+  # ships, and they live in the commit being tagged — so a tag is reproducible from its own tree
+  # rather than from whatever a scheduled run last happened to leave lying about. Keep in step with
+  # codecs.yml, which still builds the same pair monthly as a canary.
+  VPX_TAG: v1.14.1
+  OPUS_TAG: v1.5.2
+  # The GitHub mirror, not chromium.googlesource.com: real tag objects and a plain https clone
+  # that every runner's git can do (the googlesource fetch died instantly on the MSYS2 leg).
+  VPX_REPO: https://github.com/webmproject/libvpx.git
+  OPUS_REPO: https://github.com/xiph/opus.git
 
 jobs:
   # All three desktop OSes: the suite renders through Skia, and font metrics differ per platform — a
@@ -1799,8 +1809,329 @@ jobs:
           sys.exit(1)
           PY
 
+  # ---------------------------------------------------------------------------------------------
+  # THE CODEC NATIVES, built on a tag only.
+  #
+  # Six jobs because every library is built on its OWN NATIVE RUNNER — nothing here is
+  # cross-compiled, which is why this cannot be a step inside `release` (one runner) and has to be
+  # six jobs it depends on. Ordinary CI never runs them: the `if` below is the same tag guard the
+  # release job carries, and a skipped dependency skips the dependent.
+  #
+  # Retention is one day, deliberately. These are an intra-run handoff now, like mediaprobe-*:
+  # nothing outside this run reads them, so there is nothing to keep alive and nothing to expire.
+  # codecs.yml still builds the same pair monthly as an EARLY WARNING — it catches an upstream tag
+  # that has moved or a runner image that broke a configure flag a month before a tag would, which
+  # is the one thing the old arrangement was genuinely good at. It is no longer an input to
+  # anything.
+  # ---------------------------------------------------------------------------------------------
+  codecs-linux-x64:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq nasm > /dev/null
+      - name: Build libvpx (decode only, PIC static)
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$VPX_TAG" "$VPX_REPO" libvpx
+          cd libvpx
+          ./configure --disable-examples --disable-docs --disable-unit-tests --disable-tools \
+            --disable-vp8-encoder --disable-vp9-encoder --enable-vp8-decoder --enable-vp9-decoder \
+            --enable-pic --disable-shared --enable-static > /dev/null
+          make -j"$(nproc)" > /dev/null
+      - name: Build libopus (PIC static)
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$OPUS_TAG" "$OPUS_REPO" opus
+          cmake -S opus -B opus/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DOPUS_BUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF > /dev/null
+          cmake --build opus/build -j > /dev/null
+      - name: Link cupricodecs
+        run: |
+          set -euo pipefail
+          gcc -shared -o libcupricodecs.so \
+            -Wl,--whole-archive libvpx/libvpx.a opus/build/libopus.a -Wl,--no-whole-archive \
+            -lm -lpthread
+          # Symbols to a FILE, never `nm | grep -q`: grep exits at the first match, nm dies of
+          # SIGPIPE, and pipefail fails the step even though the library is perfect (that is
+          # exactly how the macOS leg "failed" on its first run).
+          nm -D libcupricodecs.so > syms.txt
+          grep -q vpx_codec_vp9_dx syms.txt
+          grep -q opus_decoder_create syms.txt
+          ls -l libcupricodecs.so
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cupricodecs-linux-x64
+          path: libcupricodecs.so
+          if-no-files-found: error
+          retention-days: 1
+
+  # ARM Linux, natively on GitHub's arm64 runner — no nasm (the x86 assembler): libvpx's arm
+  # paths are NEON intrinsics, and configure detects the host.
+  codecs-linux-arm64:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Build libvpx (decode only, PIC static)
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$VPX_TAG" "$VPX_REPO" libvpx
+          cd libvpx
+          ./configure --disable-examples --disable-docs --disable-unit-tests --disable-tools \
+            --disable-vp8-encoder --disable-vp9-encoder --enable-vp8-decoder --enable-vp9-decoder \
+            --enable-pic --disable-shared --enable-static > /dev/null
+          make -j"$(nproc)" > /dev/null
+      - name: Build libopus (PIC static)
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$OPUS_TAG" "$OPUS_REPO" opus
+          cmake -S opus -B opus/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DOPUS_BUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF > /dev/null
+          cmake --build opus/build -j > /dev/null
+      - name: Link cupricodecs
+        run: |
+          set -euo pipefail
+          gcc -shared -o libcupricodecs.so \
+            -Wl,--whole-archive libvpx/libvpx.a opus/build/libopus.a -Wl,--no-whole-archive \
+            -lm -lpthread
+          nm -D libcupricodecs.so > syms.txt   # never `nm | grep -q` (see the linux-x64 note)
+          grep -q vpx_codec_vp9_dx syms.txt
+          grep -q opus_decoder_create syms.txt
+          file libcupricodecs.so
+          ls -l libcupricodecs.so
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cupricodecs-linux-arm64
+          path: libcupricodecs.so
+          if-no-files-found: error
+          retention-days: 1
+
+  codecs-osx-arm64:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: macos-latest
+    steps:
+      - name: Build libvpx (decode only, static)
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$VPX_TAG" "$VPX_REPO" libvpx
+          cd libvpx
+          ./configure --disable-examples --disable-docs --disable-unit-tests --disable-tools \
+            --disable-vp8-encoder --disable-vp9-encoder --enable-vp8-decoder --enable-vp9-decoder \
+            --enable-pic --disable-shared --enable-static > /dev/null
+          make -j"$(sysctl -n hw.ncpu)" > /dev/null
+      - name: Build libopus (static)
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$OPUS_TAG" "$OPUS_REPO" opus
+          cmake -S opus -B opus/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DOPUS_BUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF > /dev/null
+          cmake --build opus/build -j > /dev/null
+      - name: Link cupricodecs
+        run: |
+          set -euo pipefail
+          clang -dynamiclib -o libcupricodecs.dylib \
+            -Wl,-force_load,libvpx/libvpx.a -Wl,-force_load,opus/build/libopus.a
+          nm -gU libcupricodecs.dylib > syms.txt   # see the Linux note: no pipe into grep -q
+          grep -q vpx_codec_vp9_dx syms.txt
+          grep -q opus_decoder_create syms.txt
+          ls -l libcupricodecs.dylib
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cupricodecs-osx-arm64
+          path: libcupricodecs.dylib
+          if-no-files-found: error
+          retention-days: 1
+
+  # Intel macOS. The label is macos-15-intel: macos-13 (the old Intel image) is retired, and a
+  # job asking for it doesn't fail — it QUEUES FOREVER, which is how three runs sat at 35 minutes
+  # with nothing to report. Unlike the arm64 leg this one DOES need nasm: libvpx's x86 paths are
+  # hand-written assembly.
+  codecs-osx-x64:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: macos-15-intel
+    steps:
+      - name: Tools
+        run: brew install nasm > /dev/null
+      - name: Build libvpx (decode only, static)
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$VPX_TAG" "$VPX_REPO" libvpx
+          cd libvpx
+          ./configure --disable-examples --disable-docs --disable-unit-tests --disable-tools \
+            --disable-vp8-encoder --disable-vp9-encoder --enable-vp8-decoder --enable-vp9-decoder \
+            --enable-pic --disable-shared --enable-static > /dev/null
+          make -j"$(sysctl -n hw.ncpu)" > /dev/null
+      - name: Build libopus (static)
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$OPUS_TAG" "$OPUS_REPO" opus
+          cmake -S opus -B opus/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DOPUS_BUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF > /dev/null
+          cmake --build opus/build -j > /dev/null
+      - name: Link cupricodecs
+        run: |
+          set -euo pipefail
+          clang -dynamiclib -o libcupricodecs.dylib \
+            -Wl,-force_load,libvpx/libvpx.a -Wl,-force_load,opus/build/libopus.a
+          nm -gU libcupricodecs.dylib > syms.txt
+          grep -q vpx_codec_vp9_dx syms.txt
+          grep -q opus_decoder_create syms.txt
+          file libcupricodecs.dylib
+          ls -l libcupricodecs.dylib
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cupricodecs-osx-x64
+          path: libcupricodecs.dylib
+          if-no-files-found: error
+          retention-days: 1
+
+  codecs-win-x64:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      # MinGW, deliberately: libvpx's configure has no supported MSVC shared path, and a MinGW
+      # static archive linked into our own DLL (with the runtime statically linked) yields a
+      # dependency-free binary that P/Invoke loads like any other.
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: >-
+            git make nasm diffutils
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-cmake
+      # Clone in its OWN step (and traced): the first run died three seconds into a combined
+      # step, which named nothing. Whatever breaks next says so by step name.
+      - name: Clone sources
+        run: |
+          set -euxo pipefail
+          git --version
+          git clone --depth 1 --branch "$VPX_TAG" "$VPX_REPO" libvpx
+          git clone --depth 1 --branch "$OPUS_TAG" "$OPUS_REPO" opus
+          ls -d libvpx opus
+      - name: Build libvpx (decode only, static)
+        run: |
+          set -euxo pipefail
+          cd libvpx
+          ./configure --target=x86_64-win64-gcc \
+            --disable-examples --disable-docs --disable-unit-tests --disable-tools \
+            --disable-vp8-encoder --disable-vp9-encoder --enable-vp8-decoder --enable-vp9-decoder \
+            --disable-shared --enable-static
+          make -j"$(nproc)"
+          ls -l libvpx.a
+      - name: Build libopus (static)
+        run: |
+          set -euxo pipefail
+          cmake -S opus -B opus/build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF -DOPUS_BUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF
+          cmake --build opus/build -j
+          find opus/build -name 'libopus.a'
+      - name: Link cupricodecs
+        run: |
+          set -euxo pipefail
+          OPUS_A=$(find opus/build -name 'libopus.a' | head -1)
+          gcc -shared -o cupricodecs.dll \
+            -Wl,--whole-archive libvpx/libvpx.a "$OPUS_A" -Wl,--no-whole-archive \
+            -static -static-libgcc -lwinpthread
+          objdump -p cupricodecs.dll > syms.txt   # no pipe into grep -q (see the Linux note)
+          grep -qi vpx_codec_vp9_dx syms.txt
+          grep -qi opus_decoder_create syms.txt
+          # The static-runtime claim above, actually checked (see the arm64 job).
+          if grep -iE 'DLL Name' syms.txt | grep -qiE 'winpthread|libgcc|libstdc\+\+'; then
+            echo "::error::cupricodecs.dll imports a MinGW runtime DLL"; grep -i 'DLL Name' syms.txt; exit 1
+          fi
+          grep -i 'DLL Name' syms.txt
+          ls -l cupricodecs.dll
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cupricodecs-win-x64
+          path: cupricodecs.dll
+          if-no-files-found: error
+          retention-days: 1
+
+  # Windows on ARM, natively (GitHub's windows-11-arm image). MSYS2's CLANGARM64 environment is
+  # the arm64 counterpart of MINGW64 above — clang instead of gcc, so the static-runtime flags
+  # differ (compiler-rt is linked in by default; there is no -static-libgcc).
+  codecs-win-arm64:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-11-arm
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANGARM64
+          update: false
+          install: >-
+            git make diffutils
+            mingw-w64-clang-aarch64-toolchain
+            mingw-w64-clang-aarch64-cmake
+      - name: Clone sources
+        run: |
+          set -euxo pipefail
+          git clone --depth 1 --branch "$VPX_TAG" "$VPX_REPO" libvpx
+          git clone --depth 1 --branch "$OPUS_TAG" "$OPUS_REPO" opus
+      - name: Build libvpx (decode only, static)
+        run: |
+          set -euxo pipefail
+          cd libvpx
+          # arm64-win64-gcc is libvpx's mingw-style ARM64 Windows target (the -vs targets are
+          # MSVC project generators, which this toolchain isn't) — but that template hardcodes
+          # `gcc`, which CLANGARM64 doesn't ship. configure honours these from the environment;
+          # without them it fails with "Unable to invoke compiler: gcc" AND silently disables
+          # NEON first, because every feature probe compiles with the missing compiler.
+          CC=clang CXX=clang++ LD=clang AR=llvm-ar NM=llvm-nm STRIP=llvm-strip \
+          ./configure --target=arm64-win64-gcc \
+            --disable-examples --disable-docs --disable-unit-tests --disable-tools \
+            --disable-vp8-encoder --disable-vp9-encoder --enable-vp8-decoder --enable-vp9-decoder \
+            --disable-shared --enable-static
+          grep -E 'HAVE_NEON|CONFIG_VP9_DECODER' vpx_config.h || true   # NEON on = the probes ran
+          make -j"$(nproc)"
+          ls -l libvpx.a
+      - name: Build libopus (static)
+        run: |
+          set -euxo pipefail
+          cmake -S opus -B opus/build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang -DBUILD_SHARED_LIBS=OFF \
+            -DOPUS_BUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF
+          cmake --build opus/build -j
+          find opus/build -name 'libopus.a'
+      - name: Link cupricodecs
+        run: |
+          set -euxo pipefail
+          OPUS_A=$(find opus/build -name 'libopus.a' | head -1)
+          # -lwinpthread: libvpx's threaded decoder calls pthreads, which on MinGW live there
+          # (the first ARM run linked without it and died on 18 undefined pthread_* symbols).
+          # -static pulls that plus the compiler runtime INTO the DLL — see the check below.
+          clang -shared -o cupricodecs.dll \
+            -Wl,--whole-archive libvpx/libvpx.a "$OPUS_A" -Wl,--no-whole-archive \
+            -static -lwinpthread
+          llvm-objdump -p cupricodecs.dll > syms.txt
+          grep -qi vpx_codec_vp9_dx syms.txt
+          grep -qi opus_decoder_create syms.txt
+          # Dependency-free or it isn't portable: a MinGW runtime import would resolve on this
+          # runner (the toolchain is installed) and fail on a user's machine.
+          if grep -iE 'DLL Name' syms.txt | grep -qiE 'winpthread|libc\+\+|libunwind|libgcc'; then
+            echo "::error::cupricodecs.dll imports a MinGW runtime DLL"; grep -i 'DLL Name' syms.txt; exit 1
+          fi
+          grep -i 'DLL Name' syms.txt
+          ls -l cupricodecs.dll
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cupricodecs-win-arm64
+          path: cupricodecs.dll
+          if-no-files-found: error
+          retention-days: 1
+
   release:
-    needs: [ test, viewer, android ]
+    needs: [ test, viewer, android,
+             codecs-linux-x64, codecs-linux-arm64,
+             codecs-osx-arm64, codecs-osx-x64,
+             codecs-win-x64, codecs-win-arm64 ]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -1858,31 +2189,37 @@ jobs:
           cp "$APK" "dist/CupriFace-Viewer-$GITHUB_REF_NAME-android-arm64.apk"
           ls -l dist
 
-      # Codec natives for the media package, from the latest GREEN Codecs run (they're built by
-      # their own workflow — pinned upstream tags, minutes per OS — so they change only when that
-      # workflow does). Missing artifacts are NOT fatal: CupriFace.Media still packs, just without
-      # decoders for the RIDs that failed, and NativeDecoders.Available reports false there.
-      - name: Fetch codec natives
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Codec natives for the media package, built by the six codecs-* jobs THIS RUN depends on.
+      #
+      # They used to be fetched from the latest green Codecs run, and that cross-run dependency is
+      # the single most reliable way this repository has broken a release: v0.5.0 shipped a 25 KB
+      # CupriFace.Media with no decoders under a fully green build, v0.31.0 failed outright one day
+      # after v0.30.0 shipped fine, and v0.43.0 found the artifacts gone entirely. Each time the
+      # cause was the same shape — an artifact has a retention deadline and 90 days is the ceiling
+      # for a public repository, so there is no retention number that fixes this. Building them in
+      # the run that consumes them has no deadline to miss.
+      #
+      # `needs:` already makes a failed codec leg stop the release, so the guard below is now a
+      # backstop rather than the only line of defence.
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: cupricodecs-*
+          path: codec-staging
+      - name: Lay out codec natives
         run: |
           set -euo pipefail
-          RUN=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow codecs.yml --status success \
-                  --limit 1 --json databaseId --jq '.[0].databaseId' || true)
-          if [ -z "$RUN" ]; then echo "::warning::no successful Codecs run — packing without natives"; exit 0; fi
           for rid in win-x64 win-arm64 linux-x64 linux-arm64 osx-x64 osx-arm64; do
             mkdir -p "native/$rid"
-            gh run download "$RUN" --repo "$GITHUB_REPOSITORY" --name "cupricodecs-$rid" --dir "native/$rid" \
-              || echo "::warning::codec native missing for $rid"
+            if [ -d "codec-staging/cupricodecs-$rid" ]; then
+              cp -a "codec-staging/cupricodecs-$rid/." "native/$rid/"
+            else
+              echo "::warning::codec native missing for $rid"
+            fi
           done
           find native -type f -print0 | xargs -0 ls -l || true
-          # One RID missing is a warning (that leg failed upstream; the others still ship). ALL of
-          # them missing means the source run has no artifacts at all — expired, or deleted by a
-          # storage sweep, which is exactly how v0.5.0 first shipped a 25KB CupriFace.Media with no
-          # decoders under a fully green run. A hollow media package must be a red release, not a
-          # warning scrolled past: re-run the Codecs workflow and retag.
+          # A hollow media package must be a red release, not a warning scrolled past.
           if [ -z "$(find native -type f -name 'cupricodecs*' -print -quit)" ]; then
-            echo "::error::no codec natives for ANY rid — the latest green Codecs run ($RUN) has no artifacts; re-run Codecs, then retag"
+            echo "::error::no codec natives for ANY rid — the codecs-* jobs produced nothing"
             exit 1
           fi
 
@@ -2218,11 +2555,14 @@ jobs:
       # Everything this run built is now a permanent release asset, so the workflow artifacts that
       # carried it between jobs are dead weight. Reclaim them.
       #
-      # THIS STEP KEEPS cupricodecs-* NO MATTER WHAT. Those six are the one cross-run dependency in
-      # this repository: a later release fetches them from the latest green Codecs run, and they are
-      # rebuilt only when codecs.yml changes. Deleting them is precisely how v0.5.0 shipped a 25 KB
-      # CupriFace.Media with no decoders under a green build — see the header of codecs.yml. Anything
-      # else here is either an intra-run handoff (mediaprobe-*) or a release input built on a tag
+      # THIS STEP STILL KEEPS cupricodecs-* NO MATTER WHAT, though this workflow no longer reads
+      # them across runs: the codecs-* jobs above build their own, in-run. The rule stays because
+      # TAGGING AN OLDER COMMIT still works, and an older commit's release job does fetch from the
+      # latest green Codecs run — so a sweep that deleted them could break a point release cut from
+      # before this change, which is exactly how v0.5.0 shipped a 25 KB CupriFace.Media with no
+      # decoders under a green build. Keeping ~4 MB alive costs nothing; the alternative is a
+      # release that cannot be reproduced. Everything else here is either an intra-run handoff
+      # (mediaprobe-*, and now cupricodecs-* from this run) or a release input built on a tag
       # (viewer-*, androidviewer-apk), and is safe to remove once the release exists.
       #
       # Runs only on a successful publish: a failed release may need its artifacts for a re-run.
