@@ -27,7 +27,7 @@ public sealed partial class CupriDocument
     // Captured pointers, keyed by pointer id → the STRUCTURAL PATH of the element that owns it.
     // A path, not a node: the tree is rebuilt constantly (every keystroke), and a node reference
     // captured on finger-down would dangle before the finger lifts.
-    private readonly Dictionary<int, (string Path, string Attribute)> _captured = new();
+    private readonly Dictionary<int, (string Path, string Attribute, bool IsMiddleButton)> _captured = new();
     private readonly Dictionary<int, (float X, float Y)> _active = new();
 
     /// <summary>Register a handler for elements carrying <paramref name="dataAttribute"/>. Shaped
@@ -157,6 +157,14 @@ public sealed partial class CupriDocument
     /// <summary>Feed one pointer. Returns true when an element owns it — the caller must then NOT
     /// give that pointer to the ordinary touch recognizer.</summary>
     public bool DispatchPointer(int pointerId, PointerPhase phase, float xHost, float yHost)
+        => DispatchPointerCore(pointerId, phase, xHost, yHost, false);
+
+    /// <summary>Feed the desktop middle button through the same capture path as touch and primary
+    /// pointer input, while allowing an author to give it a distinct meaning.</summary>
+    public bool DispatchMiddlePointer(int pointerId, PointerPhase phase, float xHost, float yHost)
+        => DispatchPointerCore(pointerId, phase, xHost, yHost, true);
+
+    private bool DispatchPointerCore(int pointerId, PointerPhase phase, float xHost, float yHost, bool isMiddleButton)
     {
         EnsureLaidOut();
         // Host-logical → document, like every other entry point: a pinch on a zoomed page must
@@ -181,8 +189,8 @@ public sealed partial class CupriDocument
             var path = PathOf(node);
             // Capture BEFORE invoking, so the handler's view of "pointers on this element" already
             // includes the one that just arrived.
-            _captured[pointerId] = (path, attribute);
-            if (Invoke(handler, node.Element!, attribute, path, pointerId, phase, x, y)) return true;
+            _captured[pointerId] = (path, attribute, isMiddleButton);
+            if (Invoke(handler, node.Element!, attribute, path, pointerId, phase, x, y, isMiddleButton)) return true;
             _captured.Remove(pointerId);                 // declined: the recognizer may have it
             _active.Remove(pointerId);
             return false;
@@ -193,7 +201,7 @@ public sealed partial class CupriDocument
 
         _active[pointerId] = (x, y);
         if (NodeAtPath(capture.Path)?.Element is { } el && FindHandler(capture.Attribute) is { } h)
-            Invoke(h, el, capture.Attribute, capture.Path, pointerId, phase, x, y);
+            Invoke(h, el, capture.Attribute, capture.Path, pointerId, phase, x, y, capture.IsMiddleButton);
 
         if (phase is PointerPhase.Up or PointerPhase.Cancel)
         {
@@ -275,7 +283,7 @@ public sealed partial class CupriDocument
         {
             var pos = _active.TryGetValue(id, out var p) ? p : (X: 0f, Y: 0f);
             if (NodeAtPath(capture.Path)?.Element is { } el && FindHandler(capture.Attribute) is { } h)
-                Invoke(h, el, capture.Attribute, capture.Path, id, PointerPhase.Cancel, pos.X, pos.Y);
+                Invoke(h, el, capture.Attribute, capture.Path, id, PointerPhase.Cancel, pos.X, pos.Y, capture.IsMiddleButton);
         }
         _captured.Clear();
         _active.Clear();
@@ -300,7 +308,7 @@ public sealed partial class CupriDocument
     }
 
     private bool Invoke(Func<MultiPointerEvent, bool> handler, IElement element, string attribute,
-                        string path, int pointerId, PointerPhase phase, float x, float y)
+                        string path, int pointerId, PointerPhase phase, float x, float y, bool isMiddleButton)
     {
         // Every pointer currently held BY THIS ELEMENT — what a pinch or a rotate is computed from.
         var mine = new List<CupriPointer>();
@@ -310,7 +318,7 @@ public sealed partial class CupriDocument
         mine.Sort((a, b) => a.Id.CompareTo(b.Id));
 
         var changed = handler(new MultiPointerEvent(
-            pointerId, phase, x, y, mine, element, element.GetAttribute(attribute) ?? "", _model));
+            pointerId, phase, x, y, mine, element, element.GetAttribute(attribute) ?? "", _model, isMiddleButton));
 
         // Re-bind, don't merely mark dirty. A gesture handler's whole job is usually to write to the
         // MODEL — a scale, a rotation, a position — and Bump only advances the version counter, so

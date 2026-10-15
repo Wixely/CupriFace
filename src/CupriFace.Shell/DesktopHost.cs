@@ -13,6 +13,7 @@ namespace CupriFace.Shell;
 /// </summary>
 public static class DesktopHost
 {
+    private const int MiddleMousePointerId = -1;
     /// <summary>
     /// DIAGNOSTICS ONLY: the scale state the last drawn frame used — D, the framebuffer, the logical
     /// client size and T. Exposed so a probe app can display what the host actually computed rather
@@ -264,6 +265,7 @@ public static class DesktopHost
                 tray.Attach(window.Win32Hwnd);
             };
 
+            var middleMouseCaptured = false;
             window.PointerDown += (x, y, clicks) =>
             {
                 var logicalX = x / scale;
@@ -272,11 +274,14 @@ public static class DesktopHost
                 window.SetCursor(doc.CursorAt(logicalX, logicalY));
             };
             window.RightPointerDown += (x, y) => Mark(doc.DispatchContextMenu(x / scale, y / scale));
+            window.MiddlePointerDown += (x, y) =>
+                Mark(middleMouseCaptured = doc.DispatchMiddlePointer(MiddleMousePointerId, PointerPhase.Down, x / scale, y / scale));
             window.PointerMove += (x, y) =>
             {
                 var logicalX = x / scale;
                 var logicalY = y / scale;
                 Mark(DesktopPointerMove(doc, logicalX, logicalY));
+                if (middleMouseCaptured) Mark(doc.DispatchMiddlePointer(MiddleMousePointerId, PointerPhase.Move, logicalX, logicalY));
                 window.SetCursor(doc.CursorAt(logicalX, logicalY));
             };
             window.PointerUp += (x, y) =>
@@ -285,6 +290,11 @@ public static class DesktopHost
                 var logicalY = y / scale;
                 Mark(DesktopPointerUp(doc, logicalX, logicalY));
                 window.SetCursor(doc.CursorAt(logicalX, logicalY));
+            };
+            window.MiddlePointerUp += (x, y) =>
+            {
+                if (middleMouseCaptured) Mark(doc.DispatchMiddlePointer(MiddleMousePointerId, PointerPhase.Up, x / scale, y / scale));
+                middleMouseCaptured = false;
             };
             window.PointerWheel += (x, y, dy, mods) =>
             {
@@ -505,6 +515,7 @@ public static class DesktopHost
                     return damage;
                 };
             }
+            var middleMouseCaptured = false;
             window.PointerDown += (x, y, clicks) =>
             {
                 var logicalX = x / scale;
@@ -513,6 +524,8 @@ public static class DesktopHost
                 window.SetCursor(doc.CursorAt(logicalX, logicalY));
             };
             window.RightPointerDown += (x, y) => Mark(doc.DispatchContextMenu(x / scale, y / scale));
+            window.MiddlePointerDown += (x, y) =>
+                Mark(middleMouseCaptured = doc.DispatchMiddlePointer(MiddleMousePointerId, PointerPhase.Down, x / scale, y / scale));
             // Touch (#143). Only the SDL window can carry this: GLFW exposes no touch API at
             // all, which is why a tap reaches nothing on a Wayland desktop today — X11 emulates a
             // core pointer from touch and Wayland does not, so one build looks fine in a desktop
@@ -524,6 +537,7 @@ public static class DesktopHost
                 var logicalX = x / scale;
                 var logicalY = y / scale;
                 Mark(DesktopPointerMove(doc, logicalX, logicalY));
+                if (middleMouseCaptured) Mark(doc.DispatchMiddlePointer(MiddleMousePointerId, PointerPhase.Move, logicalX, logicalY));
                 window.SetCursor(doc.CursorAt(logicalX, logicalY));
             };
             window.PointerUp += (x, y) =>
@@ -532,6 +546,11 @@ public static class DesktopHost
                 var logicalY = y / scale;
                 Mark(DesktopPointerUp(doc, logicalX, logicalY));
                 window.SetCursor(doc.CursorAt(logicalX, logicalY));
+            };
+            window.MiddlePointerUp += (x, y) =>
+            {
+                if (middleMouseCaptured) Mark(doc.DispatchMiddlePointer(MiddleMousePointerId, PointerPhase.Up, x / scale, y / scale));
+                middleMouseCaptured = false;
             };
             window.PointerWheel += (x, y, dy, mods) =>
             {
