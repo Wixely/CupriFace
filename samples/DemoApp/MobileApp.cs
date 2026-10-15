@@ -140,7 +140,28 @@ public sealed partial class MobileModel
     /// two releases ago — so the app states its own version where a tester can see it.</summary>
     public string Build { get; } = BuildInfo.Describe();
 
-    public string Page { get; set; } = "home";
+    /// <summary>
+    /// The page, and a marker whenever it changes — the same observable the gate's switch tap
+    /// already has, for the same reason.
+    ///
+    /// <para>Navigation is declarative (<c>data-set-path="Page"</c>), so no handler of ours runs
+    /// and nothing said which page was showing. The CI gate taps a nav item and then asserts
+    /// against whatever is on screen; when the emulator dropped that tap — which its own comments
+    /// record it doing — every later assert measured the wrong page, and the failure surfaced
+    /// three steps later wearing someone else's name. A page the app announces is a page the gate
+    /// can wait for.</para>
+    /// </summary>
+    public string Page
+    {
+        get => _page;
+        set
+        {
+            if (_page == value) return;
+            _page = value;
+            Console.WriteLine($"cupri-gate: page={value}");
+        }
+    }
+    private string _page = "home";
 
     public string PgHome => Page == "home" ? "flex" : "none";
     public string PgList => Page == "list" ? "flex" : "none";

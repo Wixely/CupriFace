@@ -17,6 +17,21 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Changed
 
+- **The Android gate's nav taps are verified rather than assumed.** `MobileModel.Page` now prints
+  a `cupri-gate: page=` marker when it changes, the way the notification switch already prints its
+  state, and the gate waits for that marker before trusting what is on screen. Navigation is
+  declarative (`data-set-path`), so nothing announced the page and a dropped nav tap was silent:
+  every later assertion measured the page the app was still on, and the failure surfaced steps
+  later wearing someone else's name. It was the one gesture in that step with no delivery check,
+  in a step whose own comments record the emulator eating injected gestures at random.
+
+  The fling assertion also splits two faults it used to report as one. "No fling ever STARTED" is
+  a gesture that never arrived as a fling — a dropped injection, or a page with nothing to scroll.
+  "Started but never settled" is the momentum integrator. Run 734 was the first, and the message
+  named the second.
+
+### Changed
+
 - **The Android Viewer package ID is now `com.wixely.cuprifaceviewer`.** Existing installations
   use a different Android application identity and must be uninstalled before installing this build.
 

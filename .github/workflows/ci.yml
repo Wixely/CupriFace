@@ -985,7 +985,32 @@ jobs:
           geom
           # Calibrated dp anchors (MobileApp @ 393-wide): nav row centre y=dpH-28, five equal
           # fifths; Notifications switch centre (dpW-56, 99); Form's first field (dpW/2, 109).
-          nav() { tap $(( DPW * (2 * $1 + 1) / 10 )) $(( DPH - 28 )); sleep 2; }
+          # nav <fifth> <page>: tap a nav item and WAIT for the app to say it arrived.
+          #
+          # This was a bare tap and a fixed sleep — the one gesture in this step with no delivery
+          # check, in a step whose own comments record the emulator eating injected gestures at
+          # random. A dropped nav tap is silent and cheap to miss: the page never changes, every
+          # later assert measures the page the app is still on, and the failure lands on whatever
+          # happens to be asserted next. Run 734 is the shape of it — three swipes on a page with
+          # nothing to scroll, reported as "no fling-settled marker", which accused the momentum
+          # integrator for a nav tap that never arrived.
+          #
+          # The app announces its page, so the wait is exact rather than a sleep: the LAST page
+          # marker must be the one asked for (the whole buffer would match an earlier visit).
+          page_now() { adb logcat -d -s cupri:I | grep -oE 'cupri-gate: page=[a-z]+' | tail -1 | cut -d= -f2; }
+          nav() {
+            local want=$2 i
+            [ -n "$want" ] || fail "nav called without the page it expects — the gate cannot verify a tap it cannot name"
+            for i in 1 2 3; do
+              tap $(( DPW * (2 * $1 + 1) / 10 )) $(( DPH - 28 ))
+              sleep 2
+              [ "$(page_now)" = "$want" ] && return 0
+              echo "nav tap to '$want' not delivered (attempt $i; showing '$(page_now)')"
+            done
+            # A tap that lands nowhere is likelier to be a restart than an engine fault.
+            restart_guard
+            fail "nav to '$want' never landed after 3 taps (still showing '$(page_now)') — every assert after this would have measured the wrong page"
+          }
 
           # --- tap = activation exactly once, on finger-up ---------------------------------------
           # The emulator drops injected gestures at random (runs 13, 16 and 22 each ate a
@@ -1013,7 +1038,7 @@ jobs:
           # anything is asserted, without touching the toggle count.
           tap $(( DPW / 2 )) 100
           sleep 1
-          nav 3   # Settings
+          nav 3 settings
           tap_toggle $(( DPW - 56 )) 99
           tap_toggle $(( DPW - 56 )) 99
           # Markers arrive on the HOST's logcat tag: the host bridges Console -> logcat,
@@ -1024,7 +1049,7 @@ jobs:
           grep -q "toggle=False" gate-markers.txt || fail "no toggle=False after the second tap"
 
           # --- swipe flings with real momentum ---------------------------------------------------
-          nav 1   # List
+          nav 1 list
           # 250 ms, not 80: a too-short `input swipe` injects only DOWN+UP with no MOVE events,
           # so the gesture recognizer (correctly) sees a slop-bounded tap and nothing scrolls —
           # run 9's finding. 350dp over 250 ms is still ~1400 dp/s, far beyond the fling threshold.
@@ -1032,17 +1057,23 @@ jobs:
           # tap): retry the injection up to 3 times, break on the engine's own "fling started".
           # The assert stays strict and SCALES — settled travel must beat every dp the finger
           # actually put in across attempts.
-          TRIES=0
+          TRIES=0; STARTED=0
           for i in 1 2 3; do
             adb shell input swipe $(( OX + DPW * D / 320 )) $(( OY + 500 * D / 160 )) \
                                   $(( OX + DPW * D / 320 )) $(( OY + 150 * D / 160 )) 250
             TRIES=$i
             sleep 1
-            adb logcat -d -s cupri:I | grep -q "fling started" && break
+            if adb logcat -d -s cupri:I | grep -q "fling started"; then STARTED=1; break; fi
           done
+          # Two different faults, and they used to share one message. A fling that never STARTS is
+          # a gesture that never arrived as one — a dropped injection, a page with nothing to
+          # scroll, or moves too sparse for the velocity ring. A fling that starts and never
+          # SETTLES is the integrator. Reporting the second when the first happened sent run 734's
+          # reader to the momentum code for a nav tap that went missing.
+          [ "$STARTED" = 1 ] || fail "no fling ever STARTED after $TRIES swipe(s) on page '$(page_now)' — the swipe did not reach the engine as a fling, so this is delivery or the page, NOT the momentum integrator"
           sleep 4  # let the momentum integrator run to a stop
           adb logcat -d -s cupri:I | grep "fling settled" | tee fling.txt \
-            || fail "no fling-settled marker after $TRIES swipe(s)"
+            || fail "a fling STARTED but never settled within 4s — the integrator began and did not stop"
           # Momentum = COAST: where the fling started (logged at finger-up, after the drag)
           # versus where it settled. Run 25 showed why finger-travel arithmetic can't work: a
           # flaky injector can deliver drag-only gestures (moves too sparse for the velocity
@@ -1092,7 +1123,7 @@ jobs:
           H0=$(view_h); H0=${H0:-$VH}
           [ -n "$H0" ] || fail "no view geometry, and geom() never ran -- the host published none at all"
 
-          nav 2   # Form
+          nav 2 form
           KB=0
           for i in 1 2 3; do
             tap $(( DPW / 2 )) 109
@@ -1156,7 +1187,7 @@ jobs:
           # the kernel, the same path a real host click takes - no permissions involved), then
           # `adb root` + evdev per-device. A one-finger canary tap on the tile, confirmed twice,
           # decides; each failure names its own cause.
-          nav 0    # Home, where the gesture tile lives
+          nav 0 home    # where the gesture tile lives
           sleep 1
           nmark() { adb logcat -d -s cupri:I | grep -c 'cupri-gate: gesture' || true; }
           # Phase extraction anchors on DEVICE TIME, not marker counts: logcat's ring buffer can
@@ -1383,7 +1414,7 @@ jobs:
           adb shell settings put system user_rotation 1
           sleep 4
           geom     # the view re-laid-out: re-read its origin and size, same anchors apply
-          nav 3    # Settings (landscape)
+          nav 3 settings    # landscape
           tap_toggle $(( DPW - 56 )) 99   # delivery-retried; still exactly one activation
           N=$(adb logcat -d -s cupri:I | grep -c 'cupri-gate: toggle=')
           test "$N" = "3" || fail "post-rotation toggles=$N (density/relayout mapping broke)"
