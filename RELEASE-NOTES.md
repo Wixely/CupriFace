@@ -1,5 +1,7 @@
 # Release notes
 
+- Fixed the built-in keyboard focus ring using unscrolled document coordinates. After arrow-key
+  navigation scrolled a menu down and then back up, the ring now remains around the selected item.
 - Fixed Windows next-item autoplay potentially freezing while retiring a naturally-ended LibVLC
   player. That teardown no longer issues a redundant synchronous stop while the native end callback
   may still be unwinding.

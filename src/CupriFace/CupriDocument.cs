@@ -2741,7 +2741,10 @@ public sealed partial class CupriDocument : IDisposable
         // "I have my own" from "I never mentioned it".
         if (node.Style.HasOutline || node.Style.OutlineSuppressed) return;
 
-        var (x, y, w, h) = HitTesting.AbsoluteBox(node);
+        // The ring is viewport chrome, so it must use the same scroll-adjusted coordinates as the
+        // focused control's painted box. AbsoluteBox is document-space: after keyboard navigation
+        // scrolls a menu, it leaves the ring behind at the control's pre-scroll position.
+        var (x, y, w, h) = HitTesting.ScreenBox(node);
         const float t = 2f, pad = 2f;                 // ring thickness + gap outside the border box
         var (rx, ry, rw, rh) = (x - pad, y - pad, w + 2 * pad, h + 2 * pad);
         // --cupri-focus recolours it without anyone having to reimplement it. Inherited like any
