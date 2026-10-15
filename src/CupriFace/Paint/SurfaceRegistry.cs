@@ -148,6 +148,15 @@ public readonly record struct HostSurfaceOcclusion(float X, float Y, float Width
 /// <summary>Geometry a host needs in order to place a host-composited surface correctly.</summary>
 public static class HostSurfaceGeometry
 {
+    /// <summary>Compose monitor/application presentation scale with whole-document page zoom.</summary>
+    /// <remarks>
+    /// Layout and <see cref="Interaction.HitTesting.ScreenBox(Dom.RenderNode)"/> remain in document
+    /// coordinates while page zoom is applied during rasterisation. Native host surfaces therefore
+    /// need both factors to stay aligned with the transparent hole painted for their element.
+    /// </remarks>
+    public static float ComposePhysicalScale(float hostScale, float pageZoom) =>
+        MathF.Max(hostScale * pageZoom, 0.01f);
+
     /// <summary>Return the visible screen bounds of a host surface after ancestor clipping.</summary>
     /// <remarks>
     /// Fixed-position nodes belong to the viewport top layer and therefore escape clipping by

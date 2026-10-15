@@ -81,6 +81,15 @@ public class WindowsPlaybackIntegrationTests
         Assert.DoesNotContain("PointerOverVolumeControl", chrome, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Naturally_ended_windows_video_does_not_synchronously_stop_during_disposal()
+    {
+        var backend = Media("LibVlcVideoBackend.cs");
+
+        Assert.Contains("_endReached = true;", backend, StringComparison.Ordinal);
+        Assert.Contains("if (!_endReached) _player.Stop();", backend, StringComparison.Ordinal);
+    }
+
     private static string Media(string file)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

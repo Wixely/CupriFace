@@ -125,6 +125,13 @@ public class SurfaceTests
         public void Detach() => Detached++;
     }
 
+    [Theory]
+    [InlineData(1f, 1f, 1f)]
+    [InlineData(1.5f, 2f, 3f)]
+    [InlineData(2f, 0.5f, 1f)]
+    public void Native_surface_scale_composes_host_and_page_zoom(float hostScale, float pageZoom, float expected) =>
+        Assert.Equal(expected, HostSurfaceGeometry.ComposePhysicalScale(hostScale, pageZoom), 3);
+
     [Fact]
     public void Fixed_fullscreen_surface_escapes_document_ancestor_clipping()
     {

@@ -1,5 +1,11 @@
 # Release notes
 
+- Fixed Windows next-item autoplay potentially freezing while retiring a naturally-ended LibVLC
+  player. That teardown no longer issues a redundant synchronous stop while the native end callback
+  may still be unwinding.
+- Fixed host-composited surfaces, including Windows native video, remaining at their unzoomed size
+  and drifting away from their element when whole-page zoom is changed. Native placement now
+  composes monitor/application scale with document zoom.
 - Added opt-in `volume-controls` to `<cupri-video>`. Hovering the existing mute button reveals an
   accessible pointer/keyboard volume slider without changing click-to-mute; Windows pop-outs can
   enable the same shared control through `VideoPopOutWindowOptions.ShowVolumeControls`.

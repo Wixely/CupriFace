@@ -65,8 +65,13 @@ internal sealed class HostSurfaceCoordinator(
 
     internal void Sync(float scale)
     {
+        // ScreenBox is expressed in the document's post-layout coordinate space. Page zoom is
+        // applied later while the display list is rasterised, so a native child HWND needs that
+        // same extra factor explicitly or it stays at its unzoomed size and drifts away from the
+        // transparent hole painted for it.
+        var physicalScale = HostSurfaceGeometry.ComposePhysicalScale(scale, document.Zoom);
         var seen = new HashSet<IHostCompositedSurfaceSource>(ReferenceEqualityComparer.Instance);
-        Walk(document.Root, Math.Max(scale, 0.01f), seen);
+        Walk(document.Root, physicalScale, seen);
 
         if (_attached.Count == seen.Count && _attached.SetEquals(seen)) return;
         foreach (var source in _attached.ToArray())

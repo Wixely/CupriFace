@@ -136,6 +136,7 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IVi
     private HostSurfacePlacement _lastPlacement;
     private bool _playWhenReady;
     private bool _mediaOpened;
+    private volatile bool _endReached;
     private volatile bool _ready;
     private volatile bool _disposed;
     private volatile string? _failure;
@@ -492,6 +493,7 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IVi
 
     private void OnPlaying(object? sender, EventArgs args)
     {
+        _endReached = false;
         _failure = null;
         _ready = true;
         // Instance options prevent persisted preferences being loaded, while these resets also
@@ -585,6 +587,10 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IVi
             });
             return;
         }
+        // Stop() is synchronous and joins LibVLC's playback threads. Once EndReached has fired the
+        // input is already stopped, and calling Stop() while that native callback is still
+        // unwinding can deadlock an autoplay source replacement on the UI thread.
+        _endReached = true;
         Ended?.Invoke();
         _context?.RequestFrame();
     }
@@ -606,7 +612,7 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IVi
         _player.ChapterChanged -= OnChapterChanged;
         _player.EndReached -= OnEnded;
         _player.EncounteredError -= OnError;
-        _player.Stop();
+        if (!_endReached) _player.Stop();
         _media?.Dispose();
         _player.Dispose();
         _closed(this);
