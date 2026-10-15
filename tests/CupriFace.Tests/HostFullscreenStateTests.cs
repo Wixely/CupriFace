@@ -91,4 +91,18 @@ public class HostFullscreenStateTests(ITestOutputHelper output)
         Assert.True(call >= 0 && assign > call,
                     "SDL fullscreen state must be recorded only after SDL accepts the change");
     }
+
+    [Fact]
+    public void Fullscreen_media_windows_do_not_minimize_automatically_on_focus_loss()
+    {
+        var glfw = Shell("SkiaWindow.cs");
+        Assert.Contains("WindowAttributeSetter.AutoIconify", glfw, StringComparison.Ordinal);
+        Assert.Contains("false);", glfw[glfw.IndexOf("WindowAttributeSetter.AutoIconify", StringComparison.Ordinal)..],
+            StringComparison.Ordinal);
+
+        var sdl = Shell("SdlSoftwareWindow.cs");
+        Assert.Contains("SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS", sdl, StringComparison.Ordinal);
+        Assert.Contains("\"0\"", sdl[sdl.IndexOf("SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS", StringComparison.Ordinal)..],
+            StringComparison.Ordinal);
+    }
 }

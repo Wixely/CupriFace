@@ -741,6 +741,7 @@ public sealed class SkiaWindow : IDisposable
 
     private void OnLoad()
     {
+        DisableFullscreenAutoIconify();
         if (_darkWindowChrome && Win32Hwnd is { } hwnd)
         {
             WindowChrome.TryEnableDarkMode(hwnd, _windowChromeColor);
@@ -934,6 +935,29 @@ public sealed class SkiaWindow : IDisposable
             DpiTrace.Callback("move", $"pos={pos.X},{pos.Y} read={ReadDeviceScale():0.###} cached={_deviceScale:0.###}");
             PollDeviceScale();
         };
+    }
+
+    /// <summary>Keep exclusive fullscreen visible when another application receives focus.</summary>
+    /// <remarks>
+    /// GLFW defaults <c>GLFW_AUTO_ICONIFY</c> to true, which minimizes a fullscreen window on
+    /// focus loss. That is appropriate for many games but wrong for a media player on a second
+    /// screen: playback should remain visible while the user works in another application.
+    /// Explicit user minimization is unaffected.
+    /// </remarks>
+    private unsafe void DisableFullscreenAutoIconify()
+    {
+        if (GlfwWindowHandle is not { } handle) return;
+        try
+        {
+            GlfwApi.SetWindowAttrib(
+                (GlfwWindow*)handle,
+                Silk.NET.GLFW.WindowAttributeSetter.AutoIconify,
+                false);
+        }
+        catch
+        {
+            // Optional on non-GLFW hosts; the SDL path sets its equivalent hint independently.
+        }
     }
 
     private CupriFace.Style.CursorType _lastCursor = (CupriFace.Style.CursorType)(-1);

@@ -1,5 +1,13 @@
 # Release notes
 
+- Fixed popping a video out from its fullscreen context menu leaving the original application
+  window fullscreen around an empty video element. CupriFace now exits element/host fullscreen
+  before transferring the existing decoder to the pop-out window.
+- Added `panel-only` presentation for the reusable video track and chapter companions, allowing an
+  application-owned tab strip to control one stable content region without nested toggle controls.
+- Fixed the Windows pop-out player's seek bar so it captures the pointer and continuously seeks
+  while dragged, including in fullscreen, instead of treating every press as a single click seek.
+
 Per-release notes that CI splices into the GitHub release, so a breaking change is recorded in
 the SAME commit that makes it rather than reconstructed from memory at tag time.
 
@@ -17,6 +25,27 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **Windows media backends can expose a single-decoder pop-out player.** The new optional
+  `IVideoPopOutPlayer` capability and `CupriDocument.SetVideoPoppedOut` API let track-enabled video
+  context menus move native playback into a draggable, resizable, always-on-top tool window and
+  return it without reopening the source or losing position. The LibVLC implementation remembers
+  the pop-out's normal bounds across sessions, clamps restored bounds to an available monitor, and
+  applies dark native chrome. It is a standard resizable Windows window so Snap Layouts and edge
+  snapping work; closing its native X docks the live decoder back into the application. A pop-out
+  request may be made before native attachment, allowing a replacement source to inherit the same
+  pop-out placement instead of briefly becoming an embedded player. Maximized state is persisted
+  independently from bounds, so replacement playback remains maximized to the monitor work area.
+  Full-monitor Windows Snap zones are detected from their monitor-filling rectangle because Windows
+  reports those windows as normal rather than maximized.
+- **The Windows LibVLC pop-out has a synchronized native transport overlay.** It provides
+  play/pause, mute, time, seek, chapter markers and hover labels, fullscreen/restore, and
+  audio/subtitle context menus over the same decoder. The bar overlays rather than resizes video
+  and auto-hides during fullscreen playback.
+- **Android video hosts can opt into native picture-in-picture.** Override
+  `CupriActivity.EnablePictureInPicture`, declare `SupportsPictureInPicture = true` on the activity,
+  and use an Android backend implementing the PiP seam. CupriFace's LibVLC backend keeps the same
+  decoder and MediaSession alive, fills the system PiP window, and restores the document surface on
+  return.
 - **Android video, in a NEW optional package: `CupriFace.Media.Android`.** LibVLC-backed, it
   exposes embedded audio/subtitle tracks and chapters, performs potentially blocking remote seeks
   away from the UI thread, reports optional `IVideoBufferingState`, and keeps long track menus
@@ -223,6 +252,25 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **Fullscreen native video no longer exposes lower page layers through stale cut-outs.** Surface
+  occlusions now respect top-layer stacking order, so sticky navigation and mini-player controls
+  painted below a fullscreen video cannot leave transparent strips or button-shaped artifacts.
+  Higher overlays and the video's own transport, menus, and chapter labels still punch the precise
+  holes they need. Nothing to change in your app.
+- **Fullscreen media remains visible after focus moves to another application.** The GLFW and SDL
+  desktop hosts no longer automatically minimize fullscreen windows on focus loss. Explicit
+  minimization still works. Nothing to change in your app.
+- **Fullscreen playback controls no longer resize the video as they appear and hide.** Native
+  video keeps its full-screen geometry while the visible control bar is composited through a
+  temporary cut-out above it. Embedded players retain their measured control strip. Nothing to
+  change in your app.
+
+- **Contained Windows video stays centred in fullscreen.** The Windows adapter now applies
+  `object-fit: contain` to its own native surface window before handing it to LibVLC,
+  and fixed fullscreen surfaces no longer inherit clipping from the page's sidebar/content
+  ancestors. Previously that stale clip could remove the left side of the video. The
+  Windows LibVLC adapter also ignores desktop VLC preferences and resets inherited zoom, crop,
+  aspect-ratio, and alignment overrides. Nothing to change in your app.
 - **Android playback no longer crashes an app that declares no launcher icon.** The media
   session's notification took `ApplicationInfo.Icon` with a null-coalescing fallback that an `int`
   can never trigger, so an app without `android:icon` posted a notification with small icon 0 and

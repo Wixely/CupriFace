@@ -148,6 +148,89 @@ public readonly record struct HostSurfaceOcclusion(float X, float Y, float Width
 /// <summary>Geometry a host needs in order to place a host-composited surface correctly.</summary>
 public static class HostSurfaceGeometry
 {
+    /// <summary>Return the visible screen bounds of a host surface after ancestor clipping.</summary>
+    /// <remarks>
+    /// Fixed-position nodes belong to the viewport top layer and therefore escape clipping by
+    /// ancestors in the document tree. A surface nested under a fixed ancestor still honours
+    /// clipping inside that fixed subtree, but ancestors above the fixed containing block do not
+    /// participate. This mirrors layout, painting, and hit-testing of the same nodes.
+    /// </remarks>
+    public static (float Left, float Top, float Right, float Bottom) VisibleBounds(
+        Dom.RenderNode node, float x, float y, float width, float height)
+    {
+        var left = x;
+        var top = y;
+        var right = x + width;
+        var bottom = y + height;
+        if (node.Style.Position == Style.PositionType.Fixed)
+            return (left, top, right, bottom);
+
+        for (var ancestor = node.Parent; ancestor is not null; ancestor = ancestor.Parent)
+        {
+            if (ancestor.Style.Overflow != Style.OverflowMode.Visible)
+            {
+                var (ancestorX, ancestorY, ancestorWidth, ancestorHeight) =
+                    Interaction.HitTesting.ScreenBox(ancestor);
+                left = MathF.Max(left, ancestorX);
+                top = MathF.Max(top, ancestorY);
+                right = MathF.Min(right, ancestorX + ancestorWidth);
+                bottom = MathF.Min(bottom, ancestorY + ancestorHeight);
+            }
+            if (ancestor.Style.Position == Style.PositionType.Fixed) break;
+        }
+        return (left, top, right, bottom);
+    }
+
+    /// <summary>Fit a host-composited surface's native window inside its element.</summary>
+    /// <remarks>
+    /// <para>A native decoder may create another child window inside the window an adapter gives
+    /// it. Leaving <c>contain</c> to that private child makes its alignment platform-dependent and,
+    /// on Windows across mixed-DPI monitors, can leave the actual picture off-centre. Fitting the
+    /// adapter's own window gives the decoder an aspect-correct rectangle with no spare axis to
+    /// align, while the engine-painted element background supplies the letterbox.</para>
+    /// <para>Clips and popup cut-outs arrive relative to the original element, so they are moved
+    /// into the fitted window's coordinate space at the same time.</para>
+    /// </remarks>
+    public static HostSurfacePlacement ApplyObjectFit(
+        HostSurfacePlacement placement,
+        (int W, int H)? naturalSize)
+    {
+        if (!placement.Visible || placement.Width <= 0 || placement.Height <= 0
+            || naturalSize is not { W: > 0, H: > 0 }
+            || !string.Equals(placement.ObjectFit, "contain", StringComparison.OrdinalIgnoreCase))
+            return placement;
+
+        var scale = MathF.Min(placement.Width / naturalSize.Value.W,
+                              placement.Height / naturalSize.Value.H);
+        var width = naturalSize.Value.W * scale;
+        var height = naturalSize.Value.H * scale;
+        var dx = (placement.Width - width) / 2f;
+        var dy = (placement.Height - height) / 2f;
+
+        var visibleLeft = placement.ClipLeft;
+        var visibleTop = placement.ClipTop;
+        var visibleRight = placement.Width - placement.ClipRight;
+        var visibleBottom = placement.Height - placement.ClipBottom;
+        var occlusions = placement.Occlusions?.Select(rect => new HostSurfaceOcclusion(
+            rect.X - dx,
+            rect.Y - dy,
+            rect.Width,
+            rect.Height)).ToArray();
+
+        return placement with
+        {
+            X = placement.X + dx,
+            Y = placement.Y + dy,
+            Width = width,
+            Height = height,
+            ClipLeft = MathF.Max(0, visibleLeft - dx),
+            ClipTop = MathF.Max(0, visibleTop - dy),
+            ClipRight = MathF.Max(0, dx + width - visibleRight),
+            ClipBottom = MathF.Max(0, dy + height - visibleBottom),
+            Occlusions = occlusions,
+        };
+    }
+
     /// <summary>
     /// How far an element's OWN chrome covers the bottom of its surface.
     ///
@@ -185,7 +268,8 @@ public static class HostSurfaceGeometry
     /// <summary>Find the visible portions of engine-painted occluders that overlap a surface.
     /// Returned rectangles are relative to the supplied surface's top-left corner.</summary>
     public static IReadOnlyList<HostSurfaceOcclusion> GetOcclusions(
-        Dom.RenderNode root, float x, float y, float w, float h)
+        Dom.RenderNode root, float x, float y, float w, float h,
+        Dom.RenderNode? surface = null)
     {
         ArgumentNullException.ThrowIfNull(root);
         if (w <= 0 || h <= 0) return [];
@@ -195,7 +279,8 @@ public static class HostSurfaceGeometry
 
         void Scan(Dom.RenderNode n)
         {
-            if (n.LaidOut && n.Element?.HasAttribute("data-surface-occluder") == true)
+            if (n.LaidOut && n.Element?.HasAttribute("data-surface-occluder") == true
+                && PaintsAboveSurface(n, surface))
             {
                 var (ox, oy, ow, oh) = Interaction.HitTesting.ScreenBox(n);
                 var left = MathF.Max(x, ox);
@@ -207,6 +292,28 @@ public static class HostSurfaceGeometry
             }
             foreach (var child in n.Children) Scan(child);
         }
+    }
+
+    /// <summary>Top-layer surfaces only need holes for content that can actually paint above
+    /// them. Without this check, entering video fullscreen retained holes for ordinary sticky
+    /// navigation and for the mini-player controls below it, exposing stale page pixels through
+    /// the native child window.</summary>
+    private static bool PaintsAboveSurface(Dom.RenderNode candidate, Dom.RenderNode? surface)
+    {
+        if (surface is null || !surface.IsTopLayer) return true;
+
+        // Chrome belonging to the surface (the fullscreen transport bar, context menus and
+        // chapter labels) remains above its native pixels regardless of the outer layer order.
+        for (var node = candidate; node is not null; node = node.Parent)
+            if (ReferenceEquals(node, surface)) return true;
+
+        // Fixed descendants paint in their nearest top-layer ancestor's layer. Normal and sticky
+        // document content has no such ancestor and therefore sits below a fullscreen surface.
+        Dom.RenderNode? candidateLayer = null;
+        for (var node = candidate; node is not null; node = node.Parent)
+            if (node.IsTopLayer) { candidateLayer = node; break; }
+
+        return candidateLayer is not null && candidateLayer.Style.ZIndex > surface.Style.ZIndex;
     }
 
     public static float OverlayBottomInset(Dom.RenderNode node, float top, float height)

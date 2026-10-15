@@ -107,22 +107,13 @@ internal sealed class HostSurfaceCoordinator(
             return new(0, 0, 0, 0, 0, 0, 0, 0, false, "contain", HostSurfaceTransform.Identity, scale);
 
         var (x, y, w, h) = HitTesting.ScreenBox(node);
-        float visL = x, visT = y, visR = x + w, visB = y + h;
-        for (var ancestor = node.Parent; ancestor is not null; ancestor = ancestor.Parent)
-        {
-            if (ancestor.Style.Overflow == OverflowMode.Visible) continue;
-            var (ax, ay, aw, ah) = HitTesting.ScreenBox(ancestor);
-            visL = MathF.Max(visL, ax);
-            visT = MathF.Max(visT, ay);
-            visR = MathF.Min(visR, ax + aw);
-            visB = MathF.Min(visB, ay + ah);
-        }
+        var (visL, visT, visR, visB) = HostSurfaceGeometry.VisibleBounds(node, x, y, w, h);
 
         // Engine-painted chrome the host's surface would otherwise cover (see the overlay note below).
         var surfaceH = MathF.Max(0, h - HostSurfaceGeometry.OverlayBottomInset(node, y, h));
 
         var visible = w > 0 && surfaceH > 0 && visR > visL && visB > visT;
-        var occlusions = HostSurfaceGeometry.GetOcclusions(document.Root, x, y, w, surfaceH)
+        var occlusions = HostSurfaceGeometry.GetOcclusions(document.Root, x, y, w, surfaceH, node)
             .Select(overlap => new HostSurfaceOcclusion(
                 overlap.X * scale,
                 overlap.Y * scale,

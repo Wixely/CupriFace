@@ -20,7 +20,7 @@ public class VideoComponentTests
         public bool Ticking { get; set; }
     }
 
-    private sealed class FakePlayer : IVideoPlayer, IVideoTrackSelector, IVideoChapterProvider
+    private sealed class FakePlayer : IVideoPlayer, IVideoTrackSelector, IVideoChapterProvider, IVideoPopOutPlayer, IVideoPopOutStateNotifier
     {
         public FakeSurface Fake { get; } = new();
         public ISurfaceSource Surface => Fake;
@@ -31,9 +31,11 @@ public class VideoComponentTests
         public double Duration => 10;
         public double Position { get; set; }
         public bool Disposed { get; private set; }
+        public bool IsPoppedOut { get; private set; }
         public event Action? Ended;
         public event Action? TracksChanged;
         public event Action? ChaptersChanged;
+        public event Action<bool>? PoppedOutChanged;
         public IReadOnlyList<VideoTrack> AudioTracks { get; private set; } = [];
         public IReadOnlyList<VideoTrack> SubtitleTracks { get; private set; } = [];
         public int SelectedAudioTrack { get; private set; } = -1;
@@ -77,6 +79,12 @@ public class VideoComponentTests
             Position = chapter.StartSeconds;
             ChaptersChanged?.Invoke();
             return true;
+        }
+        public bool SetPoppedOut(bool poppedOut) { IsPoppedOut = poppedOut; return true; }
+        public void RaiseNativePopOutChanged(bool poppedOut)
+        {
+            IsPoppedOut = poppedOut;
+            PoppedOutChanged?.Invoke(poppedOut);
         }
         public void Dispose() { Disposed = true; Fake.Ticking = false; }
     }
@@ -228,6 +236,97 @@ public class VideoComponentTests
         Assert.Null(endedSource);
         Assert.True(t.Doc.ConsumeImageArrived());
         Assert.Equal("clip.webm", endedSource);
+    }
+
+    [Fact]
+    public void A_capable_backend_can_move_the_same_player_into_and_out_of_a_popout()
+    {
+        var backend = new FakeBackend();
+        using var t = new TestDoc("<body><cupri-video src='clip.webm' controls tracks></cupri-video></body>", "", components: true);
+        t.Doc.UseVideo(backend);
+        t.Layout();
+
+        Assert.True(t.Doc.SetVideoPoppedOut("clip.webm", true));
+        Assert.True(t.Doc.IsVideoPoppedOut("clip.webm"));
+        Assert.Single(backend.Players);
+        Assert.True(t.Doc.SetVideoPoppedOut("clip.webm", false));
+        Assert.False(t.Doc.IsVideoPoppedOut("clip.webm"));
+        Assert.Single(backend.Players);
+    }
+
+    [Fact]
+    public void Panel_only_track_and_chapter_companions_leave_tab_ownership_to_the_application()
+    {
+        var backend = new FakeBackend();
+        using var t = new TestDoc("""
+            <body>
+              <cupri-video src='clip.webm' controls tracks chapters></cupri-video>
+              <cupri-video-tracks src='clip.webm' panel-only></cupri-video-tracks>
+              <cupri-video-chapters src='clip.webm' panel-only></cupri-video-chapters>
+            </body>
+            """, "", components: true);
+        t.Doc.UseVideo(backend);
+        t.Layout();
+        backend.Players["clip.webm"].PublishTracks(
+            [new VideoTrack(1, "English")],
+            [new VideoTrack(-1, "Off")]);
+        backend.Players["clip.webm"].PublishChapters(
+            [new VideoChapter(0, "Opening", 0, 10)]);
+        t.Doc.Refresh();
+        t.Layout();
+
+        Assert.Null(t.Find(n => n.Element?.HasAttribute("data-video-track-toggle") == true));
+        Assert.Null(t.Find(n => n.Element?.HasAttribute("data-video-chapter-toggle") == true));
+        Assert.True(t.Find(n => n.Element?.HasAttribute("data-video-track-panel") == true)!.Height > 0);
+        Assert.True(t.Find(n => n.Element?.HasAttribute("data-video-chapter-panel") == true)!.Height > 0);
+        Assert.NotNull(t.Find(n => n.Element?.GetAttribute("data-video-track-id") == "1"));
+        Assert.NotNull(t.Find(n => n.Element?.GetAttribute("data-video-chapter-id") == "0"));
+    }
+
+    [Fact]
+    public void Context_menu_popout_releases_element_and_host_fullscreen_before_moving_the_player()
+    {
+        var backend = new FakeBackend();
+        using var t = new TestDoc(
+            "<body><cupri-video src='clip.webm' controls tracks style='width:320px;height:180px'></cupri-video></body>",
+            "", components: true, width: 800, height: 500);
+        var commands = new List<CupriFace.Interaction.WindowCommand>();
+        t.Doc.WindowCommandRequested += commands.Add;
+        t.Doc.UseVideo(backend);
+        t.Layout();
+
+        t.ClickMatch(n => n.Element?.GetAttribute("data-video-cmd") == "fullscreen");
+        t.Layout();
+        var video = t.Find(n => n.Element?.GetAttribute("data-cupri-video") == "clip.webm")!;
+        var (videoX, videoY) = TestDoc.Center(video);
+        Assert.True(t.Doc.DispatchContextMenu(videoX, videoY));
+        t.Layout();
+        t.ClickMatch(n => n.Element?.GetAttribute("data-video-popout-source") == "clip.webm");
+        t.Layout();
+
+        Assert.Equal(
+            [CupriFace.Interaction.WindowCommand.EnterFullscreen, CupriFace.Interaction.WindowCommand.ExitFullscreen],
+            commands);
+        Assert.True(backend.Players["clip.webm"].IsPoppedOut);
+        Assert.Null(t.Find(n => n.Element?.ClassList.Contains("cupri-video-fs") == true));
+        Assert.Single(backend.Players);
+    }
+
+    [Fact]
+    public void Native_popout_close_is_marshaled_to_the_document_UI_pump()
+    {
+        var backend = new FakeBackend();
+        using var t = new TestDoc("<body><cupri-video src='clip.webm' controls></cupri-video></body>", "", components: true);
+        t.Doc.UseVideo(backend);
+        t.Layout();
+        (string Source, bool PoppedOut)? observed = null;
+        t.Doc.VideoPopOutStateChanged += (source, poppedOut) => observed = (source, poppedOut);
+
+        backend.Players["clip.webm"].RaiseNativePopOutChanged(false);
+
+        Assert.Null(observed);
+        Assert.True(t.Doc.ConsumeImageArrived());
+        Assert.Equal(("clip.webm", false), observed);
     }
 
     [Fact]

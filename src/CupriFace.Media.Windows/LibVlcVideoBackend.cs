@@ -19,6 +19,7 @@ public sealed class LibVlcVideoBackend : IVideoBackend, IDisposable
     private readonly LibVLC _libVlc;
     private readonly string _cacheDirectory;
     private readonly bool _debug;
+    private readonly PopOutPlacementStore _popOutPlacement;
     private readonly HashSet<LibVlcVideoPlayer> _players = [];
     private bool _disposed;
 
@@ -42,7 +43,16 @@ public sealed class LibVlcVideoBackend : IVideoBackend, IDisposable
         Core.Initialize(nativeDirectory);
         var options = new List<string>
         {
+            // CupriFace owns the player presentation contract. Inheriting VLC desktop preferences
+            // can bring across a saved zoom, crop or aspect override and visibly offset the video
+            // even though every host HWND has the correct fullscreen bounds.
+            "--ignore-config",
             "--avcodec-hw=d3d11va",
+            // A LibVLC instance can inherit the user's VLC alignment preference. Values are a
+            // bit-field (left/right/top/bottom), so a saved top-right value makes a contained
+            // movie cling to that corner even though CupriFace has correctly made the child HWND
+            // fill the fullscreen element. CupriFace's `fit="contain"` contract is centred.
+            "--align=0",
             "--no-video-title-show",
             "--no-snapshot-preview",
         };
@@ -63,6 +73,7 @@ public sealed class LibVlcVideoBackend : IVideoBackend, IDisposable
         }
         _cacheDirectory = cacheDirectory ?? Path.Combine(Path.GetTempPath(), "CupriFace.Media.Windows");
         Directory.CreateDirectory(_cacheDirectory);
+        _popOutPlacement = new PopOutPlacementStore(Path.Combine(_cacheDirectory, "popout-window.bounds"));
     }
 
     private static string ArchitectureDirectory() => RuntimeInformation.ProcessArchitecture switch
@@ -78,6 +89,7 @@ public sealed class LibVlcVideoBackend : IVideoBackend, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         var player = new LibVlcVideoPlayer(_libVlc, source, _cacheDirectory,
+            _popOutPlacement,
             message => { if (_debug) Console.WriteLine("[cupri-media] " + message); },
             closed => { lock (_players) _players.Remove(closed); });
         lock (_players) _players.Add(player);
@@ -106,7 +118,7 @@ public sealed class LibVlcVideoBackend : IVideoBackend, IDisposable
     }
 }
 
-internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IVideoChapterProvider, IHostCompositedSurfaceSource
+internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IVideoChapterProvider, IVideoPopOutPlayer, IVideoPopOutStateNotifier, IHostCompositedSurfaceSource
 {
     private readonly object _gate = new();
     private readonly VideoSource _source;
@@ -116,7 +128,10 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IVi
     private Win32HostWindow? _hostWindow;
     private VlcMedia? _media;
     private nint _child;
+    private nint _popOutWindow;
+    private bool _popOutRequested;
     private int _hostThread;
+    private HostSurfacePlacement _lastPlacement;
     private bool _playWhenReady;
     private bool _mediaOpened;
     private volatile bool _ready;
@@ -131,16 +146,19 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IVi
 
     private readonly Action<string> _log;
     private readonly Action<LibVlcVideoPlayer> _closed;
+    private readonly PopOutPlacementStore _popOutPlacement;
 
     internal LibVlcVideoPlayer(
         LibVLC libVlc,
         VideoSource source,
         string cacheDirectory,
+        PopOutPlacementStore popOutPlacement,
         Action<string> log,
         Action<LibVlcVideoPlayer> closed)
     {
         _source = source;
         _cacheDirectory = cacheDirectory;
+        _popOutPlacement = popOutPlacement;
         _log = log;
         _closed = closed;
         _player = new VlcMediaPlayer(libVlc)
@@ -162,6 +180,8 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IVi
     public bool Ticking => false;
     public bool HostComposited => _ready;
     public bool Playing => !_disposed && _player.IsPlaying;
+    public bool IsPoppedOut => _popOutRequested;
+    public event Action<bool>? PoppedOutChanged;
 
     public bool Muted
     {
@@ -276,6 +296,18 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IVi
     public void Arrange(HostSurfacePlacement placement)
     {
         if (_child == 0) return;
+        // Give LibVLC an aspect-correct child HWND instead of a full-element window with spare
+        // space on one axis. Its private D3D child can otherwise misalign the picture on mixed-DPI
+        // Windows displays even when VLC's own alignment preference is centred.
+        placement = HostSurfaceGeometry.ApplyObjectFit(placement, _naturalSize);
+        _lastPlacement = placement;
+        if (_popOutRequested && _popOutWindow == 0 && placement.Visible)
+            CreatePopOutWindow();
+        if (_popOutWindow != 0)
+        {
+            Win32VideoWindow.PlaceInPopOut(_child, _popOutWindow);
+            return;
+        }
         if (!placement.Visible || !placement.Transform.IsIdentity || !_ready)
         {
             Win32VideoWindow.Hide(_child);
@@ -296,6 +328,64 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IVi
             placement.Occlusions);
     }
 
+    public bool SetPoppedOut(bool poppedOut)
+    {
+        if (_disposed) return false;
+        if (_hostThread != 0 && Environment.CurrentManagedThreadId != _hostThread) return false;
+        if (poppedOut == _popOutRequested) return true;
+        _popOutRequested = poppedOut;
+        if (poppedOut)
+        {
+            // A replacement source can be asked to inherit pop-out mode before its native child
+            // has attached or received its first placement. Arrange completes the request.
+            if (_child != 0 && _hostWindow is not null && _lastPlacement.Visible)
+                CreatePopOutWindow();
+        }
+        else
+        {
+            if (_popOutWindow != 0 && _child != 0 && _hostWindow is not null
+                && Win32VideoWindow.DestroyPopOut(_popOutWindow, _child, _hostWindow.Handle) is { } bounds)
+                _popOutPlacement.Save(bounds);
+            _popOutWindow = 0;
+            _context?.RequestFrame();
+            _log("returned picture-in-picture video to the application window");
+        }
+        PoppedOutChanged?.Invoke(poppedOut);
+        return true;
+    }
+
+    private void CreatePopOutWindow()
+    {
+        if (_popOutWindow != 0 || _child == 0 || _hostWindow is null || !_lastPlacement.Visible) return;
+        _popOutWindow = Win32VideoWindow.CreatePopOut(
+            _hostWindow.Handle,
+            _child,
+            _lastPlacement.X,
+            _lastPlacement.Y,
+            _lastPlacement.Width,
+            _lastPlacement.Height,
+            _popOutPlacement.Load(),
+            () => SetPoppedOut(false),
+            new PopOutPlayerControls
+            {
+                IsPlaying = () => Playing,
+                TogglePlayback = () => { if (Playing) Pause(); else Play(); _context?.RequestFrame(); },
+                IsMuted = () => Muted,
+                ToggleMute = () => { Muted = !Muted; _context?.RequestFrame(); },
+                Position = () => Position,
+                Duration = () => Duration,
+                Seek = seconds => { Position = seconds; _context?.RequestFrame(); },
+                AudioTracks = () => AudioTracks,
+                SubtitleTracks = () => SubtitleTracks,
+                SelectedAudioTrack = () => SelectedAudioTrack,
+                SelectedSubtitleTrack = () => SelectedSubtitleTrack,
+                SelectAudioTrack = id => { SelectAudioTrack(id); _context?.RequestFrame(); },
+                SelectSubtitleTrack = id => { SelectSubtitleTrack(id); _context?.RequestFrame(); },
+                Chapters = () => Chapters,
+            });
+        _log($"moved child HWND 0x{_child:x} into picture-in-picture window 0x{_popOutWindow:x}");
+    }
+
     /// <summary>
     /// Release the child window. <c>DestroyWindow</c> is thread-affine — called from any thread but
     /// the one that created the window it silently does nothing and the window outlives its element
@@ -312,6 +402,12 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IVi
         }
         // A player disposed before its window throws here; the window still has to go.
         try { _player.Hwnd = 0; } catch { /* already gone */ }
+        if (_popOutWindow != 0 && _hostWindow is not null)
+        {
+            if (Win32VideoWindow.DestroyPopOut(_popOutWindow, _child, _hostWindow.Handle) is { } bounds)
+                _popOutPlacement.Save(bounds);
+            _popOutWindow = 0;
+        }
         Win32VideoWindow.Destroy(_child);
         _child = 0;
         _hostThread = 0;
@@ -393,6 +489,11 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IVi
     {
         _failure = null;
         _ready = true;
+        // Instance options prevent persisted preferences being loaded, while these resets also
+        // cover state retained by LibVLC when the same player advances to another media item.
+        _player.Scale = 0;
+        _player.AspectRatio = null;
+        _player.CropGeometry = string.Empty;
         uint width = 0, height = 0;
         if (_player.Size(0, ref width, ref height) && width > 0 && height > 0)
             _naturalSize = ((int)width, (int)height);

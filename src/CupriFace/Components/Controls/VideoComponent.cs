@@ -155,10 +155,21 @@ public sealed class VideoComponent : ComponentBase
     {
         el.ClassList.Add("cupri-video-fs");
         if (controlsHidden) el.ClassList.Add("cupri-video-controls-hidden");
+        if (el.QuerySelector(".cupri-video-bar") is { } bar)
+        {
+            // Embedded native video reserves a measured strip for its controls because the child
+            // HWND sits above engine-painted UI. Fullscreen must not do that: showing/hiding the
+            // bar would resize the picture. Keep the video full-size and punch out only the bar's
+            // current rectangle while it is visible.
+            bar.RemoveAttribute("data-surface-overlay");
+            bar.SetAttribute("data-surface-occluder", "");
+        }
         // transition:none — entering fullscreen SNAPS, like the browser. An author's own
         // width/height transition (the resize demo has one) must not tween into fullscreen.
         el.SetAttribute("style", (el.GetAttribute("style") ?? "")
-            + ";position:fixed;left:0;top:0;width:100%;height:100%;border-radius:0;transition:none");
+            // Viewport units avoid one transition frame resolving percentage height against the
+            // video's former containing block and exposing a title-bar-sized strip at the bottom.
+            + ";position:fixed;left:0;top:0;width:100vw;height:100vh;border-radius:0;transition:none");
         if (el.QuerySelector("[data-video-role='fullscreen']") is { } button)
         {
             button.InnerHtml = IconMarkup("fullscreen-exit", 18);
@@ -212,6 +223,23 @@ public sealed class VideoComponent : ComponentBase
             tracks?.AudioTracks ?? [], tracks?.SelectedAudioTrack);
         FillTrackList(el.QuerySelector("[data-video-track-list='subtitle']"), source, "subtitle",
             tracks?.SubtitleTracks ?? [], tracks?.SelectedSubtitleTrack);
+    }
+
+    internal static void SyncPopOut(IElement el, string source, Media.IVideoPopOutPlayer? popOut)
+    {
+        if (el.QuerySelector("[data-video-popout-source]") is not { } action) return;
+        action.SetAttribute("data-video-popout-source", source);
+        action.TextContent = popOut?.IsPoppedOut == true ? "Return to Luma" : "Pop out player";
+        if (popOut is null)
+        {
+            action.ClassList.Add("disabled");
+            action.SetAttribute("aria-disabled", "true");
+        }
+        else
+        {
+            action.ClassList.Remove("disabled");
+            action.RemoveAttribute("aria-disabled");
+        }
     }
 
     internal static void SyncChapters(IElement el, Media.IVideoChapterProvider? provider, double duration)
@@ -284,6 +312,7 @@ public sealed class VideoComponent : ComponentBase
             <span class='cupri-menu-label'>Subtitles</span>{IconMarkup("chevron-right", 16)}
             <div class='cupri-submenu' role='menu' data-surface-occluder data-video-track-list='subtitle'></div>
           </div>
+          <div class='cupri-menu-item' role='menuitem' data-video-popout-source=''>Pop out player</div>
         </div>
         """;
 
@@ -335,13 +364,17 @@ public sealed class VideoTracksComponent : ComponentBase
     {
         var source = Str(el, "src");
         var label = Str(el, "label", "Audio / Video");
+        var panelOnly = el.HasAttribute("panel-only");
         el.ClassList.Add("cupri-video-tracks");
         el.SetAttribute("data-video-track-controls", source);
-        el.InnerHtml = $"""
+        var toggle = panelOnly ? "" : $"""
             <div class='cupri-video-tracks-toggle' role='button' tabindex='0' data-video-track-toggle='{VideoComponent.Escape(source)}'>
               {IconMarkup("settings", 18)}<span>{VideoComponent.Escape(label)}</span>
             </div>
             <span class='cupri-video-tracks-status' data-video-track-status>Audio and subtitle tracks appear after playback starts.</span>
+            """;
+        el.InnerHtml = $"""
+            {toggle}
             <div class='cupri-video-tracks-panel' data-video-track-panel>
               <div class='cupri-video-tracks-column'><strong>AUDIO</strong><div class='cupri-video-tracks-table' role='table' aria-label='Audio tracks' data-video-track-form-list='audio'></div></div>
               <div class='cupri-video-tracks-column'><strong>SUBTITLES</strong><div class='cupri-video-tracks-table' role='table' aria-label='Subtitle tracks' data-video-track-form-list='subtitle'></div></div>
@@ -351,6 +384,7 @@ public sealed class VideoTracksComponent : ComponentBase
 
     internal static void Sync(IElement el, string source, Media.IVideoTrackSelector? tracks, bool open)
     {
+        open |= el.HasAttribute("panel-only");
         if (el.QuerySelector("[data-video-track-panel]") is { } panel)
             panel.SetAttribute("style", open ? "display:flex" : "display:none");
 
@@ -430,13 +464,17 @@ public sealed class VideoChaptersComponent : ComponentBase
     {
         var source = Str(el, "src");
         var label = Str(el, "label", "CHAPTERS");
+        var panelOnly = el.HasAttribute("panel-only");
         el.ClassList.Add("cupri-video-chapters");
         el.SetAttribute("data-video-chapter-controls", source);
-        el.InnerHtml = $"""
+        var toggle = panelOnly ? "" : $"""
             <div class='cupri-video-chapters-toggle' role='button' tabindex='0' aria-expanded='false'
                  data-video-chapter-toggle='{VideoComponent.Escape(source)}'>
               {IconMarkup("menu", 18)}<span>{VideoComponent.Escape(label)}</span>
             </div>
+            """;
+        el.InnerHtml = $"""
+            {toggle}
             <div class='cupri-video-chapters-panel' data-video-chapter-panel>
               <strong>{VideoComponent.Escape(label)}</strong>
               <div class='cupri-video-chapters-table' role='table' aria-label='Video chapters' data-video-chapter-list></div>
@@ -446,6 +484,7 @@ public sealed class VideoChaptersComponent : ComponentBase
 
     internal static void Sync(IElement el, string source, Media.IVideoChapterProvider? provider, bool open)
     {
+        open |= el.HasAttribute("panel-only");
         if (el.QuerySelector("[data-video-chapter-panel]") is { } panel)
             panel.SetAttribute("style", open ? "display:block" : "display:none");
         if (el.QuerySelector("[data-video-chapter-toggle]") is { } toggle)

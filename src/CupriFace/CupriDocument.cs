@@ -473,6 +473,7 @@ public sealed partial class CupriDocument : IDisposable
     // finishes parsing, which is its thread and not ours.
     private readonly System.Collections.Concurrent.ConcurrentQueue<string> _videoTracksFound = new();
     private readonly System.Collections.Concurrent.ConcurrentQueue<string> _videoChaptersFound = new();
+    private readonly System.Collections.Concurrent.ConcurrentQueue<(string Source, bool PoppedOut)> _videoPopOutChanges = new();
     private string? _fullscreenVideo; // src of the video currently element-fullscreened (web model: one at most)
     private double _videoControlsHideAt = double.NaN;
     private bool _videoControlsHidden;
@@ -564,6 +565,9 @@ public sealed partial class CupriDocument : IDisposable
     /// Applications can persist this portable snapshot without depending on a concrete backend.</summary>
     public event Action<Media.VideoPlaybackState>? VideoPlaybackStateChanged;
 
+    /// <summary>Raised on the UI thread when native pop-out chrome changes a video's docked state.</summary>
+    public event Action<string, bool>? VideoPopOutStateChanged;
+
     /// <summary>
     /// Raised on the UI thread when a video reaches its natural end, carrying its <c>src</c>.
     ///
@@ -588,6 +592,47 @@ public sealed partial class CupriDocument : IDisposable
 
     public Media.VideoPlaybackState? GetVideoPlaybackState(string source) =>
         _videoPlayers.TryGetValue(source, out var player) ? SnapshotVideoState(source, player) : null;
+
+    /// <summary>Toggle an already-open video's transport by source. This lets an application
+    /// provide compact or remote transport chrome outside the video element without opening a
+    /// second player.</summary>
+    public bool ToggleVideoPlayback(string source)
+    {
+        if (!_videoPlayers.TryGetValue(source, out var player)) return false;
+        if (player.Playing) player.Pause(); else player.Play();
+        NotifyVideoPlaybackState(source, player);
+        Refresh();
+        return true;
+    }
+
+    /// <summary>Toggle an already-rendered video between element and host fullscreen. The source
+    /// must still be present in the document; a decoder is not required.</summary>
+    public bool ToggleVideoFullscreen(string source)
+    {
+        if (!_videoPlayers.ContainsKey(source)) return false;
+        return ToggleVideoFullscreenCore(source);
+    }
+
+    /// <summary>Move a capable player's existing native output into or out of its platform
+    /// picture-in-picture window. Returns false when the backend does not offer that capability.</summary>
+    public bool SetVideoPoppedOut(string source, bool poppedOut)
+    {
+        if (!_videoPlayers.TryGetValue(source, out var player) || player is not Media.IVideoPopOutPlayer popOut)
+            return false;
+        // Element fullscreen is a contract between this document and its host window. Moving the
+        // decoder to a second native window without releasing that contract leaves the application
+        // fullscreen around an empty/broken-looking video element. Exit first, while the original
+        // host still owns the surface, then hand the same player to the pop-out.
+        if (poppedOut && string.Equals(_fullscreenVideo, source, StringComparison.Ordinal))
+            ToggleVideoFullscreenCore(source);
+        var changed = popOut.SetPoppedOut(poppedOut);
+        if (changed) Refresh();
+        return changed;
+    }
+
+    public bool IsVideoPoppedOut(string source) =>
+        _videoPlayers.TryGetValue(source, out var player)
+        && player is Media.IVideoPopOutPlayer { IsPoppedOut: true };
 
     public bool RestoreVideoPlaybackState(string source, Media.VideoPlaybackState state)
     {
@@ -698,12 +743,14 @@ public sealed partial class CupriDocument : IDisposable
                 Components.Controls.VideoComponent.SyncControls(el, player);
                 Components.Controls.VideoComponent.SyncTracks(el, src, player as Media.IVideoTrackSelector);
                 Components.Controls.VideoComponent.SyncChapters(el, player as Media.IVideoChapterProvider, player.Duration);
+                Components.Controls.VideoComponent.SyncPopOut(el, src, player as Media.IVideoPopOutPlayer);
             }
             else
             {
                 Components.Controls.VideoComponent.MarkInert(el);   // no backend: honest controls
                 Components.Controls.VideoComponent.SyncTracks(el, src, null);
                 Components.Controls.VideoComponent.SyncChapters(el, null, 0);
+                Components.Controls.VideoComponent.SyncPopOut(el, src, null);
             }
             // The fresh DOM starts windowed; re-mark the fullscreen one each rebuild.
             if (src == _fullscreenVideo)
@@ -788,6 +835,12 @@ public sealed partial class CupriDocument : IDisposable
         }
         if (player is Media.IVideoBufferingState buffering)
             buffering.BufferingChanged += () => System.Threading.Interlocked.Exchange(ref _videoStateChanged, 1);
+        if (player is Media.IVideoPopOutStateNotifier popOutNotifier)
+            popOutNotifier.PoppedOutChanged += poppedOut =>
+            {
+                _videoPopOutChanges.Enqueue((src, poppedOut));
+                System.Threading.Interlocked.Exchange(ref _videoStateChanged, 1);
+            };
         player.Loop = el.HasAttribute("data-video-loop");
         player.Muted = el.HasAttribute("data-video-muted");
         // Browsers reject audible autoplay, so muted remains the portable default. A native app can
@@ -813,18 +866,7 @@ public sealed partial class CupriDocument : IDisposable
         // video fill the screen. Needs no decoder (a poster fullscreens fine), so it's handled
         // before the player lookup; still synchronous inside the input dispatch, because the web
         // host's requestFullscreen demands the user gesture on the stack.
-        if (cmd == "fullscreen")
-        {
-            var entering = _fullscreenVideo != src;
-            _fullscreenVideo = entering ? src : null;
-            _videoControlsHidden = false;
-            _videoControlsHideAt = double.NaN;
-            WindowCommandRequested?.Invoke(entering
-                ? Interaction.WindowCommand.EnterFullscreen
-                : Interaction.WindowCommand.ExitFullscreen);
-            Refresh();
-            return true;
-        }
+        if (cmd == "fullscreen") return ToggleVideoFullscreenCore(src);
         if (!_videoPlayers.TryGetValue(src, out var player)) return false;
 
         switch (cmd)
@@ -836,6 +878,19 @@ public sealed partial class CupriDocument : IDisposable
         }
         NotifyVideoPlaybackState(src, player);
         Refresh(); // the controls' glyphs + labels reflect the new state
+        return true;
+    }
+
+    private bool ToggleVideoFullscreenCore(string source)
+    {
+        var entering = _fullscreenVideo != source;
+        _fullscreenVideo = entering ? source : null;
+        _videoControlsHidden = false;
+        _videoControlsHideAt = double.NaN;
+        WindowCommandRequested?.Invoke(entering
+            ? Interaction.WindowCommand.EnterFullscreen
+            : Interaction.WindowCommand.ExitFullscreen);
+        Refresh();
         return true;
     }
 
@@ -863,6 +918,15 @@ public sealed partial class CupriDocument : IDisposable
             ? SelectVideoAudioTrack(source, trackId)
             : string.Equals(kind, "subtitle", StringComparison.Ordinal) && SelectVideoSubtitleTrack(source, trackId);
         return selected;
+    }
+
+    private bool VideoPopOutAction(AngleSharp.Dom.IElement el)
+    {
+        if (el.GetAttribute("data-video-popout-source") is not { Length: > 0 } source) return false;
+        if (!_videoPlayers.TryGetValue(source, out var player) || player is not Media.IVideoPopOutPlayer popOut)
+            return true;
+        SetVideoPoppedOut(source, !popOut.IsPoppedOut);
+        return true;
     }
 
     private bool VideoChapterAction(AngleSharp.Dom.IElement el)
@@ -909,6 +973,8 @@ public sealed partial class CupriDocument : IDisposable
                 NotifyVideoPlaybackState(src, player);
             while (_videoTracksFound.TryDequeue(out var tracked)) VideoTracksChanged?.Invoke(tracked);
             while (_videoChaptersFound.TryDequeue(out var chaptered)) VideoChaptersChanged?.Invoke(chaptered);
+            while (_videoPopOutChanges.TryDequeue(out var popOut))
+                VideoPopOutStateChanged?.Invoke(popOut.Source, popOut.PoppedOut);
             while (_videoEndedSources.TryDequeue(out var ended)) VideoEnded?.Invoke(ended);
             Refresh();
             return true;
@@ -3908,6 +3974,7 @@ public sealed partial class CupriDocument : IDisposable
                 return VideoChapterAction(el);
 
             // Video transport (play/pause toggle, mute) for the nearest enclosing <cupri-video>.
+            if (el.GetAttribute("data-video-popout-source") is { Length: > 0 }) return VideoPopOutAction(el);
             if (el.GetAttribute("data-video-cmd") is { Length: > 0 } videoCmd) return VideoCommand(node, videoCmd);
 
             // Window drag: a frameless window has no title bar, so an element can be one. The press

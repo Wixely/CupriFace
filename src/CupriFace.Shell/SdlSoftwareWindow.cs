@@ -512,6 +512,11 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         if (_sdl.Init(Sdl.InitVideo | Sdl.InitGamecontroller) != 0)
             throw new InvalidOperationException($"SDL_Init failed: {_sdl.GetErrorS()}");
 
+        // A media window on one display must remain visible while the user works on another.
+        // This controls only SDL's automatic fullscreen focus-loss minimization; an explicit
+        // minimize request continues to work normally.
+        _sdl.SetHint("SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS", "0");
+
         var flags = WindowFlags.Resizable;
         if (UseGl)
         {

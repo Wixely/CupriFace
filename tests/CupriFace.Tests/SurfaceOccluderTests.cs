@@ -14,6 +14,32 @@ namespace CupriFace.Tests;
 public class SurfaceOccluderTests
 {
     [Fact]
+    public void Fullscreen_surface_ignores_lower_page_cutouts_but_keeps_higher_overlays()
+    {
+        const string html = """
+            <body>
+              <div class='page' data-surface-occluder></div>
+              <cupri-video src='clip.mkv' controls style='width:320px;height:180px'></cupri-video>
+              <div class='prompt' data-surface-occluder></div>
+            </body>
+            """;
+        const string css = """
+            .page { position:fixed; left:0; top:0; width:800px; height:48px; z-index:20; }
+            .prompt { position:fixed; right:20px; top:20px; width:200px; height:80px; z-index:140; }
+            """;
+        using var t = new TestDoc(html, css, components: true, width: 800, height: 500);
+        t.ClickMatch(n => n.Element?.GetAttribute("data-video-role") == "fullscreen");
+        t.Layout();
+
+        var video = t.Find(n => n.Element?.HasAttribute("data-cupri-video") == true)!;
+        var holes = HostSurfaceGeometry.GetOcclusions(t.Doc.Root, 0, 0, 800, 500, video);
+
+        Assert.Equal(2, holes.Count); // transport bar + the z:140 prompt; never the z:20 page strip
+        Assert.Contains(holes, hole => MathF.Abs(hole.Width - 200) < 1 && MathF.Abs(hole.Height - 80) < 1);
+        Assert.DoesNotContain(holes, hole => MathF.Abs(hole.Width - 800) < 1 && MathF.Abs(hole.Height - 48) < 1);
+    }
+
+    [Fact]
     public void A_videos_track_menu_exposes_only_its_overlap_and_restores_the_full_surface_after()
     {
         using var t = new TestDoc(
