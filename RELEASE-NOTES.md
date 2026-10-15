@@ -27,6 +27,23 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   still toggles mute. Omitted by default, so phone and TV hosts keep leaving volume to the platform.
 - **`panel-only` on the video track and chapter companions** drops their own toggle button, so an
   application-owned tab strip can drive one stable content region without a nested control.
+- **A video can be handed to a host's own pop-out window, through a seam the engine does not
+  implement.** A backend that can move its existing native output into a second window implements
+  `IVideoPopOutPlayer` (and optionally `IVideoPopOutStateNotifier` to report its own window being
+  closed); `CupriDocument.SetVideoPoppedOut` / `IsVideoPoppedOut` drive it, `VideoPopOutStateChanged`
+  reports it, and a track-enabled video's context menu grows a Pop out player item. The decoder is
+  never reopened — popping out is presentation, not a second playback session — and element/host
+  fullscreen is released first, so the application is not left fullscreen around an empty video.
+
+  **CupriFace ships no pop-out window.** Native window chrome differs per platform and cannot be
+  verified headlessly, so it belongs in the host or application that can put one on screen. With no
+  capable backend the menu item is ABSENT rather than greyed out, which is the case on the web, on
+  Android, and with the portable WebM decoder. Nothing to change in your app.
+- **Android video hosts can opt into native picture-in-picture.** Override
+  `CupriActivity.EnablePictureInPicture`, declare `SupportsPictureInPicture = true` on the activity,
+  and use an Android backend implementing the PiP seam. CupriFace's LibVLC backend keeps the same
+  decoder and MediaSession alive, fills the system PiP window, and restores the document surface on
+  return. Off by default.
 - Added focused desktop video shortcuts for a fullscreen player: Left/Right seek ten seconds,
   Shift+Left/Right seek five minutes, Up/Down adjust volume, Space toggles playback. Embedded
   players and unfocused windows are unaffected, and no global hotkeys are registered.
