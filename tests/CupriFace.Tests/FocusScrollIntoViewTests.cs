@@ -1,4 +1,5 @@
 using CupriFace.Interaction;
+using CupriFace.Paint;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -96,6 +97,25 @@ public class FocusScrollIntoViewTests(ITestOutputHelper output)
         Assert.True(fy >= top, "the focused row must not be above the port");
         Assert.True(fy - top >= t.Doc.FocusScrollMargin - 0.5f,
                     $"only {fy - top}px above the focused row; the margin should show the row before it");
+    }
+
+    [Fact]
+    public void Built_in_focus_ring_follows_the_control_when_navigation_scrolls_back_up()
+    {
+        using var t = new TestDoc(Html(), ":root { --cupri-focus:#8b5cf6; }", components: true,
+            width: 400, height: 400);
+        for (var i = 0; i < 12; i++) t.Doc.MoveFocus(NavigationDirection.Down);
+        for (var i = 0; i < 6; i++) t.Doc.MoveFocus(NavigationDirection.Up);
+        t.Layout();
+
+        var focused = t.Find(n => n.Element?.HasAttribute("data-focus") == true)!;
+        var (x, y, w, _) = HitTesting.ScreenBox(focused);
+        var ring = t.Doc.BuildFrame(t.Width, t.Height).Commands.OfType<FillRect>()
+            .Single(f => f.Color.Red == 0x8B && f.Color.Green == 0x5C && f.Color.Blue == 0xF6
+                         && f.W > f.H && MathF.Abs(f.Y - (y - 2)) < 0.01f);
+
+        Assert.Equal(x - 2, ring.X, 2);
+        Assert.Equal(w + 4, ring.W, 2);
     }
 
     [Fact]

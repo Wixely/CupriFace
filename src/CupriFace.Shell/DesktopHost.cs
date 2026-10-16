@@ -319,7 +319,8 @@ public static class DesktopHost
             window.TextEntered += t => Mark(doc.DispatchKey(t, EditKey.None));
             window.EditKeyPressed += (k, mods) =>
             {
-                var handled = doc.DispatchKey(null, k, mods);
+                var handled = window.IsFullscreen && doc.DispatchFullscreenVideoPlaybackShortcut(k, mods);
+                if (!handled) handled = doc.DispatchKey(null, k, mods);
                 Mark(handled);
                 // Escape the document didn't consume (no overlay open) exits fullscreen — the OS
                 // convention. Overlays keep winning: dismissing one returns handled above.
@@ -575,7 +576,8 @@ public static class DesktopHost
             window.TextEntered += t => Mark(doc.DispatchKey(t, EditKey.None));
             window.EditKeyPressed += (k, mods) =>
             {
-                var handled = doc.DispatchKey(null, k, mods);
+                var handled = window.IsFullscreen && doc.DispatchFullscreenVideoPlaybackShortcut(k, mods);
+                if (!handled) handled = doc.DispatchKey(null, k, mods);
                 Mark(handled);
                 if (!handled && k == EditKey.Escape && window.IsFullscreen) SyncFullscreen(doc, window, false);
             };

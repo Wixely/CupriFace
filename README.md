@@ -94,7 +94,11 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
   IME composition, and TalkBack. CoreCLR runtime, driven end-to-end on an emulator by CI. Video is
   **not** included: the optional `CupriFace.Media.Android` package brings it, so an app that shows
   none carries neither LibVLC's native libraries nor its licence terms.
-- **Video** — `<cupri-video>` with engine-drawn controls and fullscreen. The browser decodes
+- **Video** — `<cupri-video>` with engine-drawn controls and fullscreen. An opt-in
+  `volume-controls` vertical hover slider preserves the speaker's click-to-mute behavior while allowing
+  device-volume hosts to omit it. Windows pop-out playback
+  reuses that same component markup and interaction path rather than maintaining separate native
+  transport chrome. The browser decodes
   on the web host (no codecs in the wasm binary); on desktop the optional `CupriFace.Media`
   package plays WebM (VP9 + Opus) with decoders for every desktop RID in **one** package —
   build on any OS, run on any OS. Windows applications that need broader formats and hardware

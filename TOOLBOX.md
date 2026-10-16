@@ -814,12 +814,21 @@ scrub with the pointer, arrow keys step ±5 s, and AT sets it through RangeValue
 fullscreen; real components, so they're themable and
 accessible); clicking the picture toggles playback. `autoplay` is honored **only together with
 `muted`** — the web's rule, applied on every host so one app behaves the same everywhere.
+Add `volume-controls` when the application, rather than the device, should expose volume. Hovering
+the mute button then reveals a vertical volume slider; clicking the speaker still toggles mute. The
+slider is deliberately absent by default, so phone/TV hosts leave volume to platform controls.
 Full-window video is just sizing (`width:100%;height:100%` + `fit="cover"`). The ⛶ button
 fullscreens **the video itself**, the way the web does it: the element expands over the whole
 viewport in the top layer (letterboxed on black, the bar still overlaid) *and* the window goes
 OS/browser-fullscreen through `WindowCommandRequested` — together the video fills the screen.
 Escape (or ⛶ again) undoes both; on the web the browser's own Esc is picked up via
 `fullscreenchange`, so the element never sticks.
+
+A secondary native window can render that exact transport without opening another decoder. Build
+a control-only document containing the same `<cupri-video controls>` markup and call
+`UseVideoControls(source, existingPlayer)`. The document borrows the player: all ordinary button,
+seek, chapter, and fullscreen synchronization applies, while disposal remains with the original
+backend/document that owns playback.
 
 Embedded audio/subtitle selection is deliberately **off by default**. A backend may implement
 `IVideoTrackSelector`; add `tracks` to the video only when users should be allowed to switch those
@@ -833,7 +842,9 @@ Embedded chapter navigation is also opt-in. A backend implements `IVideoChapterP
 `chapters` to `<cupri-video>` to divide its seek bar at chapter boundaries and show each chapter's
 name when its section is hovered, and add a matching
 `<cupri-video-chapters src="movie.mkv">` below it for a selectable table of chapter number, name,
-start, and duration. The companion table is collapsed behind its Chapters button by default and
+start, and duration. Add `panel-only` to either companion when your own tab strip already owns the
+show/hide: it drops the companion's own toggle button and leaves the panel permanently open, so one
+content region is driven from one control rather than two that can disagree. The companion table is collapsed behind its Chapters button by default and
 stays open after selection. Decoders without chapter metadata show an empty-state row and an undivided bar.
 
 Applications that persist playback can subscribe to `VideoPlaybackStateChanged`. Its portable
@@ -860,6 +871,7 @@ play from the same resolved bytes, so every scheme works on every host.
              label="Product tour" fit="cover" style="width:100%;height:260px"></cupri-video>
 <cupri-video src="https://example.com/trailer.webm" controls muted></cupri-video>
 <cupri-video src="movie.mkv" controls tracks></cupri-video>
+<cupri-video src="movie.mkv" controls volume-controls></cupri-video>
 <cupri-video-tracks src="movie.mkv"></cupri-video-tracks>
 <cupri-video src="chaptered.mkv" controls chapters></cupri-video>
 <cupri-video-chapters src="chaptered.mkv"></cupri-video-chapters>
@@ -914,7 +926,7 @@ to the bottom as new lines arrive (logging), *unless* the user has scrolled up:
 | Element | Purpose | Key attributes | Children | role |
 |---------|---------|----------------|----------|------|
 | `<cupri-image>` | Raster image (PNG/JPEG/WebP/GIF) | `src`, `alt`, `fit` (`contain`\|`cover`\|`fill`\|`none`) | — | `img` or decorative |
-| `<cupri-video>` | Video (host-registered backend) | `src`, `poster`, `fit`, `label`, `controls`, `tracks` (opt-in), `autoplay` (with `muted`), `muted`, `loop` | — | `img` + button controls |
+| `<cupri-video>` | Video (host-registered backend) | `src`, `poster`, `fit`, `label`, `controls`, `tracks` (opt-in), `volume-controls` (opt-in), `autoplay` (with `muted`), `muted`, `loop` | — | `img` + button/slider controls |
 | `<cupri-video-tracks>` | Opt-in collapsible audio/subtitle form for a track-capable video | `src`, `label` | — | button + track choices |
 | `<cupri-icon>` | Vector icon (current text colour) | `name`, `size` (24), `aria-label`? | — | `img` or decorative |
 | `<cupri-badge>` | Small pill label | — | text/HTML | — |

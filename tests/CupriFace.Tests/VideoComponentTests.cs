@@ -1,5 +1,7 @@
 using CupriFace.Media;
 using CupriFace.Paint;
+using CupriFace.Diagnostics;
+using CupriFace.Interaction;
 using SkiaSharp;
 using Xunit;
 
@@ -28,7 +30,7 @@ public class VideoComponentTests
         public bool Muted { get; set; }
         public double Volume { get; set; } = 1;
         public bool Loop { get; set; }
-        public double Duration => 10;
+        public double Duration { get; set; } = 10;
         public double Position { get; set; }
         public bool Disposed { get; private set; }
         public event Action? Ended;
@@ -166,6 +168,71 @@ public class VideoComponentTests
     }
 
     [Fact]
+    public void Desktop_playback_shortcuts_are_gated_to_the_fullscreen_video()
+    {
+        var backend = new FakeBackend();
+        using var t = new TestDoc(Html, "", components: true);
+        t.Doc.UseVideo(backend);
+        t.Layout();
+        var player = backend.Players["clip.webm"];
+        player.Duration = 1000;
+        player.Position = 400;
+        player.Volume = 0.5;
+
+        Assert.False(t.Doc.DispatchFullscreenVideoPlaybackShortcut(EditKey.Right));
+        Assert.Equal(400, player.Position);
+
+        Assert.True(t.Doc.ToggleVideoFullscreen("clip.webm"));
+        Assert.True(t.Doc.DispatchFullscreenVideoPlaybackShortcut(EditKey.Right));
+        Assert.Equal(410, player.Position);
+        Assert.True(t.Doc.DispatchFullscreenVideoPlaybackShortcut(EditKey.Left, KeyMods.Shift));
+        Assert.Equal(110, player.Position);
+        Assert.True(t.Doc.DispatchFullscreenVideoPlaybackShortcut(EditKey.Up));
+        Assert.Equal(0.55, player.Volume, 2);
+        Assert.True(t.Doc.DispatchFullscreenVideoPlaybackShortcut(EditKey.Down));
+        Assert.Equal(0.5, player.Volume, 2);
+        player.Pause();
+        Assert.True(t.Doc.DispatchFullscreenVideoPlaybackShortcut(EditKey.Space));
+        Assert.True(player.Playing);
+        Assert.True(t.Doc.DispatchFullscreenVideoPlaybackShortcut(EditKey.Space));
+        Assert.False(player.Playing);
+    }
+
+    [Fact]
+    public void A_control_only_document_uses_but_does_not_own_an_existing_player()
+    {
+        var player = new FakePlayer { Position = 3 };
+        using (var t = new TestDoc(
+            "<body><cupri-video src='shared-player' controls chapters style='width:640px;height:44px'></cupri-video></body>",
+            "body{margin:0}", components: true, width: 640, height: 44))
+        {
+            t.Doc.UseVideoControls("shared-player", player);
+            t.Layout();
+
+            Assert.DoesNotContain("disabled", t.Find(n => n.Element?.GetAttribute("data-video-role") == "toggle")!
+                .Element!.ClassList);
+            t.ClickMatch(n => n.Element?.GetAttribute("data-video-role") == "toggle");
+            Assert.True(player.Playing);
+        }
+
+        Assert.False(player.Disposed);
+    }
+
+    [Fact]
+    public void Compact_shared_transport_passes_cupri_doctor_at_its_native_size()
+    {
+        const string html = "<body><cupri-video src='shared-player' controls chapters></cupri-video></body>";
+        const string css = """
+            :root { --cupri-accent:#d8ff59; }
+            html, body { margin:0; width:100%; height:100%; background:#0b111b; overflow:hidden; }
+            .cupri-video { width:100%; height:44px; border-radius:0; }
+            """;
+
+        var report = CupriDoctor.Check(html, css, width: 640, height: 44);
+        Assert.True(report.IsClean, report.ToString());
+    }
+
+    [Fact]
     public void Selectable_tracks_are_reported_and_changed_through_the_document()
     {
         var backend = new FakeBackend();
@@ -228,6 +295,35 @@ public class VideoComponentTests
         Assert.Null(endedSource);
         Assert.True(t.Doc.ConsumeImageArrived());
         Assert.Equal("clip.webm", endedSource);
+    }
+
+    [Fact]
+    public void Panel_only_track_and_chapter_companions_leave_tab_ownership_to_the_application()
+    {
+        var backend = new FakeBackend();
+        using var t = new TestDoc("""
+            <body>
+              <cupri-video src='clip.webm' controls tracks chapters></cupri-video>
+              <cupri-video-tracks src='clip.webm' panel-only></cupri-video-tracks>
+              <cupri-video-chapters src='clip.webm' panel-only></cupri-video-chapters>
+            </body>
+            """, "", components: true);
+        t.Doc.UseVideo(backend);
+        t.Layout();
+        backend.Players["clip.webm"].PublishTracks(
+            [new VideoTrack(1, "English")],
+            [new VideoTrack(-1, "Off")]);
+        backend.Players["clip.webm"].PublishChapters(
+            [new VideoChapter(0, "Opening", 0, 10)]);
+        t.Doc.Refresh();
+        t.Layout();
+
+        Assert.Null(t.Find(n => n.Element?.HasAttribute("data-video-track-toggle") == true));
+        Assert.Null(t.Find(n => n.Element?.HasAttribute("data-video-chapter-toggle") == true));
+        Assert.True(t.Find(n => n.Element?.HasAttribute("data-video-track-panel") == true)!.Height > 0);
+        Assert.True(t.Find(n => n.Element?.HasAttribute("data-video-chapter-panel") == true)!.Height > 0);
+        Assert.NotNull(t.Find(n => n.Element?.GetAttribute("data-video-track-id") == "1"));
+        Assert.NotNull(t.Find(n => n.Element?.GetAttribute("data-video-chapter-id") == "0"));
     }
 
     [Fact]
@@ -390,6 +486,46 @@ public class VideoComponentTests
         var video = t.Find(n => n.Element?.HasAttribute("data-cupri-video") == true)!;
         var (videoX, videoY, videoWidth, videoHeight) = Interaction.HitTesting.ScreenBox(video);
         Assert.NotEmpty(HostSurfaceGeometry.GetOcclusions(t.Doc.Root, videoX, videoY, videoWidth, videoHeight));
+
+        Assert.True(t.Doc.ToggleVideoFullscreen("clip.webm"));
+        t.Layout();
+        middleSegment = t.Find(n => n.Element?.GetAttribute("data-video-chapter-title") == "The middle")!;
+        (segmentX, segmentY) = TestDoc.Center(middleSegment);
+        t.Move(segmentX, segmentY);
+        // Playback polling rebuilds the document continuously. The label must survive that
+        // rebuild while the pointer remains stationary over the same chapter segment.
+        t.Doc.Refresh();
+        t.Layout();
+        middleSegment = t.Find(n => n.Element?.GetAttribute("data-video-chapter-title") == "The middle")!;
+        visibleTooltip = t.Find(n => n.Element?.ClassList.Contains("cupri-video-chapter-tooltip") == true &&
+                                         n.Element.TextContent == "The middle")!;
+        Assert.NotEqual(CupriFace.Style.DisplayType.None, visibleTooltip.Style.Display);
+        video = t.Find(n => n.Element?.HasAttribute("data-cupri-video") == true)!;
+        var tooltipBox = Interaction.HitTesting.ScreenBox(visibleTooltip);
+        var segmentBox = Interaction.HitTesting.ScreenBox(middleSegment);
+        Assert.InRange(MathF.Abs(tooltipBox.X + tooltipBox.W / 2f - segmentX), 0, 1f);
+        Assert.True(tooltipBox.Y + tooltipBox.H <= segmentY - 9f,
+            "the fullscreen chapter tooltip must clear the pointer vertically");
+
+        var quarterX = segmentBox.X + segmentBox.W * 0.25f;
+        t.Move(quarterX, segmentY);
+        visibleTooltip = t.Find(n => n.Element?.ClassList.Contains("cupri-video-chapter-tooltip") == true &&
+                                         n.Element.TextContent == "The middle")!;
+        tooltipBox = Interaction.HitTesting.ScreenBox(visibleTooltip);
+        Assert.InRange(MathF.Abs(tooltipBox.X + tooltipBox.W / 2f - quarterX), 0, 1f);
+        using (var fullscreenFrame = t.Doc.RenderToImage(t.Width, t.Height))
+        using (var fullscreenBitmap = SKBitmap.FromImage(fullscreenFrame))
+        {
+            var sample = fullscreenBitmap.GetPixel(
+                Math.Clamp((int)tooltipBox.X + 2, 0, fullscreenBitmap.Width - 1),
+                Math.Clamp((int)tooltipBox.Y + 2, 0, fullscreenBitmap.Height - 1));
+            Assert.NotEqual(new SKColor(0x0b, 0x0d, 0x10), sample);
+        }
+        (videoX, videoY, videoWidth, videoHeight) = Interaction.HitTesting.ScreenBox(video);
+        Assert.NotEmpty(HostSurfaceGeometry.GetOcclusions(t.Doc.Root, videoX, videoY, videoWidth, videoHeight, video));
+        Assert.True(t.Doc.ToggleVideoFullscreen("clip.webm"));
+        t.Layout();
+
         t.ClickMatch(n => n.Element?.GetAttribute("data-video-chapter-title") == "The middle");
         Assert.InRange(backend.Players["clip.webm"].Position, 4.5, 5.5);
         Assert.False(backend.Players["clip.webm"].Playing);
@@ -561,6 +697,86 @@ public class VideoComponentTests
         Assert.Equal(7.5, p.Position, 2);
     }
 
+    [Fact]
+    public void Hover_volume_slider_is_opt_in_and_keeps_the_mute_toggle()
+    {
+        using (var defaultControls = new TestDoc(
+            "<body><cupri-video src='clip.webm' controls></cupri-video></body>",
+            "", components: true))
+            Assert.Null(defaultControls.Find(n => n.Element?.GetAttribute("data-video-role") == "volume"));
+
+        var backend = new FakeBackend();
+        using var t = new TestDoc(
+            "<body><cupri-video src='clip.webm' controls volume-controls style='width:520px;height:240px'></cupri-video></body>",
+            "", components: true, width: 600, height: 300);
+        t.Doc.UseVideo(backend);
+        t.Layout();
+        var player = backend.Players["clip.webm"];
+
+        var mute = t.Find(n => n.Element?.GetAttribute("data-video-role") == "mute")!;
+        t.ClickNode(mute);
+        Assert.True(player.Muted);
+        t.ClickMatch(n => n.Element?.GetAttribute("data-video-role") == "mute");
+        Assert.False(player.Muted);
+
+        t.HoverClass("cupri-video-volume");
+        var slider = t.Find(n => n.Element?.GetAttribute("data-video-role") == "volume")!;
+        var box = CupriFace.Interaction.HitTesting.ScreenBox(slider);
+        Assert.True(box.H > 80, "hover should reveal a usable vertical volume track");
+        Assert.Equal("vertical", slider.Element!.GetAttribute("aria-orientation"));
+        Assert.NotNull(slider.Element.ParentElement?.GetAttribute("data-surface-occluder"));
+        var x = box.X + box.W / 2;
+        // Moving from the speaker into its out-of-flow descendant must keep the popup hovered.
+        t.Doc.DispatchPointerMove(x, box.Y + box.H * 0.75f);
+        t.Layout();
+        t.Doc.Refresh(); // playback polling must not collapse a popup under a stationary pointer
+        t.Layout();
+        slider = t.Find(n => n.Element?.GetAttribute("data-video-role") == "volume")!;
+        box = CupriFace.Interaction.HitTesting.ScreenBox(slider);
+        x = box.X + box.W / 2;
+        t.Doc.DispatchClick(x, box.Y + box.H * 0.75f);
+        Assert.InRange(player.Volume, 0.20, 0.30);
+        t.Doc.DispatchPointerMove(x, box.Y + box.H * 0.25f);
+        Assert.InRange(player.Volume, 0.70, 0.80);
+        t.Doc.DispatchPointerUp(x, box.Y + box.H * 0.25f);
+        t.Doc.DispatchPointerMove(590, 10);
+        t.Layout();
+        t.HoverClass("cupri-video-volume");
+        t.Layout();
+
+        var volume = t.Find(n => n.Element?.GetAttribute("data-video-role") == "volume")!.Element!;
+        Assert.Equal("75", volume.GetAttribute("aria-valuenow"));
+        Assert.True(t.Doc.AccessibilitySetValue(FindSliderPath(t, "Volume"), 40));
+        Assert.Equal(0.4, player.Volume, 2);
+    }
+
+    [Fact]
+    public void Hovering_the_fullscreen_volume_popup_keeps_the_transport_bar_visible()
+    {
+        var backend = new FakeBackend();
+        using var t = new TestDoc(
+            "<body><cupri-video src='clip.webm' controls volume-controls style='width:520px;height:240px'></cupri-video></body>",
+            "", components: true, width: 800, height: 500);
+        t.Doc.UseVideo(backend);
+        t.Layout();
+        t.ClickMatch(n => n.Element?.GetAttribute("data-video-cmd") == "fullscreen");
+        t.Doc.DispatchClick(400, 200);
+        Assert.True(backend.Players["clip.webm"].Playing);
+        t.Layout();
+
+        t.HoverClass("cupri-video-volume");
+        var slider = t.Find(n => n.Element?.GetAttribute("data-video-role") == "volume")!;
+        var box = CupriFace.Interaction.HitTesting.ScreenBox(slider);
+        t.Move(box.X + box.W / 2, box.Y + box.H / 2);
+        t.Doc.Animate(1);
+        t.Doc.Animate(20);
+        t.Layout();
+
+        Assert.DoesNotContain("cupri-video-controls-hidden",
+            t.Find(n => n.Element?.GetAttribute("data-cupri-video") == "clip.webm")!.Element!.ClassList);
+        Assert.NotNull(t.Find(n => n.Element?.GetAttribute("data-video-role") == "volume"));
+    }
+
     private static string FindSeekPath(TestDoc t)
     {
         static CupriFace.Accessibility.AccessibilityNode? Walk(CupriFace.Accessibility.AccessibilityNode n)
@@ -570,6 +786,18 @@ public class VideoComponentTests
             return null;
         }
         return Walk(t.Doc.BuildAccessibilityTree(500, 300))!.Path;
+    }
+
+    private static string FindSliderPath(TestDoc t, string name)
+    {
+        static CupriFace.Accessibility.AccessibilityNode? Walk(CupriFace.Accessibility.AccessibilityNode node, string wanted)
+        {
+            if (node.Role == "slider" && node.Name == wanted) return node;
+            foreach (var child in node.Children)
+                if (Walk(child, wanted) is { } hit) return hit;
+            return null;
+        }
+        return Walk(t.Doc.BuildAccessibilityTree(t.Width, t.Height), name)!.Path;
     }
 
     [Fact]

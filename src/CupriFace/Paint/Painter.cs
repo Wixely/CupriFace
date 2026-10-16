@@ -46,6 +46,7 @@ public sealed class Painter
         var list = new DisplayList();
         var topLayer = new List<RenderNode>();
         _dragCard = null;
+        CollectTopLayer(root, topLayer);
 
         // backdrop-filter on a top-layer scrim (a modal/drawer/shelf) blurs the page BEHIND it. Skia has
         // no backdrop-capture we can reach, but the top layer paints last — so we blur the whole
@@ -66,16 +67,16 @@ public sealed class Painter
         if (backdropNode is not null && modalContainer is not null)
         {
             foreach (var o in ordered.Where(n => !IsUnder(n, modalContainer))) // background overlays → blurred
-                PaintNode(list, o, 0, 0, topLayer, inTopLayer: true);
+                PaintTopLayerGroup(list, o, topLayer);
             list.Add(new PopFilter());
             foreach (var o in ordered.Where(n => IsUnder(n, modalContainer)))  // the modal itself → sharp, on top
-                PaintNode(list, o, 0, 0, topLayer, inTopLayer: true);
+                PaintTopLayerGroup(list, o, topLayer);
         }
         else
         {
             if (backdropNode is not null) list.Add(new PopFilter());
             foreach (var o in ordered)
-                PaintNode(list, o, 0, 0, topLayer, inTopLayer: true);
+                PaintTopLayerGroup(list, o, topLayer);
         }
 
         // The lifted card floats above everything — its shadow, then the card at its dragged offset.
@@ -87,6 +88,25 @@ public sealed class Painter
             PaintNode(list, d, _dragOx, _dragOy, topLayer, inTopLayer: false);
         }
         return list;
+    }
+
+    private static void CollectTopLayer(RenderNode node, List<RenderNode> topLayer)
+    {
+        if (node.IsTopLayer)
+        {
+            topLayer.Add(node);
+            return;
+        }
+        foreach (var child in node.Children) CollectTopLayer(child, topLayer);
+    }
+
+    private void PaintTopLayerGroup(DisplayList list, RenderNode layer, List<RenderNode> rootTopLayer)
+    {
+        PaintNode(list, layer, 0, 0, rootTopLayer, inTopLayer: true, activeTopLayer: layer);
+        var nested = new List<RenderNode>();
+        foreach (var child in layer.Children) CollectTopLayer(child, nested);
+        foreach (var child in nested.OrderBy(node => node.Style.ZIndex))
+            PaintTopLayerGroup(list, child, rootTopLayer);
     }
 
     // How far a filter's result spreads beyond the element's box (blur halo, shadow offset+blur), so the
@@ -163,14 +183,13 @@ public sealed class Painter
     /// parent, which is every parent unless it says otherwise.</param>
     private void PaintNode(DisplayList list, RenderNode node, float originX, float originY, List<RenderNode> topLayer, bool inTopLayer,
         List<StickyItem>? stickyCollect = null, Interaction.HitTesting.StickyPort port = default,
-        float[]? space = null)
+        float[]? space = null, RenderNode? activeTopLayer = null)
     {
-        // Lift a top-layer (fixed) node out of the normal walk; paint it in the deferred pass.
-        if (!inTopLayer && node.IsTopLayer)
-        {
-            topLayer.Add(node);
-            return;
-        }
+        // Every fixed node owns viewport-absolute coordinates, including one nested inside another
+        // fixed subtree. Paint it only in its own deferred pass: inheriting the outer layer's
+        // origin would add the ancestor offsets a second time and can put anchored tooltips wholly
+        // off-screen (notably chapter labels inside a fullscreen video).
+        if (node.IsTopLayer && !ReferenceEquals(node, activeTopLayer)) return;
 
         // A position:sticky node inside a scroll container is deferred to a pass after the container's
         // normal content — so a stuck header paints ON TOP of what scrolls under it. Record where it is.
@@ -465,7 +484,7 @@ public sealed class Painter
                 if (cull && !child.IsTopLayer && child.Style.Position != PositionType.Sticky
                     && (child.Y + child.Height < bandTop || child.Y > bandBottom)) continue;
                 PaintNode(list, child, absX - scrollX, absY - scrollY, topLayer, inTopLayer, childSticky, childPort,
-                    preserve ? full : null);
+                    preserve ? full : null, activeTopLayer);
             }
         // Defer the lifted card to a single global layer (painted after everything, incl. other columns and
         // whatever sits below the board), so it floats on top instead of hiding behind a later-painted sibling.
@@ -475,7 +494,7 @@ public sealed class Painter
         // block), on top of the scrolled content but still inside this container's clip.
         if (stickyOwn is { Count: > 0 })
             foreach (var it in stickyOwn)
-                PaintSticky(list, it, childPort, topLayer, inTopLayer);
+                PaintSticky(list, it, childPort, topLayer, inTopLayer, activeTopLayer);
 
         if (clip) list.Add(new PopClip());
         if (preserve) list.Add(new PushTransform(Transform3D.Project(full!)));
@@ -571,14 +590,15 @@ public sealed class Painter
     // that paint, hit-testing and ScreenBox cannot disagree about where a stuck node is — they used
     // to, and a stuck header was then painted in one place and clicked in another.
     private void PaintSticky(DisplayList list, StickyItem it, Interaction.HitTesting.StickyPort port,
-                             List<RenderNode> topLayer, bool inTopLayer)
+                             List<RenderNode> topLayer, bool inTopLayer, RenderNode? activeTopLayer)
     {
         var n = it.Node;
         var (dx, dy) = n.Parent is { } cb
             ? Interaction.HitTesting.StickyShift(n, cb, it.OriginX, it.OriginY,
                                                  it.OriginX + n.X, it.OriginY + n.Y, port)
             : (0f, 0f);
-        PaintNode(list, n, it.OriginX + dx, it.OriginY + dy, topLayer, inTopLayer);
+        PaintNode(list, n, it.OriginX + dx, it.OriginY + dy, topLayer, inTopLayer,
+            activeTopLayer: activeTopLayer);
     }
 
     private static void PaintText(DisplayList list, RenderNode node, float absX, float absY)

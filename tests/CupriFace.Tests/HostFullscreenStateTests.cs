@@ -91,4 +91,28 @@ public class HostFullscreenStateTests(ITestOutputHelper output)
         Assert.True(call >= 0 && assign > call,
                     "SDL fullscreen state must be recorded only after SDL accepts the change");
     }
+
+    [Fact]
+    public void Fullscreen_media_windows_do_not_minimize_automatically_on_focus_loss()
+    {
+        var glfw = Shell("SkiaWindow.cs");
+        Assert.Contains("WindowAttributeSetter.AutoIconify", glfw, StringComparison.Ordinal);
+        Assert.Contains("false);", glfw[glfw.IndexOf("WindowAttributeSetter.AutoIconify", StringComparison.Ordinal)..],
+            StringComparison.Ordinal);
+
+        var sdl = Shell("SdlSoftwareWindow.cs");
+        Assert.Contains("SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS", sdl, StringComparison.Ordinal);
+        Assert.Contains("\"0\"", sdl[sdl.IndexOf("SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS", StringComparison.Ordinal)..],
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Desktop_hosts_only_route_playback_shortcuts_while_the_video_window_is_fullscreen()
+    {
+        var host = Shell("DesktopHost.cs");
+        const string gated = "window.IsFullscreen && doc.DispatchFullscreenVideoPlaybackShortcut(k, mods)";
+
+        Assert.Equal(2, host.Split(gated, StringSplitOptions.None).Length - 1); // GPU and software hosts
+        Assert.DoesNotContain("RegisterHotKey", host, StringComparison.Ordinal);
+    }
 }

@@ -33,6 +33,17 @@ public sealed class VideoComponent : ComponentBase
         .cupri-video-btn:hover { background:rgba(255,255,255,0.18); }
         .cupri-video-btn.disabled { opacity:0.35; }
         .cupri-video-btn.disabled:hover { background:transparent; }
+        .cupri-video-volume { position:relative; flex:none; width:32px; height:32px; z-index:3; }
+        .cupri-video-volume-popover { display:none; position:absolute; left:-6px; bottom:30px; width:44px; height:132px;
+                                      align-items:center; justify-content:center; padding:10px 0; border-radius:6px;
+                                      background:#161b24; box-shadow:0 3px 12px #00000080; }
+        .cupri-video-volume:hover .cupri-video-volume-popover,
+        .cupri-video-volume:focus-within .cupri-video-volume-popover { display:flex; }
+        .cupri-video-volume-slider { display:block; width:44px; height:112px; padding:0 20px; cursor:pointer; }
+        .cupri-video-volume-track { position:relative; width:4px; height:100%; background:rgba(255,255,255,0.28); border-radius:2px; }
+        .cupri-video-volume-fill { position:absolute; left:0; right:0; bottom:0; height:0; background:var(--cupri-accent,#B87333); border-radius:2px; }
+        .cupri-video-volume-thumb { position:absolute; left:-4px; bottom:0; width:12px; height:12px; margin-bottom:-6px;
+                                    background:#fff; border-radius:6px; box-shadow:0 1px 4px #00000059; }
         .cupri-video-time { color:#e6e9ef; font-size:12px; flex:none; }
         .cupri-video-buffering { position:absolute; left:50%; top:50%; display:none; align-items:center; gap:8px;
                                  padding:8px 12px; transform:translate(-50%,-50%); background:#0a0c10d9;
@@ -44,7 +55,7 @@ public sealed class VideoComponent : ComponentBase
         .cupri-video-chapter-markers { position:absolute; left:0; right:0; top:0; bottom:0; }
         .cupri-video-chapter-segment { position:absolute; top:-8px; height:20px; }
         .cupri-video-chapter-marker { position:absolute; top:-2px; width:2px; height:8px; background:#0b0d10; }
-        .cupri-video-chapter-tooltip { display:none; position:fixed; z-index:40;
+        .cupri-video-chapter-tooltip { display:none; position:fixed; z-index:100;
                                        width:max-content; max-width:70vw; padding:6px 10px;
                                        border-radius:6px; background:#161b24; color:#f4f6f9; font-size:12px;
                                        line-height:1.3; white-space:normal; overflow-wrap:anywhere; pointer-events:none;
@@ -98,6 +109,24 @@ public sealed class VideoComponent : ComponentBase
         }
         var chapters = Flag(el, "chapters");
         if (chapters) el.SetAttribute("data-video-chapters-enabled", "");
+        var volumeControls = Flag(el, "volume-controls");
+
+        var volume = volumeControls
+            ? $"""
+              <div class='cupri-video-volume'>
+                <div class='cupri-video-btn' role='button' aria-label='Mute' data-video-role='mute' data-video-cmd='mute'>{IconMarkup("volume", 18)}</div>
+                <div class='cupri-video-volume-popover' data-surface-occluder>
+                  <div class='cupri-video-volume-slider' role='slider' tabindex='0' aria-label='Volume' aria-orientation='vertical'
+                       data-video-role='volume' aria-valuemin='0' aria-valuemax='100' aria-valuenow='100' aria-valuetext='100%'>
+                    <div class='cupri-video-volume-track'>
+                      <div class='cupri-video-volume-fill' style='height:100%'></div>
+                      <div class='cupri-video-volume-thumb' style='bottom:100%'></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              """
+            : $"<div class='cupri-video-btn' role='button' aria-label='Mute' data-video-role='mute' data-video-cmd='mute'>{IconMarkup("volume", 18)}</div>";
 
         // The bar: transport, current time, the seek slider (a real role=slider — pointer scrub,
         // arrow keys, AT SetValue all route to the player), duration, fullscreen. The clip's label
@@ -106,7 +135,7 @@ public sealed class VideoComponent : ComponentBase
         var controls = !Flag(el, "controls") ? "" : $"""
             <div class='cupri-video-bar' data-surface-overlay>
               <div class='cupri-video-btn' role='button' aria-label='Play' data-video-role='toggle' data-video-cmd='toggle'>{IconMarkup("play", 18)}</div>
-              <div class='cupri-video-btn' role='button' aria-label='Mute' data-video-role='mute' data-video-cmd='mute'>{IconMarkup("volume", 18)}</div>
+              {volume}
               <span class='cupri-video-time' data-video-role='time'>0:00</span>
               <div class='cupri-video-seek' role='slider' tabindex='0' aria-label='Seek' data-video-role='seek'
                    aria-valuemin='0' aria-valuemax='0' aria-valuenow='0'>
@@ -137,7 +166,7 @@ public sealed class VideoComponent : ComponentBase
     /// decoder, only the window.</summary>
     internal static void MarkInert(IElement el)
     {
-        foreach (var role in new[] { "toggle", "mute", "seek" })
+        foreach (var role in new[] { "toggle", "mute", "seek", "volume" })
             if (el.QuerySelector($"[data-video-role='{role}']") is { } control)
             {
                 control.ClassList.Add("disabled");
@@ -155,10 +184,21 @@ public sealed class VideoComponent : ComponentBase
     {
         el.ClassList.Add("cupri-video-fs");
         if (controlsHidden) el.ClassList.Add("cupri-video-controls-hidden");
+        if (el.QuerySelector(".cupri-video-bar") is { } bar)
+        {
+            // Embedded native video reserves a measured strip for its controls because the child
+            // HWND sits above engine-painted UI. Fullscreen must not do that: showing/hiding the
+            // bar would resize the picture. Keep the video full-size and punch out only the bar's
+            // current rectangle while it is visible.
+            bar.RemoveAttribute("data-surface-overlay");
+            bar.SetAttribute("data-surface-occluder", "");
+        }
         // transition:none — entering fullscreen SNAPS, like the browser. An author's own
         // width/height transition (the resize demo has one) must not tween into fullscreen.
         el.SetAttribute("style", (el.GetAttribute("style") ?? "")
-            + ";position:fixed;left:0;top:0;width:100%;height:100%;border-radius:0;transition:none");
+            // Viewport units avoid one transition frame resolving percentage height against the
+            // video's former containing block and exposing a title-bar-sized strip at the bottom.
+            + ";position:fixed;left:0;top:0;width:100vw;height:100vh;border-radius:0;transition:none");
         if (el.QuerySelector("[data-video-role='fullscreen']") is { } button)
         {
             button.InnerHtml = IconMarkup("fullscreen-exit", 18);
@@ -181,8 +221,19 @@ public sealed class VideoComponent : ComponentBase
         }
         if (el.QuerySelector("[data-video-role='mute']") is { } mute)
         {
-            mute.InnerHtml = IconMarkup(player.Muted ? "volume-off" : "volume", 18);
+            mute.InnerHtml = IconMarkup(player.Muted || player.Volume <= 0 ? "volume-off" : "volume", 18);
             mute.SetAttribute("aria-label", player.Muted ? "Unmute" : "Mute");
+        }
+        if (el.QuerySelector("[data-video-role='volume']") is { } volume)
+        {
+            var percentage = Math.Clamp(player.Volume * 100, 0, 100);
+            var text = percentage.ToString("0", System.Globalization.CultureInfo.InvariantCulture);
+            volume.SetAttribute("aria-valuenow", text);
+            volume.SetAttribute("aria-valuetext", text + "%");
+            if (volume.QuerySelector(".cupri-video-volume-fill") is { } fill)
+                fill.SetAttribute("style", $"height:{text}%");
+            if (volume.QuerySelector(".cupri-video-volume-thumb") is { } thumb)
+                thumb.SetAttribute("style", $"bottom:{text}%");
         }
 
         // Seek bar + clocks: position/duration as text, fill/thumb as inline percentages, and the
@@ -245,7 +296,7 @@ public sealed class VideoComponent : ComponentBase
             var anchorId = $"cupri-video-chapter-{anchorSet}-{index}";
             return $"<span class='cupri-video-chapter-segment' id='{anchorId}' style='left:{left}%;width:{width}%' " +
                    $"data-video-chapter-title='{Escape(chapter.Label)}'>" +
-                   $"<span class='cupri-video-chapter-tooltip' role='tooltip' data-surface-occluder data-cupri-anchor='{anchorId}' " +
+                   $"<span class='cupri-video-chapter-tooltip' role='tooltip' data-surface-occluder data-cupri-follow-pointer data-cupri-anchor='{anchorId}' " +
                    $"data-cupri-placement='top'>{Escape(chapter.Label)}</span></span>{marker}";
         }));
     }
@@ -335,13 +386,17 @@ public sealed class VideoTracksComponent : ComponentBase
     {
         var source = Str(el, "src");
         var label = Str(el, "label", "Audio / Video");
+        var panelOnly = el.HasAttribute("panel-only");
         el.ClassList.Add("cupri-video-tracks");
         el.SetAttribute("data-video-track-controls", source);
-        el.InnerHtml = $"""
+        var toggle = panelOnly ? "" : $"""
             <div class='cupri-video-tracks-toggle' role='button' tabindex='0' data-video-track-toggle='{VideoComponent.Escape(source)}'>
               {IconMarkup("settings", 18)}<span>{VideoComponent.Escape(label)}</span>
             </div>
             <span class='cupri-video-tracks-status' data-video-track-status>Audio and subtitle tracks appear after playback starts.</span>
+            """;
+        el.InnerHtml = $"""
+            {toggle}
             <div class='cupri-video-tracks-panel' data-video-track-panel>
               <div class='cupri-video-tracks-column'><strong>AUDIO</strong><div class='cupri-video-tracks-table' role='table' aria-label='Audio tracks' data-video-track-form-list='audio'></div></div>
               <div class='cupri-video-tracks-column'><strong>SUBTITLES</strong><div class='cupri-video-tracks-table' role='table' aria-label='Subtitle tracks' data-video-track-form-list='subtitle'></div></div>
@@ -351,6 +406,7 @@ public sealed class VideoTracksComponent : ComponentBase
 
     internal static void Sync(IElement el, string source, Media.IVideoTrackSelector? tracks, bool open)
     {
+        open |= el.HasAttribute("panel-only");
         if (el.QuerySelector("[data-video-track-panel]") is { } panel)
             panel.SetAttribute("style", open ? "display:flex" : "display:none");
 
@@ -430,13 +486,17 @@ public sealed class VideoChaptersComponent : ComponentBase
     {
         var source = Str(el, "src");
         var label = Str(el, "label", "CHAPTERS");
+        var panelOnly = el.HasAttribute("panel-only");
         el.ClassList.Add("cupri-video-chapters");
         el.SetAttribute("data-video-chapter-controls", source);
-        el.InnerHtml = $"""
+        var toggle = panelOnly ? "" : $"""
             <div class='cupri-video-chapters-toggle' role='button' tabindex='0' aria-expanded='false'
                  data-video-chapter-toggle='{VideoComponent.Escape(source)}'>
               {IconMarkup("menu", 18)}<span>{VideoComponent.Escape(label)}</span>
             </div>
+            """;
+        el.InnerHtml = $"""
+            {toggle}
             <div class='cupri-video-chapters-panel' data-video-chapter-panel>
               <strong>{VideoComponent.Escape(label)}</strong>
               <div class='cupri-video-chapters-table' role='table' aria-label='Video chapters' data-video-chapter-list></div>
@@ -446,6 +506,7 @@ public sealed class VideoChaptersComponent : ComponentBase
 
     internal static void Sync(IElement el, string source, Media.IVideoChapterProvider? provider, bool open)
     {
+        open |= el.HasAttribute("panel-only");
         if (el.QuerySelector("[data-video-chapter-panel]") is { } panel)
             panel.SetAttribute("style", open ? "display:block" : "display:none");
         if (el.QuerySelector("[data-video-chapter-toggle]") is { } toggle)
