@@ -2304,8 +2304,31 @@ jobs:
             cat windows-media-notices.md; exit 1
           }
           dotnet new console --framework net10.0 --output windows-media-consumer
-          dotnet add windows-media-consumer package CupriFace.Media.Windows --version "$VERSION" \
-            --source "$PWD/dist" --source https://api.nuget.org/v3/index.json
+          # Two feeds are needed here -- this release's own nupkgs from dist/, and nuget.org for
+          # LibVLCSharp and VideoLAN.LibVLC.Windows underneath them -- and they are declared in a
+          # config rather than repeated as `--source A --source B`.
+          #
+          # `dotnet add package` takes ONE --source. Repeating it is parsed as a single option with
+          # two values and then rejected: "Option '--source' expects a single argument but 2 were
+          # provided", exit 1 -- AFTER every package has already been built successfully. That is a
+          # usage error rather than a packaging fault, and it cost two releases: v0.42.0 was tagged
+          # and never published, and v0.43.0 failed here the first time for the same reason. A
+          # config file has no arity to get wrong.
+          #
+          # <clear /> for the same reason the repository's own NuGet.config has it: this probe must
+          # resolve from exactly these two public feeds, not from whatever a runner inherits.
+          cat > windows-media-consumer/NuGet.config <<XML
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <packageSources>
+              <clear />
+              <add key="release-dist" value="$PWD/dist" />
+              <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+            </packageSources>
+          </configuration>
+          XML
+          cat windows-media-consumer/NuGet.config
+          dotnet add windows-media-consumer package CupriFace.Media.Windows --version "$VERSION"
           dotnet publish windows-media-consumer -c Release -r win-x64 --self-contained false \
             --no-restore -p:PublishSingleFile=true -p:IncludeAllContentForSelfExtract=true \
             -o windows-media-publish

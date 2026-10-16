@@ -90,6 +90,13 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **The release build can publish again.** Its post-pack consumer probe called
+  `dotnet add package` with `--source` twice, which the parser accepts as one option with two
+  values and then rejects — failing the release *after* every package had been built. v0.42.0 was
+  tagged and never published because of it, and v0.43.0 hit the same wall on its first attempt.
+  The probe's two feeds are now declared in a `NuGet.config`, which has no arity to get wrong.
+  Nothing to change in your app; **v0.42.0 has no GitHub release, so v0.43.0 is the first release
+  since v0.41.0 and carries both versions' notes.**
 - **A fixed element nested inside another fixed element is no longer painted twice-offset.** Every
   top-layer node owns viewport coordinates, so an inner one inherited its ancestor's origin and
   added those offsets a second time — which put a chapter label inside a fullscreen video wholly
