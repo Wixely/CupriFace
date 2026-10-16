@@ -21,6 +21,17 @@ public interface IAndroidVideoBackend : IVideoBackend, IDisposable
     /// so an app whose video has not loaded paints its opaque background exactly as before.</summary>
     bool AnyReady { get; }
 
+    /// <summary>True when an active player can be handed to Android's system picture-in-picture
+    /// window. Backends that do not support PiP keep the default false value.</summary>
+    bool PictureInPictureReady => false;
+
+    /// <summary>The active picture's natural aspect ratio, used to size the system PiP window.</summary>
+    (int W, int H)? PictureInPictureSize => null;
+
+    /// <summary>Move the active platform video view into or out of the activity-wide PiP layout.
+    /// The decoder and media session must remain alive across this transition.</summary>
+    void SetPictureInPictureMode(bool active) { }
+
     /// <summary>Called after each painted frame: move every underlay to its element's on-screen box,
     /// in PHYSICAL pixels. The engine has already punched a transparent hole there, so the two must
     /// agree to the pixel or the video shows a seam.</summary>

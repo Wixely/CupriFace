@@ -830,6 +830,15 @@ a control-only document containing the same `<cupri-video controls>` markup and 
 seek, chapter, and fullscreen synchronization applies, while disposal remains with the original
 backend/document that owns playback.
 
+**A pop-out window is a seam, not a feature of the engine.** CupriFace draws no second window: a
+backend that can move its own native output into one implements `IVideoPopOutPlayer`, and
+`doc.SetVideoPoppedOut(src, true)` asks it to. The decoder is never reopened, element and host
+fullscreen are released first, and `IVideoPopOutStateNotifier` lets the host's own close button
+report back through `VideoPopOutStateChanged` on the document's thread. A track-enabled video's
+context menu grows a **Pop out player** item only where a backend offers the capability — with no
+capable backend the item does not exist, because a permanently grey one would promise what nothing
+can deliver. Build the pop-out's own transport with `UseVideoControls` (above) so it is the same bar.
+
 Embedded audio/subtitle selection is deliberately **off by default**. A backend may implement
 `IVideoTrackSelector`; add `tracks` to the video only when users should be allowed to switch those
 tracks. That adds an Audio/Subtitles right-click menu. Add the optional

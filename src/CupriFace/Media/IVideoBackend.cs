@@ -148,3 +148,19 @@ public interface IVideoBufferingState
     bool Buffering { get; }
     event Action? BufferingChanged;
 }
+
+/// <summary>Optional desktop capability that moves the existing native video output into a
+/// draggable, always-on-top tool window. Implementations must reuse the current decoder and media
+/// state; picture-in-picture is presentation, not a second playback session.</summary>
+public interface IVideoPopOutPlayer
+{
+    bool IsPoppedOut { get; }
+    bool SetPoppedOut(bool poppedOut);
+}
+
+/// <summary>Optional companion notification for a pop-out that can be closed by native window
+/// chrome. The document marshals the resulting state change back to its UI thread.</summary>
+public interface IVideoPopOutStateNotifier
+{
+    event Action<bool> PoppedOutChanged;
+}

@@ -22,7 +22,8 @@ public class VideoComponentTests
         public bool Ticking { get; set; }
     }
 
-    private sealed class FakePlayer : IVideoPlayer, IVideoTrackSelector, IVideoChapterProvider
+    private sealed class FakePlayer : IVideoPlayer, IVideoTrackSelector, IVideoChapterProvider,
+        IVideoPopOutPlayer, IVideoPopOutStateNotifier
     {
         public FakeSurface Fake { get; } = new();
         public ISurfaceSource Surface => Fake;
@@ -33,9 +34,11 @@ public class VideoComponentTests
         public double Duration { get; set; } = 10;
         public double Position { get; set; }
         public bool Disposed { get; private set; }
+        public bool IsPoppedOut { get; private set; }
         public event Action? Ended;
         public event Action? TracksChanged;
         public event Action? ChaptersChanged;
+        public event Action<bool>? PoppedOutChanged;
         public IReadOnlyList<VideoTrack> AudioTracks { get; private set; } = [];
         public IReadOnlyList<VideoTrack> SubtitleTracks { get; private set; } = [];
         public int SelectedAudioTrack { get; private set; } = -1;
@@ -80,7 +83,36 @@ public class VideoComponentTests
             ChaptersChanged?.Invoke();
             return true;
         }
+        public bool SetPoppedOut(bool poppedOut) { IsPoppedOut = poppedOut; return true; }
+        /// <summary>A host's own chrome docking the player — the user closing its window.</summary>
+        public void RaiseNativePopOutChanged(bool poppedOut)
+        {
+            IsPoppedOut = poppedOut;
+            PoppedOutChanged?.Invoke(poppedOut);
+        }
         public void Dispose() { Disposed = true; Fake.Ticking = false; }
+    }
+
+    /// <summary>A backend with no optional capabilities at all — the shape of the web host, the
+    /// Android host, and the portable WebM decoder. Most players are this.</summary>
+    private sealed class PlainBackend : IVideoBackend
+    {
+        private sealed class PlainPlayer : IVideoPlayer
+        {
+            private readonly FakeSurface _surface = new();
+            public ISurfaceSource Surface => _surface;
+            public bool Playing { get; private set; }
+            public bool Muted { get; set; }
+            public double Volume { get; set; } = 1;
+            public bool Loop { get; set; }
+            public double Duration => 10;
+            public double Position { get; set; }
+            public event Action? Ended;
+            public void Play() { Playing = true; Ended?.Invoke(); }
+            public void Pause() => Playing = false;
+            public void Dispose() { }
+        }
+        public IVideoPlayer Open(VideoSource source) => new PlainPlayer();
     }
 
     private sealed class FakeBackend : IVideoBackend
@@ -295,6 +327,126 @@ public class VideoComponentTests
         Assert.Null(endedSource);
         Assert.True(t.Doc.ConsumeImageArrived());
         Assert.Equal("clip.webm", endedSource);
+    }
+
+    // ---- the pop-out seam -----------------------------------------------------------------------
+    //
+    // The engine ships no pop-out WINDOW. These cover the seam only: what the document does with a
+    // backend that offers the capability, and what it does with the overwhelming majority that do
+    // not. Native chrome belongs to whoever can put a window on screen and test it there.
+
+    [Fact]
+    public void A_capable_backend_can_move_the_same_player_in_and_out_without_reopening_it()
+    {
+        var backend = new FakeBackend();
+        using var t = new TestDoc("<body><cupri-video src='clip.webm' controls tracks></cupri-video></body>", "", components: true);
+        t.Doc.UseVideo(backend);
+        t.Layout();
+
+        Assert.True(t.Doc.SetVideoPoppedOut("clip.webm", true));
+        Assert.True(t.Doc.IsVideoPoppedOut("clip.webm"));
+        Assert.True(t.Doc.SetVideoPoppedOut("clip.webm", false));
+        Assert.False(t.Doc.IsVideoPoppedOut("clip.webm"));
+        // One decoder throughout: popping out is presentation, not a second playback session.
+        Assert.Single(backend.Players);
+        Assert.False(backend.Players["clip.webm"].Disposed);
+    }
+
+    /// <summary>
+    /// The item is ABSENT, not greyed, when the backend cannot pop out — which is the web, Android,
+    /// and every desktop backend that does not implement the capability. A permanently disabled
+    /// entry would offer the user something no code can deliver.
+    /// </summary>
+    [Fact]
+    public void Without_the_capability_the_menu_offers_no_popout_at_all()
+    {
+        using var t = new TestDoc(
+            "<body><cupri-video src='clip.webm' controls tracks style='width:320px;height:180px'></cupri-video></body>",
+            "", components: true, width: 800, height: 500);
+        t.Doc.UseVideo(new PlainBackend());                 // no IVideoPopOutPlayer
+        t.Layout();
+        var video = t.Find(n => n.Element?.GetAttribute("data-cupri-video") == "clip.webm")!;
+        var (x, y) = TestDoc.Center(video);
+        Assert.True(t.Doc.DispatchContextMenu(x, y));
+        t.Layout();
+
+        Assert.Null(t.Find(n => n.Element?.HasAttribute("data-video-popout-source") == true));
+        // …while the menu itself is still there, with its track submenus.
+        Assert.NotNull(t.Find(n => n.Element?.GetAttribute("data-video-track-list") == "audio"));
+    }
+
+    [Fact]
+    public void The_menu_item_says_which_way_the_action_goes_and_names_no_application()
+    {
+        var backend = new FakeBackend();
+        using var t = new TestDoc(
+            "<body><cupri-video src='clip.webm' controls tracks style='width:320px;height:180px'></cupri-video></body>",
+            "", components: true, width: 800, height: 500);
+        t.Doc.UseVideo(backend);
+        t.Layout();
+        var video = t.Find(n => n.Element?.GetAttribute("data-cupri-video") == "clip.webm")!;
+        var (x, y) = TestDoc.Center(video);
+        Assert.True(t.Doc.DispatchContextMenu(x, y));
+        t.Layout();
+
+        var item = t.Find(n => n.Element?.HasAttribute("data-video-popout-source") == true)!;
+        Assert.Equal("Pop out player", item.Element!.TextContent.Trim());
+
+        Assert.True(t.Doc.SetVideoPoppedOut("clip.webm", true));
+        t.Layout();
+        Assert.True(t.Doc.DispatchContextMenu(x, y));
+        t.Layout();
+        var popped = t.Find(n => n.Element?.HasAttribute("data-video-popout-source") == true)!;
+        Assert.Equal("Return to window", popped.Element!.TextContent.Trim());
+    }
+
+    /// <summary>Element and host fullscreen are released BEFORE the decoder moves, or the
+    /// application is left fullscreen around an empty-looking video element.</summary>
+    [Fact]
+    public void Popping_out_releases_element_and_host_fullscreen_first()
+    {
+        var backend = new FakeBackend();
+        using var t = new TestDoc(
+            "<body><cupri-video src='clip.webm' controls tracks style='width:320px;height:180px'></cupri-video></body>",
+            "", components: true, width: 800, height: 500);
+        var commands = new List<CupriFace.Interaction.WindowCommand>();
+        t.Doc.WindowCommandRequested += commands.Add;
+        t.Doc.UseVideo(backend);
+        t.Layout();
+
+        t.ClickMatch(n => n.Element?.GetAttribute("data-video-cmd") == "fullscreen");
+        t.Layout();
+        var video = t.Find(n => n.Element?.GetAttribute("data-cupri-video") == "clip.webm")!;
+        var (videoX, videoY) = TestDoc.Center(video);
+        Assert.True(t.Doc.DispatchContextMenu(videoX, videoY));
+        t.Layout();
+        t.ClickMatch(n => n.Element?.GetAttribute("data-video-popout-source") == "clip.webm");
+        t.Layout();
+
+        Assert.Equal(
+            [CupriFace.Interaction.WindowCommand.EnterFullscreen, CupriFace.Interaction.WindowCommand.ExitFullscreen],
+            commands);
+        Assert.True(backend.Players["clip.webm"].IsPoppedOut);
+        Assert.Null(t.Find(n => n.Element?.ClassList.Contains("cupri-video-fs") == true));
+    }
+
+    /// <summary>A host's chrome reports on whatever thread it owns; the document hands that on
+    /// through the same pump as every other video notice, not from under layout.</summary>
+    [Fact]
+    public void Host_initiated_docking_is_marshaled_to_the_document_pump()
+    {
+        var backend = new FakeBackend();
+        using var t = new TestDoc("<body><cupri-video src='clip.webm' controls></cupri-video></body>", "", components: true);
+        t.Doc.UseVideo(backend);
+        t.Layout();
+        (string Source, bool PoppedOut)? observed = null;
+        t.Doc.VideoPopOutStateChanged += (source, poppedOut) => observed = (source, poppedOut);
+
+        backend.Players["clip.webm"].RaiseNativePopOutChanged(false);
+
+        Assert.Null(observed);
+        Assert.True(t.Doc.ConsumeImageArrived());
+        Assert.Equal(("clip.webm", false), observed);
     }
 
     [Fact]

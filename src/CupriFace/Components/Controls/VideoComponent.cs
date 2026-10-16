@@ -265,6 +265,41 @@ public sealed class VideoComponent : ComponentBase
             tracks?.SubtitleTracks ?? [], tracks?.SelectedSubtitleTrack);
     }
 
+    /// <summary>
+    /// Add, label, or remove the context menu's pop-out item for this player.
+    ///
+    /// <para>It is ABSENT rather than disabled when the backend cannot pop out, which is most of
+    /// them: the engine ships no pop-out window, so on the web, on Android, and on any desktop
+    /// whose backend does not implement <see cref="Media.IVideoPopOutPlayer"/> a permanently grey
+    /// item would be a promise nobody can keep. The label says which direction the action goes,
+    /// and names no application — the engine does not know what the caller's window is called.</para>
+    /// </summary>
+    internal static void SyncPopOut(IElement el, string source, Media.IVideoPopOutPlayer? popOut)
+    {
+        if (el.QuerySelector("[data-cupri-ctx-menu]") is not { } menu) return;
+        var action = menu.QuerySelector("[data-video-popout-source]");
+        if (popOut is null)
+        {
+            action?.Remove();
+            return;
+        }
+        if (action is null)
+        {
+            if (el.Owner is not { } dom) return;
+            action = dom.CreateElement("div");
+            action.ClassList.Add("cupri-menu-item");
+            action.SetAttribute("role", "menuitem");
+            var label = dom.CreateElement("span");
+            label.ClassList.Add("cupri-menu-label");
+            action.AppendChild(label);
+            menu.AppendChild(action);
+        }
+        action.SetAttribute("data-video-popout-source", source);
+        var text = popOut.IsPoppedOut ? "Return to window" : "Pop out player";
+        if (action.QuerySelector(".cupri-menu-label") is { } span) span.TextContent = text;
+        else action.TextContent = text;
+    }
+
     internal static void SyncChapters(IElement el, Media.IVideoChapterProvider? provider, double duration)
     {
         if (!el.HasAttribute("data-video-chapters-enabled") ||

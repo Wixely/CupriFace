@@ -25,6 +25,7 @@ public abstract class CupriActivity : global::Android.App.Activity
     private CupriHostView? _view;
     private Handler? _pump;
     private global::Java.Lang.Runnable? _pumpTick;
+    private IAndroidVideoBackend? _videoBackend;
 
     /// <summary>The app to run. Called once, in OnCreate.</summary>
     protected abstract CupriApp CreateApp();
@@ -59,6 +60,10 @@ public abstract class CupriActivity : global::Android.App.Activity
     /// fullscreen views should follow the device instead.
     /// </summary>
     protected virtual bool PreferLandscapeFullscreen => false;
+
+    /// <summary>Opt into Android's native picture-in-picture window while video is playing.
+    /// The activity must also declare <c>SupportsPictureInPicture = true</c>.</summary>
+    protected virtual bool EnablePictureInPicture => false;
 
     /// <summary>The running host; available after OnCreate.</summary>
     protected AndroidHost Host => _host ?? throw new InvalidOperationException("not created yet");
@@ -148,7 +153,10 @@ public abstract class CupriActivity : global::Android.App.Activity
             // app that shows no <cupri-video> carries neither LibVLC's native libraries nor its
             // licence obligations. Override CreateVideoBackend to bring one.
             if (CreateVideoBackend(_host!.VideoServices(this, underlays)) is { } videoBackend)
+            {
+                _videoBackend = videoBackend;
                 _host!.UseVideo(videoBackend);
+            }
             // The IME inset is also the only report of the keyboard GOING AWAY on the platform's
             // own initiative (Back, the keyboard's hide button): nothing else tells the app, which
             // is half of #288. The view keeps the belief; this is what refreshes it.
@@ -222,6 +230,59 @@ public abstract class CupriActivity : global::Android.App.Activity
     }
 
     protected override void OnPause() { _view?.OnPause(); base.OnPause(); }
+
+    /// <summary>When the user leaves a video-oriented app, hand the live decoder to Android's
+    /// draggable system PiP window. MediaSession supplies the platform play/pause/seek controls.</summary>
+    protected override void OnUserLeaveHint()
+    {
+        if (EnablePictureInPicture && OperatingSystem.IsAndroidVersionAtLeast(26)
+            && !IsInPictureInPictureMode && _videoBackend?.PictureInPictureReady == true)
+        {
+            var (width, height) = _videoBackend.PictureInPictureSize is { W: > 0, H: > 0 } size
+                ? size
+                : (16, 9);
+            // Android accepts ratios from 1:2.39 through 2.39:1. Clamp unusual or corrupt stream
+            // metadata rather than losing PiP entirely.
+            var ratio = Math.Clamp(width / (double)height, 1d / 2.39d, 2.39d);
+            const int denominator = 10_000;
+            var builder = new global::Android.App.PictureInPictureParams.Builder();
+            _ = builder.SetAspectRatio(new global::Android.Util.Rational(
+                Math.Max(1, (int)Math.Round(ratio * denominator)), denominator));
+            if (OperatingSystem.IsAndroidVersionAtLeast(31))
+                _ = builder.SetSeamlessResizeEnabled(true);
+            try
+            {
+                if (builder.Build() is { } parameters) EnterPictureInPictureMode(parameters);
+            }
+            catch (Exception exception)
+            {
+                global::Android.Util.Log.Warn(AndroidHost.Tag,
+                    $"picture-in-picture unavailable: {exception.GetType().Name}");
+            }
+        }
+        base.OnUserLeaveHint();
+    }
+
+    public override void OnPictureInPictureModeChanged(
+        bool isInPictureInPictureMode,
+        global::Android.Content.Res.Configuration? newConfig)
+    {
+#pragma warning disable CA1416 // Android invokes this callback only on API 26+, where PiP exists.
+        base.OnPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
+#pragma warning restore CA1416
+        _videoBackend?.SetPictureInPictureMode(isInPictureInPictureMode);
+        if (_view is not null)
+        {
+            // In PiP the native video underlay owns the whole activity. Hiding only the GL surface
+            // reveals it without destroying the Activity, decoder, or system MediaSession.
+            _view.Visibility = isInPictureInPictureMode ? ViewStates.Invisible : ViewStates.Visible;
+            if (!isInPictureInPictureMode)
+            {
+                _host?.MarkDirty();
+                _view.RequestApplyInsets();
+            }
+        }
+    }
 
     /// <summary>Applies the live window insets (system bars, display cutout, the soft keyboard)
     /// as padding, so the app's content sits in the truly-usable rectangle while the container's

@@ -25,6 +25,7 @@ public sealed class VlcVideoBackend : IAndroidVideoBackend
     private readonly List<AndroidPlayer> _players = new();
     private readonly AndroidMediaSession _mediaSession;
     private readonly LibVLC _libVlc;
+    private bool _pictureInPicture;
 
     /// <summary>Construct from the services the host hands to
     /// <c>CupriActivity.CreateVideoBackend</c>. Initialising LibVLC here, rather than at type load,
@@ -49,6 +50,28 @@ public sealed class VlcVideoBackend : IAndroidVideoBackend
     public bool AnyReady
     {
         get { lock (_players) { foreach (var p in _players) if (p.Ready) return true; } return false; }
+    }
+
+    public bool PictureInPictureReady => PictureInPicturePlayer()?.Playing == true;
+
+    public (int W, int H)? PictureInPictureSize => PictureInPicturePlayer()?.NaturalSize;
+
+    public void SetPictureInPictureMode(bool active)
+    {
+        _pictureInPicture = active;
+        var selected = PictureInPicturePlayer();
+        _runOnUi(() =>
+        {
+            AndroidPlayer[] players;
+            lock (_players) players = _players.ToArray();
+            foreach (var player in players)
+            {
+                if (player.View is not { } view) continue;
+                if (active && ReferenceEquals(player, selected)) Fill(view);
+                else if (active) Park(view);
+            }
+            _invalidate();
+        });
     }
 
     public IVideoPlayer Open(VideoSource source)
@@ -129,6 +152,16 @@ public sealed class VlcVideoBackend : IAndroidVideoBackend
             var view = player.View;
             if (view is null) continue;
 
+            if (_pictureInPicture)
+            {
+                var selected = PictureInPicturePlayer();
+                _runOnUi(() =>
+                {
+                    if (ReferenceEquals(player, selected)) Fill(view); else Park(view);
+                });
+                continue;
+            }
+
             if (node is null || !node.LaidOut)
             {
                 // Parked off-screen rather than hidden: hiding a SurfaceView destroys its
@@ -165,6 +198,28 @@ public sealed class VlcVideoBackend : IAndroidVideoBackend
         if (view.LayoutParameters is not FrameLayout.LayoutParams lp) return;
         lp.Width = 1; lp.Height = 1; lp.LeftMargin = -10; lp.TopMargin = -10;
         view.LayoutParameters = lp;
+    }
+
+    private static void Fill(AndroidVlcVideoView view)
+    {
+        if (view.LayoutParameters is not FrameLayout.LayoutParams lp) return;
+        lp.Width = FrameLayout.LayoutParams.MatchParent;
+        lp.Height = FrameLayout.LayoutParams.MatchParent;
+        lp.LeftMargin = 0;
+        lp.TopMargin = 0;
+        view.LayoutParameters = lp;
+    }
+
+    private AndroidPlayer? PictureInPicturePlayer()
+    {
+        lock (_players)
+        {
+            for (var index = _players.Count - 1; index >= 0; index--)
+                if (_players[index].Ready && _players[index].Playing) return _players[index];
+            for (var index = _players.Count - 1; index >= 0; index--)
+                if (_players[index].Ready) return _players[index];
+            return null;
+        }
     }
 
     // The element that owns this player, found by the surface key the document assigned it.
