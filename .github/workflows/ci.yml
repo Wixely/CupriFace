@@ -2329,8 +2329,18 @@ jobs:
           XML
           cat windows-media-consumer/NuGet.config
           dotnet add windows-media-consumer package CupriFace.Media.Windows --version "$VERSION"
+          # NO --no-restore here. `dotnet add package` restores RID-agnostically, so a publish
+          # for win-x64 that is forbidden to restore finds no target for it and dies with
+          # NETSDK1047 "Assets file ... does not have a target for 'net10.0/win-x64'". Letting
+          # the publish restore is what produces that target, and the NuGet.config written above
+          # sits in the project directory, so it still resolves from exactly the two feeds.
+          #
+          # Reproduced and verified locally before this landed: packed CupriFace,
+          # CupriFace.Shell, CupriFace.Gl and CupriFace.Media.Windows to a local folder feed,
+          # ran this probe on Windows, and watched NETSDK1047 appear with --no-restore and
+          # every assertion below pass without it.
           dotnet publish windows-media-consumer -c Release -r win-x64 --self-contained false \
-            --no-restore -p:PublishSingleFile=true -p:IncludeAllContentForSelfExtract=true \
+            -p:PublishSingleFile=true -p:IncludeAllContentForSelfExtract=true \
             -o windows-media-publish
           for path in LibVLCSharp.dll \
                       libvlc/win-x64/libvlc.dll \
