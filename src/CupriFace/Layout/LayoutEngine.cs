@@ -809,7 +809,18 @@ public sealed class LayoutEngine
 
         var gap = horizontal ? s.ColumnGap : s.RowGap;
         var crossGap = horizontal ? s.RowGap : s.ColumnGap;
-        var mainSize = mainKnown ? (horizontal ? contentW : contentH) : SumOuter(baseMain, mainMargin, gap, 0, n);
+
+        // The automatic minimum of each item (CSS `min-width: auto` on a flex item), and the
+        // HYPOTHETICAL main size — the basis clamped to it — which is what lines are broken on and
+        // what decides whether the row is growing or shrinking. See MinContentFloors.
+        var floors = horizontal ? MinContentFloors(items, 0, n) : null;
+        var hypMain = baseMain;
+        if (floors is not null)
+        {
+            hypMain = new float[n];
+            for (var i = 0; i < n; i++) hypMain[i] = MathF.Max(baseMain[i], floors[i]);
+        }
+        var mainSize = mainKnown ? (horizontal ? contentW : contentH) : SumOuter(hypMain, mainMargin, gap, 0, n);
 
         // Partition items into lines.
         var lines = new List<(int start, int end)>();
@@ -819,7 +830,7 @@ public sealed class LayoutEngine
             var run = 0f;
             for (var i = 0; i < n; i++)
             {
-                var outer = baseMain[i] + mainMargin[i];
+                var outer = hypMain[i] + mainMargin[i];
                 var withGap = i > lineStart ? gap + outer : outer;
                 if (i > lineStart && run + withGap > mainSize + 0.5f)
                 {
@@ -843,10 +854,10 @@ public sealed class LayoutEngine
         {
             var count = end - start;
             var lineSum = SumOuter(baseMain, mainMargin, gap, start, end);
-            var lineMainSize = mainKnown ? mainSize : lineSum;
+            var lineMainSize = mainKnown ? mainSize : SumOuter(hypMain, mainMargin, gap, start, end);
             var free = lineMainSize - lineSum;
 
-            var finalMain = ResolveFlexibleRange(items, baseMain, free, start, end);
+            var finalMain = ResolveFlexibleRange(items, baseMain, free, start, end, floors);
 
             // Re-measure each item at its resolved MAIN size with a content-driven cross, so an item that
             // re-wraps at its reduced width reports its true (taller) cross. The first pass measured the
@@ -962,29 +973,158 @@ public sealed class LayoutEngine
         return sum;
     }
 
-    private static float[] ResolveFlexibleRange(List<RenderNode> items, float[] baseMain, float free, int start, int end)
+    /// <summary>
+    /// Distribute a line's free space among its items — CSS Flexbox §9.7, "resolve the flexible
+    /// lengths" — with <paramref name="floors"/> as each item's automatic minimum.
+    ///
+    /// <para><paramref name="free"/> is the line's main size less the sum of the items' flex BASE
+    /// sizes (bases, not floored). Whether the line grows or shrinks is decided on the
+    /// hypothetical sizes — the bases clamped to their floors — because an item sitting on its
+    /// floor is already wider than its base, and that is space the others do not have.</para>
+    ///
+    /// <para>Then the loop: give every unfrozen item its share, clamp any that fell below its
+    /// floor to the floor and freeze it there, and go again with what the frozen ones could not
+    /// give. Without floors (null, or all zero) a single pass is the whole story, which is the
+    /// behaviour every earlier layout had.</para>
+    /// </summary>
+    /// <param name="floors">Indexed like <paramref name="items"/>; null when nothing has a floor.</param>
+    private static float[] ResolveFlexibleRange(List<RenderNode> items, float[] baseMain, float free, int start, int end,
+                                                float[]? floors = null)
     {
         var count = end - start;
         var result = new float[count];
-        for (var i = 0; i < count; i++) result[i] = baseMain[start + i];
-        if (MathF.Abs(free) < 0.01f) return result;
-
-        if (free > 0)
+        var frozen = new bool[count];
+        var hypFree = free;
+        for (var i = 0; i < count; i++)
         {
-            float totalGrow = 0;
-            for (var i = start; i < end; i++) totalGrow += GrowOf(items[i]);
-            if (totalGrow > 0)
-                for (var i = 0; i < count; i++) result[i] = baseMain[start + i] + free * GrowOf(items[start + i]) / totalGrow;
+            var basis = baseMain[start + i];
+            var floor = floors is { } f ? f[start + i] : 0f;
+            result[i] = MathF.Max(basis, floor);
+            hypFree -= result[i] - basis;
+        }
+        if (MathF.Abs(hypFree) < 0.01f) return result;
+        var growing = hypFree > 0;
+
+        // Inflexible items are frozen at their hypothetical size from the start: a zero factor, or
+        // — when shrinking — a base already below its floor, which cannot give anything.
+        for (var i = 0; i < count; i++)
+        {
+            var item = items[start + i];
+            var factor = growing ? GrowOf(item) : item.Style.FlexShrink;
+            if (factor <= 0 || (!growing && result[i] > baseMain[start + i])) frozen[i] = true;
+        }
+
+        for (var pass = 0; pass <= count; pass++)
+        {
+            // Remaining free space: the container less every frozen item's target and every
+            // unfrozen item's base.
+            var remaining = free;
+            float scaled = 0;
+            for (var i = 0; i < count; i++)
+            {
+                var basis = baseMain[start + i];
+                if (frozen[i]) remaining -= result[i] - basis;
+                else scaled += growing ? GrowOf(items[start + i]) : items[start + i].Style.FlexShrink * basis;
+            }
+            if (scaled <= 0) break;
+
+            var violated = false;
+            for (var i = 0; i < count; i++)
+            {
+                if (frozen[i]) continue;
+                var basis = baseMain[start + i];
+                var factor = growing ? GrowOf(items[start + i]) : items[start + i].Style.FlexShrink * basis;
+                var want = basis + remaining * factor / scaled;
+                var floor = floors is { } f ? f[start + i] : 0f;
+                if (want < floor - 0.01f)
+                {
+                    result[i] = floor;
+                    frozen[i] = true;
+                    violated = true;
+                }
+                else result[i] = MathF.Max(0, want);
+            }
+            if (!violated) break;
+        }
+        return result;
+    }
+
+    /// <summary>The automatic minimum main size of each item in a ROW — CSS's <c>min-width: auto</c>
+    /// for a flex item, which is its min-content width (and, for an item with a definite width,
+    /// the smaller of that width and its content's min-content: the "specified size suggestion").
+    ///
+    /// <para><b>What it changes.</b> Without it a card shrinks past the longest word in it and the
+    /// word spills under the next card, invisibly to layout; with it the card stops at that word
+    /// and the ROW overflows instead, which is what a browser does and what every overflow check
+    /// can see. The floor is zero — the item may shrink to nothing — when the author has said so:
+    /// a definite <c>min-width</c> (LayoutNode clamps to that instead), or any overflow other than
+    /// <c>visible</c>, which is the spec's own escape hatch and the idiom <c>min-width: 0</c>
+    /// exists for.</para>
+    /// </summary>
+    private float[] MinContentFloors(List<RenderNode> items, int start, int end)
+    {
+        var floors = new float[end - start];
+        for (var i = start; i < end; i++)
+        {
+            var it = items[i];
+            var st = it.Style;
+            if (st.MinWidth.IsDefinite || st.Overflow != OverflowMode.Visible) continue;
+            var content = MinContentWidth(it, ignoreOwnWidth: true);
+            floors[i - start] = st.Width.Unit == LengthUnit.Px
+                ? MathF.Min(content, st.BorderBox ? MathF.Max(st.Width.Value, PadBorderX(st)) : st.Width.Value + PadBorderX(st))
+                : content;
+        }
+        return floors;
+    }
+
+    /// <summary>The narrowest this node can be without its content spilling out of it: the longest
+    /// unbreakable run of text, or the widest such run among its children.</summary>
+    /// <param name="ignoreOwnWidth">Measure the CONTENT even when the box has a pixel width — the
+    /// flex item case, where the automatic minimum is the smaller of the two.</param>
+    private float MinContentWidth(RenderNode node, bool ignoreOwnWidth = false)
+    {
+        var s = node.Style;
+        if (node.IsText)
+        {
+            var t = node.Text ?? "";
+            if (t.Length == 0) return 0;
+            // Allowed to break inside a word: nothing is unbreakable, so the floor is one glyph's
+            // worth, which is near enough nothing to call it that.
+            if (s.OverflowWrapBreak || s.WordBreakAll) return 0;
+            // Not allowed to break at all: the whole run is the floor.
+            if (s.WhiteSpace is WhiteSpaceMode.NoWrap or WhiteSpaceMode.Pre) return MaxContentWidth(node);
+            float mx = 0;
+            foreach (var word in t.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+                mx = MathF.Max(mx, _fonts.MeasureText(s, word));
+            return mx;
+        }
+
+        if (!ignoreOwnWidth && s.Width.Unit == LengthUnit.Px)
+            return s.BorderBox ? MathF.Max(s.Width.Value, PadBorderX(s)) : s.Width.Value + PadBorderX(s);
+        // A clipping or scrolling box can be any width; what does not fit is not painted.
+        if (s.Overflow != OverflowMode.Visible) return PadBorderX(s);
+
+        float inner = 0;
+        if (s.IsFlexContainer && s.MainIsHorizontal && s.FlexWrap != FlexWrapMode.Wrap)
+        {
+            var first = true;
+            foreach (var c in node.Children)
+            {
+                if (!IsInFlow(c)) continue;
+                if (!first) inner += s.ColumnGap;
+                first = false;
+                inner += MinContentWidth(c) + MarginX(c.Style);
+            }
         }
         else
         {
-            float scaled = 0;
-            for (var i = start; i < end; i++) scaled += items[i].Style.FlexShrink * baseMain[i];
-            if (scaled > 0)
-                for (var i = 0; i < count; i++)
-                    result[i] = MathF.Max(0, baseMain[start + i] + free * (items[start + i].Style.FlexShrink * baseMain[start + i]) / scaled);
+            foreach (var c in node.Children)
+                if (IsInFlow(c)) inner = MathF.Max(inner, MinContentWidth(c) + MarginX(c.Style));
         }
-        return result;
+        var w = PadBorderX(s) + inner;
+        if (s.MinWidth.Unit == LengthUnit.Px) w = MathF.Max(w, s.MinWidth.Value + PadBorderX(s));
+        if (s.MaxWidth.Unit == LengthUnit.Px) w = MathF.Min(w, s.MaxWidth.Value + PadBorderX(s));
+        return w;
     }
 
     // ---- grid ----------------------------------------------------------------

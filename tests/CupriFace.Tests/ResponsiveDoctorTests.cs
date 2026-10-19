@@ -25,12 +25,27 @@ public class ResponsiveDoctorTests(ITestOutputHelper output)
     private const string CardsCss =
         "body{margin:0;font-family:sans-serif} .row{display:flex;gap:12px} .card{flex:1;padding:12px;background:#334}";
 
+    /// <summary>With the automatic minimum (CSS <c>min-width:auto</c>) a flex item stops at its
+    /// longest word, so the URL no longer runs under the next card: the card stays as wide as the
+    /// URL and the ROW runs off the side instead — which is what a browser does, and is CF0072.</summary>
     [Fact]
-    public void A_long_token_that_runs_under_the_next_card_is_reported()
+    public void A_long_token_stops_the_card_shrinking_and_the_row_overflows_instead()
     {
-        // 600px: three cards of ~190px, a URL of ~400px. It runs under the second card and stops
-        // well short of the viewport edge, which is why CF0072 stays silent and CF0075 must not.
-        var report = CupriDoctor.Check(Cards, CardsCss, width: 600, height: 300);
+        // 480px: the URL card alone wants ~440px, and the other two stop at their own words.
+        var report = CupriDoctor.Check(Cards, CardsCss, width: 480, height: 300);
+        output.WriteLine(report.ToString());
+
+        Assert.DoesNotContain(report.Findings, x => x.Code == "CF0075");
+        var f = Assert.Single(report.Findings, x => x.Code == "CF0072");
+        Assert.Contains("viewport", f.Message);
+    }
+
+    /// <summary>…and the spill check still exists for the author who opted out: <c>min-width:0</c>
+    /// is the idiom that lets a flex item shrink past its content, and then the spill is back.</summary>
+    [Fact]
+    public void A_card_allowed_to_shrink_past_its_content_spills_and_is_reported()
+    {
+        var report = CupriDoctor.Check(Cards, CardsCss + " .card{min-width:0}", width: 600, height: 300);
         output.WriteLine(report.ToString());
 
         var f = Assert.Single(report.Findings, x => x.Code == "CF0075");
@@ -39,6 +54,68 @@ public class ResponsiveDoctorTests(ITestOutputHelper output)
         Assert.Contains("right-hand edge", f.Message);
         Assert.Contains("beside", f.Message);
         Assert.Contains("overflow-wrap", f.Fix);
+    }
+
+    // ---- the automatic minimum itself ---------------------------------------------------------
+
+    [Fact]
+    public void A_flex_item_does_not_shrink_below_its_longest_word()
+    {
+        using var doc = CupriDocument.Load(Cards, CardsCss);
+        doc.Refresh();
+        using (doc.RenderToImage(600, 300)) { }
+        output.WriteLine(doc.DumpTree(maxDepth: 3));
+
+        var cards = new List<Dom.RenderNode>();
+        Collect(doc.Root, "card", cards);
+        Assert.Equal(3, cards.Count);
+        // The URL card is as wide as its URL plus padding; the other two sit at THEIR longest words.
+        Assert.True(cards[0].Width > 350, $"url card {cards[0].Width}");
+        Assert.True(cards[1].Width < 150 && cards[1].Width > 60, $"second {cards[1].Width}");
+        Assert.True(cards[2].Width < 100 && cards[2].Width > 40, $"third {cards[2].Width}");
+        // Nothing overlaps: each card starts past the previous one's right edge.
+        Assert.True(cards[1].X >= cards[0].X + cards[0].Width);
+        Assert.True(cards[2].X >= cards[1].X + cards[1].Width);
+    }
+
+    [Theory]
+    [InlineData(".card{min-width:0}")]
+    [InlineData(".card{overflow:hidden}")]
+    [InlineData(".card{overflow-wrap:anywhere}")]
+    public void The_floor_is_released_the_ways_CSS_releases_it(string css)
+    {
+        using var doc = CupriDocument.Load(Cards, CardsCss + " " + css);
+        doc.Refresh();
+        using (doc.RenderToImage(600, 300)) { }
+        var cards = new List<Dom.RenderNode>();
+        Collect(doc.Root, "card", cards);
+        // Three equal shares again (flex:1), within a pixel.
+        Assert.Equal(cards[0].Width, cards[1].Width, 1.0);
+        Assert.Equal(cards[1].Width, cards[2].Width, 1.0);
+    }
+
+    /// <summary>The "specified size suggestion": an item with a pixel width still shrinks, down to
+    /// the smaller of that width and its content — so two fixed columns in a flex row squeeze
+    /// on a phone as they always did, until their words stop them.</summary>
+    [Fact]
+    public void An_item_with_a_pixel_width_still_shrinks_to_its_content()
+    {
+        using var doc = CupriDocument.Load(
+            "<body><div class='row'><div class='side'>Navigation</div><div class='main'>Lorem ipsum dolor sit amet consectetur</div></div></body>",
+            "body{margin:0;font-family:sans-serif} .row{display:flex;gap:12px} .side{width:240px} .main{width:600px}");
+        doc.Refresh();
+        using (doc.RenderToImage(412, 100)) { }
+        output.WriteLine(doc.DumpTree(maxDepth: 3));
+        var side = FindByClass(doc.Root, "side")!;
+        var main = FindByClass(doc.Root, "main")!;
+        Assert.True(side.Width < 240 && main.Width < 600, $"{side.Width} / {main.Width}");
+        Assert.True(side.Width + 12 + main.Width <= 412 + 0.5f);
+    }
+
+    private static void Collect(Dom.RenderNode n, string cls, List<Dom.RenderNode> into)
+    {
+        if (n.Element?.GetAttribute("class") == cls) into.Add(n);
+        foreach (var c in n.Children) Collect(c, cls, into);
     }
 
     [Fact]
@@ -60,21 +137,23 @@ public class ResponsiveDoctorTests(ITestOutputHelper output)
         Assert.DoesNotContain(report.Findings, x => x.Code == "CF0075");
     }
 
+    /// <summary>A nowrap title is one unbreakable run, so its floor is the whole title: the buttons
+    /// move along rather than being painted through, and the row overflows the viewport.</summary>
     [Fact]
-    public void A_nowrap_title_painting_through_the_buttons_beside_it_is_reported()
+    public void A_nowrap_title_pushes_the_buttons_along_instead_of_painting_through_them()
     {
         var report = CupriDoctor.Check(
             "<body><div class='bar'><div class='title'>Deployment pipeline for the production environment</div>"
             + "<cupri-button>Run</cupri-button><cupri-button>Configure</cupri-button><div class='spacer'></div></div></body>",
+            // flex-shrink:0 on the spacer: an EMPTY box has a floor of nothing, so without it the
+            // spacer gives up its 400px and the row fits after all — correct, and not the case here.
             "body{margin:0;font-family:sans-serif} .bar{display:flex;align-items:center;gap:8px} "
-            + ".title{white-space:nowrap;font-size:20px} .spacer{width:400px;height:1px}",
+            + ".title{white-space:nowrap;font-size:20px} .spacer{width:400px;height:1px;flex-shrink:0}",
             width: 900, height: 200);
         output.WriteLine(report.ToString());
 
-        Assert.DoesNotContain(report.Findings, x => x.Code == "CF0072");   // nothing reaches the edge
-        var f = Assert.Single(report.Findings, x => x.Code == "CF0075");
-        Assert.Contains("<div class='title'>", f.Message);
-        Assert.Contains("cupri-button", f.Message);
+        Assert.DoesNotContain(report.Findings, x => x.Code == "CF0075");
+        Assert.Contains(report.Findings, x => x.Code == "CF0072");
     }
 
     /// <summary>Overlap is not spill. A stack of avatars pulled together with a negative margin

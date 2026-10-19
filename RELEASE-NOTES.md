@@ -30,6 +30,19 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   in one image with every box outlined, so an overlap shows as rectangles crossing. One read of one
   PNG covers the desktop and the phone.
 
+### Changed
+
+- **A flex item in a row no longer shrinks below its content** — CSS flexbox's automatic minimum
+  (`min-width: auto`), which the engine never had. A card holding a long URL stops at the URL and
+  the ROW overflows, as it does in a browser, instead of the URL painting under the next card. An
+  item with a pixel width still shrinks, down to the smaller of that width and its content. Items
+  are released from the floor the ways CSS releases them: `min-width: 0`, any `overflow` other
+  than `visible`, or text allowed to break inside a word (`overflow-wrap: anywhere`,
+  `word-break: break-all`). **What to do if a row that used to fit now runs off the side:** it was
+  already painting over itself — give the row `flex-wrap: wrap`, stack it in a `@media` rule, or
+  say `min-width: 0` on the items you mean to crush. `cupri-cell` says it already, because a
+  table manages its own columns; a `cupri-toolbar` in the Showcase wraps below 600px.
+
 ### Fixed
 
 - **An absolutely positioned box with `width:auto` and ONE horizontal edge pinned now shrinks to

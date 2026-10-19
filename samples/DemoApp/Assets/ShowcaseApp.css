@@ -305,6 +305,10 @@ body.dark .pill { color:#8fb8e0; border-color:#345069; }
    and take the flex off the panes, because `flex: 1 1 0` in a COLUMN is a zero-height basis with
    nothing to grow into: each pane laid out 0px tall (CF0071) and the whole page painted over itself. */
 @media (max-width: 600px) { .md-split { flex-direction: column; } .md-pane { flex: none; } }
+
+/* A toolbar's buttons stop at their labels (a flex item's automatic minimum), so on a phone the
+   row runs off the side unless it is allowed to wrap. */
+@media (max-width: 600px) { .cupri-toolbar { flex-wrap: wrap; } }
 .md-out { background: var(--cupri-surface, #fff); border: 1px solid var(--cupri-border, #e6e9f0);
           border-radius: 8px; padding: 14px 16px; margin-bottom: 14px; }
 /* Keep the demo image a sensible size for the panel; <cupri-image> fits inside the box it is given

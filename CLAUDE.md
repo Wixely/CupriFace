@@ -396,14 +396,14 @@ The `cupri-*` controls are already `border-box`, so a width you set on one is th
 
 The failure is always the same: the layout was built at the window size it was developed in, and
 the first time the window is 412px wide the columns run off the side, the cards paint over each
-other and the title goes through the buttons. The engine is NOT a browser here in two ways that
-matter:
+other and the title goes through the buttons. Two things about flex here that decide how that
+looks:
 
-- **A flex item shrinks below its content.** A browser's `min-width:auto` stops a card shrinking
-  past its longest word, so the row overflows instead; here the card shrinks and the word spills
-  under the next card. `CF0075` reports it, but the fix is yours: `min-width:0` plus
-  `overflow-wrap:anywhere` on anything that can hold a URL, a hash or a long label, or
-  `overflow:hidden` with `text-overflow:ellipsis` to cut it off cleanly.
+- **A flex item stops shrinking at its longest word**, as in a browser (`min-width:auto`). So a
+  card holding a URL does not shrink past the URL: the ROW runs off the side, and `CF0072` says
+  so. That is the honest failure, and the fix is still yours: let the row wrap or stack, or say
+  `min-width:0` plus `overflow-wrap:anywhere` on anything that can hold a URL, a hash or a long
+  label — and then it CAN shrink past its content, and `CF0075` is what reports the spill.
 - **`flex: 1 1 0` in a COLUMN is a zero-height basis with nothing to grow into.** The same rule
   that shares a row evenly collapses every item to 0px once a `@media` rule stacks the row. Set
   `flex: none` on the items in the same rule that sets `flex-direction: column`.

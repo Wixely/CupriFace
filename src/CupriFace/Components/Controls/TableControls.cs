@@ -175,7 +175,10 @@ public sealed class TableCellComponent : ComponentBase
 {
     public override string Tag => "cupri-cell";
     public override string DefaultCss => """
-        .cupri-cell { flex:1; padding:11px 14px; }
+        /* min-width:0 — the table manages its columns, so a cell has no automatic minimum: a
+           dragged boundary must be able to squeeze its neighbours below their longest word, or
+           the row grows past the table (CSS flexbox's min-width:auto, which the engine honours). */
+        .cupri-cell { flex:1; min-width:0; padding:11px 14px; }
         """;
 
     public override void Expand(IElement el)
