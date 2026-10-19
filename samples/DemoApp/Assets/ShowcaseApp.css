@@ -300,6 +300,11 @@ body.dark .pill { color:#8fb8e0; border-color:#345069; }
    component's own DefaultCss, which is the point of looking at it. */
 .md-split { display: flex; gap: 16px; margin-bottom: 18px; }
 .md-pane { flex: 1 1 0; min-width: 0; }
+/* On a phone the two panes cannot share the width: the textarea has a floor the left pane
+   cannot honour, and it painted under the right pane (CF0075 at 393dp). Stack them instead —
+   and take the flex off the panes, because `flex: 1 1 0` in a COLUMN is a zero-height basis with
+   nothing to grow into: each pane laid out 0px tall (CF0071) and the whole page painted over itself. */
+@media (max-width: 600px) { .md-split { flex-direction: column; } .md-pane { flex: none; } }
 .md-out { background: var(--cupri-surface, #fff); border: 1px solid var(--cupri-border, #e6e9f0);
           border-radius: 8px; padding: 14px 16px; margin-bottom: 14px; }
 /* Keep the demo image a sensible size for the panel; <cupri-image> fits inside the box it is given

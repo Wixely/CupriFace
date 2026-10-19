@@ -688,12 +688,26 @@ public sealed class LayoutEngine
         var cs = child.Style;
         var stretchW = !cs.Width.IsDefinite && cs.Left.IsDefinite && cs.Right.IsDefinite;
         var stretchH = !cs.Height.IsDefinite && cs.Top.IsDefinite && cs.Bottom.IsDefinite;
-        if (stretchW || stretchH)
+        // ONE EDGE PINNED (or none) AND THE WIDTH AUTO: SHRINK-TO-FIT, as a fixed box already
+        // does (LayoutFixedNodes) and as CSS says. The first pass above laid the box out as a
+        // block, which FILLS the containing block, so a badge with `right:8px` and no width came
+        // out as wide as its card, placed at a negative x, and painted across everything in it.
+        // The fit is min(available, max-content): the room between the pinned edge and the far
+        // side of the containing block, or the content's own width, whichever is smaller.
+        var shrinkW = !cs.Width.IsDefinite && !stretchW;
+        if (stretchW || stretchH || shrinkW)
         {
-            float? fw = stretchW
-                ? MathF.Max(0, contentW - cs.Left.Resolve(contentW) - cs.Right.Resolve(contentW)
-                             - child.MarginLeft - child.MarginRight - child.HorizontalInsets)
-                : null;
+            float? fw = null;
+            if (stretchW)
+                fw = MathF.Max(0, contentW - cs.Left.Resolve(contentW) - cs.Right.Resolve(contentW)
+                               - child.MarginLeft - child.MarginRight - child.HorizontalInsets);
+            else if (shrinkW)
+            {
+                var pinned = cs.Left.IsDefinite ? cs.Left.Resolve(contentW)
+                           : cs.Right.IsDefinite ? cs.Right.Resolve(contentW) : 0f;
+                var available = MathF.Max(0, contentW - pinned - child.MarginLeft - child.MarginRight - child.HorizontalInsets);
+                fw = MathF.Min(available, MathF.Max(0, MaxContentWidth(child) - PadBorderX(cs)));
+            }
             float? fh = stretchH
                 ? MathF.Max(0, contentH - cs.Top.Resolve(contentH) - cs.Bottom.Resolve(contentH)
                              - child.MarginTop - child.MarginBottom - child.VerticalInsets)

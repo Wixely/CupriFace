@@ -54,6 +54,7 @@ if (!report.IsClean) Console.WriteLine(report);
 | `CF0073` | Repeated controls that disagree on their CROSS-axis size: a column is checked on widths, a row on heights. A state-dependent label ("Connect" vs "Configure") makes one button wider so it juts out of a flush column; a description that wraps makes one card taller so it drops below its row. Every box is individually correct, which is why nothing else catches it — the SET is wrong. Controls only (bare text of differing lengths is not a defect), and a column must be built from sibling rows: a stack of chips or nav links sharing one parent is ragged by nature and stays silent |
 | `CF0090` | Text whose colour is too close to its background to read, measured against WCAG AA (4.5:1, or 3:1 once the text is large). Reported once per colour pair with a working replacement colour. It stays silent wherever the background is not exactly computable — behind a gradient or an image, or under a faded ancestor — and inside a `cupri-*` control, because a caller cannot restyle what one expands into |
 | `CF0072` | Contents that run off the SIDE, past the viewport or past a box that clips them — content nobody can reach, with nothing on screen to say it exists. This is how a desktop layout fails on a phone: width is not height, so the overflowing box is usually one that was never given a width at all. A box with `overflow:scroll` is exempt — it can be dragged to |
+| `CF0075` | Contents that spill out of their own box and over a SIBLING — the two paint on top of each other. A flex card shrunk below the one long token in it (a URL, a hash, "Disconnecting…") runs that token under the next card; a `white-space:nowrap` title paints through the buttons beside it. Neither reaches the viewport edge, so `CF0072` is silent, and this is what a desktop row looks like the first time it meets a phone. Spill, not overlap: only the part of a box's painted extent OUTSIDE its border box is compared with its siblings, so a stack of avatars pulled together with a negative margin stays silent. A clipped or scrolling box paints nothing outside itself; a pinned-height box running out of the bottom is `CF0070`, not this |
 | `CF0080` | Characters no installed font can draw, which paint as empty `.notdef` boxes. A property of the machine, not the document — hence a warning. **Under-reports on macOS**, whose LastResort face matches every codepoint: trust a finding, never its absence |
 
 **Pass the model if the document has one.** `CF0060` and the box checks need it and are skipped
@@ -62,6 +63,20 @@ without it, and those catch the quietest failures of the lot:
 ```csharp
 var report = CupriDoctor.Check(app.Html, app.Css, model: app.Model);
 ```
+
+**Pass several viewports if the layout is meant to change shape.** The same document at a desktop
+and a phone, with each finding stamped with the sizes it appears at — "fine on the desktop, broken
+on the phone" is one report rather than two to diff by eye:
+
+```csharp
+var report = CupriDoctor.Check(app.Html, app.Css, CupriDoctor.DesktopAndPhone, model: app.Model);
+// warning CF0072 (line 12) [at 412x915 only]: <div class='chrome'> is 412px wide but its contents need 556px …
+```
+
+A finding that holds at every size carries no stamp. `DesktopTabletAndPhones` adds 768x1024 and
+360x640; any list of `(width, height)` works. `DeviceSheet.Render(doc, viewports)` is the picture
+of the same thing — every size side by side in one image, each box outlined, so an overlap shows
+as two rectangles crossing.
 
 `report.IsClean` and `report.HasErrors` are the one-line answers, so this drops into a unit test:
 

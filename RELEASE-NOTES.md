@@ -13,6 +13,38 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Added
+
+- **`CF0075`: contents that paint over a sibling.** A flex card shrunk below the long token in it, or
+  a `white-space:nowrap` title beside a row of buttons, spills its text under the neighbour without
+  ever reaching the viewport edge — so `CF0072` had nothing to say. The new check compares the part
+  of a box's painted extent OUTSIDE its border box with its siblings; overlap by design (negative
+  margins) has no spill and stays silent. Reported once per box and side.
+- **`CupriDoctor.Check(html, css, viewports, …)` checks one document at several sizes** and stamps
+  each finding with the sizes it appears at — `[at 412x915 only]` — so a responsive layout's
+  "desktop fine, phone broken" is one report. `Finding.Viewports` carries the stamp;
+  `CupriDoctor.DesktopAndPhone` and `DesktopTabletAndPhones` are the usual lists.
+- **`DeviceSheet.Render(doc, viewports)`** renders the same document at every size side by side
+  in one image with every box outlined, so an overlap shows as rectangles crossing. One read of one
+  PNG covers the desktop and the phone.
+
+### Fixed
+
+- **An absolutely positioned box with `width:auto` and ONE horizontal edge pinned now shrinks to
+  its content**, as CSS says and as `position:fixed` already did. It was laid out as a block filling
+  its containing block, so a badge with `right:8px` and no width came out as wide as its card, at
+  a negative x, and painted across everything in it. A box with both `left` and `right` still
+  stretches between them. If you relied on the fill, say `left:0; right:0` or give it a width.
+- The Showcase's Markdown page stacks its two panes below 600px. The textarea's floor was wider
+  than its pane and painted under the other one at 393dp — the first thing `CF0075` found.
+
+### Changed
+
+- `Finding` has a sixth positional field, `Viewports` (empty unless the sweep set it). Positional
+  deconstruction into five variables no longer compiles; construction with five arguments still does.
+
 ## v0.43.0
 
 ### Added

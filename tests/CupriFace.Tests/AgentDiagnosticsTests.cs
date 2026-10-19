@@ -470,7 +470,9 @@ public class AgentDiagnosticsTests(ITestOutputHelper output)
         {
             model.Section = section;
             var report = CupriDoctor.Check(app.Html, app.Css, app.Components, width, height, model);
-            foreach (var f in report.Findings.Where(f => f.Code == "CF0072")) offScreen.Add($"[{section}] {f}");
+            // …and nothing paints over a neighbour either (CF0075): the markdown page's two panes
+            // did at 393dp, with the textarea's floor wider than the pane, until a @media rule stacked them.
+            foreach (var f in report.Findings.Where(f => f.Code is "CF0072" or "CF0075")) offScreen.Add($"[{section}] {f}");
         }
         foreach (var line in offScreen) output.WriteLine(line);
         Assert.Empty(offScreen);

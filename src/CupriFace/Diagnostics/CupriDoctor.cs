@@ -29,12 +29,17 @@ public enum Severity
 /// <param name="Fix">What to do instead — the half that turns a complaint into help. Empty when
 /// there is nothing specific to suggest.</param>
 /// <param name="Line">1-based source line, or 0 when the finding is not tied to one.</param>
+/// <param name="Viewports">The viewport sizes this was found at, as <c>412x915</c>, when a check
+/// across several sizes found it at SOME of them. Empty when it holds at every size checked, or
+/// when only one size was — that is the ordinary finding, and this is the one that says "your
+/// desktop layout is fine and your phone layout is not".</param>
 public readonly record struct Finding(
-    Severity Severity, string Code, string Message, string Fix = "", int Line = 0)
+    Severity Severity, string Code, string Message, string Fix = "", int Line = 0, string Viewports = "")
 {
     public override string ToString() =>
         $"{Severity.ToString().ToLowerInvariant()} {Code}" +
-        (Line > 0 ? $" (line {Line})" : "") + ": " + Message +
+        (Line > 0 ? $" (line {Line})" : "") +
+        (Viewports.Length > 0 ? $" [at {Viewports} only]" : "") + ": " + Message +
         (Fix.Length > 0 ? "  -> " + Fix : "");
 }
 
@@ -116,6 +121,94 @@ public static partial class CupriDoctor
                                      int width = 1024, int height = 768,
                                      object? model = null,
                                      Action<CupriDocument>? configure = null)
+        => CheckAt(html, css, components, width, height, model, configure);
+
+    /// <summary>A desktop and a phone: the two sizes a layout that claims to be responsive has to
+    /// survive. 1024x768 is the default the single-size check uses; 412x915 is a current mid-range
+    /// Android phone in dp, and the width at which fixed columns written for a desktop first run off
+    /// the side.</summary>
+    public static readonly IReadOnlyList<(int Width, int Height)> DesktopAndPhone =
+        [(1024, 768), (412, 915)];
+
+    /// <summary>The same, with a small phone — 360dp is the narrowest width still common, and the
+    /// one where a row that just fits at 412 no longer does.</summary>
+    public static readonly IReadOnlyList<(int Width, int Height)> DesktopTabletAndPhones =
+        [(1024, 768), (768, 1024), (412, 915), (360, 640)];
+
+    /// <summary>
+    /// Check the same document at SEVERAL viewport sizes, and say which findings belong to which.
+    ///
+    /// <para>This is the check for a layout that is meant to change shape at a breakpoint. The
+    /// single-size check answers "does this survive a phone" when given a phone-sized viewport, but
+    /// the useful fact about a responsive layout is the DIFFERENCE: the desktop is fine, and the
+    /// first time the window is narrow the columns run off the side, the cards paint over each other
+    /// and the nowrap title goes through the buttons. Run at one size, every one of those reads as
+    /// a fault in the document; run at both, each is stamped with the size it appears at, and the
+    /// ones that hold everywhere are reported once with no stamp.</para>
+    ///
+    /// <para>A finding is the same finding across sizes when its code, line and the element it
+    /// names agree. The pixel figures in the message differ by size, so the message is not part of
+    /// the identity; the one reported is from the first size it appeared at.</para>
+    /// </summary>
+    /// <param name="viewports">The sizes to lay out at, in the order to report them.
+    /// <see cref="DesktopAndPhone"/> is the usual pair.</param>
+    public static DoctorReport Check(string html, string? css,
+                                     IReadOnlyList<(int Width, int Height)> viewports,
+                                     ComponentRegistry? components = null,
+                                     object? model = null,
+                                     Action<CupriDocument>? configure = null)
+    {
+        if (viewports.Count == 0) throw new ArgumentException("At least one viewport is needed.", nameof(viewports));
+        if (viewports.Count == 1)
+            return CheckAt(html, css, components, viewports[0].Width, viewports[0].Height, model, configure);
+
+        // Identity → (the first instance seen, the sizes it was seen at), in first-seen order.
+        var order = new List<string>();
+        var seen = new Dictionary<string, (Finding First, List<string> At)>(StringComparer.Ordinal);
+        foreach (var (w, h) in viewports)
+        {
+            var at = $"{w}x{h}";
+            foreach (var f in CheckAt(html, css, components, w, h, model, configure).Findings)
+            {
+                var key = Identity(f);
+                if (!seen.TryGetValue(key, out var e))
+                {
+                    e = (f, new List<string>());
+                    seen[key] = e;
+                    order.Add(key);
+                }
+                if (!e.At.Contains(at)) e.At.Add(at);
+            }
+        }
+
+        var findings = new List<Finding>(order.Count);
+        foreach (var key in order)
+        {
+            var (first, at) = seen[key];
+            findings.Add(at.Count == viewports.Count ? first : first with { Viewports = string.Join(", ", at) });
+        }
+        findings.Sort((a, b) =>
+        {
+            var bySeverity = b.Severity.CompareTo(a.Severity);
+            return bySeverity != 0 ? bySeverity : a.Line.CompareTo(b.Line);
+        });
+        return new DoctorReport(findings);
+
+        // The code, the line, and the element the message names — `<div class='card'>` or a quoted
+        // text run — with the pixel figures left out, since those are what change with the size.
+        static string Identity(Finding f)
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(f.Message, @"<[a-z][\w-]*(?: class='[^']*')?>|^""[^""]*""|\{\{[^}]*\}\}");
+            var subject = m.Success ? m.Value : System.Text.RegularExpressions.Regex.Replace(f.Message, @"\d+(\.\d+)?", "#");
+            return $"{f.Code}|{f.Line}|{subject}";
+        }
+    }
+
+    private static DoctorReport CheckAt(string html, string? css,
+                                        ComponentRegistry? components,
+                                        int width, int height,
+                                        object? model,
+                                        Action<CupriDocument>? configure)
     {
         var findings = new List<Finding>();
         var registry = components ?? ComponentRegistry.Default();
@@ -196,6 +289,7 @@ public static partial class CupriDoctor
             UnrenderedElements(doc, dom, registry, lines, findings);
             ScriptingHabits(dom, lines, findings);
             BoxesThatDoNotFit(doc, width, lines, findings);
+            BoxesThatPaintOverTheirNeighbours(doc, registry, lines, findings);
             PeersThatDoNotLineUp(doc, registry, lines, findings);
             BoxesWithNothingBetweenThem(doc, registry, lines, findings);
             BackdropFilterOutsideTopLayer(doc, lines, findings);
@@ -1181,6 +1275,193 @@ public static partial class CupriDoctor
         n.Element?.GetAttribute("class") is { Length: > 0 } cls
             ? cls.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0]
             : "<" + n.Tag;
+
+    // ---- 6a. does anything paint over its neighbour? -------------------------------------------
+
+    /// <summary>
+    /// Contents that spill out of their own box and over a SIBLING — the two paint on top of each
+    /// other, and that is the whole of what a viewer sees.
+    ///
+    /// <para><b>Why the other two overflow checks miss it.</b> <c>CF0070</c> needs a pinned height,
+    /// and <c>CF0072</c> deliberately reports sideways overflow only when it reaches the viewport
+    /// or a clip — "a box 8px wider than a container with room to spare beside it is invisible".
+    /// True, unless the room beside it is OCCUPIED. A flex card that shrank below the one long
+    /// token in it (a URL, a hash, "Disconnecting…") spills that token under the next card; a
+    /// <c>white-space: nowrap</c> title paints straight through the buttons beside it. Neither
+    /// reaches the edge of anything, so neither reported, and both are exactly what a desktop row
+    /// looks like the first time it meets a phone.</para>
+    ///
+    /// <para><b>Spill, not overlap.</b> Two laid-out boxes that overlap are usually a design — a
+    /// stack of round avatars pulled together with a negative margin — so the laid-out boxes are
+    /// not compared. What is compared is the part of a box's painted extent that lies OUTSIDE its
+    /// own border box, against a sibling's border box. A box whose contents fit has nothing outside
+    /// it and can never report, whatever its margins do.</para>
+    ///
+    /// <para>Painted extent is the union of the box and everything in flow inside it: a text node
+    /// by its line boxes, as <see cref="BoxOverflow.OvershootX"/> measures it, a clipped or
+    /// scrolling box by its own border box (what is outside it is not painted, or can be dragged
+    /// to). Out-of-flow children, transformed or faded boxes are left out for the reasons
+    /// <c>CF0074</c> gives: their painted position is not their laid-out one.</para>
+    /// </summary>
+    private static void BoxesThatPaintOverTheirNeighbours(CupriDocument doc, ComponentRegistry registry,
+                                                          string[] lines, List<Finding> findings)
+    {
+        const float tolerance = 1.5f;   // a pixel of antialiasing is rounding, not a collision
+        var reported = new HashSet<string>(StringComparer.Ordinal);
+
+        void Walk(RenderNode n, float absX, float absY, bool insideControl)
+        {
+            if (n.Style.Display == DisplayType.None) return;
+            if (!insideControl) CheckChildrenOf(n, absX, absY);
+            var inside = insideControl
+                || (n.Element is { } el && registry.Tags.Contains(el.LocalName, StringComparer.OrdinalIgnoreCase));
+            foreach (var c in n.Children) Walk(c, absX + c.X, absY + c.Y, inside);
+        }
+
+        void CheckChildrenOf(RenderNode parent, float absX, float absY)
+        {
+            var kids = new List<(RenderNode Node, Rect Box, Rect Ink)>();
+            foreach (var c in parent.Children)
+            {
+                if (c.IsText || !InFlow(c) || c.Style.Display == DisplayType.Inline) continue;
+                if (c.Width <= 0.5f || c.Height <= 0.5f) continue;
+                if (NotWhereItWasLaidOut(c)) continue;
+                var box = new Rect(absX + c.X, absY + c.Y, c.Width, c.Height);
+                var ink = Ink(c, box.X, box.Y);
+                kids.Add((c, box, ink));
+            }
+            if (kids.Count < 2) return;
+
+            for (var i = 0; i < kids.Count; i++)
+                for (var j = 0; j < kids.Count; j++)
+                {
+                    if (i == j) continue;
+                    var (a, aBox, aInk) = kids[i];
+                    var (b, bBox, _) = kids[j];
+                    // Nothing outside its own box: nothing to spill.
+                    if (aInk.Right <= aBox.Right + tolerance && aInk.Bottom <= aBox.Bottom + tolerance
+                        && aInk.X >= aBox.X - tolerance && aInk.Y >= aBox.Y - tolerance) continue;
+                    // The part outside A's box, against B's box — on each side A spills past.
+                    var hit = Spill(aBox, aInk, bBox, tolerance);
+                    if (hit is null) continue;
+                    // A pinned-height box whose children run past its bottom is already CF0070,
+                    // and the sibling below is where that overflow lands. One failure, one finding.
+                    if (hit.Value.Side == "bottom" && BoxOverflow.Overshoot(a) is not null) continue;
+
+                    // One spill, one finding: a box that runs 1000px past its bottom edge crosses
+                    // every sibling below it, and naming each is three reports of one fault.
+                    var (side, by, where) = hit.Value;
+                    if (!reported.Add(Name(a) + "|" + side)) continue;
+                    var horizontal = side is "right-hand" or "left-hand";
+                    findings.Add(new Finding(Severity.Warning, "CF0075",
+                        $"The contents of {Name(a)} spill {by:0}px past its {side} edge and over {Name(b)} "
+                        + $"{where} it — the two paint on top of each other.",
+                        horizontal
+                            ? "Let the contents wrap or shrink: min-width:0 and overflow-wrap:anywhere on the box "
+                              + "so a long word can break, or overflow:hidden with text-overflow:ellipsis to cut it "
+                              + "off cleanly. If the row must hold everything, flex-wrap:wrap or a @media rule that "
+                              + "stacks it on a narrow viewport."
+                            : "Let the box grow to its contents (remove the fixed height, or min-height instead "
+                              + "of height), or set overflow:hidden or scroll so it keeps its size without "
+                              + "painting over what follows.",
+                        LineOf(lines, ClassNeedle(a))));
+                }
+        }
+
+        // The painted extent of a subtree, absolute. A clipped or scrolling box paints nothing
+        // outside itself; everything else contributes what is in flow inside it.
+        static Rect Ink(RenderNode n, float absX, float absY)
+        {
+            if (n.IsText)
+            {
+                if (n.Lines is { Count: > 0 } ls)
+                {
+                    var r = Rect.Empty;
+                    foreach (var l in ls)
+                        if (l.Width > 0) r = r.Union(new Rect(absX + l.X, absY + l.Y, l.Width, l.Height));
+                    return r;
+                }
+                return new Rect(absX, absY, n.Width, n.Height);
+            }
+            // An inline box has no geometry of its own; its fragments are what it painted.
+            if (n.Style.Display == DisplayType.Inline)
+            {
+                var (sx, sy, sw, sh) = Interaction.HitTesting.ScreenBox(n);
+                return sw > 0 && sh > 0 ? new Rect(sx, sy, sw, sh) : Rect.Empty;
+            }
+            var own = new Rect(absX, absY, n.Width, n.Height);
+            if (n.Style.Overflow != OverflowMode.Visible) return own;
+            var acc = own;
+            foreach (var c in n.Children)
+            {
+                if (c.Style.Display == DisplayType.None || !InFlow(c)) continue;
+                if (!c.IsText && NotWhereItWasLaidOut(c)) continue;
+                acc = acc.Union(Ink(c, absX + c.X, absY + c.Y));
+            }
+            return acc;
+        }
+
+        // Which side of A does the spill cross to land on B, and by how much? Checked side by side
+        // so the message can name a direction a reader can act on.
+        static (string Side, float By, string Where)? Spill(Rect aBox, Rect aInk, Rect bBox, float tol)
+        {
+            if (aInk.Right > aBox.Right + tol)
+            {
+                var strip = new Rect(aBox.Right, aInk.Y, aInk.Right - aBox.Right, aInk.Height);
+                if (strip.Overlaps(bBox, tol)) return ("right-hand", aInk.Right - aBox.Right, "beside");
+            }
+            if (aInk.Bottom > aBox.Bottom + tol)
+            {
+                var strip = new Rect(aInk.X, aBox.Bottom, aInk.Width, aInk.Bottom - aBox.Bottom);
+                if (strip.Overlaps(bBox, tol)) return ("bottom", aInk.Bottom - aBox.Bottom, "below");
+            }
+            if (aInk.X < aBox.X - tol)
+            {
+                var strip = new Rect(aInk.X, aInk.Y, aBox.X - aInk.X, aInk.Height);
+                if (strip.Overlaps(bBox, tol)) return ("left-hand", aBox.X - aInk.X, "beside");
+            }
+            if (aInk.Y < aBox.Y - tol)
+            {
+                var strip = new Rect(aInk.X, aInk.Y, aInk.Width, aBox.Y - aInk.Y);
+                if (strip.Overlaps(bBox, tol)) return ("top", aBox.Y - aInk.Y, "above");
+            }
+            return null;
+        }
+
+        static bool InFlow(RenderNode c) =>
+            c.Style.Position is not (PositionType.Absolute or PositionType.Fixed);
+
+        static bool NotWhereItWasLaidOut(RenderNode n)
+        {
+            if (!n.Style.Visible || n.Style.HasTransform) return true;
+            for (var a = n; a is not null; a = a.Parent)
+                if (a.Style.Opacity <= 0.001f) return true;
+            return false;
+        }
+
+        Walk(doc.Root, doc.Root.X, doc.Root.Y, false);
+    }
+
+    /// <summary>An absolute rectangle, for the spill check. Empty is the identity of
+    /// <see cref="Union"/>.</summary>
+    private readonly record struct Rect(float X, float Y, float Width, float Height)
+    {
+        public static readonly Rect Empty = new(float.NaN, 0, 0, 0);
+        public bool IsEmpty => float.IsNaN(X);
+        public float Right => X + Width;
+        public float Bottom => Y + Height;
+        public Rect Union(Rect o)
+        {
+            if (o.IsEmpty) return this;
+            if (IsEmpty) return o;
+            var l = MathF.Min(X, o.X); var t = MathF.Min(Y, o.Y);
+            return new Rect(l, t, MathF.Max(Right, o.Right) - l, MathF.Max(Bottom, o.Bottom) - t);
+        }
+        public bool Overlaps(Rect o, float tol) =>
+            !IsEmpty && !o.IsEmpty
+            && MathF.Min(Right, o.Right) - MathF.Max(X, o.X) > tol
+            && MathF.Min(Bottom, o.Bottom) - MathF.Max(Y, o.Y) > tol;
+    }
 
     // ---- 6b. do the things that look alike line up? --------------------------------------------
 

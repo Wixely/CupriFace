@@ -52,12 +52,17 @@ error   CF0030 (line 6): <img> is not something the engine draws — it lays out
 | **`CF0074`** | **Two rounded, filled boxes sitting flush** — a margin nobody set, so the curves collide and they read as one broken shape. Square-edged boxes meeting are a seam, not a collision; so is a pair that is faded out or transformed, which is painted somewhere other than where it was laid out |
 | **`CF0073`** | **Repeated controls that disagree on their size** — a column checked on widths, a row checked on heights. One button's longer label pushes it out of line with the others; every box is correct and the SET is wrong |
 | **`CF0072`** | **Contents that run off the SIDE** past the viewport (or a box that clips them) — the way a desktop layout fails on a phone. Pass `width:`/`height:` to check a device size |
+| **`CF0075`** | **Contents that spill out of their box and over a SIBLING** — a card shrunk below its long URL, a `nowrap` title through the buttons beside it. Never reaches an edge, so `CF0072` is silent; this is the other way a desktop row fails on a phone. Spill only: overlap by negative margin is a design and stays quiet |
 | **`CF0090`** | **Text too close in colour to what is behind it to read** (WCAG AA). One finding per colour PAIR, with a readable replacement suggested. Silent whenever the background cannot be computed exactly — a gradient, an image, a faded ancestor — and inside a `cupri-*` control, whose insides a caller cannot restyle |
 | **`CF0080`** | **Characters no installed font can draw** — they paint as empty .notdef boxes. Under-reports on macOS (its LastResort face matches everything): trust a finding, not its absence |
 
 **Pass `model:` whenever the document has one**, and **pass `width:`/`height:` to check a size you
 care about** — `CupriDoctor.Check(html, css, width: 412, height: 915, model: model)` is "does this
-survive a phone" as one assertion. `CF0060` and the box checks are skipped without a model, and
+survive a phone" as one assertion. **If the layout is meant to change shape, pass the sizes
+together**: `CupriDoctor.Check(html, css, CupriDoctor.DesktopAndPhone, model: model)` runs every
+check at each size and stamps a finding with the sizes it appears at — `[at 412x915 only]` — so
+"fine on the desktop, broken on the phone" is one report, and a finding with no stamp is one that
+holds everywhere. `CF0060` and the box checks are skipped without a model, and
 those are the two that catch the quietest bugs. A binding typo is invisible in every other
 way: unknown property → null → empty string → an element that renders perfectly with nothing in it.
 
@@ -75,6 +80,17 @@ using (var f = File.Create("ui.png")) data.SaveTo(f);
 
 Then **open `ui.png` with the Read tool and look at it.** You can see your own output; a screenshot
 settles in one glance what a paragraph of reasoning about flexbox cannot.
+
+**For a layout that has to meet more than one size, render them all into ONE image:**
+
+```csharp
+using var sheet = DeviceSheet.Render(doc, CupriDoctor.DesktopAndPhone);   // CupriFace.Diagnostics
+```
+
+Desktop and phone side by side, each under its size, every box outlined (`doc.DebugOverlay`, put
+back afterwards). An overlap that a plain render hides — overlapping content looks like content —
+shows as two rectangles crossing, and one Read covers every size instead of the one you remembered
+to render.
 
 ### 3. `DumpTree` — what the image cannot tell you
 
@@ -282,11 +298,11 @@ For the WASM/browser host, drive the canvas with the Playwright MCP.
 
 ---
 
-## Four things that make a UI look wrong here
+## Five things that make a UI look wrong here
 
 These are not style preferences. Each is a place where markup that would be right in a browser comes
 out visibly wrong in this engine, and three separate apps (Shade, CursorGoblin, Bantz) each worked
-all four out the hard way before any of it was written down.
+the first four out the hard way before any of it was written down.
 
 ### 1. A row is `display:flex`. There is no inline box.
 
@@ -375,6 +391,41 @@ this reason.
 
 The `cupri-*` controls are already `border-box`, so a width you set on one is the box you can see:
 `<cupri-textfield style="width:220px">` is 220px wide, padding and border included.
+
+### 5. A phone is not a narrow desktop. Check both before you say it is done.
+
+The failure is always the same: the layout was built at the window size it was developed in, and
+the first time the window is 412px wide the columns run off the side, the cards paint over each
+other and the title goes through the buttons. The engine is NOT a browser here in two ways that
+matter:
+
+- **A flex item shrinks below its content.** A browser's `min-width:auto` stops a card shrinking
+  past its longest word, so the row overflows instead; here the card shrinks and the word spills
+  under the next card. `CF0075` reports it, but the fix is yours: `min-width:0` plus
+  `overflow-wrap:anywhere` on anything that can hold a URL, a hash or a long label, or
+  `overflow:hidden` with `text-overflow:ellipsis` to cut it off cleanly.
+- **`flex: 1 1 0` in a COLUMN is a zero-height basis with nothing to grow into.** The same rule
+  that shares a row evenly collapses every item to 0px once a `@media` rule stacks the row. Set
+  `flex: none` on the items in the same rule that sets `flex-direction: column`.
+
+Rules that keep the first phone render right:
+
+- **A row of more than two things wraps or stacks.** `flex-wrap:wrap` on the row, or a
+  `@media (max-width: 600px) { .row { flex-direction:column } .item { flex:none } }` rule. The
+  engine's `@media` understands `min-width`, `max-width`, `min-height` and `max-height` in px, and
+  re-resolves on resize. Nothing else — no `orientation`, no `pointer`.
+- **Columns get `flex:1` and `min-width:0`, never a pixel width.** A pixel width is the desktop
+  talking; `CF0072` reports it at 412px, and the sweep above tells you it only happens there.
+- **A wide block scrolls rather than shrinks.** A six-column table on a phone is better as
+  `overflow:scroll` than crushed; both overflow checks treat a scrolling box as intentional.
+- **`white-space:nowrap` only with `overflow:hidden` and `text-overflow:ellipsis`.** On its own
+  it is a promise to paint over whatever is beside it.
+- **A desktop design that also meets a phone uses `PresentInfo.Adaptive`** (TOOLBOX.md, present
+  modes), so the phone keeps its own width and the breakpoints can fire. `Hybrid` scales the
+  desktop layout down to a third of its size and no `@media` rule ever matches.
+- **Run the sweep with the model, and look at the sheet.** `CupriDoctor.Check(html, css,
+  CupriDoctor.DesktopAndPhone, model: model)` in the test, `DeviceSheet.Render` when you look.
+  A layout only checked at one size is correct at one size.
 
 ### And run the doctor over the states, not just the page
 
