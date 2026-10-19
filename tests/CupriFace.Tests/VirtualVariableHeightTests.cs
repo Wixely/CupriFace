@@ -137,6 +137,66 @@ public class VirtualVariableHeightTests
         Assert.True(list.ScrollY < list.MaxScrollY - 50, "the released pin must not re-engage on append");
     }
 
+    /// <summary>
+    /// Two rebuilds before a layout - what a host does whenever its own refresh cadence lands in the
+    /// frame an app already rebuilt in, which on a render-on-demand phone is often. The second
+    /// rebuild captured the first's tree before anything had laid it out, read its stale
+    /// MaxScrollY of 0 as "at the bottom", and the follow-tail restore put a reader who had scrolled
+    /// up straight back at the end of the log.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_second_rebuild_before_layout_leaves_a_scrolled_up_reader_where_they_were(bool prepend)
+    {
+        var model = Cycle(400);
+        using var t = new TestDoc(Html(" anchor='bottom'"), "", model, width: 320, height: 400, components: true);
+        var list = t.FindClass("cupri-virtual");
+        var (vx, vy) = TestDoc.Center(list);
+        t.Doc.DispatchWheel(vx, vy, -1200f); t.Layout();
+        var reference = Rows(t).First(r => ScreenY(r) > vy - 60 && ScreenY(r) < vy + 60);
+        var text = reference.Element!.TextContent.Trim();
+        var y0 = ScreenY(reference);
+
+        if (prepend)
+        {
+            model.Messages.InsertRange(0, Enumerable.Range(0, 50).Select(i => new Msg { Text = $"old{i}", H = 40 }));
+            t.Doc.VirtualListInserted("Messages", 0, 50);
+        }
+        else
+        {
+            model.Messages.Add(new Msg { Text = "later", H = 60 });
+        }
+
+        t.Doc.Refresh();
+        t.Doc.Refresh();                                       // no layout in between
+        t.Layout();
+
+        list = t.FindClass("cupri-virtual");
+        Assert.True(list.ScrollY < list.MaxScrollY - 50, $"pulled back to the bottom: {list.ScrollY:F0} of {list.MaxScrollY:F0}");
+        var still = Row(t, text);
+        Assert.NotNull(still);
+        Assert.Equal(y0, ScreenY(still!), 1);                  // reading position undisturbed
+    }
+
+    /// <summary>The other half: a reader who WAS at the bottom still follows the tail through the
+    /// same double rebuild, so the fix cannot be "never trust an unlaid tree's bottom".</summary>
+    [Fact]
+    public void A_second_rebuild_before_layout_still_follows_a_reader_at_the_bottom()
+    {
+        var model = Cycle(400);
+        using var t = new TestDoc(Html(" anchor='bottom'"), "", model, width: 320, height: 400, components: true);
+
+        model.Messages.Add(new Msg { Text = "fresh", H = 60 });
+        t.Doc.Refresh();
+        t.Doc.Refresh();
+        t.Layout();
+
+        var list = t.FindClass("cupri-virtual");
+        Assert.Equal(list.MaxScrollY, System.Math.Clamp(list.ScrollY, 0, list.MaxScrollY), 1);
+        Assert.NotNull(Row(t, "fresh"));
+    }
+
     [Fact]
     public void Prepended_history_keeps_the_visible_content_stationary()
     {
