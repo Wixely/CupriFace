@@ -32,7 +32,7 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Changed
 
-- **A flex item in a row no longer shrinks below its content** — CSS flexbox's automatic minimum
+- **BREAKING: a flex item in a row no longer shrinks below its content** — CSS flexbox's automatic minimum
   (`min-width: auto`), which the engine never had. A card holding a long URL stops at the URL and
   the ROW overflows, as it does in a browser, instead of the URL painting under the next card. An
   item with a pixel width still shrinks, down to the smaller of that width and its content. Items
