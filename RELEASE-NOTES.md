@@ -13,6 +13,21 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- **A second rebuild before a layout no longer sends a scrolled-up reader to the bottom of a
+  `follow-tail` / `anchor="bottom"` list.** Asked of a tree no layout had reached yet, "is this
+  scroller at the bottom?" read its MaxScrollY of 0, so every offset counted as the end - and the
+  restore that follows a list's tail put a reader who had scrolled up straight back there. A host
+  produces exactly that whenever its refresh cadence lands in a frame the app has already rebuilt
+  in, which on a render-on-demand phone is often: a chat log jumped to the newest message on the
+  next scroll after a message arrived or a page of history loaded. The answer is now carried from
+  the last laid-out frame, the same way an unlaid node's height already was. A scroller with no
+  laid-out frame behind it keeps the old answer, so a `<cupri-textarea follow-tail>` log still
+  opens at its last line. Nothing to change in your app.
+
 ## v0.44.0
 
 ### Added

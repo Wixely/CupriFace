@@ -1572,9 +1572,25 @@ public sealed partial class CupriDocument : IDisposable
             var hTrans = (n.ContentNaturalHeight > 0 || displayH > 0) && HasHeightTransition(n.Style);
             if (scroll || isScroller || n.ResizeW is not null || n.ResizeH is not null || n.ScrollX > 0.01f || hTrans || n.SplitGrow is not null)
             {
-                var state = new NodeState(n.ScrollY, n.ScrollY >= n.MaxScrollY - 1f, tail, n.ResizeW, n.ResizeH, n.ScrollX, n.ContentNaturalHeight, displayH, n.SplitGrow);
-                (map ??= new())[PathOf(n)] = state;
-                _scrollMemory[PathOf(n)] = state;
+                var path = PathOf(n);
+                // "Was it at the bottom" asked of a node no layout has reached reads its MaxScrollY
+                // of 0, and every offset is >= 0 - so a second rebuild before a layout (a host's
+                // refresh cadence landing in the frame an app already rebuilt in) recorded a reader
+                // who had scrolled up as sitting at the end, and the follow-tail restore below put
+                // them there. Carry the last laid-out answer instead, which is the same carry the
+                // height gets above.
+                //
+                // …but only when there IS one. A scroller seen for the first time has nothing
+                // remembered, and Bind itself rebuilds before the first layout — so answering "no"
+                // there opened every follow-tail log at its first line, and it then never followed.
+                // With nothing remembered, keep the live answer, which is the opening-at-the-end
+                // behaviour a follow-tail log has always had.
+                var atBottom = n.LaidOut
+                    ? n.ScrollY >= n.MaxScrollY - 1f
+                    : _scrollMemory.TryGetValue(path, out var known) ? known.AtBottom : n.ScrollY >= n.MaxScrollY - 1f;
+                var state = new NodeState(n.ScrollY, atBottom, tail, n.ResizeW, n.ResizeH, n.ScrollX, n.ContentNaturalHeight, displayH, n.SplitGrow);
+                (map ??= new())[path] = state;
+                _scrollMemory[path] = state;
             }
             foreach (var c in n.Children) Walk(c);
         }

@@ -19,12 +19,15 @@ public sealed class TestDoc : IDisposable
     public int Width { get; }
     public int Height { get; }
 
+    /// <param name="beforeFirstLayout">Runs after binding and before the first layout: the window in
+    /// which a host's own refreshes can land on a tree nothing has laid out yet.</param>
     public TestDoc(string html, string? css = null, object? model = null, int width = 400, int height = 300,
-        bool components = false)
+        bool components = false, Action<CupriDocument>? beforeFirstLayout = null)
     {
         var doc = CupriDocument.Load(html, css);
         if (components) doc.UseComponents(ComponentRegistry.Default());
         if (model is not null) doc.Bind(model);
+        beforeFirstLayout?.Invoke(doc);
         Doc = doc;
         Width = width; Height = height;
         Layout();
