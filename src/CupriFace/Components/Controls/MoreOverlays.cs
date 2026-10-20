@@ -47,7 +47,11 @@ public sealed class DrawerComponent : ComponentBase
     public override string Tag => "cupri-drawer";
     public override string DefaultCss => """
         .cupri-drawer { display:block; }
-        .cupri-drawer-panel { position:fixed; top:0; height:100%; width:300px; background:var(--cupri-surface, white);
+        /* border-box, or height:100% plus the padding is 44px taller than the viewport and the
+           bottom of the drawer is off-screen where nothing can scroll it (CF0076, found by the
+           state sweep). overflow:auto so a drawer with more in it than a phone is tall scrolls. */
+        .cupri-drawer-panel { position:fixed; top:0; height:100%; width:300px; box-sizing:border-box; overflow:auto;
+                              background:var(--cupri-surface, white);
                               padding:22px; z-index:15; color:var(--cupri-text, #1e2430); box-shadow:0 0 40px #00000033; }
         .cupri-drawer-panel.right { right:0; }
         .cupri-drawer-panel.left  { left:0; }

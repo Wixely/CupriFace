@@ -26,6 +26,29 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **`CupriDoctor.Check(doc)` checks a LIVE document in the state it is in** — the drawer open, a
+  row selected, the focus three Tabs in — rather than a fresh one built from strings, which only
+  ever shows the state a document loads in. Reads the template, stylesheet, model and component
+  library off the document; lays it out one frame at its current viewport (or a size you pass)
+  and leaves it as it was. From a debugger or another thread: `doc.Post(() => CupriDoctor.Check(doc))`.
+- **`CupriDoctor.Sweep(html, css, …, viewports, options)` checks the states a document gets into.**
+  Every `{{path}}` in the markup that is a writable bool on the model — what `open="{{Flag}}"` and
+  `display:{{Flag}}` bind — is flipped alone, all together and in pairs, then the focus is Tabbed
+  through every control, each state at each viewport. Findings present as the document loads are
+  plain; the rest are stamped `[with DialogOpen, DrawerOpen]` or `[focus on "Save"]`. The model is
+  flipped in place and put back. `SweepOptions` names flags, switches pairs or focus off and caps
+  the checks; `CupriDoctor.DiscoverFlags` lists what would be flipped.
+- **`InteractionCrawl.Click(app.CreateDocument, w, h)` clicks every control, each on a fresh
+  document, and checks after each** — the states a click handler produces, which no flag names.
+  Stamped `[after clicking "Show details"]`. `CrawlOptions` filters and caps.
+- **`CF0076`: a positioned box that lands off-screen** — a popup, tooltip, popover or toast placed,
+  or sized, so part of it is past the viewport edge where nothing can scroll it into view. The
+  overflow checks ask whether contents fit their box; this asks whether the box is somewhere. The
+  first thing the sweep found: the drawer panel, `height:100%` plus padding, 44px taller than the
+  viewport (fixed below).
+- `Finding` has a seventh positional field, `State` (empty outside a sweep or crawl), and
+  `DoctorReport.Checks` says how many documents were laid out for a report.
+
 - **`CupriFace.Media.NativeCallGate`**, the gate that fix uses, for anyone writing their own video
   backend. Workers call `TryEnter`/`Exit` (or `Run`) around native calls; `Close` refuses new
   entries and waits for the ones inside, so the native object can then be freed safely. It shares
