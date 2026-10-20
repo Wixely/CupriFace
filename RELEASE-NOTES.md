@@ -13,6 +13,18 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- **A document rebuild mid-fling no longer stops the fling.** An app that refreshes on a cadence
+  handed the next animation step a tree no layout had reached yet, whose scroller reported
+  `MaxScrollY` 0 and so "not scrollable" - and the fling was stopped dead on the first refresh
+  after the finger lifted. A chat that rebuilt at 20 Hz had no momentum at all on a phone. The
+  unlaid frame now applies nothing and leaves the fling's clock alone, so the frame after layout
+  integrates the whole interval and the fling travels the same distance rebuilt or not. Nothing
+  to change in your app.
+
 ## v0.45.0
 
 ### Fixed

@@ -97,6 +97,46 @@ public class FlingTests
         }
     }
 
+    /// <summary>A REBUILD MID-FLING KEEPS THE MOMENTUM. An app that refreshes on a cadence - Banter
+    /// rebuilds its document at 20 Hz - handed the next step a tree no layout had reached yet,
+    /// whose scroller said MaxScrollY 0 and so "not scrollable", and the fling stopped dead on the
+    /// first refresh after the finger lifted: a chat on a phone had no inertia at all. The host's
+    /// order is refresh, then the animation clock, then layout; the unlaid frame applies nothing
+    /// and leaves the clock alone, so the whole fling travels the same distance rebuilt or not.</summary>
+    [Fact]
+    public void A_rebuild_mid_fling_keeps_the_momentum()
+    {
+        static float Travel(bool rebuild)
+        {
+            using var t = new TestDoc(Html, Css);
+            var touch = new TouchInput(t.Doc);
+            touch.Down(200, 80, 0.00);
+            touch.Move(200, 60, 0.02);
+            touch.Move(200, 40, 0.04);
+            touch.Up(200, 20, 0.06);
+            Assert.True(t.Doc.FlingActive, "the release did not start a fling");
+
+            var start = t.Find(n => n.IsScrollable)!.ScrollY;
+            var now = 0.06;
+            for (var i = 0; i < 100_000 && t.Doc.FlingActive; i++)
+            {
+                now += 1.0 / 60;
+                if (rebuild && i % 3 == 0) t.Doc.Refresh();   // as a host's refresh cadence does
+                t.Doc.Animate(now);                           // on the unlaid tree, as the host does
+                t.Layout();
+                if (rebuild && i == 0) Assert.True(t.Doc.FlingActive, "the first rebuild killed the fling");
+            }
+
+            return t.Find(n => n.IsScrollable)!.ScrollY - start;
+        }
+
+        var plain = Travel(rebuild: false);
+        Assert.True(plain > 50, $"the reference fling must actually travel, got {plain:F1}px");
+
+        var rebuilt = Travel(rebuild: true);
+        Assert.InRange(rebuilt, plain * 0.985f, plain * 1.015f);
+    }
+
     /// <summary>A STALL contributes nothing. The thread was blocked; none of that gap was animation,
     /// so integrating it would teleport the scroll to wherever two seconds of momentum reaches.
     /// Measured: a blocked main thread hands the host the whole gap as a frame timestamp, and fires

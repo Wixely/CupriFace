@@ -4018,6 +4018,18 @@ public sealed partial class CupriDocument : IDisposable
     private bool StepFling(double now)
     {
         if (_flingPath is null) return false;
+
+        // Resolved BEFORE the clock is read. A rebuild between two frames - an app that refreshes
+        // on a cadence does this every few frames - hands this a tree no layout has reached yet,
+        // whose scroller reports MaxScrollY 0 and so "not scrollable": the fling was stopped dead
+        // on the first refresh after the finger lifted, and a chat that rebuilt at 20 Hz had no
+        // momentum at all. An unlaid scroller is not a vanished one. Nothing is applied this frame
+        // and the clock is not advanced, so the frame after layout integrates the whole interval
+        // and the travel is the same as if nothing had been rebuilt.
+        var n = NodeAtPath(_flingPath);
+        if (n is null) { StopFling(); return false; }
+        if (!n.LaidOut) return true;
+
         var dt = StepDt(ref _flingT, now);
         if (dt <= 0) return true;                       // first frame stamps the clock only
 
@@ -4042,8 +4054,7 @@ public sealed partial class CupriDocument : IDisposable
         var decay = (float)Math.Exp(-dt * FlingDecay);
         var travel = _flingV * (1f - decay) / FlingDecay;   // integral of v*e^(-kt) over [0, dt]
         _flingV *= decay;
-        var n = NodeAtPath(_flingPath);
-        if (n is null || !(_flingHorizontal ? n.IsScrollableX : n.IsScrollable)) { StopFling(); return false; }
+        if (!(_flingHorizontal ? n.IsScrollableX : n.IsScrollable)) { StopFling(); return false; }
 
         bool moved;
         if (_flingHorizontal)
