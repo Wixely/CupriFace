@@ -13,6 +13,24 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- **An Android app playing a local `<cupri-video>` no longer crashes if its activity is destroyed
+  while the video is still loading** (#317). Destroying the activity frees the shared LibVLC
+  instance, and a player still spooling its file then built its media against it: `libvlc_retain:
+  assertion "p_instance != NULL" failed`, SIGABRT, process gone. Most often seen at startup. The
+  media is now built inside the same native-call gate the player's other workers use, so teardown
+  waits for it or it never starts. Nothing to change in your app.
+
+### Added
+
+- **`CupriFace.Media.NativeCallGate`**, the gate that fix uses, for anyone writing their own video
+  backend. Workers call `TryEnter`/`Exit` (or `Run`) around native calls; `Close` refuses new
+  entries and waits for the ones inside, so the native object can then be freed safely. It shares
+  the owner's lock, so `lock (sync) { if (gate.IsClosed) … }` checks stay atomic with the close.
+
 ## v0.44.1
 
 ### Fixed

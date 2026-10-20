@@ -158,15 +158,25 @@ public class AndroidPlaybackIntegrationTests
     {
         var source = Media("VlcPlayer.cs");
 
-        Assert.Contains("private bool TryEnterNative()", source, StringComparison.Ordinal);
-        Assert.Contains("Monitor.Wait(_gate)", source, StringComparison.Ordinal);
-
-        // The flag has to be claimed under the same lock the gate checks it under, or the gate is
-        // just a racing read with extra steps.
+        // The gate itself — claim under the lock, wait for the last worker out — is NativeCallGate,
+        // tested by behaviour in NativeCallGateTests. What is pinned here is that this player uses
+        // it on its OWN lock (so `lock (_gate) { if (Disposed) … }` stays atomic with the close)
+        // and that Dispose closes it before freeing anything.
+        Assert.Contains("new NativeCallGate(_gate)", source, StringComparison.Ordinal);
+        Assert.Contains("private bool TryEnterNative() => _native.TryEnter();", source, StringComparison.Ordinal);
         var dispose = source[source.IndexOf("public void Dispose()", StringComparison.Ordinal)..];
-        var claim = dispose.IndexOf("_disposed = true", StringComparison.Ordinal);
-        var lockAt = dispose.IndexOf("lock (_gate)", StringComparison.Ordinal);
-        Assert.True(lockAt >= 0 && lockAt < claim, "Dispose must claim _disposed under _gate");
+        var close = dispose.IndexOf("_native.Close()", StringComparison.Ordinal);
+        var free = dispose.IndexOf("_player.Dispose()", StringComparison.Ordinal);
+        Assert.True(close >= 0 && close < free, "Dispose must close the native gate before freeing the player");
+
+        // Every native MEDIA is built inside the gate (#317). The worker scan below only sees
+        // Task.Run bodies, and the local-file path built its media after an `await` instead —
+        // against the shared LibVLC instance the backend had already freed when the activity was
+        // destroyed during startup. libvlc_retain asserted and the process died.
+        var builds = source.Split("new VlcMedia(", StringSplitOptions.None).Length - 1;
+        var gated = source.Split("Publish(() => new VlcMedia(", StringSplitOptions.None).Length - 1;
+        Assert.True(builds > 0 && builds == gated, $"{builds - gated} of {builds} VlcMedia constructions are outside Publish");
+        Assert.Contains("private void Publish(Func<VlcMedia> build) => _native.Run(", source, StringComparison.Ordinal);
 
         // Every worker that touches the native player enters the gate first. Checked per worker
         // rather than by counting, because one that does only file I/O rightly needs no gate.
@@ -176,7 +186,7 @@ public class AndroidPlaybackIntegrationTests
         {
             // The body up to the next worker is close enough to attribute a native call to it.
             if (!worker.Contains("_player.", StringComparison.Ordinal)) continue;
-            // Two guards are sound, and for the same reason — Dispose claims _disposed under
+            // Two guards are sound, and for the same reason — Dispose closes the gate under
             // _gate, so either holding the gate or taking the lock excludes it. A bare flag read
             // followed by a native call is the one that is not.
             Assert.True(worker.Contains("TryEnterNative()", StringComparison.Ordinal)
