@@ -24,8 +24,9 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   produces exactly that whenever its refresh cadence lands in a frame the app has already rebuilt
   in, which on a render-on-demand phone is often: a chat log jumped to the newest message on the
   next scroll after a message arrived or a page of history loaded. The answer is now carried from
-  the last laid-out frame, the same way an unlaid node's height already was. Nothing to change in
-  your app.
+  the last laid-out frame, the same way an unlaid node's height already was. A scroller with no
+  laid-out frame behind it keeps the old answer, so a `<cupri-textarea follow-tail>` log still
+  opens at its last line. Nothing to change in your app.
 
 ## v0.44.0
 
