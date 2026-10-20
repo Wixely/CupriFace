@@ -52,6 +52,7 @@ error   CF0030 (line 6): <img> is not something the engine draws — it lays out
 | **`CF0074`** | **Two rounded, filled boxes sitting flush** — a margin nobody set, so the curves collide and they read as one broken shape. Square-edged boxes meeting are a seam, not a collision; so is a pair that is faded out or transformed, which is painted somewhere other than where it was laid out |
 | **`CF0073`** | **Repeated controls that disagree on their size** — a column checked on widths, a row checked on heights. One button's longer label pushes it out of line with the others; every box is correct and the SET is wrong |
 | **`CF0072`** | **Contents that run off the SIDE** past the viewport (or a box that clips them) — the way a desktop layout fails on a phone. Pass `width:`/`height:` to check a device size |
+| **`CF0076`** | **A positioned box that lands off-screen** — a popup, tooltip, popover or toast placed, or sized, so part of it is past the viewport edge where nothing can scroll it into view. The overflow checks ask whether contents fit their box; this asks whether the box is somewhere. A `fixed` box is judged on every side, an `absolute` one sideways and above, since below the fold may be further down a page |
 | **`CF0075`** | **Contents that spill out of their box and over a SIBLING** — a card shrunk below its long URL, a `nowrap` title through the buttons beside it. Never reaches an edge, so `CF0072` is silent; this is the other way a desktop row fails on a phone. Spill only: overlap by negative margin is a design and stays quiet |
 | **`CF0090`** | **Text too close in colour to what is behind it to read** (WCAG AA). One finding per colour PAIR, with a readable replacement suggested. Silent whenever the background cannot be computed exactly — a gradient, an image, a faded ancestor — and inside a `cupri-*` control, whose insides a caller cannot restyle |
 | **`CF0080`** | **Characters no installed font can draw** — they paint as empty .notdef boxes. Under-reports on macOS (its LastResort face matches everything): trust a finding, not its absence |
@@ -62,7 +63,32 @@ survive a phone" as one assertion. **If the layout is meant to change shape, pas
 together**: `CupriDoctor.Check(html, css, CupriDoctor.DesktopAndPhone, model: model)` runs every
 check at each size and stamps a finding with the sizes it appears at — `[at 412x915 only]` — so
 "fine on the desktop, broken on the phone" is one report, and a finding with no stamp is one that
-holds everywhere. `CF0060` and the box checks are skipped without a model, and
+holds everywhere.
+
+**All of that sees the document as it LOADS: every menu closed, nothing focused, no handler run.**
+That is the state a layout is least likely to be wrong in. Three ways to check the others:
+
+```csharp
+// the document you are looking at, in the state it is in — mid-session, from a debugger, via Post
+doc.Post(() => File.WriteAllText("doctor.txt", CupriDoctor.Check(doc).ToString()));
+
+// every bool the markup binds (open="{{Flag}}", display:{{Flag}}…) flipped: alone, all, in pairs;
+// then Tab through every control — findings stamped [with DialogOpen, DrawerOpen] / [focus on "Save"]
+var sweep = CupriDoctor.Sweep(app.Html, app.Css, app.Components, app.Model, app.Configure,
+                              viewports: CupriDoctor.DesktopAndPhone);
+
+// every control clicked, each on a fresh document from the app's own factory, so the HANDLERS run —
+// the states no flag names; findings stamped [after clicking "Show details"]
+var crawl = InteractionCrawl.Click(app.CreateDocument, 412, 915);
+```
+
+`Check(doc)` reads the template, stylesheet and model off the live document and lays it out one
+frame, so it comes back as it was. `Sweep` flips the flags on the caller's model and puts them
+back; `CupriDoctor.DiscoverFlags(html, model)` lists what it would flip, which is the thing to
+assert before trusting a sweep that reports nothing. Both are the union of ordinary checks, so a
+finding present as the document loads is plain and only the state-dependent ones carry a stamp.
+Budget: about a fifth of a second per state; 12 flags at two sizes is ~160 checks, pairs dropped
+first past `SweepOptions.MaxChecks`. `CF0060` and the box checks are skipped without a model, and
 those are the two that catch the quietest bugs. A binding typo is invisible in every other
 way: unknown property → null → empty string → an element that renders perfectly with nothing in it.
 

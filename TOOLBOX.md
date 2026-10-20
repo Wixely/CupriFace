@@ -54,6 +54,7 @@ if (!report.IsClean) Console.WriteLine(report);
 | `CF0073` | Repeated controls that disagree on their CROSS-axis size: a column is checked on widths, a row on heights. A state-dependent label ("Connect" vs "Configure") makes one button wider so it juts out of a flush column; a description that wraps makes one card taller so it drops below its row. Every box is individually correct, which is why nothing else catches it — the SET is wrong. Controls only (bare text of differing lengths is not a defect), and a column must be built from sibling rows: a stack of chips or nav links sharing one parent is ragged by nature and stays silent |
 | `CF0090` | Text whose colour is too close to its background to read, measured against WCAG AA (4.5:1, or 3:1 once the text is large). Reported once per colour pair with a working replacement colour. It stays silent wherever the background is not exactly computable — behind a gradient or an image, or under a faded ancestor — and inside a `cupri-*` control, because a caller cannot restyle what one expands into |
 | `CF0072` | Contents that run off the SIDE, past the viewport or past a box that clips them — content nobody can reach, with nothing on screen to say it exists. This is how a desktop layout fails on a phone: width is not height, so the overflowing box is usually one that was never given a width at all. A box with `overflow:scroll` is exempt — it can be dragged to |
+| `CF0076` | A positioned box — a popup, tooltip, popover, badge or toast — that lies partly outside the viewport, where nothing can scroll it into view. The overflow checks ask whether a box's CONTENTS fit it; a menu popup laid out 509px wide at x=4 in a 412px viewport passes both and is simply placed where 101px of it does not exist. The engine clamps an anchored popup's position to the viewport but cannot shrink it, so the fix is `max-width` (or wrapping text) on the popup. Out-of-flow boxes only: a `fixed` one is judged on every side, an `absolute` one sideways and above, because below the viewport may be further down a page the user can scroll. Anything inside a scrolling ancestor is exempt on that axis |
 | `CF0075` | Contents that spill out of their own box and over a SIBLING — the two paint on top of each other. A flex card shrunk below the one long token in it (a URL, a hash, "Disconnecting…") runs that token under the next card; a `white-space:nowrap` title paints through the buttons beside it. Neither reaches the viewport edge, so `CF0072` is silent, and this is what a desktop row looks like the first time it meets a phone. Spill, not overlap: only the part of a box's painted extent OUTSIDE its border box is compared with its siblings, so a stack of avatars pulled together with a negative margin stays silent. A clipped or scrolling box paints nothing outside itself; a pinned-height box running out of the bottom is `CF0070`, not this |
 | `CF0080` | Characters no installed font can draw, which paint as empty `.notdef` boxes. A property of the machine, not the document — hence a warning. **Under-reports on macOS**, whose LastResort face matches every codepoint: trust a finding, never its absence |
 
@@ -77,6 +78,41 @@ A finding that holds at every size carries no stamp. `DesktopTabletAndPhones` ad
 360x640; any list of `(width, height)` works. `DeviceSheet.Render(doc, viewports)` is the picture
 of the same thing — every size side by side in one image, each box outlined, so an overlap shows
 as two rectangles crossing.
+
+**Check the states a document gets INTO, not only the one it starts in.** A fresh document has
+every menu closed, nothing focused and no handler run, which is the state a layout is least
+likely to be wrong in. Three more entry points:
+
+```csharp
+CupriDoctor.Check(doc);                       // THIS document, in the state it is in (mid-session, from a debugger)
+CupriDoctor.Sweep(html, css, components, model, configure, viewports, options);
+InteractionCrawl.Click(app.CreateDocument, 412, 915);
+```
+
+`Check(doc)` reads the template, stylesheet, model and component library off a live document and
+lays it out one frame at its current viewport (or a size you give), so it comes back as it was —
+scroll, focus and open overlays survive a rebuild as they always do. Call it on the document's
+thread, or through `doc.Post` from another.
+
+`Sweep` finds the flags in the markup — every `{{path}}` that is a writable bool on the model,
+which is what `open="{{Flag}}"` and `display:{{Flag}}` are bound to — and checks the document
+with each flipped alone, all together, and every pair, then Tabs through every control and checks
+with the focus on each. Findings present as it loads are plain; the rest carry their state:
+`[with DialogOpen, DrawerOpen]`, `[focus on "Save"]`. The model is flipped in place and put back.
+`SweepOptions` names the flags, switches pairs or focus off, and caps the checks (pairs are
+dropped first); `CupriDoctor.DiscoverFlags(html, model)` is the list it would flip, worth
+asserting before trusting a sweep that reports nothing — an anonymous model has read-only
+properties and discovers none.
+
+`InteractionCrawl.Click` reaches what no flag names: a click HANDLER's state. It clicks every
+focusable control at the centre of its accessible bounds, each on a fresh document from the app's
+own factory so the handlers are the real ones, and checks after each — stamped
+`[after clicking "Show details"]`. One level deep by design: the first click from a fresh document
+is where the first-time failures are, and two levels is the square. `CrawlOptions` filters by
+name and caps the clicks.
+
+`DoctorReport.Checks` is how many documents were laid out for the report: 1 for a check, states
+times viewports for a sweep, clicks plus one for a crawl. About a fifth of a second each.
 
 `report.IsClean` and `report.HasErrors` are the one-line answers, so this drops into a unit test:
 

@@ -33,13 +33,21 @@ public enum Severity
 /// across several sizes found it at SOME of them. Empty when it holds at every size checked, or
 /// when only one size was — that is the ordinary finding, and this is the one that says "your
 /// desktop layout is fine and your phone layout is not".</param>
+/// <param name="State">The states a <see cref="CupriDoctor.Sweep"/> found this in, when it is
+/// absent from the document as it loads: <c>with DialogOpen, DrawerOpen</c> for flags flipped on
+/// the model, <c>focus on "Save"</c> for a Tab stop, <c>after clicking "Save"</c> for an
+/// <see cref="InteractionCrawl"/>. Empty for a finding present as the document loads, which is
+/// every finding of the ordinary check.</param>
 public readonly record struct Finding(
-    Severity Severity, string Code, string Message, string Fix = "", int Line = 0, string Viewports = "")
+    Severity Severity, string Code, string Message, string Fix = "", int Line = 0, string Viewports = "",
+    string State = "")
 {
     public override string ToString() =>
         $"{Severity.ToString().ToLowerInvariant()} {Code}" +
         (Line > 0 ? $" (line {Line})" : "") +
-        (Viewports.Length > 0 ? $" [at {Viewports} only]" : "") + ": " + Message +
+        (Viewports.Length > 0 ? $" [at {Viewports} only]" : "") +
+        (State.Length > 0 ? $" [{State}]" : "") +
+        ": " + Message +
         (Fix.Length > 0 ? "  -> " + Fix : "");
 }
 
@@ -50,6 +58,10 @@ public sealed class DoctorReport
 
     /// <summary>Everything noticed, worst first.</summary>
     public IReadOnlyList<Finding> Findings { get; }
+
+    /// <summary>How many documents were laid out and inspected to produce this: 1 for a check, the
+    /// number of states times viewports for a <see cref="CupriDoctor.Sweep"/>.</summary>
+    public int Checks { get; internal init; } = 1;
 
     /// <summary>Nothing found at any severity — the one-line answer.</summary>
     public bool IsClean => Findings.Count == 0;
@@ -194,14 +206,79 @@ public static partial class CupriDoctor
         });
         return new DoctorReport(findings);
 
-        // The code, the line, and the element the message names — `<div class='card'>` or a quoted
-        // text run — with the pixel figures left out, since those are what change with the size.
-        static string Identity(Finding f)
+    }
+
+    /// <summary>What makes two findings from different checks the SAME finding: the code, the line,
+    /// and the element the message names — `&lt;div class='card'&gt;` or a quoted text run — with
+    /// the pixel figures left out, since those are what change with the size or the state.</summary>
+    internal static string Identity(Finding f)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(f.Message, @"<[a-z][\w-]*(?: class='[^']*')?>|^""[^""]*""|\{\{[^}]*\}\}");
+        var subject = m.Success ? m.Value : System.Text.RegularExpressions.Regex.Replace(f.Message, @"\d+(\.\d+)?", "#");
+        return $"{f.Code}|{f.Line}|{subject}";
+    }
+
+    /// <summary>
+    /// Check a document that already exists — the one an app is running, in the state it is in.
+    ///
+    /// <para>Everything the string-based check finds, it finds by building a fresh document and
+    /// reading it, which means it only ever sees the state a fresh document starts in: every menu
+    /// closed, nothing focused, nothing hovered, no handler run. That is the state a layout is
+    /// least likely to be wrong in. The one an agent is looking at mid-session has the drawer open,
+    /// a row selected and the keyboard focus three Tabs in, and that is what this checks: the
+    /// template, stylesheet, model and component library are read off the document, and the tree
+    /// inspected is the live one.</para>
+    ///
+    /// <para><b>It lays the document out.</b> Checking needs a laid-out tree, so this refreshes and
+    /// renders one frame, at the document's current viewport unless a size is given — exactly what
+    /// a host does every frame, so the document comes back in the state it was in (scroll, focus
+    /// and open overlays are carried across a rebuild as they always are). A different size leaves
+    /// it laid out at that size until the host renders again. Call it on the document's own thread,
+    /// or through <c>doc.Post</c> from another.</para>
+    ///
+    /// <code>
+    /// doc.Post(() => File.WriteAllText("doctor.txt", CupriDoctor.Check(doc).ToString()));
+    /// </code>
+    /// </summary>
+    /// <param name="doc">A document with its components, model and configuration applied — one from
+    /// <c>CupriApp.CreateDocument</c>, or one you built the same way.</param>
+    /// <param name="width">Viewport width to lay out at; 0 keeps the document's own (and uses
+    /// 1024x768 if it has never been laid out).</param>
+    /// <param name="height">Viewport height, as <paramref name="width"/>.</param>
+    public static DoctorReport Check(CupriDocument doc, int width = 0, int height = 0)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+        var html = doc.TemplateHtml;
+        var css = doc.Stylesheet;
+        var model = doc.BoundModel;
+        var registry = doc.ComponentsInUse ?? ComponentRegistry.Default();
+        if (width <= 0) width = doc.ViewportWidth > 0 ? (int)MathF.Round(doc.ViewportWidth) : 1024;
+        if (height <= 0) height = doc.ViewportHeight > 0 ? (int)MathF.Round(doc.ViewportHeight) : 768;
+
+        var findings = new List<Finding>();
+        var lines = html.Replace("\r\n", "\n").Split('\n');
+        MalformedHtml(html, findings);
+
+        var heard = new Heard();
+        try
         {
-            var m = System.Text.RegularExpressions.Regex.Match(f.Message, @"<[a-z][\w-]*(?: class='[^']*')?>|^""[^""]*""|\{\{[^}]*\}\}");
-            var subject = m.Success ? m.Value : System.Text.RegularExpressions.Regex.Replace(f.Message, @"\d+(\.\d+)?", "#");
-            return $"{f.Code}|{f.Line}|{subject}";
+            using (heard.Listen())
+            {
+                // A rebuild re-resolves every style against the fresh DOM, so the hooks hear the
+                // stylesheet exactly as the string-based check does — including the :focus,
+                // :hover and open-state rules that only match in the state the document is in now.
+                doc.Refresh();
+                using (doc.RenderToImage(width, height)) { }
+            }
         }
+        catch (Exception ex)
+        {
+            findings.Add(CouldNotBuild(ex, heard, lines));
+            return Finish(doc, findings, css, html, heard);
+        }
+
+        Inspect(doc, doc.ExpandedDom, html, css, model, registry, width, height, lines, findings);
+        return Finish(doc, findings, css, html, heard);
     }
 
     private static DoctorReport CheckAt(string html, string? css,
@@ -220,19 +297,13 @@ public static partial class CupriDoctor
         // rather than a description of it.
         CupriDocument? doc = null;
         IDocument? dom = null;
-        var unsupportedCss = new List<string>();
-        var missingGlyphs = new SortedSet<int>();
-        var declarations = new List<(string Prop, string Value)>();
+        var heard = new Heard();
         try
         {
-            // The CSS hook goes on BEFORE the document is built. Styles resolve during the first
+            // The CSS hooks go on BEFORE the document is built. Styles resolve during the first
             // build and the result is cached, so a hook attached afterwards hears nothing at all —
             // which is exactly how the first version of this quietly reported no CSS problems ever.
-            StyleResolver.UnsupportedProperty = (p, _) => unsupportedCss.Add(p);
-            // Value-level gaps need the declarations themselves — see UnsupportedCssFunctions.
-            StyleResolver.DeclarationApplied = (p, v) => declarations.Add((p, v));
-            Text.FontService.GlyphMissing = cp => missingGlyphs.Add(cp);
-            try
+            using (heard.Listen())
             {
                 doc = CupriDocument.Load(html, css ?? "");
                 doc.UseComponents(registry);
@@ -249,64 +320,109 @@ public static partial class CupriDoctor
                 doc.Refresh();
                 using (doc.RenderToImage(width, height)) { }
             }
-            finally
+        }
+        catch (Exception ex)
+        {
+            findings.Add(CouldNotBuild(ex, heard, lines));
+        }
+
+        if (doc is not null)
+        {
+            Inspect(doc, dom, html, css, model, registry, width, height, lines, findings);
+        }
+        var report = Finish(doc, findings, css, html, heard);
+        doc?.Dispose();
+        return report;
+    }
+
+    /// <summary>What the engine announces while a document is built and styled: the CSS it ignored,
+    /// every declaration it applied (for the value-level checks), and the glyphs no font could draw.
+    /// The hooks are static, so one listener at a time; <see cref="Listen"/> attaches and the
+    /// returned scope detaches.</summary>
+    private sealed class Heard
+    {
+        public readonly List<string> UnsupportedCss = new();
+        public readonly SortedSet<int> MissingGlyphs = new();
+        public readonly List<(string Prop, string Value)> Declarations = new();
+
+        public IDisposable Listen()
+        {
+            StyleResolver.UnsupportedProperty = (p, _) => UnsupportedCss.Add(p);
+            StyleResolver.DeclarationApplied = (p, v) => Declarations.Add((p, v));
+            Text.FontService.GlyphMissing = cp => MissingGlyphs.Add(cp);
+            return new Scope();
+        }
+
+        private sealed class Scope : IDisposable
+        {
+            public void Dispose()
             {
                 StyleResolver.UnsupportedProperty = null;
                 StyleResolver.DeclarationApplied = null;
                 Text.FontService.GlyphMissing = null;
             }
         }
-        catch (Exception ex)
-        {
-            // Name the declaration, when the failure came from the style pass.
-            //
-            // The raw exception on its own is unactionable — "length ('-5') must be a non-negative
-            // value" says nothing about a colour, a border, or even CSS (#196). But the resolver
-            // announces every declaration as it applies it, so the LAST one announced is the one it
-            // was working on when it threw. The stack is checked before claiming that: an exception
-            // from layout or paint has a last declaration too, and it means nothing there.
-            var culprit = declarations.Count > 0 && ex.StackTrace is { } st
-                          && (st.Contains("StyleResolver") || st.Contains("Colors") || st.Contains("CupriFace.Style"))
-                ? declarations[^1]
-                : default((string Prop, string Value)?);
+    }
 
-            var where = culprit is { } d ? $" while applying `{d.Prop}: {d.Value}`" : "";
-            var line = culprit is { } c ? LineOf(lines, c.Prop + ":") : 0;
-            var fix = culprit is { } f
-                ? $"Look at `{f.Prop}: {f.Value}` — the engine was applying it when the build failed. "
-                  + "Fix this first: the other checks ran on an incomplete document, or not at all."
-                : "Fix this first — the other checks ran on an incomplete document, or not at all.";
+    /// <summary>CF0001, with the declaration named when the failure came from the style pass.
+    ///
+    /// <para>The raw exception on its own is unactionable — "length ('-5') must be a non-negative
+    /// value" says nothing about a colour, a border, or even CSS (#196). But the resolver
+    /// announces every declaration as it applies it, so the LAST one announced is the one it
+    /// was working on when it threw. The stack is checked before claiming that: an exception
+    /// from layout or paint has a last declaration too, and it means nothing there.</para></summary>
+    private static Finding CouldNotBuild(Exception ex, Heard heard, string[] lines)
+    {
+        var declarations = heard.Declarations;
+        var culprit = declarations.Count > 0 && ex.StackTrace is { } st
+                      && (st.Contains("StyleResolver") || st.Contains("Colors") || st.Contains("CupriFace.Style"))
+            ? declarations[^1]
+            : default((string Prop, string Value)?);
 
-            findings.Add(new Finding(Severity.Error, "CF0001",
-                $"The document could not be built{where}: {ex.GetType().Name}: {ex.Message}",
-                fix, line));
-        }
+        var where = culprit is { } d ? $" while applying `{d.Prop}: {d.Value}`" : "";
+        var line = culprit is { } c ? LineOf(lines, c.Prop + ":") : 0;
+        var fix = culprit is { } f
+            ? $"Look at `{f.Prop}: {f.Value}` — the engine was applying it when the build failed. "
+              + "Fix this first: the other checks ran on an incomplete document, or not at all."
+            : "Fix this first — the other checks ran on an incomplete document, or not at all.";
 
-        if (doc is not null)
-        {
-            UnknownComponents(dom, registry, lines, findings);
-            TogglesWithNothingToToggle(dom, lines, findings);
-            UnrenderedElements(doc, dom, registry, lines, findings);
-            ScriptingHabits(dom, lines, findings);
-            BoxesThatDoNotFit(doc, width, lines, findings);
-            BoxesThatPaintOverTheirNeighbours(doc, registry, lines, findings);
-            PeersThatDoNotLineUp(doc, registry, lines, findings);
-            BoxesWithNothingBetweenThem(doc, registry, lines, findings);
-            BackdropFilterOutsideTopLayer(doc, lines, findings);
-            StickyWithNothingToStickTo(doc, lines, findings);
-            TextNobodyCanRead(doc, registry, lines, findings);
-            if (model is not null) UnresolvedBindings(html, model, lines, findings);
-            doc.Dispose();
-        }
+        return new Finding(Severity.Error, "CF0001",
+            $"The document could not be built{where}: {ex.GetType().Name}: {ex.Message}",
+            fix, line);
+    }
 
-        MissingGlyphs(missingGlyphs, findings);
+    /// <summary>Every check that reads a laid-out document. Shared by the string-based check, which
+    /// builds one, and the live check, which is handed one.</summary>
+    private static void Inspect(CupriDocument doc, IDocument? dom, string html, string? css, object? model,
+                                ComponentRegistry registry, int width, int height, string[] lines, List<Finding> findings)
+    {
+        UnknownComponents(dom, registry, lines, findings);
+        TogglesWithNothingToToggle(dom, lines, findings);
+        UnrenderedElements(doc, dom, registry, lines, findings);
+        ScriptingHabits(dom, lines, findings);
+        BoxesThatDoNotFit(doc, width, lines, findings);
+        BoxesThatPaintOverTheirNeighbours(doc, registry, lines, findings);
+        BoxesThatLandOffScreen(doc, width, height, lines, findings);
+        PeersThatDoNotLineUp(doc, registry, lines, findings);
+        BoxesWithNothingBetweenThem(doc, registry, lines, findings);
+        BackdropFilterOutsideTopLayer(doc, lines, findings);
+        StickyWithNothingToStickTo(doc, lines, findings);
+        TextNobodyCanRead(doc, registry, lines, findings);
+        if (model is not null) UnresolvedBindings(html, model, lines, findings);
+    }
+
+    /// <summary>The checks that read what was HEARD rather than the tree, then the sort.</summary>
+    private static DoctorReport Finish(CupriDocument? doc, List<Finding> findings, string? css, string html, Heard heard)
+    {
+        MissingGlyphs(heard.MissingGlyphs, findings);
         // Rules whose selector never matched during the render above have still never been looked
         // at — see StateRulesAreNeverApplied. Sweep them before reporting.
-        SweepRulesThatNeverMatched(css, html, unsupportedCss);
-        UnsupportedCssProperties(unsupportedCss, css, html, findings);
+        SweepRulesThatNeverMatched(css, html, heard.UnsupportedCss);
+        UnsupportedCssProperties(heard.UnsupportedCss, css, html, findings);
         // Keyframe declarations too: they never reach the resolver's loop, so the hook above never
         // sees them — and an animated transform was exactly the case worth catching, since the
         // timing, easing and stops all work while the element never moves.
+        var declarations = heard.Declarations;
         if (doc is not null)
             foreach (var frames in doc.ParsedKeyframes.Values)
                 foreach (var frame in frames)
@@ -1461,6 +1577,106 @@ public static partial class CupriDoctor
             !IsEmpty && !o.IsEmpty
             && MathF.Min(Right, o.Right) - MathF.Max(X, o.X) > tol
             && MathF.Min(Bottom, o.Bottom) - MathF.Max(Y, o.Y) > tol;
+    }
+
+    // ---- 6c. is a popup where nobody can see it? -------------------------------------------------
+
+    /// <summary>
+    /// A positioned box — a popup, tooltip, popover, badge or toast — that lies partly outside the
+    /// viewport, where nothing can scroll it into view.
+    ///
+    /// <para><b>Why the overflow checks miss it.</b> <c>CF0070</c> and <c>CF0072</c> ask whether a
+    /// box's CONTENTS fit the box. A menu popup laid out 509px wide at x=4 in a 412px viewport
+    /// passes both: its items fit it perfectly, and the viewport is not its parent. It is simply
+    /// placed where 101px of it does not exist. The engine clamps an anchored popup's POSITION to
+    /// the viewport (LayoutEngine.PositionAnchoredPopups) but cannot shrink it, so a popup wider
+    /// than the phone it is on is clamped to the left edge and runs off the right one.</para>
+    ///
+    /// <para><b>Out of flow only.</b> An in-flow box past the right-hand edge is already
+    /// <c>CF0072</c> on its container, and an in-flow box below the fold is what a scrolling page
+    /// looks like. A <c>position:fixed</c> box is judged against the viewport on every side: it
+    /// does not scroll. An <c>absolute</c> one is judged sideways and above, because below the
+    /// viewport may be further down a page the user can scroll — a popover anchored to a row near
+    /// the bottom is reachable, a tooltip 40px past the right edge is not. Anything inside a
+    /// scrolling ancestor is exempt on the axis that ancestor scrolls.</para>
+    /// </summary>
+    private static void BoxesThatLandOffScreen(CupriDocument doc, int viewportWidth, int viewportHeight,
+                                               string[] lines, List<Finding> findings)
+    {
+        const float tolerance = 1.5f;
+        var reported = new HashSet<string>(StringComparer.Ordinal);
+
+        void Walk(RenderNode n, bool scrollsX, bool scrollsY)
+        {
+            if (n.Style.Display == DisplayType.None || !n.Style.Visible) return;
+            var positioned = n.Style.Position is PositionType.Absolute or PositionType.Fixed;
+            if (positioned && n.Width > 0.5f && n.Height > 0.5f && !PaintedElsewhere(n)
+                && HasContent(n) && Report(n, scrollsX, scrollsY))
+                return;                                   // the outermost one; its contents are off-screen with it
+            var childScrollsX = scrollsX || n.Style.Overflow == OverflowMode.Scroll;
+            var childScrollsY = scrollsY || n.Style.Overflow == OverflowMode.Scroll;
+            foreach (var c in n.Children) Walk(c, childScrollsX, childScrollsY);
+        }
+
+        bool Report(RenderNode n, bool scrollsX, bool scrollsY)
+        {
+            var (x, y, w, h) = Interaction.HitTesting.ScreenBox(n);
+            var fixedBox = n.Style.Position == PositionType.Fixed;
+            // (how far past, which edge) — the largest wins the message.
+            var worst = (By: 0f, Edge: "");
+            void Consider(float by, string edge) { if (by > worst.By) worst = (by, edge); }
+            if (!scrollsX)
+            {
+                Consider(x + w - viewportWidth, "right-hand");
+                Consider(-x, "left-hand");
+            }
+            if (!scrollsY)
+            {
+                Consider(-y, "top");
+                if (fixedBox) Consider(y + h - viewportHeight, "bottom");
+            }
+            if (worst.By <= tolerance) return false;
+
+            var name = Name(n);
+            if (!reported.Add(name)) return true;
+            var wider = w > viewportWidth + tolerance;
+            findings.Add(new Finding(Severity.Warning, "CF0076",
+                $"{name} is positioned at {x:0},{y:0} and is {w:0}x{h:0}, so {worst.By:0}px of it lies past the "
+                + $"{worst.Edge} edge of the {viewportWidth}x{viewportHeight} viewport — "
+                + (wider ? "it is wider than the viewport, so no position could fit it. " : "")
+                + "Nothing can scroll it into view.",
+                wider
+                    ? "Cap it: max-width on the popup (calc(100vw - 16px) is the usual value) and let its "
+                      + "contents wrap, or make the long item inside it shorter. The engine clamps a popup's "
+                      + "position to the viewport but cannot shrink it."
+                    : "Anchor it to the other side, give it an inset that keeps it on screen, or cap it with "
+                      + "max-width. Check the small viewport in particular: a tooltip that fits beside its "
+                      + "trigger on a desktop runs off the side of a phone.",
+                LineOf(lines, ClassNeedle(n))));
+            return true;
+        }
+
+        static bool PaintedElsewhere(RenderNode n)
+        {
+            if (n.Style.HasTransform) return true;
+            for (var a = n; a is not null; a = a.Parent)
+                if (a.Style.Opacity <= 0.001f) return true;
+            return false;
+        }
+
+        // Something to see in it: text, an image or a surface, anywhere in the subtree. Not
+        // BoxOverflow's question, which is about IN-FLOW content — everything here is out of flow
+        // by definition, and a popup whose panel is itself positioned is still a popup.
+        static bool HasContent(RenderNode n)
+        {
+            if (n.Style.Display == DisplayType.None) return false;
+            if (n.IsText) return !string.IsNullOrWhiteSpace(n.Text);
+            if (n.ImageSrc is { Length: > 0 } || n.IconPath is { Length: > 0 } || n.SurfaceKey is { Length: > 0 }) return true;
+            foreach (var c in n.Children) if (HasContent(c)) return true;
+            return false;
+        }
+
+        Walk(doc.Root, false, false);
     }
 
     // ---- 6b. do the things that look alike line up? --------------------------------------------

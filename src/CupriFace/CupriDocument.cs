@@ -1801,6 +1801,17 @@ public sealed partial class CupriDocument : IDisposable
     /// <inheritdoc cref="ViewportWidth"/>
     public float ViewportHeight => _laidOutHeight;
 
+    // What CupriDoctor needs to check THIS document rather than rebuild one from strings: the
+    // template, the stylesheet, the bound model, the component library in use and the expanded DOM
+    // of the last rebuild. Internal because they describe the document's inputs, not its state —
+    // an app already has every one of them, and the doctor is the one caller that has the document
+    // but not the app.
+    internal string TemplateHtml => _templateHtml;
+    internal string? Stylesheet => _css;
+    internal object? BoundModel => _model;
+    internal ComponentRegistry? ComponentsInUse => _components;
+    internal IDocument? ExpandedDom => _dom;
+
     private float _zoom = 1f;
 
     /// <summary>Whole-document zoom, 1 = unzoomed. Clamped to

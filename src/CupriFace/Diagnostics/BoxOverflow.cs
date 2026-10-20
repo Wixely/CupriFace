@@ -143,7 +143,7 @@ public static class BoxOverflow
     /// Out-of-flow children do not count: a zero-height host whose content is entirely
     /// position:fixed or absolute is the normal shape of an overlay anchor — a dialog's backdrop
     /// and panel hang off a 0px element on purpose. Hidden subtrees do not count either.</summary>
-    private static bool HasVisibleContent(RenderNode n)
+    internal static bool HasVisibleContent(RenderNode n)
     {
         if (n.Style.Display == DisplayType.None) return false;
         if (n.Style.Position is PositionType.Absolute or PositionType.Fixed) return false;
