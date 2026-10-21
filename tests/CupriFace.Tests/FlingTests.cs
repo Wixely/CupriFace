@@ -97,6 +97,82 @@ public class FlingTests
         }
     }
 
+    /// <summary>A REBUILD MID-FLING KEEPS THE MOMENTUM. An app that refreshes on a cadence - Banter
+    /// rebuilds its document at 20 Hz - handed the next step a tree no layout had reached yet,
+    /// whose scroller said MaxScrollY 0 and so "not scrollable", and the fling stopped dead on the
+    /// first refresh after the finger lifted: a chat on a phone had no inertia at all. The host's
+    /// order is refresh, then the animation clock, then layout.
+    ///
+    /// <para>Every cadence, down to a rebuild before EVERY step. The first version of this fix
+    /// waited for a laid-out frame, which a host refreshing at or above the frame rate never
+    /// gives it: that fling travelled 0px and was still "active" ten seconds later. It now moves
+    /// against the range from the last laid-out frame, so all three travel the same distance as a
+    /// fling that was never rebuilt, and finish.</para></summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void A_rebuild_mid_fling_keeps_the_momentum(int rebuildEvery)
+    {
+        var plain = Fling(rebuildEvery: 0, rebuildFrames: int.MaxValue);
+        Assert.True(plain.Travel > 50, $"the reference fling must actually travel, got {plain.Travel:F1}px");
+
+        var rebuilt = Fling(rebuildEvery, rebuildFrames: int.MaxValue);
+        Assert.InRange(rebuilt.Travel, plain.Travel * 0.985f, plain.Travel * 1.015f);
+        Assert.False(rebuilt.StillActive, $"a fling rebuilt every {rebuildEvery} frame(s) never finished");
+    }
+
+    /// <summary>NO DELAYED COAST. Rebuilds before every frame for the first second, then none: the
+    /// fling must have spent that second moving, so what is left afterwards is only its natural
+    /// tail. Waiting instead left the whole fling to play out a second after the finger lifted.</summary>
+    [Fact]
+    public void A_fling_rebuilt_every_frame_has_moved_by_the_time_the_rebuilds_stop()
+    {
+        var plain = Fling(rebuildEvery: 0, rebuildFrames: int.MaxValue);
+        var stalled = Fling(rebuildEvery: 1, rebuildFrames: 60, out var afterRebuilds);
+
+        Assert.InRange(stalled.Travel, plain.Travel * 0.985f, plain.Travel * 1.015f);
+        Assert.True(afterRebuilds > plain.Travel * 0.9f,
+            $"only {afterRebuilds:F0}px of {plain.Travel:F0}px happened while the document was rebuilding every frame");
+    }
+
+    private static (float Travel, bool StillActive) Fling(int rebuildEvery, int rebuildFrames)
+        => Fling(rebuildEvery, rebuildFrames, out _);
+
+    /// <summary>A fling released at 60 fps, driven in the host's order (refresh, animate, layout)
+    /// for up to ten seconds. <paramref name="rebuildEvery"/> 0 never rebuilds; otherwise the
+    /// document is rebuilt every that-many frames for the first <paramref name="rebuildFrames"/>.
+    /// <paramref name="afterRebuilds"/> is the travel at the moment the rebuilds stopped.</summary>
+    private static (float Travel, bool StillActive) Fling(int rebuildEvery, int rebuildFrames, out float afterRebuilds)
+    {
+        using var t = new TestDoc(Html, Css);
+        var touch = new TouchInput(t.Doc);
+        touch.Down(200, 80, 0.00);
+        touch.Move(200, 60, 0.02);
+        touch.Move(200, 40, 0.04);
+        touch.Up(200, 20, 0.06);
+        Assert.True(t.Doc.FlingActive, "the release did not start a fling");
+
+        var start = t.Find(n => n.IsScrollable)!.ScrollY;
+        float? atWindowEnd = null;                  // travel when the rebuild window closed, if it did
+        var now = 0.06;
+        for (var i = 0; i < 600 && t.Doc.FlingActive; i++)
+        {
+            now += 1.0 / 60;
+            var rebuilding = rebuildEvery > 0 && i < rebuildFrames;
+            if (rebuilding && i % rebuildEvery == 0) t.Doc.Refresh();   // as a host's refresh cadence does
+            t.Doc.Animate(now);                                         // on the unlaid tree, as the host does
+            t.Layout();
+            if (i == 0 && rebuildEvery > 0) Assert.True(t.Doc.FlingActive, "the first rebuild killed the fling");
+            if (i == rebuildFrames - 1) atWindowEnd = t.Find(n => n.IsScrollable)!.ScrollY - start;
+        }
+        var total = t.Find(n => n.IsScrollable)!.ScrollY - start;
+        // A fling that finished inside the window travelled all of it while rebuilding.
+        afterRebuilds = atWindowEnd ?? total;
+
+        return (total, t.Doc.FlingActive);
+    }
+
     /// <summary>A STALL contributes nothing. The thread was blocked; none of that gap was animation,
     /// so integrating it would teleport the scroll to wherever two seconds of momentum reaches.
     /// Measured: a blocked main thread hands the host the whole gap as a frame timestamp, and fires

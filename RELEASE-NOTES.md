@@ -33,6 +33,18 @@ Both are new findings on existing markup, not new errors: CF0077 is info, and CF
 only where a column gap shows the spacing was meant. A test that asserts `IsClean` on a document
 with a rounded card pressed against the screen will now see CF0077 — give the card a margin.
 
+### Fixed
+
+- **A document rebuild mid-fling no longer stops the fling.** An app that refreshes on a cadence
+  handed the next animation step a tree no layout had reached yet, whose scroller reported
+  `MaxScrollY` 0 and so "not scrollable" - and the fling was stopped dead on the first refresh
+  after the finger lifted. A chat that rebuilt at 20 Hz had no momentum at all on a phone. On an
+  unlaid frame the fling now keeps moving against the scroll range from the last frame that WAS
+  laid out, and the layout that follows clamps to the real one, so it travels the same distance
+  however often the document rebuilds - including before every frame, where an app refreshing at
+  or above the frame rate would otherwise have a fling that never moved and never ended. Nothing
+  to change in your app.
+
 ## v0.45.0
 
 ### Fixed
