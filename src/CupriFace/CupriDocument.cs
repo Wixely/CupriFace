@@ -3888,6 +3888,10 @@ public sealed partial class CupriDocument : IDisposable
 
     private string? _flingPath;
     private float _flingV;
+    // The fling's scroll range as of the last frame its scroller was laid out in. A rebuild hands
+    // the next step an unlaid tree whose range reads 0; the fling moves against this instead, and
+    // the layout that follows clamps to the real range. NaN until the scroller has been seen laid out.
+    private float _flingMax = float.NaN;
     private double _flingT = double.NaN;
     private const float FlingDecay = 3f;        // exp decay per second — calm, native-adjacent feel
     private const float FlingStopSpeed = 30f;   // px/s below which the scroll just stops
@@ -4003,6 +4007,7 @@ public sealed partial class CupriDocument : IDisposable
         _flingV = pixelsPerSecond;
         _flingHorizontal = horizontal;
         _flingT = double.NaN;
+        _flingMax = NodeAtPath(path) is { LaidOut: true } sn ? (horizontal ? sn.MaxScrollX : sn.MaxScrollY) : float.NaN;
         return true;
     }
 
@@ -4019,16 +4024,23 @@ public sealed partial class CupriDocument : IDisposable
     {
         if (_flingPath is null) return false;
 
-        // Resolved BEFORE the clock is read. A rebuild between two frames - an app that refreshes
-        // on a cadence does this every few frames - hands this a tree no layout has reached yet,
-        // whose scroller reports MaxScrollY 0 and so "not scrollable": the fling was stopped dead
-        // on the first refresh after the finger lifted, and a chat that rebuilt at 20 Hz had no
-        // momentum at all. An unlaid scroller is not a vanished one. Nothing is applied this frame
-        // and the clock is not advanced, so the frame after layout integrates the whole interval
-        // and the travel is the same as if nothing had been rebuilt.
+        // A rebuild between two frames - an app that refreshes on a cadence does this every few
+        // frames - hands this a tree no layout has reached yet, whose scroller reports MaxScrollY 0
+        // and so "not scrollable": the fling was stopped dead on the first refresh after the finger
+        // lifted, and a chat that rebuilt at 20 Hz had no momentum at all. An unlaid scroller is not
+        // a vanished one, so it keeps MOVING, against the range from the last frame it was laid out
+        // in; the layout that follows clamps to the real range.
+        //
+        // Moving rather than waiting is the point. Waiting for a laid-out frame (the first version of
+        // this fix) never ends for a host that rebuilds before EVERY step - a refresh interval at or
+        // below the frame time, or a 20 Hz app on a phone running at 20 fps - so the fling neither
+        // moved nor finished, kept the host rendering, and then coasted its whole distance from
+        // wherever the clock happened to be when the rebuilds stopped.
         var n = NodeAtPath(_flingPath);
         if (n is null) { StopFling(); return false; }
-        if (!n.LaidOut) return true;
+        var laid = n.LaidOut;
+        if (laid) _flingMax = _flingHorizontal ? n.MaxScrollX : n.MaxScrollY;
+        else if (float.IsNaN(_flingMax)) return true;   // never seen laid out: nothing to move against yet
 
         var dt = StepDt(ref _flingT, now);
         if (dt <= 0) return true;                       // first frame stamps the clock only
@@ -4054,21 +4066,23 @@ public sealed partial class CupriDocument : IDisposable
         var decay = (float)Math.Exp(-dt * FlingDecay);
         var travel = _flingV * (1f - decay) / FlingDecay;   // integral of v*e^(-kt) over [0, dt]
         _flingV *= decay;
-        if (!(_flingHorizontal ? n.IsScrollableX : n.IsScrollable)) { StopFling(); return false; }
+        if (laid ? !(_flingHorizontal ? n.IsScrollableX : n.IsScrollable) : _flingMax <= 0.5f) { StopFling(); return false; }
 
         bool moved;
         if (_flingHorizontal)
         {
             var beforeX = n.ScrollX;
-            n.ScrollX = Math.Clamp(n.ScrollX + travel, 0, n.MaxScrollX);
+            n.ScrollX = Math.Clamp(n.ScrollX + travel, 0, _flingMax);
             moved = Math.Abs(n.ScrollX - beforeX) > 0.01f;
         }
         else
         {
             var before = n.ScrollY;
-            n.ScrollY = Math.Clamp(n.ScrollY + travel, 0, n.MaxScrollY);
+            n.ScrollY = Math.Clamp(n.ScrollY + travel, 0, _flingMax);
             moved = Math.Abs(n.ScrollY - before) > 0.01f;
-            RewindowVirtual(n);                         // may rebuild; we hold a path, not the node
+            // A virtual list re-windows off measured rows, which an unlaid tree does not have yet;
+            // the next laid-out step catches it up.
+            if (laid) RewindowVirtual(n);               // may rebuild; we hold a path, not the node
         }
         if (!moved || MathF.Abs(_flingV) < FlingStopSpeed) StopFling();
         return moved;
