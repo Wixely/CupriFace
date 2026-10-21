@@ -405,6 +405,8 @@ public static partial class CupriDoctor
         BoxesThatLandOffScreen(doc, width, height, lines, findings);
         PeersThatDoNotLineUp(doc, registry, lines, findings);
         BoxesWithNothingBetweenThem(doc, registry, lines, findings);
+        BoxesJammedAgainstTheirContainer(doc, registry, width, height, lines, findings);
+        WrappedLinesWithNothingBetweenThem(doc, registry, lines, findings);
         BackdropFilterOutsideTopLayer(doc, lines, findings);
         StickyWithNothingToStickTo(doc, lines, findings);
         TextNobodyCanRead(doc, registry, lines, findings);
@@ -2029,6 +2031,270 @@ public static partial class CupriDoctor
                 && n.Style.BorderTopColor.Alpha > 0);
 
         Walk(doc.Root, false);
+    }
+
+    // ---- 6e. is anything jammed against the edge of what holds it? -----------------------------
+
+    /// <summary>
+    /// A rounded box sitting flush against the edge of the box that holds it — or the screen — with
+    /// nothing between its curved corners and that straight edge.
+    ///
+    /// <para><b>CF0074, one level out.</b> CF0074 compares a box with the sibling beside it. The
+    /// same collision happens between a box and its CONTAINER: a rounded button with no padding
+    /// between it and the side of a card, a rounded card with no gutter between it and the edge of
+    /// a phone. The corners curve away from an edge that is straight, the container's colour shows
+    /// in the wedges, and the control reads as jammed against the side rather than placed inside
+    /// it. Every box is exactly where it asked to be — it is the padding nobody set.</para>
+    ///
+    /// <para><b>Both corners on the touching side must be rounded.</b> That is what separates the
+    /// mistake from the design. A bottom sheet with rounded TOP corners spans the screen from edge
+    /// to edge on purpose: on its left and right sides only one corner is rounded, and it stays
+    /// silent. A full-width card rounded on all four corners, flush against both sides of a phone,
+    /// is the missing gutter.</para>
+    ///
+    /// <para><b>A corner that FITS is left alone.</b> A header at the top of a rounded card is
+    /// usually given the card's own radius on purpose, so the two curves coincide rather than
+    /// collide. A corner of the box that sits in the matching corner of its container (flush on
+    /// both sides that meet there) with the same radius is that construction, and does not
+    /// count.</para>
+    ///
+    /// <para><b>The edge is the nearest VISIBLE container</b> — one with a fill or a border. Being
+    /// flush with a transparent wrapper says nothing about what anyone sees. With no visible
+    /// container, the edge is the viewport's: left, right and top, plus the bottom for a
+    /// <c>position:fixed</c> box, since below the viewport is where a page keeps the rest of
+    /// itself.</para>
+    ///
+    /// <para><b>Flush means zero</b>, exactly as CF0074 has it: a gap of one pixel is a number
+    /// somebody chose. And <b>Info</b>, exactly as CF0074 is: the layout works, it reads badly.</para>
+    /// </summary>
+    private static void BoxesJammedAgainstTheirContainer(CupriDocument doc, ComponentRegistry registry,
+                                                         int viewportWidth, int viewportHeight,
+                                                         string[] lines, List<Finding> findings)
+    {
+        const float flush = 0.5f;
+        var reported = new HashSet<string>(StringComparer.Ordinal);
+
+        void Walk(RenderNode n, RenderNode? container, bool insideControl)
+        {
+            if (n.Style.Display == DisplayType.None) return;
+            // A cupri-* control's insides are the control's business: its parts are laid out by its
+            // own stylesheet, which a caller cannot restyle, so a finding there is not actionable.
+            var isControl = n.Element is { } el && registry.Tags.Contains(el.LocalName, StringComparer.OrdinalIgnoreCase);
+            if (!insideControl && n != doc.Root && !n.IsText && PaintsABox(n) && !PaintedElsewhere(n)
+                && n.Width > 0.5f && n.Height > 0.5f)
+                Check(n, container);
+            var next = PaintsABox(n) && !n.IsText ? n : container;
+            foreach (var c in n.Children) Walk(c, next, insideControl || isControl);
+        }
+
+        void Check(RenderNode n, RenderNode? container)
+        {
+            var r = n.Style.BorderRadius.Resolve(n.Width, n.Height);
+            if (!Rounded(r.TopLeft) && !Rounded(r.TopRight) && !Rounded(r.BottomRight) && !Rounded(r.BottomLeft)) return;
+
+            // Where the box sits, and the edges it can touch, in ONE coordinate space.
+            float x, y, left, top, right, bottom;
+            CornerRadii outer;
+            string what;
+            var bottomCounts = true;
+            if (container is not null && OffsetWithin(n, container) is { } off)
+            {
+                (x, y) = off;
+                left = container.BorderLeftW;
+                top = container.BorderTopW;
+                right = container.Width - container.BorderRightW;
+                bottom = container.Height - container.BorderBottomW;
+                outer = container.Style.BorderRadius.Resolve(container.Width, container.Height);
+                what = Name(container);
+            }
+            else
+            {
+                // No visible container: the screen. Scroll applied, because the screen does not scroll.
+                (x, y, _, _) = Interaction.HitTesting.ScreenBox(n);
+                (left, top, right, bottom) = (0, 0, viewportWidth, viewportHeight);
+                outer = default;
+                what = $"the {viewportWidth}px viewport";
+                bottomCounts = n.Style.Position == PositionType.Fixed;
+            }
+
+            var onLeft = MathF.Abs(x - left) <= flush;
+            var onTop = MathF.Abs(y - top) <= flush;
+            var onRight = MathF.Abs(x + n.Width - right) <= flush;
+            var onBottom = bottomCounts && MathF.Abs(y + n.Height - bottom) <= flush;
+
+            // A corner FITS when the box fills the container's corner there with the same curve.
+            bool Fits(SkiaSharp.SKPoint mine, SkiaSharp.SKPoint theirs, bool sideA, bool sideB) =>
+                sideA && sideB && MathF.Abs(mine.X - theirs.X) <= flush && MathF.Abs(mine.Y - theirs.Y) <= flush;
+            bool Collides(SkiaSharp.SKPoint mine, SkiaSharp.SKPoint theirs, bool sideA, bool sideB) =>
+                Rounded(mine) && !Fits(mine, theirs, sideA, sideB);
+
+            var sides = new List<string>();
+            void Side(bool touching, string name, (SkiaSharp.SKPoint Mine, SkiaSharp.SKPoint Theirs, bool A, bool B) c1,
+                      (SkiaSharp.SKPoint Mine, SkiaSharp.SKPoint Theirs, bool A, bool B) c2)
+            {
+                if (!touching || !Rounded(c1.Mine) || !Rounded(c2.Mine)) return;
+                if (Collides(c1.Mine, c1.Theirs, c1.A, c1.B) || Collides(c2.Mine, c2.Theirs, c2.A, c2.B))
+                    sides.Add(name);
+            }
+            Side(onLeft, "left-hand", (r.TopLeft, outer.TopLeft, onLeft, onTop), (r.BottomLeft, outer.BottomLeft, onLeft, onBottom));
+            Side(onRight, "right-hand", (r.TopRight, outer.TopRight, onRight, onTop), (r.BottomRight, outer.BottomRight, onRight, onBottom));
+            Side(onTop, "top", (r.TopLeft, outer.TopLeft, onTop, onLeft), (r.TopRight, outer.TopRight, onTop, onRight));
+            Side(onBottom, "bottom", (r.BottomLeft, outer.BottomLeft, onBottom, onLeft), (r.BottomRight, outer.BottomRight, onBottom, onRight));
+            if (sides.Count == 0) return;
+
+            var name = Name(n);
+            if (!reported.Add(name)) return;
+            var edges = sides.Count == 1
+                ? $"the {sides[0]} edge"
+                : $"the {string.Join(", ", sides.Take(sides.Count - 1))} and {sides[^1]} edges";
+            var screen = container is null;
+            findings.Add(new Finding(Severity.Info, "CF0077",
+                $"{name} sits flush against {edges} of {what} — rounded corners against a straight edge with "
+                + "nothing between them, so it reads as jammed against the side rather than placed inside it.",
+                screen
+                    ? "Give the page a gutter: padding on the body or the container (12–16px is usual on a phone). "
+                      + "A panel that is meant to run edge to edge should square the corners on the edges it touches, "
+                      + "the way a bottom sheet squares its bottom ones."
+                    : "Give the container padding on that side, or the box a margin. A box that fills the "
+                      + "container's corner on purpose can match the container's radius there, and is then left "
+                      + "alone — that is how a card header is usually built.",
+                LineOf(lines, ClassNeedle(n))));
+        }
+
+        // The box's border-box origin in its container's border-box space, from LAYOUT coordinates
+        // (each node's X/Y is relative to its parent's border-box origin), so a scrolled ancestor
+        // cannot make a box that is flush look as though it is not. Null when an ancestor between
+        // the two is out of flow — then "flush with the container" is not a relationship the author
+        // built.
+        static (float X, float Y)? OffsetWithin(RenderNode n, RenderNode container)
+        {
+            float x = 0, y = 0;
+            for (var cur = n; cur != container; cur = cur.Parent!)
+            {
+                if (cur is null) return null;
+                if (cur != n && cur.Style.Position is PositionType.Fixed) return null;
+                x += cur.X; y += cur.Y;
+                if (cur.Parent is null) return null;
+            }
+            return (x, y);
+        }
+
+        static bool Rounded(SkiaSharp.SKPoint c) => MathF.Max(c.X, c.Y) > 0.5f;
+
+        Walk(doc.Root, null, false);
+    }
+
+    // ---- 6f. do wrapped lines have room between them? ------------------------------------------
+
+    /// <summary>
+    /// A wrapping flex row whose LINES touch: the items that wrapped sit flush under the ones that
+    /// did not, because nothing sets a gap between lines.
+    ///
+    /// <para><b>Why it happens.</b> <c>column-gap</c> spaces the items along a line and
+    /// <c>row-gap</c> spaces the lines; only the <c>gap</c> shorthand sets both. A row written as
+    /// <c>display:flex; flex-wrap:wrap; column-gap:8px</c> looks finished on a desktop, where it
+    /// never wraps — and the first time it meets a phone the second line of chips sits on the
+    /// first with no space at all.</para>
+    ///
+    /// <para><b>Why no other check sees it.</b> CF0073 compares controls stacked strictly along
+    /// one axis, and the items on one wrapped line share a position on it, so a wrapped row is not
+    /// that shape. CF0074 compares consecutive siblings, and the seam between two lines is
+    /// usually between the LAST item of one line, at the right, and the FIRST of the next, at the
+    /// left — consecutive, but nowhere near each other. So lines are found here by geometry: items
+    /// whose vertical extents do not overlap are on different lines.</para>
+    ///
+    /// <para>Reported when some item on one line is flush with, and overlaps horizontally, an
+    /// item on the next, and both paint a box — a transparent chip touching nothing visible is
+    /// not a seam anyone can see. A <b>warning</b> when the row has a column gap, because then the
+    /// author spaced the items and the lines were simply forgotten; <b>info</b> when it has no gap
+    /// at all, which may be a deliberate tight grid.</para>
+    /// </summary>
+    private static void WrappedLinesWithNothingBetweenThem(CupriDocument doc, ComponentRegistry registry,
+                                                          string[] lines, List<Finding> findings)
+    {
+        const float flush = 0.5f;
+
+        void Walk(RenderNode n, bool insideControl)
+        {
+            if (n.Style.Display == DisplayType.None) return;
+            if (!insideControl) CheckRow(n);
+            var isControl = n.Element is { } el && registry.Tags.Contains(el.LocalName, StringComparer.OrdinalIgnoreCase);
+            foreach (var c in n.Children) Walk(c, insideControl || isControl);
+        }
+
+        void CheckRow(RenderNode row)
+        {
+            var s = row.Style;
+            if (!s.IsFlexContainer || !s.MainIsHorizontal || s.FlexWrap != FlexWrapMode.Wrap) return;
+            if (s.RowGap > flush) return;
+
+            var items = row.Children
+                .Where(c => !c.IsText && c.Style.Display != DisplayType.None
+                            && c.Style.Position is not (PositionType.Absolute or PositionType.Fixed)
+                            && c.Width > 0.5f && c.Height > 0.5f && !PaintedElsewhere(c))
+                .ToList();
+            if (items.Count < 2) return;
+
+            // Group into lines by vertical overlap, in layout order (flex lines are laid out top
+            // to bottom, and an item starts a new line exactly when it no longer shares one).
+            var rowLines = new List<List<RenderNode>>();
+            foreach (var it in items)
+            {
+                var last = rowLines.Count > 0 ? rowLines[^1] : null;
+                if (last is not null && last.Any(o => Overlap(o.Y, o.Height, it.Y, it.Height) > flush)) last.Add(it);
+                else rowLines.Add([it]);
+            }
+            if (rowLines.Count < 2) return;
+
+            for (var k = 1; k < rowLines.Count; k++)
+                foreach (var above in rowLines[k - 1])
+                    foreach (var below in rowLines[k])
+                    {
+                        if (!PaintsABox(above) || !PaintsABox(below)) continue;
+                        var gap = (below.Y - below.MarginTop) - (above.Y + above.Height + above.MarginBottom);
+                        var seam = below.Y - (above.Y + above.Height);
+                        if (MathF.Abs(seam) > flush || gap > flush) continue;
+                        if (Overlap(above.X, above.Width, below.X, below.Width) <= flush) continue;
+
+                        var spaced = s.ColumnGap > flush;
+                        findings.Add(new Finding(spaced ? Severity.Warning : Severity.Info, "CF0078",
+                            $"{Name(row)} wraps onto {rowLines.Count} lines and nothing separates them: "
+                            + $"{Name(below)} on line {k + 1} sits flush under {Name(above)} on line {k}"
+                            + (spaced
+                                ? $" — the row has column-gap: {s.ColumnGap:0}px but no row-gap, so the items are spaced along each line and the lines are not."
+                                : "."),
+                            spaced
+                                ? $"Add row-gap: {s.ColumnGap:0}px, or write gap: {s.ColumnGap:0}px to set both. "
+                                  + "column-gap spaces the items on a line; only row-gap spaces the lines."
+                                : "Give the row a gap (gap sets the space between items and between lines), "
+                                  + "or the items a vertical margin. It only shows once the row wraps, so check it "
+                                  + "at a narrow viewport.",
+                            LineOf(lines, ClassNeedle(row))));
+                        return;                     // one finding per row: the first seam is the one to fix
+                    }
+        }
+
+        static float Overlap(float a, float aw, float b, float bw) => MathF.Min(a + aw, b + bw) - MathF.Max(a, b);
+
+        Walk(doc.Root, false);
+    }
+
+    /// <summary>Something you can see the shape of: a fill, an image, or a visible border. A
+    /// transparent box's edges are a fact about nothing.</summary>
+    private static bool PaintsABox(RenderNode n) =>
+        n.Style.Background.Alpha > 0 || n.Style.HasBackgroundImage
+        || ((n.BorderTopW > 0 || n.BorderRightW > 0 || n.BorderBottomW > 0 || n.BorderLeftW > 0)
+            && n.Style.BorderTopColor.Alpha > 0);
+
+    /// <summary>Painted somewhere other than where it was laid out, or not at all: a transform on
+    /// the box, or zero opacity on it or any ancestor. Its layout box then says nothing about what
+    /// touches what (see CF0074).</summary>
+    private static bool PaintedElsewhere(RenderNode n)
+    {
+        if (!n.Style.Visible || n.Style.HasTransform) return true;
+        for (var a = n; a is not null; a = a.Parent)
+            if (a.Style.Opacity <= 0.001f) return true;
+        return false;
     }
 
     // ---- 7. does every binding name something real? --------------------------------------------
