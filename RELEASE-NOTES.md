@@ -13,6 +13,26 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Added
+
+- **`CF0077`: a rounded box flush against the edge of what holds it.** A button with no padding
+  between it and the side of a card, or a card with no gutter between it and the side of a phone,
+  reads as jammed against the side rather than placed inside it. CF0074 asks this of two siblings;
+  CF0077 asks it of a box and its nearest visible container, or the screen. Both corners on the
+  touching side must be rounded, so a bottom sheet rounded only on top stays quiet, and a header
+  that fills a card's corner with the card's own radius is a fit, not a collision. Info, like
+  CF0074. Run it at a phone size: a centred card capped at 600px only loses its gutter there.
+- **`CF0078`: wrapped flex lines with nothing between them.** `column-gap` spaces items along a
+  line; only `row-gap` (or `gap`) spaces the lines. A wrapping row written with `column-gap` looks
+  finished until it wraps, and then its second line sits flush on its first. A warning when the row
+  has a column gap and no row gap, info when it has neither. Fix: `row-gap`, or `gap` for both.
+
+Both are new findings on existing markup, not new errors: CF0077 is info, and CF0078 is a warning
+only where a column gap shows the spacing was meant. A test that asserts `IsClean` on a document
+with a rounded card pressed against the screen will now see CF0077 — give the card a margin.
+
 ## v0.45.0
 
 ### Fixed

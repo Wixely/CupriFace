@@ -23,7 +23,9 @@ public class CupriDoctorTests(ITestOutputHelper output)
     {
         var report = CupriDoctor.Check(
             "<body><div class='card'><cupri-button>Save</cupri-button></div></body>",
-            ".card { display:flex; padding:12px; background:#fff; border-radius:8px }");
+            // The margin is part of "clean": without it the rounded card sits flush against three
+            // edges of the screen, which CF0077 reports.
+            ".card { display:flex; padding:12px; margin:16px; background:#fff; border-radius:8px }");
 
         output.WriteLine(report.ToString());
         Assert.True(report.IsClean, report.ToString());
