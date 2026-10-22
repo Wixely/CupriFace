@@ -7683,6 +7683,7 @@ public sealed partial class CupriDocument : IDisposable
     private void ReStyle()
     {
         if (_dom is null) return;
+        var scrollbarDragPath = _scrollDrag is { } scrollbar ? PathOf(scrollbar) : null;
         // Restyle (hover/active) rebuilds the tree too, so preserve scroll offsets — otherwise any
         // mouse move over the page snaps a scrolled field back to the top. Keyboard focus needs
         // carrying for the same reason: a :hover rule that reveals or hides a control changes the
@@ -7694,6 +7695,9 @@ public sealed partial class CupriDocument : IDisposable
         _hasViewportUnits |= resolver.SawViewportUnit;
         _layoutDirty = true; // fresh tree: no geometry until the next layout
         RestoreScroll(scroll);
+        // Restyling keeps the DOM, but replaces RenderNodes. Keep a held scrollbar attached
+        // to the live node across hover/focus restyles instead of moving an orphaned tree.
+        if (scrollbarDragPath is not null) _scrollDrag = NodeAtPath(scrollbarDragPath);
         RestoreFocus(focus);
         _transitions.Detect(_root, _laidOutWidth, _laidOutHeight); // hover/focus/class change → (re)start any transitions that flipped
     }

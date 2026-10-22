@@ -32,6 +32,35 @@ public class ScrollbarTrackTests(ITestOutputHelper output)
 
     private static RenderNode Box(TestDoc t) => t.Find(n => n.IsScrollable)!;
 
+    [Fact]
+    public void A_held_thumb_survives_a_focus_restyle_between_moves()
+    {
+        using var t = new TestDoc(
+            "<body><cupri-textfield id='first' value='{{First}}'></cupri-textfield><cupri-textfield id='second' value='{{Second}}'></cupri-textfield><div class='box'><div class='pad'>content</div></div></body>",
+            Css, model: new { First = "first", Second = "second" }, width: 300, height: 300, components: true);
+        Assert.True(t.Doc.Focus("#first"));
+        using (var frame = t.Render(SKColors.White)) { }
+        var box = Box(t);
+        var bounds = HitTesting.ScreenBox(box);
+        var thumb = Scrollbar.Thumb(box, bounds.X, bounds.Y, hot: false);
+        var x = thumb.X + thumb.W / 2;
+        var y = thumb.Y + thumb.H / 2;
+        t.Doc.DispatchClick(x, y);
+        t.Doc.DispatchPointerMove(x, y + 20);
+        var firstScroll = Box(t).ScrollY;
+        Assert.True(firstScroll > 0);
+
+        // Focus styling replaces the render tree without changing the DOM or releasing the mouse.
+        Assert.True(t.Doc.Focus("#second"));
+        using (var frame = t.Render(SKColors.White)) { }
+        t.Doc.DispatchPointerMove(x, y + 40);
+        Assert.True(Box(t).ScrollY > firstScroll, "The drag must update the live scroller after restyling.");
+        t.Doc.DispatchPointerUp(x, y + 40);
+        var releasedScroll = Box(t).ScrollY;
+        t.Move(x, y + 60);
+        Assert.Equal(releasedScroll, Box(t).ScrollY);
+    }
+
     /// <summary>A point inside the track, at a given fraction of its height.</summary>
     private static (float X, float Y) TrackPoint(TestDoc t, float fraction)
     {

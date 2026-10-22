@@ -13,6 +13,14 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- Keep a held scrollbar thumb attached to the live render tree when focus or hover styling
+  changes between pointer moves. Virtual lists no longer stop dragging after a focus restyle.
+  No caller changes are required.
+
 ## v0.46.0
 
 ### Added
