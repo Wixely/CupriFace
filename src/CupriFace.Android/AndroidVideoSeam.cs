@@ -32,6 +32,9 @@ public interface IAndroidVideoBackend : IVideoBackend, IDisposable
     /// The decoder and media session must remain alive across this transition.</summary>
     void SetPictureInPictureMode(bool active) { }
 
+    /// <summary>Release decoder output when the activity is no longer visible; restore on return.</summary>
+    void SetActivityVisible(bool visible) { }
+
     /// <summary>Called after each painted frame: move every underlay to its element's on-screen box,
     /// in PHYSICAL pixels. The engine has already punched a transparent hole there, so the two must
     /// agree to the pixel or the video shows a seam.</summary>

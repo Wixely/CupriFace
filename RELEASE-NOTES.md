@@ -17,6 +17,10 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- Android video keeps the screen awake during playback and restarts the decoder at its saved
+  position after the activity becomes visible again. Unchanged video bounds no longer request
+  another native layout on every frame. Custom Android video backends may implement the new
+  optional `SetActivityVisible` hook to handle activity stop/resume.
 - Keep a held scrollbar thumb attached to the live render tree when focus or hover styling
   changes between pointer moves. Virtual lists no longer stop dragging after a focus restyle.
   No caller changes are required.

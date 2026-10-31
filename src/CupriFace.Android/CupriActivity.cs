@@ -224,12 +224,19 @@ public abstract class CupriActivity : global::Android.App.Activity
     {
         base.OnResume();
         _view?.OnResume();
+        _videoBackend?.SetActivityVisible(true);
         // A WhenDirty view paints nothing until asked: after a pause/resume round-trip the
         // surface is fresh and blank, and only an explicit render request fills it again.
         _host?.MarkDirty();
     }
 
     protected override void OnPause() { _view?.OnPause(); base.OnPause(); }
+
+    protected override void OnStop()
+    {
+        _videoBackend?.SetActivityVisible(false);
+        base.OnStop();
+    }
 
     /// <summary>When the user leaves a video-oriented app, hand the live decoder to Android's
     /// draggable system PiP window. MediaSession supplies the platform play/pause/seek controls.</summary>

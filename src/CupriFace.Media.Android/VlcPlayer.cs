@@ -27,6 +27,58 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
     private VlcMedia? _media;
     private bool _mediaOpened;
     private bool _playWhenReady;
+    private bool _activityVisible = true;
+    private bool _requestedVisible = true;
+    private Task _lifecycle = Task.CompletedTask;
+    private double _suspendedPosition;
+    private double _suspendedDuration;
+    private bool _restoreAfterSuspend;
+    internal bool WantsPlayback => _playWhenReady && _activityVisible && !Disposed;
+
+    internal void SetActivityVisible(bool visible)
+    {
+        lock (_gate)
+        {
+            if (Disposed || _requestedVisible == visible) return;
+            _requestedVisible = visible;
+            if (!visible) _activityVisible = false;
+            // Serialize stop/restart off the UI thread, including rapid lock/unlock cycles.
+            var previous = _lifecycle;
+            _lifecycle = Task.Run(async () =>
+            {
+                try { await previous.ConfigureAwait(false); }
+                catch (Exception) { /* A failed transition must not prevent a later recovery. */ }
+                if (!TryEnterNative()) return;
+                try
+                {
+                    if (!visible)
+                    {
+                        _suspendedPosition = Position;
+                        _suspendedDuration = Duration;
+                        _restoreAfterSuspend = true;
+                        _player.Stop();
+                        _mediaOpened = false;
+                        _ready = false;
+                    }
+                    else
+                    {
+                        lock (_gate)
+                        {
+                            _activityVisible = _requestedVisible;
+                        }
+                        TryStart();
+                    }
+                }
+                catch (Exception exception)
+                {
+                    global::Android.Util.Log.Warn(AndroidHost.Tag,
+                        $"video lifecycle: {exception.GetType().Name}");
+                }
+                finally { ExitNative(); }
+                _backend.Invalidate();
+            });
+        }
+    }
     private bool _ready;
     private bool _loop;
     private double _volume = 1;
@@ -126,7 +178,7 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
         set => _loop = value;
     }
 
-    public double Duration => Disposed ? 0 : Math.Max(0, _player.Length / 1000.0);
+    public double Duration => Disposed ? 0 : _restoreAfterSuspend ? _suspendedDuration : Math.Max(0, _player.Length / 1000.0);
 
     /// <summary>Whether a requested seek is still worth believing. Expires it in passing, so every
     /// reader — the position, the buffering indicator, the retry on Playing — agrees about it and
@@ -153,6 +205,7 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
         {
             lock (_gate)
             {
+                if (_restoreAfterSuspend) return _suspendedPosition;
                 if (PendingSeekLive()) return _pendingSeek;
                 return Disposed ? 0 : Math.Max(0, _player.Time / 1000.0);
             }
@@ -292,7 +345,12 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
     {
         lock (_gate)
         {
-            if (Disposed || !_playWhenReady || View is null || _media is null || _player.IsPlaying) return;
+            if (Disposed || !_activityVisible || !_playWhenReady || View is null || _media is null || _player.IsPlaying) return;
+            if (_restoreAfterSuspend)
+            {
+                SetPendingSeek(_suspendedPosition);
+                _restoreAfterSuspend = false;
+            }
             if (!_mediaOpened) _mediaOpened = _player.Play(_media);
             else _player.Play();
         }
@@ -479,12 +537,14 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
             });
             return;
         }
+        _playWhenReady = false;
         Ended?.Invoke();
         _backend.PlayerStateChanged(this);
     }
 
     private void OnError(object? sender, EventArgs args)
     {
+        _playWhenReady = false;
         _ready = false;
         global::Android.Util.Log.Warn(AndroidHost.Tag, "video: LibVLC reported a playback error");
         _backend.Invalidate();

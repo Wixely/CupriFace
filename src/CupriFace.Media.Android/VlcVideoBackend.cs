@@ -45,6 +45,13 @@ public sealed class VlcVideoBackend : IAndroidVideoBackend
     internal void Invalidate() => _invalidate();
     internal void PlayerStateChanged(AndroidPlayer player) => _mediaSession.Update(player);
 
+    public void SetActivityVisible(bool visible)
+    {
+        AndroidPlayer[] players;
+        lock (_players) players = _players.ToArray();
+        foreach (var player in players) player.SetActivityVisible(visible);
+    }
+
     /// <summary>True while any player can show pixels — the paint path only needs to hand back
     /// transparent holes once something is actually underneath them.</summary>
     public bool AnyReady
@@ -151,6 +158,7 @@ public sealed class VlcVideoBackend : IAndroidVideoBackend
             var node = FindSurface(doc.Root, player);
             var view = player.View;
             if (view is null) continue;
+            _runOnUi(() => view.KeepScreenOn = player.WantsPlayback);
 
             if (_pictureInPicture)
             {
@@ -183,6 +191,7 @@ public sealed class VlcVideoBackend : IAndroidVideoBackend
             {
                 if (view.LayoutParameters is FrameLayout.LayoutParams lp)
                 {
+                    if (lp.Width == pw && lp.Height == ph && lp.LeftMargin == px && lp.TopMargin == py) return;
                     lp.Width = pw; lp.Height = ph;
                     lp.LeftMargin = px; lp.TopMargin = py;
                     view.LayoutParameters = lp;
