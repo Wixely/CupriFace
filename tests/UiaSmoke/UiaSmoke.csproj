@@ -18,7 +18,7 @@
     <PackageReference Include="FlaUI.UIA3" Version="4.0.0" />
     <!-- FlaUI's transitive System.Drawing.Common 5.x has a known vulnerability (NU1904);
          reference a patched line directly. -->
-    <PackageReference Include="System.Drawing.Common" Version="9.0.0" />
+    <PackageReference Include="System.Drawing.Common" Version="10.0.14" />
   </ItemGroup>
 
 </Project>
