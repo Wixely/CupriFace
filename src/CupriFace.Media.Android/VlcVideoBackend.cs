@@ -4,6 +4,7 @@ using CupriFace.Android;
 using CupriFace.Media;
 using LibVLCSharp.Shared;
 using AndroidVlcVideoView = LibVLCSharp.Platforms.Android.VideoView;
+using VlcMedia = LibVLCSharp.Shared.Media;
 using VideoSource = CupriFace.Media.VideoSource;
 
 namespace CupriFace.Media.Android;
@@ -25,12 +26,13 @@ public sealed class VlcVideoBackend : IAndroidVideoBackend
     private readonly List<AndroidPlayer> _players = new();
     private readonly AndroidMediaSession _mediaSession;
     private readonly LibVLC _libVlc;
+    private readonly Func<LibVLC, VideoSource, VlcMedia?>? _mediaFactory;
     private bool _pictureInPicture;
 
     /// <summary>Construct from the services the host hands to
     /// <c>CupriActivity.CreateVideoBackend</c>. Initialising LibVLC here, rather than at type load,
     /// keeps an app that never overrides that hook from loading the native libraries at all.</summary>
-    public VlcVideoBackend(AndroidVideoServices services)
+    public VlcVideoBackend(AndroidVideoServices services, Func<LibVLC, VideoSource, VlcMedia?>? mediaFactory = null)
     {
         ArgumentNullException.ThrowIfNull(services);
         _context = services.Context;
@@ -38,9 +40,12 @@ public sealed class VlcVideoBackend : IAndroidVideoBackend
         _invalidate = services.Invalidate;
         _runOnUi = services.RunOnUi;
         _mediaSession = new AndroidMediaSession(services.Context, services.RunOnUi);
+        _mediaFactory = mediaFactory;
         Core.Initialize();
         _libVlc = new LibVLC("--no-video-title-show", "--no-snapshot-preview");
     }
+
+    internal VlcMedia? CreateMedia(VideoSource source) => _mediaFactory?.Invoke(_libVlc, source);
 
     internal void Invalidate() => _invalidate();
     internal void PlayerStateChanged(AndroidPlayer player) => _mediaSession.Update(player);

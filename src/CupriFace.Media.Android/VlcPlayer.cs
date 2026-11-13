@@ -298,7 +298,11 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
     {
         try
         {
-            if (Source.IsRemote)
+            if (_backend.CreateMedia(Source) is { } suppliedMedia)
+            {
+                Publish(() => suppliedMedia);
+            }
+            else if (Source.IsRemote)
             {
                 if (!Uri.TryCreate(Source.Src, UriKind.Absolute, out var uri)
                     || uri.Scheme != Uri.UriSchemeHttps || string.IsNullOrWhiteSpace(uri.Host)
