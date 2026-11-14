@@ -60,6 +60,16 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   `__cupri.rendererState()` returns the same as JSON. Custom hosts call `doc.ReportRenderer`.
   The Showcase's Diagnostics page and `samples/Shaders` show it.
 - `samples/WebLlvmShaders`: `samples/Shaders` on the NativeAOT-LLVM host.
+- **The desktop GL window falls back to software mid-run.** Previously a GPU lost while the
+  window was open left it frozen or blank: Skia turns every draw on an abandoned context into a
+  no-op. Now an abandoned context, a surface that cannot be made, or a frame that fails closes the
+  GL window and continues in the SDL software window with the same document, and `doc.Renderer`
+  says why. The new window opens at the app's default size and position. A GL viewport on the old
+  context moves to its readback lane rather than freezing on its last frame.
+  `CUPRIFACE_SIMULATE_GPU_LOSS=<seconds>` triggers it on purpose.
+  - Hosts can tell surface producers the same thing with `SurfaceRegistry.GpuContextLost()`.
+    `IGpuSurfaceSource` gains `OnGpuContextLost()`, with a do-nothing default, so existing
+    producers compile unchanged.
 
 ### Fixed
 

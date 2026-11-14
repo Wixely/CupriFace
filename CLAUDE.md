@@ -293,6 +293,11 @@ at 128 MiB** because an unbounded read on wasm ends the tab rather than throwing
 `CUPRIFACE_FRAME_DUMP=out.png` dumps what the window actually presented, read back from the render
 target — ground truth when a live window looks wrong but the document seems right.
 
+`CUPRIFACE_SIMULATE_GPU_LOSS=3` abandons the GL window's Skia context three seconds in, so the
+mid-run fallback to the SDL software window can be watched rather than waited for: the console
+names the switch, `doc.Renderer` carries the reason, and a GL viewport moves to its readback lane.
+In a browser the equivalent is `WEBGL_lose_context.loseContext()` on the host canvas, never restored.
+
 `CUPRIFACE_KEY_DEBUG=keys.log` makes the window testify about the input it actually received —
 keys, focus changes, and **every controller button and stick reading**. Reach for it before
 theorising about a pad that "does nothing": it separates "no events arrive at all" (wrong subsystem,

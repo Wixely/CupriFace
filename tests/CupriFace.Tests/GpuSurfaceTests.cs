@@ -79,4 +79,38 @@ public class GpuSurfaceTests
         r.Register("v", new GpuSource());
         Assert.Throws<ArgumentNullException>(() => r.RenderGpuFrames(null!));
     }
+
+    private sealed class LosingSource : IGpuSurfaceSource
+    {
+        public int Lost;
+        public bool Throw;
+        public SKImage? CurrentFrame => null;
+        public (int W, int H)? NaturalSize => (8, 8);
+        public bool Ticking => true;
+        public void RenderOnGpu(GRContext context) { }
+        public void OnGpuContextLost() { Lost++; if (Throw) throw new InvalidOperationException("teardown failed"); }
+    }
+
+    /// <summary>A desktop window that falls back to software mid-run tells its producers, so one
+    /// drawing on the dead context moves to its software lane instead of freezing on its last GPU
+    /// frame. One producer failing to let go must not stop the others hearing it.</summary>
+    [Fact]
+    public void Losing_the_gpu_context_tells_every_gpu_producer_and_wakes_the_host()
+    {
+        var r = new SurfaceRegistry();
+        var failing = new LosingSource { Throw = true };
+        var fine = new LosingSource();
+        r.Register("a", failing);
+        r.Register("b", fine);
+        r.Register("c", new GpuSource());            // keeps the default: nothing to forget
+        r.Register("p", new PlainSource());          // not a GPU producer at all
+        r.TakeArrived();
+
+        r.GpuContextLost();
+
+        Assert.Equal(1, failing.Lost);
+        Assert.Equal(1, fine.Lost);
+        Assert.False(r.HasGpuFrameHook);
+        Assert.True(r.TakeArrived(), "the host must draw again, now without the GPU");
+    }
 }

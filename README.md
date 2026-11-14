@@ -346,6 +346,11 @@ fires on each; `DebugDump()` includes both. The desktop host reports its GL wind
 the SDL software window, Android its GL ES renderer, the web hosts their WebGL or why not. In a
 page, `__cupri.rendererState()` returns the same as JSON. The Showcase's Diagnostics page shows it.
 
+The desktop GL window falls back mid-run too: a context Skia abandons (a driver reset), a surface
+it cannot make, or a frame that fails closes the GL window and continues in the SDL software window
+with the same document, state intact. A GL viewport on the old context moves to its readback lane.
+Android has no CPU path: it draws on GL ES or not at all.
+
 **The download is the same size either way**, so the choice is about latency, not payload. AOT buys
 the ~8x and costs two things worth knowing up front. The ILC backend is experimental (pinned, so it
 cannot drift under you). And it is published for **x64 Windows and x64/arm64 Linux only** — macOS

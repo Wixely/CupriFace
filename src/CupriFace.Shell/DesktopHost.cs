@@ -5,6 +5,9 @@ using CupriFace.Interaction;
 
 namespace CupriFace.Shell;
 
+/// <summary>The GL window's GPU failed while it was open; carries the reason to the fallback.</summary>
+internal sealed class GpuLostException(string reason) : Exception(reason);
+
 /// <summary>
 /// Runs a <see cref="CupriApp"/> in a desktop window: tries GPU (GL), falls back to the
 /// SDL software window, and wires pointer input to the app's document. Its siblings render the
@@ -384,6 +387,16 @@ public static class DesktopHost
             app.ClipboardWriteRequested += clipboardWriter;
             try { window.Run(); }
             finally { hostSurfaces = null; app.ClipboardWriteRequested -= clipboardWriter; }
+
+            // The GPU failed while the window was open: it has closed itself, and the software
+            // window below takes over with the same document — state, scroll and focus intact.
+            if (window.GpuFailure is { } lost)
+            {
+                // Producers drawing on the window's context move to their software lane.
+                doc.Surfaces.GpuContextLost();
+                window.Dispose();
+                throw new GpuLostException(lost);
+            }
         }
         catch (Exception ex)
         {
@@ -397,6 +410,8 @@ public static class DesktopHost
                 ? "[CupriFace] Off-screen GPU rendering requested; using Windows layered presentation."
                 : forceSoftware
                 ? "[CupriFace] Software rendering requested; using the SDL software window."
+                : ex is GpuLostException
+                ? "[CupriFace] Opening the SDL software window after the GPU failure above."
                 : $"[CupriFace] GPU unavailable ({ex.GetType().Name}: {ex.Message}); using the SDL software window.");
             using var window = new SdlSoftwareWindow(
                 app.Title,
@@ -427,6 +442,8 @@ public static class DesktopHost
             // what it set up; only this host knows why it is here at all.
             var whyNotGlWindow = sdlGl || (layeredGpu && !forceSoftware) ? null
                 : forceSoftware ? forcedWhy
+                : ex is GpuLostException
+                ? $"the GPU stopped working while the GL window was open: {ex.Message}"
                 : $"the GL window could not be opened ({ex.GetType().Name}: {ex.Message})";
             var softwareReported = false;
             window.Tick += () =>
