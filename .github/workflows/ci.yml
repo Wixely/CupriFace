@@ -23,6 +23,11 @@ env:
   VPX_REPO: https://github.com/webmproject/libvpx.git
   OPUS_REPO: https://github.com/xiph/opus.git
 
+# Linux runners are pinned to ubuntu-24.04, not ubuntu-latest. When ubuntu-latest became 26.04
+# (Nov 2026) three things broke at once with no change here: its preinstalled .NET 11 SDK outranked
+# the 10.0.x setup-dotnet installs, so the wasm builds asked for a net10 workload nobody installed;
+# Playwright refused to install Chromium on an OS it does not know; and the AT-SPI smoke test lost a
+# button. global.json pins the SDK band for the same reason. Move both deliberately, in one PR.
 jobs:
   # All three desktop OSes: the suite renders through Skia, and font metrics differ per platform — a
   # test that silently encoded one machine's font already slipped through once (the underline test,
@@ -33,7 +38,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-latest, windows-latest, macos-latest ]
+        os: [ ubuntu-24.04, windows-latest, macos-latest ]
     steps:
       - uses: actions/checkout@v4
 
@@ -120,7 +125,7 @@ jobs:
   # rasteriser is FreeType on Linux, DirectWrite on Windows and CoreText on macOS.
   text-determinism:
     name: text lays out identically across OSes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: test
     steps:
       - uses: actions/download-artifact@v4
@@ -186,7 +191,7 @@ jobs:
       fail-fast: false # one platform breaking shouldn't hide the others' results
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             rid: linux-x64
           - os: windows-latest
             rid: win-x64
@@ -462,7 +467,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-latest, windows-latest ]
+        os: [ ubuntu-24.04, windows-latest ]
     steps:
       - uses: actions/checkout@v4
 
@@ -510,7 +515,7 @@ jobs:
   # managed static server.
   webtouch:
     name: Web touch (${{ matrix.host }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25  # the whole gate normally takes <8 min; never consume the 6-hour default
     strategy:
       fail-fast: false     # one host breaking must not hide the other's result
@@ -606,7 +611,7 @@ jobs:
   # gates hold.
   android:
     name: The Android host, driven on a device
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -1720,7 +1725,7 @@ jobs:
   # test, viewer and android jobs, so a release can never ship from a red build.
   sources:
     name: A restore reaches only the feeds this repo declares
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -1826,7 +1831,7 @@ jobs:
   # ---------------------------------------------------------------------------------------------
   codecs-linux-x64:
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Tools
         run: sudo apt-get update -qq && sudo apt-get install -y -qq nasm > /dev/null
@@ -2133,7 +2138,7 @@ jobs:
              codecs-osx-arm64, codecs-osx-x64,
              codecs-win-x64, codecs-win-arm64 ]
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write   # the default GITHUB_TOKEN is read-only; creating a release needs write
       packages: write   # …and pushing the nupkgs to GitHub Packages needs this on top
