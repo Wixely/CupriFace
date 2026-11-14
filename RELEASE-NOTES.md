@@ -36,17 +36,21 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
     or whose name refers to nothing. Both otherwise paint as though the shader were not written.
 - `BackgroundLayer` has a third member, `Shader`. Code that constructs or deconstructs one
   positionally with two values still compiles; a `switch` over its two old members should add it.
-- **The NativeAOT web host paints on the GPU first, and falls back to the CPU by itself.** When
-  the browser has a real WebGL2, Skia draws straight into the canvas instead of rasterising in
-  wasm and copying out with `putImageData`. An animated shader frame at 960x640 went from 626 ms
+- **Experimental, off by default: the NativeAOT web host can paint on the GPU, falling back to
+  the CPU by itself.** Nothing changes for an app that updates: the CPU path stays the default.
+  Opt in with `data-renderer="auto"` on the `<canvas id="cupri">` in your page, or try it with
+  `?renderer=auto` on the URL. When the browser has a real WebGL2, Skia then draws straight into
+  the canvas instead of rasterising in wasm and copying out with `putImageData`. An animated shader frame at 960x640 went from 626 ms
   to 5.3 ms in Firefox and from 160 ms to 1.7 ms in Chrome; an ordinary full repaint gains about a
   third. The CPU path takes over when there is no WebGL2, only a software WebGL, a context Skia
   refuses, a GPU frame that fails, or a context lost and not restored within 3 s. The last two
   happen mid-run, and the page carries on on a fresh canvas with its input intact. Video,
   transparent overlays and 3D underlays work on both paths.
-  - **This changes the default for existing apps on this host.** To keep the old behaviour, put
-    `data-renderer="cpu"` on the `<canvas id="cupri">` in your page. `data-renderer="webgl"`
-    also accepts a software-only WebGL. `?renderer=auto|webgl|cpu` on the URL overrides either.
+  - `data-renderer="webgl"` is the same but also accepts a software-only WebGL;
+    `data-renderer="cpu"` states the default. `?renderer=auto|webgl|cpu` on the URL overrides the
+    attribute. An app left on the default reports why in `doc.Renderer`, with the attribute that
+    turns the GPU on.
+  - `samples/WebLlvmShaders` opts in; `samples/WebLlvm` does not.
   - The Mono host stays on the CPU, and reports that it has no GPU path.
   - A custom host built on `WebHostCore` can paint into any `SKSurface` through
     `IWebGpuTarget` and `WebHostCore.UseGpu`, and fall back with `WebHostCore.FallBackToCpu`.

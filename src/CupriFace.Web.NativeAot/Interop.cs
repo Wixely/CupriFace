@@ -64,7 +64,9 @@ public static unsafe partial class Interop
         catch (Exception ex) { Crash("Tick", ex); return 0; }
     }
 
-    // ---- the renderer: GPU first, the CPU whenever the GPU cannot -------------------------------
+    // ---- the renderer: the CPU by default; GPU first, when the page opts in ---------------------
+    // The GPU renderer is EXPERIMENTAL and off unless the page asks (data-renderer="auto"), so an
+    // app updating the package gets no change it did not ask for; UseCpu records the default too.
     // The page drives this, after Init, because only the page owns the canvas: GpuAttach makes a
     // WebGL2 context, the page reads its name and calls GpuStart. Every failure — no context, Skia
     // refusing it, a software-only WebGL, a context lost and never given back, a frame that throws —

@@ -18,8 +18,9 @@
     sample (samples/WebShaders) run, compiled ahead of time. The project file is samples/WebLlvm's
     with a different app; see that one for why each line is here.
 
-    This is the sample that shows the GPU renderer earning its keep. The host paints on WebGL when
-    the browser has a real GPU and falls back to the CPU by itself; an animated shader is about a
+    This is the sample that shows the GPU renderer earning its keep, so its page opts in to it
+    (data-renderer="auto"; the renderer is experimental and off by default). The host then paints
+    on WebGL when the browser has a real GPU and falls back to the CPU by itself; an animated shader is about a
     hundred times cheaper on the first than the second. ?renderer=cpu on the URL shows the
     difference, and the page's own readout says which one is drawing and why.
 

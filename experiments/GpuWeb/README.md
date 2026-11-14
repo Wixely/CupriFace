@@ -89,8 +89,9 @@ ordinary measuring run finds one where the soak does not. Use the ordinary run a
 
 ## Where it went
 
-The WebGL lane is now `CupriFace.Web.NativeAot`'s default: GPU first, the CPU whenever the GPU
-cannot (README.md, "Two ways to reach a browser"). The host adds what this probe left out: making
+The WebGL lane is now in `CupriFace.Web.NativeAot` as an experimental opt-in
+(`data-renderer="auto"` on the host canvas): GPU first, the CPU whenever the GPU cannot
+(README.md, "Two ways to reach a browser"). The host adds what this probe left out: making
 its context current before each frame (the 3D viewport switches contexts), context loss and
 restore, resize, falling back to the CPU on a fresh canvas at startup or mid-run, and saying why in
 `doc.Renderer`. `samples/WebLlvmShaders` is the shader page on the real host.

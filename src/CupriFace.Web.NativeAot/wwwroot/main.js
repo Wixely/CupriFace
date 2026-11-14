@@ -9,14 +9,21 @@ import { dotnet } from "./dotnet.js";
 let canvas = document.getElementById("cupri");
 let ctx = null;
 
-// The renderer: GPU FIRST, the CPU whenever the GPU cannot. "auto" (the default) paints on the GPU
-// through WebGL2 when the browser has a real one, and otherwise rasterises in wasm and copies the
-// damage out with putImageData - and falls back to that, mid-run, on anything that ends the GPU
-// path (see Interop.cs). "webgl" also accepts a software-only WebGL; "cpu" never tries. Set with
-// data-renderer on the canvas; ?renderer=auto|webgl|cpu overrides it for a test. Nothing touches the
-// canvas until the choice is made, because the first getContext() call fixes its kind for good.
-const rendererWanted = (new URLSearchParams(location.search).get("renderer")
-                        || canvas.dataset.renderer || "auto").toLowerCase();
+// The renderer. The CPU by DEFAULT: rasterise in wasm and copy the damage out with putImageData,
+// exactly as every release before the GPU renderer did. The GPU renderer is experimental, so an
+// app updating the package gets no change it did not ask for.
+//
+// data-renderer="auto" on the canvas opts in: paint on the GPU through WebGL2 when the browser has
+// a real one, and fall back to the CPU by itself — at startup, or mid-run on anything that ends the
+// GPU path (see Interop.cs). "webgl" is the same but also accepts a software-only WebGL. "cpu" is
+// the default said out loud. ?renderer=auto|webgl|cpu on the URL overrides the attribute, to try
+// it. Nothing touches the canvas until the choice is made, because the first getContext() call
+// fixes its kind for good.
+const rendererQuery = new URLSearchParams(location.search).get("renderer");
+const rendererAsked = (rendererQuery || canvas.dataset.renderer || "").toLowerCase();
+// Where the choice came from, so the reason recorded in doc.Renderer names the thing to change.
+const rendererFrom = rendererQuery ? "?renderer=" + rendererAsked : 'data-renderer="' + rendererAsked + '"';
+const rendererWanted = rendererAsked === "auto" || rendererAsked === "webgl" ? rendererAsked : "cpu";
 
 // The ARIA overlay: a transparent DOM tree over the canvas mirroring the engine's semantics tree,
 // each node at its control's bounds, carrying its data-path and tabindex="-1". Same design and
@@ -254,10 +261,14 @@ try {
         if (M._GpuRestored() === 2) useCpuCanvas(true);
     });
 
-    // GPU first. Called once, after Init, so every report lands in doc.Renderer.
+    // Called once, after Init, so every report lands in doc.Renderer — including the default, so a
+    // diagnostics page says how to turn the GPU on rather than looking like a GPU that failed.
     function startRenderer() {
         if (rendererWanted === "cpu") {
-            withText('the page asked for the CPU renderer (data-renderer="cpu")', len => M._UseCpu(len));
+            const why = rendererAsked === "cpu" ? "the page asked for the CPU renderer (" + rendererFrom + ")"
+                : rendererAsked === "" ? 'the GPU renderer is experimental and off by default; data-renderer="auto" on the canvas turns it on'
+                : rendererFrom + " is not a renderer (auto, webgl or cpu), so the default is used";
+            withText(why, len => M._UseCpu(len));
             useCpuCanvas(false);
             return;
         }

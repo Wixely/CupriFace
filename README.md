@@ -321,13 +321,14 @@ features, so moving between them — or falling back — is a `PackageReference`
 The one exception is the GPU renderer below, which only the NativeAOT host has so far; the Mono
 host is always on the CPU, and says so.
 
-**The NativeAOT host paints on the GPU first.** When the browser has a real WebGL2, Skia draws
-straight into the canvas instead of rasterising in wasm and copying out with `putImageData`, and
-when it cannot, the host falls back to the CPU path by itself. That covers no WebGL2 at all, a
-software-only WebGL, Skia refusing the context, a frame that fails, and a context lost and not
-given back within 3 seconds; the last two happen mid-run, and the page carries on on a fresh
-canvas. Nothing to write. `data-renderer="cpu"` on the `<canvas id="cupri">` opts out, and
-`?renderer=auto|webgl|cpu` on the URL overrides it for a test.
+**The NativeAOT host can paint on the GPU — experimental, and off by default.** The default is
+the CPU path every release has used. Opt in with `<canvas id="cupri" data-renderer="auto">`
+(or `?renderer=auto` on the URL to try it): Skia then draws straight into a WebGL2 canvas
+instead of rasterising in wasm and copying out with `putImageData`, and when it cannot, the host
+falls back to the CPU path by itself. That covers no WebGL2 at all, a software-only WebGL, Skia
+refusing the context, a frame that fails, and a context lost and not given back within 3
+seconds; the last two happen mid-run, and the page carries on on a fresh canvas.
+`data-renderer="webgl"` also accepts a software-only WebGL.
 
 Where it counts is per-pixel work, the whole cost of an animated `shader()`. `samples/WebLlvmShaders`
 at 960x640, milliseconds per frame on the host's own frame loop:

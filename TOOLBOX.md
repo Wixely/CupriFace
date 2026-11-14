@@ -721,8 +721,9 @@ controls handle their own state.
   (the web host, the software window): SkSL needs no GPU, but a full-page animated shader is then
   a full-page software repaint per frame. **In the browser that is not a small cost.** Measured at
   960x640, the demo's two animated shaders take about 700 ms a frame rasterised in wasm, on either
-  web runtime. **The NativeAOT host draws on WebGL whenever the browser has a real GPU**, and
-  there the same frame is 2 to 8 ms, so animated shaders are fine. Where it has fallen back to the
+  web runtime. **The NativeAOT host's experimental GPU renderer** (`data-renderer="auto"` on the
+  host canvas — off by default) draws on WebGL when the browser has a real GPU, and there the same
+  frame is 2 to 8 ms, so animated shaders are fine. Where it has fallen back to the
   CPU, and on the Mono host, treat a shader as a still picture (one with no `iTime` is painted
   once and is fine) — and `doc.Renderer` tells you which case you are in. A filter also keeps its whole subtree in every partial
   repaint, since a shader may read its input from anywhere.
