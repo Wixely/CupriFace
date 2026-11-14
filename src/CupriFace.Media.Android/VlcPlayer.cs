@@ -59,6 +59,7 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
                         _player.Stop();
                         _mediaOpened = false;
                         _ready = false;
+                        _playing = false;
                     }
                     else
                     {
@@ -80,6 +81,11 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
         }
     }
     private bool _ready;
+    private bool _playing;
+    private double _positionSeconds;
+    private double _durationSeconds;
+    private int _startQueued;
+    private int _startVersion;
     private bool _loop;
     private double _volume = 1;
     private double _pendingSeek = -1;
@@ -98,6 +104,8 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
     // exception. It shares _gate, so a `lock (_gate) { if (Disposed) … }` check stays atomic with
     // the close. See NativeCallGate.
     private readonly NativeCallGate _native;
+    private Task _retirement = Task.CompletedTask;
+    internal Task Retirement => _retirement;
     private bool Disposed => _native.IsClosed;
     private bool _buffering;
     private CupriVideoTrack[] _audioTracks = [];
@@ -139,20 +147,35 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
     public (int W, int H)? NaturalSize => Natural;
     public bool Ticking => false;
     public bool HostComposited => _ready;
-    public bool Playing => !Disposed && _player.IsPlaying;
+    public bool Playing { get { lock (_gate) return !Disposed && _playing; } }
     public bool Buffering => _buffering;
 
     public void Play()
     {
-        _playWhenReady = true;
+        lock (_gate) _playWhenReady = true;
         TryStart();
         _backend.PlayerStateChanged(this);
     }
 
     public void Pause()
     {
-        _playWhenReady = false;
-        if (!Disposed && _player.IsPlaying) _player.Pause();
+        lock (_gate)
+        {
+            _playWhenReady = false;
+            _playing = false;
+        }
+        _ = Task.Run(() =>
+        {
+            if (!TryEnterNative()) return;
+            try { _player.Pause(); }
+            catch (Exception exception)
+            {
+                global::Android.Util.Log.Warn(AndroidHost.Tag,
+                    $"video pause: {exception.GetType().Name}");
+            }
+            finally { ExitNative(); }
+            _backend.PlayerStateChanged(this);
+        });
         _backend.PlayerStateChanged(this);
     }
 
@@ -178,7 +201,14 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
         set => _loop = value;
     }
 
-    public double Duration => Disposed ? 0 : _restoreAfterSuspend ? _suspendedDuration : Math.Max(0, _player.Length / 1000.0);
+    public double Duration
+    {
+        get
+        {
+            lock (_gate)
+                return Disposed ? 0 : _restoreAfterSuspend ? _suspendedDuration : _durationSeconds;
+        }
+    }
 
     /// <summary>Whether a requested seek is still worth believing. Expires it in passing, so every
     /// reader — the position, the buffering indicator, the retry on Playing — agrees about it and
@@ -207,7 +237,7 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
             {
                 if (_restoreAfterSuspend) return _suspendedPosition;
                 if (PendingSeekLive()) return _pendingSeek;
-                return Disposed ? 0 : Math.Max(0, _player.Time / 1000.0);
+                return Disposed ? 0 : _positionSeconds;
             }
         }
         set
@@ -298,7 +328,11 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
     {
         try
         {
-            if (Source.IsRemote)
+            if (_backend.CreateMedia(Source) is { } suppliedMedia)
+            {
+                Publish(() => suppliedMedia);
+            }
+            else if (Source.IsRemote)
             {
                 if (!Uri.TryCreate(Source.Src, UriKind.Absolute, out var uri)
                     || uri.Scheme != Uri.UriSchemeHttps || string.IsNullOrWhiteSpace(uri.Host)
@@ -343,17 +377,58 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
 
     private void TryStart()
     {
-        lock (_gate)
+        Interlocked.Increment(ref _startVersion);
+        QueueStart();
+    }
+
+    private void QueueStart()
+    {
+        if (Interlocked.CompareExchange(ref _startQueued, 1, 0) != 0) return;
+        _ = Task.Run(() =>
         {
-            if (Disposed || !_activityVisible || !_playWhenReady || View is null || _media is null || _player.IsPlaying) return;
-            if (_restoreAfterSuspend)
+            var observedVersion = Volatile.Read(ref _startVersion);
+            try
             {
-                SetPendingSeek(_suspendedPosition);
-                _restoreAfterSuspend = false;
+                if (!TryEnterNative()) return;
+                try
+                {
+                    VlcMedia? media;
+                    bool mediaOpened;
+                    lock (_gate)
+                    {
+                        if (Disposed || !_activityVisible || !_playWhenReady || View is null ||
+                            _media is null || _playing) return;
+                        if (_restoreAfterSuspend)
+                        {
+                            SetPendingSeek(_suspendedPosition);
+                            _restoreAfterSuspend = false;
+                        }
+                        media = _media;
+                        mediaOpened = _mediaOpened;
+                    }
+
+                    var started = mediaOpened ? _player.Play() : _player.Play(media);
+                    if (!mediaOpened)
+                    {
+                        lock (_gate)
+                        {
+                            if (!Disposed) _mediaOpened = started;
+                        }
+                    }
+                }
+                finally { ExitNative(); }
             }
-            if (!_mediaOpened) _mediaOpened = _player.Play(_media);
-            else _player.Play();
-        }
+            catch (Exception exception)
+            {
+                global::Android.Util.Log.Warn(AndroidHost.Tag,
+                    $"video start: {exception.GetType().Name}");
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _startQueued, 0);
+                if (observedVersion != Volatile.Read(ref _startVersion)) QueueStart();
+            }
+        });
     }
 
     private void QueuePendingSeek()
@@ -381,7 +456,11 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
 
     private void OnPlaying(object? sender, EventArgs args)
     {
-        _ready = true;
+        lock (_gate)
+        {
+            _ready = true;
+            _playing = true;
+        }
         // LibVLC callbacks must not call back into LibVLC synchronously. Move seeking and metadata
         // queries to a worker after the callback returns.
         _ = Task.Run(() =>
@@ -393,7 +472,12 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
                 uint width = 0, height = 0;
                 if (_player.Size(0, ref width, ref height) && width > 0 && height > 0)
                     Natural = ((int)width, (int)height);
-                lock (_gate) hasPendingSeek = PendingSeekLive();
+                var duration = Math.Max(0, _player.Length / 1000.0);
+                lock (_gate)
+                {
+                    _durationSeconds = duration;
+                    hasPendingSeek = PendingSeekLive();
+                }
                 RefreshTracks();
                 RefreshChapters();
             }
@@ -433,6 +517,7 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
     {
         lock (_gate)
         {
+            _positionSeconds = Math.Max(0, args.Time / 1000.0);
             if (!PendingSeekLive() || Math.Abs(args.Time / 1000.0 - _pendingSeek) > 2) return;
             _pendingSeek = -1;
         }
@@ -538,6 +623,7 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
             return;
         }
         _playWhenReady = false;
+        _playing = false;
         Ended?.Invoke();
         _backend.PlayerStateChanged(this);
     }
@@ -546,6 +632,7 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
     {
         _playWhenReady = false;
         _ready = false;
+        _playing = false;
         global::Android.Util.Log.Warn(AndroidHost.Tag, "video: LibVLC reported a playback error");
         _backend.Invalidate();
         _backend.PlayerStateChanged(this);
@@ -553,11 +640,12 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
 
     public void Dispose()
     {
-        // Claim the teardown and WAIT for any worker already inside a LibVLC call. Setting the flag
-        // under _gate is what makes TryEnterNative a real gate rather than a racing read: a worker
-        // either got in before this and is waited for, or is refused. Without the wait, a seek
-        // worker blocked on a remote range response would return into a freed native player.
-        if (!_native.Close()) return;
+        // Refuse new native work now, but do not wait here. Dispose runs while the Android document
+        // is updated on the main thread, and a live stream can leave Play or Stop blocked long
+        // enough for Android to declare an input-timeout ANR. Retirement waits on a worker before
+        // freeing the native objects, preserving the no-use-after-free guarantee.
+        var closing = _native.CloseAsync();
+        if (closing.IsCompletedSuccessfully && !closing.Result) return;
         _player.Playing -= OnPlaying;
         _player.TimeChanged -= OnTimeChanged;
         _player.Buffering -= OnBuffering;
@@ -568,10 +656,22 @@ internal sealed class AndroidPlayer : IVideoPlayer, IVideoTrackSelector, IVideoC
         _player.ChapterChanged -= OnChapterChanged;
         _player.EndReached -= OnEnded;
         _player.EncounteredError -= OnError;
-        _player.Stop();
+        _ready = false;
+        _playing = false;
+        _retirement = Task.Run(() => RetireAsync(closing));
+        _backend.Close(this);
+    }
+
+    private async Task RetireAsync(Task<bool> closing)
+    {
+        if (!await closing.ConfigureAwait(false)) return;
+        try { _player.Stop(); }
+        catch (Exception exception)
+        {
+            global::Android.Util.Log.Warn(AndroidHost.Tag,
+                $"video retirement: {exception.GetType().Name}");
+        }
         _media?.Dispose();
         _player.Dispose();
-        _ready = false;
-        _backend.Close(this);
     }
 }

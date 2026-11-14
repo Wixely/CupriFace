@@ -19,15 +19,19 @@ public sealed class LibVlcVideoBackend : IVideoBackend, IDisposable
     private readonly LibVLC _libVlc;
     private readonly string _cacheDirectory;
     private readonly bool _debug;
+    private readonly Func<LibVLC, VideoSource, VlcMedia?>? _mediaFactory;
     private readonly HashSet<LibVlcVideoPlayer> _players = [];
     private bool _disposed;
 
-    public LibVlcVideoBackend(string? cacheDirectory = null)
+    public LibVlcVideoBackend(
+        string? cacheDirectory = null,
+        Func<LibVLC, VideoSource, VlcMedia?>? mediaFactory = null)
     {
         if (!OperatingSystem.IsWindows())
             throw new PlatformNotSupportedException("The LibVLC Windows backend requires Windows.");
 
         _debug = Environment.GetEnvironmentVariable("CUPRIFACE_MEDIA_DEBUG") is "1" or "true" or "TRUE";
+        _mediaFactory = mediaFactory;
         // Assembly.Location and, with IncludeAllContentForSelfExtract, AppContext.BaseDirectory can
         // point into the single-file extraction directory. LibVLC is kept external and replaceable
         // for LGPL compliance, so prefer the directory containing the running apphost/executable.
@@ -87,6 +91,7 @@ public sealed class LibVlcVideoBackend : IVideoBackend, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         var player = new LibVlcVideoPlayer(_libVlc, source, _cacheDirectory,
+            _mediaFactory,
             message => { if (_debug) Console.WriteLine("[cupri-media] " + message); },
             closed => { lock (_players) _players.Remove(closed); });
         lock (_players) _players.Add(player);
@@ -146,6 +151,7 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IVi
         LibVLC libVlc,
         VideoSource source,
         string cacheDirectory,
+        Func<LibVLC, VideoSource, VlcMedia?>? mediaFactory,
         Action<string> log,
         Action<LibVlcVideoPlayer> closed)
     {
@@ -163,7 +169,7 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IVi
         _player.ChapterChanged += OnChapterChanged;
         _player.EndReached += OnEnded;
         _player.EncounteredError += OnError;
-        _ = PrepareAsync(libVlc);
+        _ = PrepareAsync(libVlc, mediaFactory);
     }
 
     public ISurfaceSource Surface => this;
@@ -333,11 +339,26 @@ internal sealed class LibVlcVideoPlayer : IVideoPlayer, IVideoTrackSelector, IVi
         _context = null;
     }
 
-    private async Task PrepareAsync(LibVLC libVlc)
+    private async Task PrepareAsync(
+        LibVLC libVlc,
+        Func<LibVLC, VideoSource, VlcMedia?>? mediaFactory)
     {
         try
         {
-            if (_source.IsRemote)
+            if (mediaFactory?.Invoke(libVlc, _source) is { } suppliedMedia)
+            {
+                lock (_gate)
+                {
+                    if (_disposed)
+                    {
+                        suppliedMedia.Dispose();
+                        return;
+                    }
+                    _media = suppliedMedia;
+                }
+                _log("prepared application media input");
+            }
+            else if (_source.IsRemote)
             {
                 if (!Uri.TryCreate(_source.Src, UriKind.Absolute, out var remoteUri)
                     || remoteUri.Scheme != Uri.UriSchemeHttps

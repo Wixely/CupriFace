@@ -58,6 +58,24 @@ public class AndroidPlaybackIntegrationTests
     }
 
     [Fact]
+    public void Android_video_does_not_wait_on_libvlc_from_the_ui_thread()
+    {
+        var source = Media("VlcPlayer.cs");
+
+        Assert.Contains("private void QueueStart()", source, StringComparison.Ordinal);
+        var start = source[source.IndexOf("private void QueueStart()", StringComparison.Ordinal)..];
+        Assert.Contains("_ = Task.Run(() =>", start, StringComparison.Ordinal);
+        Assert.Contains("return !Disposed && _playing;", source, StringComparison.Ordinal);
+        Assert.Contains("return Disposed ? 0 : _positionSeconds;", source, StringComparison.Ordinal);
+        Assert.Contains("_durationSeconds", source, StringComparison.Ordinal);
+
+        var pause = source[source.IndexOf("public void Pause()", StringComparison.Ordinal)..
+            source.IndexOf("public bool Muted", StringComparison.Ordinal)];
+        Assert.Contains("Task.Run", pause, StringComparison.Ordinal);
+        Assert.DoesNotContain("_player.IsPlaying", pause, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Android_touch_replays_batched_motion_history_for_fling_velocity()
     {
         var source = Android("CupriHostView.cs");
@@ -165,9 +183,11 @@ public class AndroidPlaybackIntegrationTests
         Assert.Contains("new NativeCallGate(_gate)", source, StringComparison.Ordinal);
         Assert.Contains("private bool TryEnterNative() => _native.TryEnter();", source, StringComparison.Ordinal);
         var dispose = source[source.IndexOf("public void Dispose()", StringComparison.Ordinal)..];
-        var close = dispose.IndexOf("_native.Close()", StringComparison.Ordinal);
+        var close = dispose.IndexOf("_native.CloseAsync()", StringComparison.Ordinal);
         var free = dispose.IndexOf("_player.Dispose()", StringComparison.Ordinal);
         Assert.True(close >= 0 && close < free, "Dispose must close the native gate before freeing the player");
+        Assert.Contains("_retirement = Task.Run(() => RetireAsync(closing));", dispose, StringComparison.Ordinal);
+        Assert.DoesNotContain("_native.Close()", dispose, StringComparison.Ordinal);
 
         // Every native MEDIA is built inside the gate (#317). The worker scan below only sees
         // Task.Run bodies, and the local-file path built its media after an `await` instead —
@@ -190,7 +210,8 @@ public class AndroidPlaybackIntegrationTests
             // _gate, so either holding the gate or taking the lock excludes it. A bare flag read
             // followed by a native call is the one that is not.
             Assert.True(worker.Contains("TryEnterNative()", StringComparison.Ordinal)
-                        || worker.Contains("lock (_gate)", StringComparison.Ordinal),
+                        || worker.Contains("lock (_gate)", StringComparison.Ordinal)
+                        || worker.Contains("await closing.ConfigureAwait(false)", StringComparison.Ordinal),
                         $"a worker touching the native player is unguarded: {worker[..Math.Min(120, worker.Length)]}");
         }
     }

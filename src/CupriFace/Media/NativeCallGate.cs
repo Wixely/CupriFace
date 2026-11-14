@@ -32,6 +32,7 @@ public sealed class NativeCallGate(object sync)
 {
     private int _busy;
     private volatile bool _closed;
+    private TaskCompletionSource<bool>? _closeCompletion;
 
     /// <summary>True once <see cref="Close"/> has started. Safe to read without the lock for a
     /// best-effort early return; read it under the lock when the answer guards a native call.</summary>
@@ -53,9 +54,32 @@ public sealed class NativeCallGate(object sync)
     /// waiting for the last caller out.</summary>
     public void Exit()
     {
+        TaskCompletionSource<bool>? completion = null;
         lock (sync)
         {
-            if (--_busy <= 0) Monitor.PulseAll(sync);
+            if (--_busy <= 0)
+            {
+                Monitor.PulseAll(sync);
+                completion = _closeCompletion;
+                _closeCompletion = null;
+            }
+        }
+        completion?.TrySetResult(true);
+    }
+
+    /// <summary>Refuse later entries immediately and complete after callers already inside have
+    /// left. Unlike <see cref="Close"/>, this never waits on the calling thread, so UI teardown can
+    /// retire a slow native player without causing an input-timeout ANR. The result is false when
+    /// another caller already started closing.</summary>
+    public Task<bool> CloseAsync()
+    {
+        lock (sync)
+        {
+            if (_closed) return Task.FromResult(false);
+            _closed = true;
+            if (_busy <= 0) return Task.FromResult(true);
+            _closeCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            return _closeCompletion.Task;
         }
     }
 
@@ -63,13 +87,7 @@ public sealed class NativeCallGate(object sync)
     /// the first time, false if already closed — so a second Dispose is a no-op.</summary>
     public bool Close()
     {
-        lock (sync)
-        {
-            if (_closed) return false;
-            _closed = true;
-            while (_busy > 0) Monitor.Wait(sync);
-            return true;
-        }
+        return CloseAsync().GetAwaiter().GetResult();
     }
 
     /// <summary>Run <paramref name="body"/> inside an entry: not at all if the owner is closing, and

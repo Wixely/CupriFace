@@ -4,6 +4,7 @@ using CupriFace.Android;
 using CupriFace.Media;
 using LibVLCSharp.Shared;
 using AndroidVlcVideoView = LibVLCSharp.Platforms.Android.VideoView;
+using VlcMedia = LibVLCSharp.Shared.Media;
 using VideoSource = CupriFace.Media.VideoSource;
 
 namespace CupriFace.Media.Android;
@@ -23,14 +24,17 @@ public sealed class VlcVideoBackend : IAndroidVideoBackend
     private readonly Action _invalidate;
     private readonly Action<Action> _runOnUi;
     private readonly List<AndroidPlayer> _players = new();
+    private readonly List<Task> _retirements = new();
     private readonly AndroidMediaSession _mediaSession;
     private readonly LibVLC _libVlc;
+    private readonly Func<LibVLC, VideoSource, VlcMedia?>? _mediaFactory;
     private bool _pictureInPicture;
+    private volatile bool _disposed;
 
     /// <summary>Construct from the services the host hands to
     /// <c>CupriActivity.CreateVideoBackend</c>. Initialising LibVLC here, rather than at type load,
     /// keeps an app that never overrides that hook from loading the native libraries at all.</summary>
-    public VlcVideoBackend(AndroidVideoServices services)
+    public VlcVideoBackend(AndroidVideoServices services, Func<LibVLC, VideoSource, VlcMedia?>? mediaFactory = null)
     {
         ArgumentNullException.ThrowIfNull(services);
         _context = services.Context;
@@ -38,12 +42,18 @@ public sealed class VlcVideoBackend : IAndroidVideoBackend
         _invalidate = services.Invalidate;
         _runOnUi = services.RunOnUi;
         _mediaSession = new AndroidMediaSession(services.Context, services.RunOnUi);
+        _mediaFactory = mediaFactory;
         Core.Initialize();
         _libVlc = new LibVLC("--no-video-title-show", "--no-snapshot-preview");
     }
 
+    internal VlcMedia? CreateMedia(VideoSource source) => _mediaFactory?.Invoke(_libVlc, source);
+
     internal void Invalidate() => _invalidate();
-    internal void PlayerStateChanged(AndroidPlayer player) => _mediaSession.Update(player);
+    internal void PlayerStateChanged(AndroidPlayer player)
+    {
+        if (!_disposed) _mediaSession.Update(player);
+    }
 
     public void SetActivityVisible(bool visible)
     {
@@ -83,6 +93,7 @@ public sealed class VlcVideoBackend : IAndroidVideoBackend
 
     public IVideoPlayer Open(VideoSource source)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         var player = new AndroidPlayer(this, _libVlc, source);
         lock (_players) _players.Add(player);
 
@@ -91,7 +102,16 @@ public sealed class VlcVideoBackend : IAndroidVideoBackend
             // LibVLC's VideoView owns the Android AWindow/surfaces. It is added at index 0 so it
             // remains beneath the translucent GL surface where CupriFace punches the video hole.
             var view = new AndroidVlcVideoView(_context);
-            var lp = new FrameLayout.LayoutParams(1, 1);
+            // Give LibVLC a real-sized surface before attaching the player. Its Android VideoView
+            // creates its child SurfaceViews during attachment; starting them at 1x1 leaves the
+            // decoder's output surface permanently at 1x1 even after this parent is rearranged.
+            var lp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MatchParent,
+                FrameLayout.LayoutParams.MatchParent)
+            {
+                LeftMargin = -100000,
+                TopMargin = -100000,
+            };
             view.LayoutParameters = lp;
             _underlays.AddView(view, 0);
             player.AttachView(view);
@@ -101,7 +121,11 @@ public sealed class VlcVideoBackend : IAndroidVideoBackend
 
     internal void Close(AndroidPlayer player)
     {
-        lock (_players) _players.Remove(player);
+        lock (_players)
+        {
+            _players.Remove(player);
+            _retirements.Add(player.Retirement);
+        }
         _mediaSession.Remove(player);
         var view = player.View;
         player.View = null;
@@ -200,12 +224,15 @@ public sealed class VlcVideoBackend : IAndroidVideoBackend
         }
     }
 
-    // Off-screen and 1x1 — not hidden. See the note where the view is created: visibility is what
-    // decides whether a SurfaceView has a surface at all.
+    // Off-screen but not hidden or collapsed. LibVLC's child SurfaceViews keep their initial
+    // buffer size, so collapsing this parent to 1x1 can strand the decoder on a 1x1 surface.
     private static void Park(AndroidVlcVideoView view)
     {
         if (view.LayoutParameters is not FrameLayout.LayoutParams lp) return;
-        lp.Width = 1; lp.Height = 1; lp.LeftMargin = -10; lp.TopMargin = -10;
+        if (lp.Width <= 1) lp.Width = FrameLayout.LayoutParams.MatchParent;
+        if (lp.Height <= 1) lp.Height = FrameLayout.LayoutParams.MatchParent;
+        lp.LeftMargin = -100000;
+        lp.TopMargin = -100000;
         view.LayoutParameters = lp;
     }
 
@@ -243,9 +270,20 @@ public sealed class VlcVideoBackend : IAndroidVideoBackend
     public void Dispose()
     {
         AndroidPlayer[] players;
-        lock (_players) players = _players.ToArray();
+        lock (_players)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            players = _players.ToArray();
+        }
         foreach (var player in players) player.Dispose();
         _mediaSession.Dispose();
-        _libVlc.Dispose();
+        Task[] retirements;
+        lock (_players) retirements = _retirements.ToArray();
+        _ = Task.Run(async () =>
+        {
+            await Task.WhenAll(retirements).ConfigureAwait(false);
+            _libVlc.Dispose();
+        });
     }
 }
