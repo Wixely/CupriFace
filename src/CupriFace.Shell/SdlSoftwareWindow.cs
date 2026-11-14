@@ -65,6 +65,11 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     /// <summary>Draw on a real GL context owned by this SDL window (see <see cref="SdlGlPresenter"/>):
     /// GPU rendering AND touch in one window, which neither of the other two paths can offer.</summary>
     internal bool UseGl { get; set; }
+
+    /// <summary>What this window ended up drawing with, once it is open — GPU when its GL or
+    /// layered-GPU path came up, the SDL software renderer otherwise, with the reason when a GPU
+    /// path was asked for and refused. DesktopHost reports it to the document.</summary>
+    internal RendererInfo Renderer { get; private set; } = new(RendererKind.Cpu, "SDL software renderer");
     private SdlGlPresenter? _gl;
     private bool _registeredAlphaClass;
     private EventFilter? _resizeWatch; // kept alive: fires during the OS modal resize loop
@@ -551,11 +556,14 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                         ? $" — NOTE: drawable is {ratio:0.00}x the window; that scale is not yet folded into D, so taps will land short by that factor"
                         : " (differs by a few pixels — decoration accounting, harmless)";
                 Console.WriteLine($"[CupriFace] SDL GL window: {_gl.Renderer}; drawable {dw}x{dh}, window {_width}x{_height}{note}");
+                Renderer = new RendererInfo(RendererKind.Gpu, $"OpenGL through SDL — {_gl.Renderer}");
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[CupriFace] SDL GL context unavailable ({ex.GetType().Name}: {ex.Message}); using the SDL software renderer.");
                 _gl = null;
+                Renderer = new RendererInfo(RendererKind.Cpu, "SDL software renderer",
+                    $"the SDL GL context was unavailable ({ex.GetType().Name}: {ex.Message})");
             }
         }
         ApplyPendingIcon();
@@ -589,8 +597,16 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         {
             _alphaPresenter = new WindowsAlphaPresenter(Win32Hwnd
                 ?? throw new InvalidOperationException("Transparent SDL window has no HWND."));
-            if (UseLayeredGpu) _gpuRenderer = new LayeredGpuRenderer();
-            else Console.WriteLine("[CupriFace] Windows per-pixel alpha presentation (software rendering).");
+            if (UseLayeredGpu)
+            {
+                _gpuRenderer = new LayeredGpuRenderer();
+                Renderer = new RendererInfo(RendererKind.Gpu, $"off-screen OpenGL, Windows layered window — {_gpuRenderer.Renderer}");
+            }
+            else
+            {
+                Console.WriteLine("[CupriFace] Windows per-pixel alpha presentation (software rendering).");
+                Renderer = new RendererInfo(RendererKind.Cpu, "Skia raster, Windows per-pixel alpha (layered window)");
+            }
         }
         else
         {

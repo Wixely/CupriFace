@@ -276,6 +276,29 @@ public sealed unsafe class GlViewport : IGpuSurfaceSource, IDisposable
         Interlocked.Increment(ref _frames);
     }
 
+    /// <summary>
+    /// The host's GPU context is gone — it fell back to a software window mid-run. Everything made
+    /// on that context is forgotten rather than deleted (no GL is issued: the context may already be
+    /// destroyed), the texture-backed frame is dropped, and the viewport goes back to waiting for a
+    /// lane. With no GPU hook any more, the next polls move it to the private-context lane — the
+    /// same one a host that started in software uses — and the content is initialised again there,
+    /// once for the new context, as <see cref="IGlContent.Initialise"/> promises.
+    /// </summary>
+    public void OnGpuContextLost()
+    {
+        if (_web || Lane != GlLane.SharedGpu) return;
+        _target.Forget();
+        Context = null;
+        _contentStarted = false;
+        var stale = _frame;
+        _frame = null;
+        stale?.Dispose();
+        Lane = GlLane.None;
+        _state = GlViewportState.Waiting;
+        _polls = 0;
+        Log("the host's GPU context is gone; moving to the private-context lane");
+    }
+
     private bool AcquireHostContext()
     {
         var proc = HostGl.ForHostContext(out var why);

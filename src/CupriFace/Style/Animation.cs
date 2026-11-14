@@ -16,7 +16,7 @@ internal sealed record AnimationBase(float Opacity, bool HasTransform, float Tra
     float RotateXDeg = 0f, float RotateYDeg = 0f, float TranslateZ = 0f, float PerspectiveFn = 0f,
     SKColor? SvgFill = null, SKColor? SvgStroke = null, float? SvgStrokeWidth = null,
     float? SvgStrokeDashOffset = null, float? SvgFillOpacity = null, float? SvgStrokeOpacity = null,
-    ClipShape? ClipPath = null, List<FilterOp>? Filter = null);
+    ClipShape? ClipPath = null, List<FilterOp>? Filter = null, List<ShaderUse>? ShaderFilters = null);
 
 /// <summary>
 /// Parses <c>@keyframes</c> blocks and applies time-sampled animation overrides to the
@@ -145,7 +145,7 @@ public static partial class Animation
         s.TranslateXPct, s.TranslateYPct,
         s.RotateXDeg, s.RotateYDeg, s.TranslateZ, s.PerspectiveFn,
         s.SvgFill, s.SvgStroke, s.SvgStrokeWidth, s.SvgStrokeDashOffset, s.SvgFillOpacity, s.SvgStrokeOpacity,
-        s.ClipPath, s.Filter);
+        s.ClipPath, s.Filter, s.ShaderFilters);
 
     private static void Restore(ComputedStyle s)
     {
@@ -157,7 +157,7 @@ public static partial class Animation
         s.RotateXDeg = b.RotateXDeg; s.RotateYDeg = b.RotateYDeg; s.TranslateZ = b.TranslateZ; s.PerspectiveFn = b.PerspectiveFn;
         s.SvgFill = b.SvgFill; s.SvgStroke = b.SvgStroke; s.SvgStrokeWidth = b.SvgStrokeWidth;
         s.SvgStrokeDashOffset = b.SvgStrokeDashOffset; s.SvgFillOpacity = b.SvgFillOpacity; s.SvgStrokeOpacity = b.SvgStrokeOpacity;
-        s.ClipPath = b.ClipPath; s.Filter = b.Filter;
+        s.ClipPath = b.ClipPath; s.Filter = b.Filter; s.ShaderFilters = b.ShaderFilters;
     }
 
     private static void ApplyFrame(ComputedStyle s, List<Keyframe> frames, float progress, AnimationSpec spec)
@@ -255,7 +255,24 @@ public static partial class Animation
             var fa = a.Declarations.ContainsKey("filter") ? from.Filter : s.AnimBase.Filter;
             var fb = b.Declarations.ContainsKey("filter") ? to.Filter : s.AnimBase.Filter;
             s.Filter = TransitionEngine.LerpFilterChains(fa, fb, local);
+
+            // The shader() half of the same declaration: a uniform written at two stops is a
+            // number that moves, which is how a stylesheet drives a shader without any C#.
+            var sa = a.Declarations.ContainsKey("filter") ? from.ShaderFilters : s.AnimBase.ShaderFilters;
+            var sb = b.Declarations.ContainsKey("filter") ? to.ShaderFilters : s.AnimBase.ShaderFilters;
+            s.ShaderFilters = LerpShaders(sa, sb, local);
         }
+    }
+
+    /// <summary>Use by use when both stops name the same shaders with the same uniforms; a flip
+    /// at the midpoint otherwise, which is what CSS does with anything it cannot interpolate.</summary>
+    private static List<ShaderUse>? LerpShaders(List<ShaderUse>? a, List<ShaderUse>? b, float t)
+    {
+        if (a is null || b is null || a.Count != b.Count) return t < 0.5f ? a : b;
+        for (var i = 0; i < a.Count; i++) if (!ShaderUse.SameShape(a[i], b[i])) return t < 0.5f ? a : b;
+        var outp = new List<ShaderUse>(a.Count);
+        for (var i = 0; i < a.Count; i++) outp.Add(ShaderUse.Lerp(a[i], b[i], t));
+        return outp;
     }
 
     private static bool Declared(Keyframe a, Keyframe b, string prop) =>

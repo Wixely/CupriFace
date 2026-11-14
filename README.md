@@ -33,11 +33,12 @@ or whatever else was on the desktop, whereas this can only draw the document.
 | <img src="docs/screenshots/images.jpg" alt="Images"><br>**Images** — `object-fit` modes in a corner-drag `resize: both` frame | ![Overlays](docs/screenshots/overlays.png)<br>**Overlays** — modal dialog over a real backdrop blur; drawers, popovers, toasts, context menus |
 | ![Layout](docs/screenshots/layout.png)<br>**Layout** — flexbox, CSS grid with spans, inline flow, draggable split panes | ![Motion](docs/screenshots/motion.png)<br>**Motion** — `@keyframes`, transforms and CSS transitions |
 | ![Styling](docs/screenshots/styling.png)<br>**Styling** — the cascade, variables, accent theming, shadows and borders | ![Settings](docs/screenshots/settings.png)<br>**Settings** — forms, validation, and the scaling modes |
-| ![3D](docs/screenshots/threed.png)<br>**3D** — a glTF model on the GPU behind live UI, at three alphas. The model is drawn by **sample** code; the engine's part is compositing it, and the optional `CupriFace.Gl` package is the seam between the two | ![Diagnostics](docs/screenshots/diagnostics.png)<br>**Diagnostics** — live frame timings and node counts |
-| ![Dark mode](docs/screenshots/inputs-dark.png)<br>**Dark mode** — a CSS variable swap on `body.dark`, cross-faded by a `transition` | |
+| ![3D](docs/screenshots/threed.png)<br>**3D** — a glTF model on the GPU behind live UI, at three alphas. The model is drawn by **sample** code; the engine's part is compositing it, and the optional `CupriFace.Gl` package is the seam between the two | ![Diagnostics](docs/screenshots/diagnostics.png)<br>**Diagnostics** — live process metrics, where the last frame's time went, and what the page is drawn with (GPU or CPU, and why) |
+| ![Dark mode](docs/screenshots/inputs-dark.png)<br>**Dark mode** — a CSS variable swap on `body.dark`, cross-faded by a `transition` | ![Shaders](docs/screenshots/shaders.png)<br>**Shaders** — SkSL as a background (`shader(plasma)`) and as a filter over what an element drew (`shader(wave)`); [`samples/Shaders`](samples/Shaders), not the Showcase |
 
 Run it yourself with `dotnet run --project samples/Viewer` (desktop). The same app also runs in a
-browser on a `<canvas>` (no Blazor) via `samples/WebWasm`, and on a phone via
+browser on a `<canvas>` (no Blazor) via `samples/WebLlvm` (or `samples/WebWasm`, which builds with
+the stock SDK), and on a phone via
 `samples/AndroidViewer` — or download the APK from the
 [latest release](https://github.com/Wixely/CupriFace/releases/latest) and sideload it.
 
@@ -47,14 +48,23 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 
 - **HTML + CSS** via AngleSharp DOM and a real CSS selector cascade.
 - **Managed flexbox** (grow/shrink, justify/align, gap, multi-line wrap, max-content
-  sizing) + block flow, box model, and absolute/relative positioning — no native Yoga.
-- **HarfBuzz text shaping** (kerning, ligatures, Greek/Cyrillic/Arabic), word wrap.
+  sizing), **CSS grid** (tracks, spans, `minmax()`), block and inline flow, the box model, and
+  absolute/relative/fixed/sticky positioning — no native Yoga.
+- **HarfBuzz text shaping** (kerning, ligatures, Greek/Cyrillic/Arabic), bidirectional text, word wrap.
 - **Skia** rendering via an immutable display-list snapshot.
 - **Data binding** — `{{path}}` interpolation, attribute binding, `data-repeat`
   collections, model → view refresh.
-- **Component model** — custom elements expand into themed, accessible primitives;
-  ships `<cupri-slider>`, `<cupri-switch>`, `<cupri-progress>`, `<cupri-button>`,
-  `<cupri-badge>` with `role`/`aria-*` baked in.
+- **Component model** — custom elements expand into themed, accessible primitives with
+  `role`/`aria-*` baked in: buttons, switches, sliders, text fields, comboboxes, date and time
+  pickers, tabs, trees, tables, charts, dialogs, drawers, popovers, toasts and more — the full list
+  is [TOOLBOX.md §6](TOOLBOX.md). Register your own the same way.
+- **Shaders** — `background: shader(name)` paints a box with an SkSL program, and
+  `filter: shader(name)` runs one over what an element drew; on `body` it covers the whole page.
+  Declare them in the stylesheet (`@shader name { … }`) or from code; a Shadertoy `mainImage` is
+  accepted as written. They run on every host, GPU or not — but an animated one is a per-pixel
+  repaint every frame, cheap on a GPU and expensive on the CPU (see the web GPU renderer below).
+- **Vector and animation** — inline `<svg>` through the optional `CupriFace.Svg` package, and
+  Lottie animations through `CupriFace.Lottie` (Skia's own Skottie).
 - **Installable fonts** — `@font-face` with `url()` sources (embedded resource, file, `https:`,
   `data:`), `doc.LoadFont`/`LoadFonts`, or `override Fonts` on the app. `FontPolicy.RegisteredOnly`
   makes output that cannot depend on what the machine happens to have installed. TTF, OTF, TTC and
@@ -84,6 +94,10 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
   rather than hoping. All headless. The engine is forgiving at run time by design, so these are how a mistake stops looking
   like an unfinished layout. [CLAUDE.md](CLAUDE.md) is the short version for anyone — or any agent
   — starting work here.
+- **GPU first, with the CPU as a safety net** — the desktop draws on OpenGL and falls back to a
+  software window, at startup or if the GPU fails mid-run, keeping the document's state. On the web
+  the GPU renderer is an experimental opt-in. Either way `doc.Renderer` says what is drawing and
+  why — see [Two ways to reach a browser](#two-ways-to-reach-a-browser).
 - **Screen readers** — those semantics reach assistive tech on **four platforms**: UIA
   (Windows), AT-SPI (Linux), NSAccessibility (macOS) and TalkBack (Android), each proven
   in CI by a real assistive-technology client, plus a real-DOM ARIA overlay on the web host that
@@ -129,6 +143,7 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 | `src/CupriFace.Media.Windows` | Optional Windows hardware video: LibVLC/D3D11VA in an embedded child window; LGPL dependencies are isolated here |
 | `src/CupriFace.Gl` | Optional: an OpenGL viewport bound to an element — the `IGpuSurfaceSource` seam packaged, on all three hosts |
 | `src/CupriFace.Lottie` | Optional: Lottie (After Effects JSON) playback via `<cupri-lottie>`, through Skia's own Skottie — managed only |
+| `src/CupriFace.Svg` | Optional: inline `<svg>` — shapes, paths, groups and transforms drawn as vector paths — managed only |
 | `src/CupriFace.Woff2` | Optional: WOFF 2 web fonts decoded to SFNT at runtime — managed only, no new dependency. Not on the NativeAOT-LLVM web host (no brotli archive there) |
 | `src/CupriFace.Binding.Gen` | Roslyn source generator for AOT-clean binding accessors |
 | `src/CupriFace.Resources.Gen` | Roslyn source generator turning `Assets/*.html\|.css` into typed members |
@@ -150,6 +165,10 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 | `samples/Web` | Web host (alt): a **minimal** Blazor `<SKCanvasView>` embedding example — clicks only, see below |
 | `samples/Demo3d` | The Showcase's **3D** page: a small glTF/PBR renderer behind `ISurfaceSource`, composited two different ways depending on the host |
 | `samples/WebLlvm` | The Showcase in the browser compiled AOT (NativeAOT-LLVM) — **the recommended web route**: same app, ~8x quicker to interact with |
+| `samples/Shaders` | `shader()` as a background, as a filter, following the pointer, and over the whole page — desktop window; shows what it is drawing with |
+| `samples/WebShaders` | The same shader page on the Mono web host (CPU only) |
+| `samples/WebLlvmShaders` | `samples/Shaders` on the NativeAOT-LLVM host, opted in to the experimental GPU renderer: animated `shader()`s on WebGL, falling back to the CPU by itself; the page says which it is drawing with (`?renderer=cpu` to compare) |
+| `samples/LottieDemo` · `WebLottie` · `WebLlvmLottie` | `<cupri-lottie>` on the desktop and on both web hosts |
 | `samples/Scaling` | The four `PresentInfo` strategies side by side (headless PNGs) |
 | `samples/DpiProbe` | Live display-scaling readout: monitor scale, app scale, effective scale, and the callbacks behind them |
 | `samples/TouchProbe` | Raw SDL touch instrument: which touch devices exist, every finger and mouse event with raw and converted coordinates, and whether a tap reached an element — how #143 was diagnosed |
@@ -182,9 +201,12 @@ On Linux without a GPU the app renders through Mesa's software rasteriser automa
 ever want to skip the OpenGL path entirely (or are on a build from before 2026-08, which crashed
 in that configuration), `CUPRIFACE_SOFTWARE=1 ./Viewer` forces the SDL software window. `CUPRIFACE_SDL_GL=1 ./Viewer` takes the SDL window with a real GL context instead — GPU rendering and touch in one window, for touchscreen Linux machines such as the Steam Deck, where the GLFW window has no touch API. `CUPRIFACE_SOFTWARE=1` wins if both are set.
 
-To **build against** CupriFace rather than just run the demo, the same release carries NuGet
-packages (`.nupkg` + `.snupkg` symbols): `CupriFace` is the engine, `CupriFace.Shell` the desktop
-host. They are not on nuget.org yet — download them and add the folder as a local package source.
+To **build against** CupriFace rather than just run the demo, each release publishes its NuGet
+packages to **GitHub Packages** — add `https://nuget.pkg.github.com/Wixely/index.json` as a
+package source (GitHub asks for a token with `read:packages`, even for public packages) and
+`dotnet add package CupriFace`. The same `.nupkg` + `.snupkg` files are attached to the release,
+for a local folder source instead. `CupriFace` is the engine, `CupriFace.Shell` the desktop host;
+[PACKAGE.md](PACKAGE.md) lists the rest. They are not on nuget.org.
 
 ## Run
 
@@ -206,13 +228,19 @@ dotnet run --project samples/WebWasm -c Release   # raw .NET-WASM (no Blazor)
 dotnet run --project samples/Web                  # Blazor host (alternative)
 # ...then open the printed localhost URL.
 
-# The RECOMMENDED web host is compiled AOT, so it publishes rather than runs:
+# The RECOMMENDED web host is compiled AOT, so it publishes rather than runs. Serve takes the
+# folder to serve, relative to tools/Serve (or absolute):
 dotnet publish samples/WebLlvm -c Release
-dotnet run --project tools/Serve -- samples/WebLlvm/bin/Release/net10.0/browser-wasm/publish
+dotnet run --project tools/Serve -- ../../samples/WebLlvm/bin/Release/net10.0/browser-wasm/publish
+
+# Shaders: a desktop window, and the same page in a browser with the GPU renderer opted in.
+dotnet run --project samples/Shaders
+dotnet publish samples/WebLlvmShaders -c Release
+dotnet run --project tools/Serve -- ../../samples/WebLlvmShaders/bin/Release/net10.0/browser-wasm/publish
 ```
 
-Both runnable hosts render the **same** `SettingsApp` — pick raw-WASM for minimal deps, or
-Blazor to embed CupriFace inside an existing Blazor app. First build does a native
+`samples/WebWasm` runs the Showcase and `samples/Web` the smaller `SettingsApp` — pick raw-WASM
+for minimal deps, or Blazor to embed CupriFace inside an existing Blazor app. First build does a native
 WebAssembly relink of Skia (slow once, cached after). For which of the two *real* web hosts to
 ship, see [Two ways to reach a browser](#two-ways-to-reach-a-browser) — `samples/WebLlvm` is the
 recommended one and needs a preview feed plus an x64-Windows or x64/arm64-Linux build machine.
@@ -244,8 +272,8 @@ public sealed class SettingsApp : CupriApp {           // in a portable class li
 ```csharp
 DesktopHost.Run(new SettingsApp());                    // desktop  (GL → SDL window)
 ```
-```razor
-<CupriView App="new SettingsApp()" />                  @* web  (WASM → <canvas>) *@
+```csharp
+WebHost.Run(new SettingsApp());                        // web  (WASM → <canvas>, no Blazor)
 ```
 ```csharp
 public sealed class MainActivity : CupriActivity {     // Android (GL surface, touch, IME, TalkBack)
@@ -317,6 +345,39 @@ build machine or pipeline that cannot take a preview feed.
 
 Both compile the *same* `ShowcaseApp`, expose the same `WebHost.Run` API and carry the same
 features, so moving between them — or falling back — is a `PackageReference` change and no app code.
+The one exception is the GPU renderer below, which only the NativeAOT host has so far; the Mono
+host is always on the CPU, and says so.
+
+**The NativeAOT host can paint on the GPU — experimental, and off by default.** The default is
+the CPU path every release has used. Opt in with `<canvas id="cupri" data-renderer="auto">`
+(or `?renderer=auto` on the URL to try it): Skia then draws straight into a WebGL2 canvas
+instead of rasterising in wasm and copying out with `putImageData`, and when it cannot, the host
+falls back to the CPU path by itself. That covers no WebGL2 at all, a software-only WebGL, Skia
+refusing the context, a frame that fails, and a context lost and not given back within 3
+seconds; the last two happen mid-run, and the page carries on on a fresh canvas.
+`data-renderer="webgl"` also accepts a software-only WebGL.
+
+Where it counts is per-pixel work, the whole cost of an animated `shader()`. `samples/WebLlvmShaders`
+at 960x640, milliseconds per frame on the host's own frame loop:
+
+| | CPU | WebGL |
+|---|---|---|
+| Firefox 148 (GTX 980) | 626 | 5.3 |
+| Chrome 153 (GTX 1060) | 160 | 1.7 |
+
+An ordinary page gains less: a full Showcase repaint went from 37.7 to 26.5 ms in the probe
+(`experiments/GpuWeb/README.md`), since layout and the display list cost the same either way.
+
+**Every host says what it is drawing with.** `doc.Renderer` is the current renderer and the reason
+when it is not simply "the GPU worked"; `doc.RendererHistory` is every change; `RendererChanged`
+fires on each; `DebugDump()` includes both. The desktop host reports its GL window or why it is on
+the SDL software window, Android its GL ES renderer, the web hosts their WebGL or why not. In a
+page, `__cupri.rendererState()` returns the same as JSON. The Showcase's Diagnostics page shows it.
+
+The desktop GL window falls back mid-run too: a context Skia abandons (a driver reset), a surface
+it cannot make, or a frame that fails closes the GL window and continues in the SDL software window
+with the same document, state intact. A GL viewport on the old context moves to its readback lane.
+Android has no CPU path: it draws on GL ES or not at all.
 
 **The download is the same size either way**, so the choice is about latency, not payload. AOT buys
 the ~8x and costs two things worth knowing up front. The ILC backend is experimental (pinned, so it
@@ -327,6 +388,9 @@ the browser; this is about the machine doing the build, not the one running the 
 
 ## License note
 
-All third-party dependencies are permissive (MIT / Apache-2.0): SkiaSharp,
-HarfBuzzSharp, Silk.NET, AngleSharp, Tmds.DBus.Protocol (the Linux AT-SPI bridge). The flexbox engine is our own managed code (no
-native Yoga), keeping the stack fully managed and AOT-friendly.
+The engine and its hosts depend only on permissive licences (MIT / Apache-2.0): SkiaSharp,
+HarfBuzzSharp, Silk.NET, AngleSharp, Tmds.DBus.Protocol (the Linux AT-SPI bridge). The flexbox
+engine is our own managed code (no native Yoga), keeping the stack fully managed and AOT-friendly.
+The exception is opt-in: `CupriFace.Media.Android` and `CupriFace.Media.Windows` bring LibVLC,
+whose native libraries are **LGPL** — see each package's `THIRD-PARTY-NOTICES.md`. CupriFace
+itself stays MIT.

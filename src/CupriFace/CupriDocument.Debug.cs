@@ -35,6 +35,7 @@ public sealed partial class CupriDocument
             w.WriteNumber("height", height);
             w.WriteEndObject();
 
+            WriteRenderer(w);
             WriteInteraction(w);
             WriteBindings(w);
 
@@ -47,6 +48,26 @@ public sealed partial class CupriDocument
             w.WriteEndObject();
         }
         return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    /// <summary>What the host draws with and every change of it — so a page that is slow because it
+    /// quietly fell back to the CPU says so in the same snapshot as everything else.</summary>
+    private void WriteRenderer(Utf8JsonWriter w)
+    {
+        static void One(Utf8JsonWriter w, RendererInfo r)
+        {
+            w.WriteStartObject();
+            w.WriteString("kind", r.Kind.ToString());
+            w.WriteString("name", r.Name);
+            if (r.Reason is not null) w.WriteString("reason", r.Reason);
+            w.WriteString("at", r.At.ToString("O"));
+            w.WriteEndObject();
+        }
+        w.WritePropertyName("renderer");
+        One(w, _renderer);
+        w.WriteStartArray("rendererHistory");
+        foreach (var r in _rendererHistory) One(w, r);
+        w.WriteEndArray();
     }
 
     private void WriteInteraction(Utf8JsonWriter w)

@@ -777,6 +777,15 @@ wants a space after the hashes.</cupri-markdown></div>
         <div class="row">
           <cupri-card style="width:574px"><cupri-stat label="Video playback" value="{{VideoDiag}}"></cupri-stat></cupri-card>
         </div>
+        <div class="mlabel">Renderer — GPU first, and the CPU whenever the GPU cannot</div>
+        <div class="row">
+          <cupri-card class="diag-wide">
+            <div class="diag-k">Drawing with</div>
+            <div class="diag-v">{{RendererNow}}</div>
+            <div class="diag-k">Changes since start</div>
+            <div class="diag-v">{{RendererLog}}</div>
+          </cupri-card>
+        </div>
         <cupri-button variant="ghost" class="act-gc">Force GC</cupri-button>
 
         <div class="mlabel">File drop — drag a file in from your file manager</div>

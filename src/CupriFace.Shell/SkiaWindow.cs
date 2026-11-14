@@ -719,6 +719,10 @@ public sealed class SkiaWindow : IDisposable
 
     /// <summary>Throws unless the current context can actually answer <c>glGetString(GL_VERSION)</c>.
     /// Cheap, and it is the exact call whose null result crashes Skia's interface assembly.</summary>
+    /// <summary>The driver's GL_RENDERER, once the context has been checked — what
+    /// <see cref="CupriDocument.Renderer"/> reports for this window.</summary>
+    internal static string GlRenderer { get; private set; } = "";
+
     private static unsafe void VerifyGlIsUsable(Silk.NET.Core.Contexts.IGLContext ctx)
     {
         // If the loader cannot even produce glGetString there is certainly no GL here, and calling
@@ -733,6 +737,7 @@ public sealed class SkiaWindow : IDisposable
             throw new InvalidOperationException(
                 "No usable OpenGL: glGetString(GL_VERSION) returned null (GPU-less or virtual display?).");
 
+        GlRenderer = gl.GetStringS(Silk.NET.OpenGL.StringName.Renderer) ?? "";
         if (GlDebug)
         {
             GlTrace($"version : {gl.GetStringS(Silk.NET.OpenGL.StringName.Version)}");
@@ -1136,8 +1141,33 @@ public sealed class SkiaWindow : IDisposable
         _forceRender = true;      // a repeat is a change; do not let a damage check swallow the frame
     }
 
+    /// <summary>
+    /// Why the GPU stopped working while this window was open, or null. Set once, after which the
+    /// window closes itself and <see cref="Run"/> returns; DesktopHost reads it and carries on in
+    /// the SDL software window with the same document. Without this a lost GPU was a window that
+    /// silently stopped drawing (Skia turns every draw on an abandoned context into a no-op) or,
+    /// on a surface that could not be made, one that never drew again.
+    /// </summary>
+    internal string? GpuFailure { get; private set; }
+
+    // CUPRIFACE_SIMULATE_GPU_LOSS=<seconds>: abandon the Skia context that long after start, the
+    // desktop counterpart of a browser's WEBGL_lose_context. A real loss cannot be produced on
+    // demand, and the fallback is only worth having if it can be watched happening.
+    private double? _simulateGpuLossAt =
+        double.TryParse(Environment.GetEnvironmentVariable("CUPRIFACE_SIMULATE_GPU_LOSS"),
+            System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var s) ? s : null;
+
+    private void FailGpu(string reason)
+    {
+        if (GpuFailure is not null) return;
+        GpuFailure = reason;
+        Console.WriteLine($"[CupriFace] the GPU stopped working ({reason}); continuing in the SDL software window.");
+        _window?.Close();
+    }
+
     private void OnRender(double deltaSeconds)
     {
+        if (GpuFailure is not null) return;      // closing; nothing more is drawn here
         // Before Tick, so anything the host does on the tick already sees the new scale. Polling
         // rather than hooking WM_DPICHANGED: GLFW owns this window's procedure, and subclassing it
         // to intercept one message is a far larger liability than one cheap query per frame.
@@ -1145,8 +1175,30 @@ public sealed class SkiaWindow : IDisposable
         PumpKeyRepeat();          // before Tick, so a repeat is part of the frame it belongs to
         Tick?.Invoke();
 
+        if (_simulateGpuLossAt is { } at && _upTime.Elapsed.TotalSeconds >= at && _grContext is not null)
+        {
+            _simulateGpuLossAt = null;
+            Console.WriteLine("[CupriFace] CUPRIFACE_SIMULATE_GPU_LOSS: abandoning the Skia GL context.");
+            _grContext.AbandonContext();
+        }
+        // Skia abandons its context when the driver reports a reset (GL robustness). A reset the
+        // driver does not report is not seen here — the frame goes on drawing nothing — which is
+        // why the surface and frame checks below exist as well.
+        if (_grContext is { IsAbandoned: true })
+        {
+            FailGpu("Skia abandoned its GL context (a driver reset, or a GPU failure it could not recover from)");
+            return;
+        }
+
         EnsureSurface();
-        if (_surface is null) return;
+        if (_surface is null)
+        {
+            // A live context that will not give a surface at a real size will not give one next
+            // frame either. (Zero size is a minimised window, which is not a failure.)
+            if (_grContext is not null && _fbSize.X > 0 && _fbSize.Y > 0)
+                FailGpu($"Skia could not make a {_fbSize.X}x{_fbSize.Y} surface on the GL window");
+            return;
+        }
 
         var render = _forceRender || (ShouldRender?.Invoke() ?? true);
         _forceRender = false;
@@ -1154,9 +1206,24 @@ public sealed class SkiaWindow : IDisposable
         {
             _stats.BeginFrame(deltaSeconds);
 
-            Render?.Invoke(new RenderContext(_surface.Canvas, _fbSize.X, _fbSize.Y, _stats, _grContext));
-
-            _grContext!.Flush(); // push the recorded draws to the GL framebuffer before swap
+            try
+            {
+                Render?.Invoke(new RenderContext(_surface.Canvas, _fbSize.X, _fbSize.Y, _stats, _grContext));
+                _grContext!.Flush(); // push the recorded draws to the GL framebuffer before swap
+            }
+            catch (Exception ex)
+            {
+                // Not every exception here is the GPU's — but this one used to escape Run and reach
+                // the software fallback anyway, leaving the dead GL window open behind it. Now it
+                // closes first. An engine bug will throw again on the CPU, and say so there.
+                FailGpu($"a frame failed on the GPU: {ex.GetType().Name}: {ex.Message}");
+                return;
+            }
+            if (_grContext.IsAbandoned)
+            {
+                FailGpu("Skia abandoned its GL context during a frame (a driver reset, or a GPU failure it could not recover from)");
+                return;
+            }
 
             // CUPRIFACE_FRAME_DUMP, on the GL window too. It existed only on the SDL software
             // window, which meant the path most people actually run could not be inspected at all

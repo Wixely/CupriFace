@@ -365,8 +365,111 @@ public readonly record struct RadialSpec(
 public sealed record Gradient(GradientKind Kind, float AngleDeg, IReadOnlyList<GradientStop> Stops,
     RadialSpec Radial = default);
 
-/// <summary>One image layer of a background: a gradient or a raster image, never both (#279).</summary>
-public readonly record struct BackgroundLayer(Gradient? Gradient, string? ImageSrc);
+/// <summary>One image layer of a background: a gradient, a raster image or a <c>shader()</c>,
+/// never more than one (#279).</summary>
+public readonly record struct BackgroundLayer(Gradient? Gradient, string? ImageSrc, ShaderUse? Shader = null);
+
+/// <summary>One uniform given a value where a shader is USED: <c>shader(ripple, strength 0.5)</c>.
+/// Up to four floats, which is the widest thing SkSL calls a vector; a colour is its four
+/// unpremultiplied channels, 0..1.</summary>
+public readonly record struct ShaderArg(string Name, float A, float B, float C, float D, int Count)
+{
+    internal float this[int i] => i switch { 0 => A, 1 => B, 2 => C, _ => D };
+}
+
+/// <summary>
+/// A CSS <c>shader(name, uniform value…, …)</c>: which registered shader, and the uniforms this
+/// use of it sets. Written in <c>background-image</c> it paints the box; written in
+/// <c>filter</c> it repaints what the element drew.
+///
+/// <para>A class with value equality rather than a record, because it holds an array and the
+/// display list is diffed between frames: two uses that say the same thing have to compare
+/// equal, or a static shader would damage its box on every frame.</para>
+/// </summary>
+public sealed class ShaderUse : IEquatable<ShaderUse>
+{
+    public string Name { get; }
+    public IReadOnlyList<ShaderArg> Args => _args;
+    private readonly ShaderArg[] _args;
+
+    public ShaderUse(string name, ShaderArg[]? args = null) { Name = name; _args = args ?? []; }
+
+    /// <summary><c>shader(…)</c> → the use; null for anything else, or a use that names nothing.</summary>
+    public static ShaderUse? Parse(string token)
+    {
+        var t = token.Trim();
+        if (!t.StartsWith("shader(", StringComparison.OrdinalIgnoreCase) || !t.EndsWith(')')) return null;
+        return ParseArguments(t[7..^1]);
+    }
+
+    /// <summary>The inside of the parentheses: a name, then comma-separated <c>uniform v v v v</c>.</summary>
+    public static ShaderUse? ParseArguments(string inner)
+    {
+        var parts = inner.Split(',', StringSplitOptions.TrimEntries);
+        var name = parts[0].Trim('"', '\'', ' ');
+        if (name.Length == 0) return null;
+        List<ShaderArg>? args = null;
+        Span<float> v = stackalloc float[4];
+        for (var i = 1; i < parts.Length; i++)
+        {
+            var toks = parts[i].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (toks.Length < 2) continue;
+            v.Clear();
+            var n = 0;
+            // A colour is the whole value, never one component of a longer one.
+            if (toks.Length == 2 && Colors.TryParse(toks[1], out var col))
+            {
+                v[0] = col.Red / 255f; v[1] = col.Green / 255f; v[2] = col.Blue / 255f; v[3] = col.Alpha / 255f;
+                n = 4;
+            }
+            else
+            {
+                for (var k = 1; k < toks.Length && n < 4; k++)
+                    if (TryNumber(toks[k], out var f)) v[n++] = f;
+            }
+            if (n > 0) (args ??= []).Add(new ShaderArg(toks[0], v[0], v[1], v[2], v[3], n));
+        }
+        return new ShaderUse(name, args?.ToArray());
+    }
+
+    // A bare number, a px length (the unit a shader's coordinates are in), or a percentage as 0..1.
+    private static bool TryNumber(string tok, out float value)
+    {
+        var scale = 1f;
+        if (tok.EndsWith("px", StringComparison.OrdinalIgnoreCase)) tok = tok[..^2];
+        else if (tok.EndsWith('%')) { tok = tok[..^1]; scale = 0.01f; }
+        if (!CssNumber.TryParse(tok, out value)) return false;
+        value *= scale;
+        return true;
+    }
+
+    /// <summary>Whether two uses differ only in their NUMBERS — the same shader and the same
+    /// uniforms in the same order — which is what lets a keyframe animate between them.</summary>
+    internal static bool SameShape(ShaderUse a, ShaderUse b)
+    {
+        if (a.Name != b.Name || a._args.Length != b._args.Length) return false;
+        for (var i = 0; i < a._args.Length; i++)
+            if (a._args[i].Name != b._args[i].Name || a._args[i].Count != b._args[i].Count) return false;
+        return true;
+    }
+
+    internal static ShaderUse Lerp(ShaderUse a, ShaderUse b, float t)
+    {
+        var args = new ShaderArg[a._args.Length];
+        for (var i = 0; i < args.Length; i++)
+        {
+            ShaderArg x = a._args[i], y = b._args[i];
+            args[i] = new ShaderArg(x.Name, x.A + (y.A - x.A) * t, x.B + (y.B - x.B) * t,
+                x.C + (y.C - x.C) * t, x.D + (y.D - x.D) * t, x.Count);
+        }
+        return new ShaderUse(a.Name, args);
+    }
+
+    public bool Equals(ShaderUse? other) =>
+        other is not null && Name == other.Name && _args.AsSpan().SequenceEqual(other._args);
+    public override bool Equals(object? obj) => Equals(obj as ShaderUse);
+    public override int GetHashCode() => HashCode.Combine(Name, _args.Length);
+}
 
 /// <summary>How <c>background-size</c> sizes the image layer's tile.</summary>
 public enum BackgroundSizeKind

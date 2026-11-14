@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+
+  <!--
+    A feasibility probe, not a host: does the engine draw through Skia's GPU backend in a browser,
+    and what does that buy over the CPU bitmap + putImageData path both web hosts use today?
+
+    The same page renders either way (?gpu=0 / ?gpu=1), so the two numbers differ in one thing.
+    See README.md beside this file for what was measured.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+    <WasmBuildNative>true</WasmBuildNative>
+    <!-- The one thing a page cannot reach on its own: Emscripten's GL object, which owns the table
+         of WebGL contexts that libSkiaSharp's GL calls are routed through. The library function in
+         gl-interop.js hands it to the page. (SkiaSharp.Views.Blazor does the same, for the same
+         reason — dotnet/runtime#76077.) -->
+    <EmccExtraLDFlags>$(EmccExtraLDFlags) --js-library="$(MSBuildThisFileDirectory)gl-interop.js"</EmccExtraLDFlags>
+  </PropertyGroup>
+
+  <Import Project="../../src/WebFonts.props" />
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/CupriFace/CupriFace.csproj" />
+    <ProjectReference Include="../../samples/DemoApp/DemoApp.csproj" />
+    <ProjectReference Include="../../src/CupriFace.Binding.Gen/CupriFace.Binding.Gen.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <PackageReference Include="SkiaSharp" Version="3.116.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.WebAssembly" Version="3.116.1" />
+    <PackageReference Include="HarfBuzzSharp.NativeAssets.WebAssembly" Version="8.3.0.1" />
+    <Compile Include="../../samples/Shaders/ShadersApp.cs" Link="ShadersApp.cs" />
+  </ItemGroup>
+
+</Project>

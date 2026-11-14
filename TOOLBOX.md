@@ -47,6 +47,7 @@ if (!report.IsClean) Console.WriteLine(report);
 | `CF0040` / `CF0041` | `<script>` and `onclick=` — there is no JavaScript engine |
 | `CF0050` / `CF0051` | A CSS property, or a function like `repeating-linear-gradient()`, that is silently ignored |
 | `CF0052` | An `@import` — stepped over rather than fetched, so the stylesheet it names (usually a web font) never loads |
+| `CF0054` | A `shader()` that will not run: its `@shader` block did not compile (the compiler's message is quoted), or its name refers to nothing — the element then paints as though it were not written |
 | `CF0060` | A `{{path}}` that names nothing on the model — it renders as empty text, which is indistinguishable from data you have not loaded yet |
 | `CF0070` | Contents that do not fit a fixed-height box. They do not clip (`overflow: visible` is the CSS default) — they paint over whatever follows, which reads as a z-order bug rather than a height that is too small |
 | `CF0071` | A box that laid out with no area at all while holding visible content |
@@ -656,6 +657,84 @@ controls handle their own state.
   .glass  { filter: blur(6px); }
   .raised { filter: drop-shadow(2px 4px 6px #0006); }
   ```
+- **Shaders.** `shader(name)` runs an [SkSL](https://skia.org/docs/user/sksl/) program — Skia's
+  shading language, GLSL with the serial numbers filed off — and it goes in two places:
+  ```css
+  .hero  { background-image: shader(plasma); }          /* paints the box */
+  .card  { filter: shader(wave, amount 4); }            /* repaints what the element drew */
+  body   { filter: shader(crt, strength 0.6); }         /* …and on body, the WHOLE page */
+  ```
+  As a **background** it is one more image layer: it follows `border-radius`, stacks with gradients
+  and images, and always spans the box (it has no size of its own, so `background-size` and
+  `-repeat` have nothing to tile). As a **filter** the element and everything under it is handed to
+  the shader as `iChannel0`, and the shader's output is what lands in the element's border box —
+  anything the element draws outside that box (an outset `box-shadow`, an overflowing child) is
+  not drawn. It composes with the other filter functions, which run first whatever order they are
+  written in. **On `body` it covers the page**: overlays, the caret and the focus ring included.
+
+  **Declare a shader in the stylesheet**, or register it from code — the two are interchangeable:
+  ```css
+  @shader wave {
+      uniform shader iChannel0;      /* what the element drew (filter only) */
+      uniform float  iTime;          /* seconds; declaring it makes the shader animate */
+      uniform float  amount;         /* yours: set where it is used, or from code */
+      half4 main(float2 p) {         /* p: px from the box's top-left corner, y DOWN */
+          return iChannel0.eval(p + float2(sin(p.y * 0.07 + iTime * 3.0), 0) * amount);
+      }
+  }
+  ```
+  ```csharp
+  doc.Shaders.Register("wave", File.ReadAllText("wave.sksl"));   // throws ShaderCompileException
+  doc.Shaders.TryRegister("wave", sksl, out var error);          // …or does not
+  doc.Shaders.SetUniform("wave", "amount", 4f);                  // every element using it
+  ```
+  A shader compiles once. From code a compile error throws, with the compiler's message; from a
+  stylesheet it cannot, so the element paints as though the shader were not written and
+  **CupriDoctor reports it as `CF0054`** — as it does a `shader()` naming nothing (with "did you
+  mean"). Pass code-registered shaders to the doctor through `configure:`.
+
+  **The uniforms the engine fills in**, each only if the shader declares it:
+
+  | Uniform | Value |
+  |---|---|
+  | `float3 iResolution` | The box's width and height in px (`z` is 1). `float2` works too |
+  | `float iTime` | Document time in seconds — the clock `Animate` is given |
+  | `float4 iMouse` | `xy`: the pointer, in px from the box's corner. `zw`: where it last went down, negated once released |
+  | `shader iChannel0` | The element's own pixels, for a filter: `iChannel0.eval(xy)` |
+  | `float iTimeDelta`, `float iFrame` | A nominal 1/60 and `floor(iTime * 60)`, for shaders that expect them |
+
+  **Your own uniforms** are set where the shader is used — `shader(name, uniform value, …)`, a
+  uniform name followed by up to four numbers (`px` is dropped, `50%` is 0.5) or one colour, which
+  arrives as unpremultiplied rgba in 0..1 (`tint #5B8CFF` → a `half4`; a `half3` takes its rgb).
+  Because it is an ordinary declaration, everything that reaches a declaration reaches a uniform:
+  `var(--x)`, a binding (`style="filter: shader(wave, amount {{Amount}})"`), and `@keyframes`,
+  which interpolates between two stops naming the same shader with the same uniforms:
+  ```css
+  @keyframes dissolve { from { filter: shader(noise, cut 0); } to { filter: shader(noise, cut 1); } }
+  ```
+  (`transition: filter` does not interpolate a shader's uniforms — it flips. Use a keyframe.)
+
+  **Cost follows what the shader reads.** One that declares neither `iTime` nor `iMouse` is drawn
+  once and is then free. One that declares `iTime` keeps the host drawing for as long as it is on
+  screen (`HasActiveAnimations`), repainting its own box and nothing else; one that declares
+  `iMouse` repaints on a pointer move. That matters most where frames are rasterised on the CPU
+  (the web host, the software window): SkSL needs no GPU, but a full-page animated shader is then
+  a full-page software repaint per frame. **In the browser that is not a small cost.** Measured at
+  960x640, the demo's two animated shaders take about 700 ms a frame rasterised in wasm, on either
+  web runtime. **The NativeAOT host's experimental GPU renderer** (`data-renderer="auto"` on the
+  host canvas — off by default) draws on WebGL when the browser has a real GPU, and there the same
+  frame is 2 to 8 ms, so animated shaders are fine. Where it has fallen back to the
+  CPU, and on the Mono host, treat a shader as a still picture (one with no `iTime` is painted
+  once and is fine) — and `doc.Renderer` tells you which case you are in. A filter also keeps its whole subtree in every partial
+  repaint, since a shader may read its input from anywhere.
+
+  **A Shadertoy shader can be pasted as it is**, up to a point. A source that defines
+  `void mainImage(out vec4 fragColor, in vec2 fragCoord)` and no `main` is given Shadertoy's
+  uniforms, its y-up coordinates and an opaque result, so the picture comes out the right way up.
+  What does not carry over is the language underneath: SkSL has no `texture()` (sample a child
+  with `.eval(xy)`), no `while`, loop bounds must be compile-time constants, and there are no
+  multiple passes or buffers. The compiler's message says which one you hit.
+  `samples/Shaders` is all four uses in one window, with no C# between the SkSL and the pixels.
 - **Gradients.** `background: linear-gradient([<angle>|to <side>], <stop>, …)` and
   `radial-gradient([shape,] <stop>, …)`, where a stop is a colour with an optional position
   (`#4682B4 60%`, or a length: `#000 1px`, measured along the gradient line of the box the gradient
@@ -2082,6 +2161,8 @@ doc.OnClick(".signin", _ => { SignIn(); doc.SubmitForm(); });
   (UIA on Windows, AT-SPI on Linux, NSAccessibility on macOS) and
   [src/CupriFace.Android/TalkBackBridge.cs](src/CupriFace.Android/TalkBackBridge.cs) (TalkBack).
   You do not call these — set `role`/`aria-*` and they follow.
+- Shaders: [src/CupriFace/Paint/ShaderRegistry.cs](src/CupriFace/Paint/ShaderRegistry.cs)
+  (compile, uniforms, `@shader` blocks); [samples/Shaders/](samples/Shaders/) is the worked example
 - Web host (raw WASM): [samples/WebWasm/](samples/WebWasm/)
 - Runnable samples: [samples/](samples/) — `Viewer` (desktop showcase; `--app mobile` runs the
   phone sample), `AndroidViewer` (the same `MobileApp` on a phone), `Interactive`,

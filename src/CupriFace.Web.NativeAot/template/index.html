@@ -15,7 +15,11 @@
 </head>
 
 <body>
-  <!-- The engine draws the entire UI here — same ShowcaseApp, compiled with NativeAOT-LLVM. -->
+  <!-- The engine draws the entire UI here — same ShowcaseApp, compiled with NativeAOT-LLVM.
+       It rasterises on the CPU by default. data-renderer="auto" opts in to the EXPERIMENTAL GPU
+       renderer: WebGL2 when the browser has one, falling back to the CPU by itself at startup or
+       mid-run ("webgl" also accepts a software-only WebGL). __cupri.rendererState() says which is
+       drawing and why; ?renderer=auto|webgl|cpu on the URL overrides the attribute for a test. -->
   <canvas id="cupri"></canvas>
 </body>
 

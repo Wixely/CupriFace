@@ -32,7 +32,14 @@ internal partial class Interop
         Pending = null;
         Started = true;
         WebHostCore.Init(app, Configure, Bridge);
+        // Said rather than left to the first frame's default, so a diagnostics page on this host
+        // explains why it is not on the GPU instead of looking like a GPU that failed.
+        WebHostCore.ReportRenderer(new RendererInfo(RendererKind.Cpu, WebHostCore.CpuRendererName,
+            "this host has no GPU renderer yet (CupriFace.Web.NativeAot has)"));
     }
+
+    /// <summary>The diagnostics call, as on the NativeAOT host: <c>__cupri.rendererState()</c>.</summary>
+    [JSExport] internal static string RendererState() => WebHostCore.RendererStateJson();
 
     [JSExport] internal static bool Tick(int width, int height, float deviceScale, double nowMs) => WebHostCore.Tick(width, height, deviceScale, nowMs);
 

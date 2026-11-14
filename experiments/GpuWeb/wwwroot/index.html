@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>CupriFace — GPU web probe</title>
+  <meta charset="UTF-8">
+  <link rel="preload" id="webassembly" />
+  <script type="importmap"></script>
+  <script type="module" src="probe.js"></script>
+  <style>
+    html, body { margin: 0; background: #0E1016; color: #C9CFDD; font: 13px monospace; }
+    /* Fixed at the size it is measured at, 1 device pixel per CSS pixel, so the number of pixels
+       shaded is the same on every machine. */
+    #c { display: block; width: 960px; height: 640px; }
+    #out { margin: 12px; white-space: pre-wrap; }
+  </style>
+</head>
+
+<body>
+  <canvas id="c" width="960" height="640"></canvas>
+  <pre id="out">booting…</pre>
+</body>
+
+</html>

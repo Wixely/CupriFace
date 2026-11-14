@@ -97,6 +97,14 @@ public class WebHostParityTests(ITestOutputHelper output)
         // hosts still export DropBytes — the call that MEANS something to the engine is shared, and
         // only the mechanics of getting the bytes there differ.
         a.Remove(Key("DropBuffer"));
+        // A KNOWN GAP rather than a difference in mechanics: the GPU renderer exists only on the
+        // NativeAOT host so far. A Mono page never calls these and stays on the CPU path, so nothing
+        // breaks. Reaching WebGL from Mono needs Emscripten's private GL object exposed through a
+        // --js-library in the app's native relink (experiments/GpuWeb shows how). When that lands,
+        // delete these lines and the gate holds both hosts to it again. The diagnostics call
+        // (RendererState) is NOT exempt: both hosts answer it, Mono with "CPU, and why".
+        foreach (var gpuOnly in new[] { "GpuAttach", "GpuStart", "UseCpu", "GpuFallback", "GpuLost", "GpuRestored" })
+            a.Remove(Key(gpuOnly));
         AssertSame(m, a, "Exports (page -> engine)");
     }
 

@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>CupriFace — GPU web probe (NativeAOT-LLVM)</title>
+  <meta charset="UTF-8">
+  <style>
+    html, body { margin: 0; background: #0E1016; color: #C9CFDD; font: 13px monospace; }
+    #c { display: block; width: 960px; height: 640px; }
+    #out { margin: 12px; white-space: pre-wrap; }
+  </style>
+</head>
+
+<body>
+  <canvas id="c" width="960" height="640"></canvas>
+  <pre id="out">booting…</pre>
+
+  <!-- ?gpu=0|1 picks the lane, ?app=shaders|shaders-crt|showcase the page. Results land in the
+       <pre> and in window.__results. The measuring loop is ../GpuWeb/wwwroot/probe.js's. -->
+  <script type="module">
+    const q = new URLSearchParams(location.search);
+    const gpu = q.get('gpu') !== '0';
+    const app = q.get('app') || 'shaders';
+    const canvas = document.getElementById('c');
+    const out = document.getElementById('out');
+    const W = canvas.width, H = canvas.height;
+    const log = s => { out.textContent += '\n' + s; };
+    // An animation frame, or 250 ms — see the note in ../GpuWeb/wwwroot/probe.js.
+    const frameOf = () => new Promise(r => {
+      let done = false;
+      const go = () => { if (!done) { done = true; r(performance.now()); } };
+      requestAnimationFrame(go);
+      setTimeout(go, 250);
+    });
+    const stats = a => {
+      const s = [...a].sort((x, y) => x - y);
+      const mean = s.reduce((x, y) => x + y, 0) / s.length;
+      return { mean: +mean.toFixed(2), median: +s[s.length >> 1].toFixed(2), worst: +s[s.length - 1].toFixed(2), n: s.length };
+    };
+
+    try {
+      const { dotnet } = await import('./dotnet.js');
+      const runtime = await dotnet.withDiagnosticTracing(false).create();
+      await runtime.runMain('GpuWeb.Llvm', []);
+      const M = runtime.Module;
+
+      if (!gpu) globalThis.__probeCtx = canvas.getContext('2d');
+      const code = M._ProbeInit({ 'shaders': 0, 'shaders-crt': 1, 'showcase': 2 }[app] ?? 0, gpu ? 1 : 0, W, H);
+      if (code < 0) throw new Error('ProbeInit failed at step ' + code);
+      let renderer = 'n/a';
+      if (gpu) {
+        const g = canvas.getContext('webgl2');   // the context Emscripten made; asking again returns it
+        renderer = g.getParameter(g.RENDERER) + ' / ' + g.getParameter(g.VERSION);
+      }
+      const lane = gpu ? 'gpu: Skia Ganesh on WebGL' : 'cpu: SKBitmap + putImageData';
+      out.textContent = `runtime=NativeAOT-LLVM  app=${app}  lane=${lane}\nrenderer: ${renderer}`;
+
+      const timed = async (mode, count, budgetMs) => {
+        const ms = [], split = [0, 0, 0, 0];
+        const started = performance.now();
+        while (ms.length < count && performance.now() - started < budgetMs) {
+          const now = await frameOf();
+          const t0 = performance.now();
+          M._ProbeFrame(now / 1000, mode, 1);
+          ms.push(performance.now() - t0);
+          if (mode === 0) for (let i = 0; i < 4; i++) split[i] += M._ProbeTiming(i);
+        }
+        const r = stats(ms);
+        if (mode === 0) r.engineSplit = {
+          layout: +(split[0] / ms.length).toFixed(2), paintList: +(split[1] / ms.length).toFixed(2),
+          diff: +(split[2] / ms.length).toFixed(2), raster: +(split[3] / ms.length).toFixed(2),
+        };
+        return r;
+      };
+      const freeRun = async (mode, seconds) => {
+        const started = performance.now();
+        let n = 0;
+        while (performance.now() - started < seconds * 1000) { const now = await frameOf(); M._ProbeFrame(now / 1000, mode, 0); n++; }
+        return +(n / ((performance.now() - started) / 1000)).toFixed(1);
+      };
+
+      for (let i = 0; i < 3; i++) M._ProbeFrame((await frameOf()) / 1000, 1, 1);   // warm-up
+
+      const results = { runtime: 'NativeAOT-LLVM', app, gpu, lane, renderer, width: W, height: H };
+
+      // ?soak=N: N animated frames back to back, in slices so the page stays alive, and nothing
+      // else. Finishing is the result; the count of collections says the finalizer had its chances.
+      const soak = +q.get('soak') || 0;
+      if (soak) {
+        let done = 0;
+        while (done < soak) { done += M._ProbeSoak(Math.min(200, soak - done), done / 60); await frameOf(); }
+        results.soak = { frames: done, collections: M._ProbeTiming(4) };
+      } else {
+        results.animated = await timed(0, 60, 12000);
+        log('animated ' + JSON.stringify(results.animated));
+        results.fullRepaint = await timed(1, 40, 12000);
+        log('fullRepaint ' + JSON.stringify(results.fullRepaint));
+        results.noDraw = await timed(2, 40, 12000);
+        log('noDraw ' + JSON.stringify(results.noDraw));
+        results.fps = await freeRun(0, 4);
+      }
+
+      window.__results = results;
+      log(JSON.stringify(results));
+      log('DONE');
+    } catch (err) {
+      window.__results = { error: String(err && err.stack || err) };
+      log('ERROR: ' + (err && err.stack || err));
+    }
+  </script>
+</body>
+
+</html>

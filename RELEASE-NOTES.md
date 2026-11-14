@@ -13,7 +13,67 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
-## Unreleased
+## v0.47.0
+
+### Added
+
+- **Shaders: `shader(name)` runs an SkSL program on any element, or on the whole page.**
+  `background-image: shader(plasma)` paints a box with one; `filter: shader(wave, amount 4)` hands
+  the element's own pixels to one as `iChannel0`; the same filter on `body` covers the page,
+  overlays included. Declare a shader in the stylesheet as `@shader name { … }` or register it
+  with `doc.Shaders.Register(name, sksl)`. The engine fills in `iResolution`, `iTime`, `iMouse` and
+  `iChannel0` for a shader that declares them; your own uniforms are set where the shader is used
+  (`shader(name, uniform value)`, so `var()`, bindings and `@keyframes` all reach them) or with
+  `doc.Shaders.SetUniform`. A Shadertoy-style `mainImage` is accepted as written, y-up included —
+  though SkSL is not GLSL, and `texture()`, `while` and multi-pass shaders do not carry over. It
+  needs no GPU: the CPU raster backend (headless rendering, the software window, the web host)
+  runs the same shaders. See TOOLBOX.md §5 and `samples/Shaders`.
+  - **A shader that declares `iTime` keeps the host drawing** for as long as it is on screen
+    (`HasActiveAnimations` and `HasActiveTransitions` are both true). A custom host that already
+    honours those needs no change; one that draws on its own schedule must call `Animate` with a
+    rising time, or the shader holds its first frame.
+  - **`CF0054`**: a `shader()` whose `@shader` block did not compile, with the compiler's message,
+    or whose name refers to nothing. Both otherwise paint as though the shader were not written.
+- `BackgroundLayer` has a third member, `Shader`. Code that constructs or deconstructs one
+  positionally with two values still compiles; a `switch` over its two old members should add it.
+- **Experimental, off by default: the NativeAOT web host can paint on the GPU, falling back to
+  the CPU by itself.** Nothing changes for an app that updates: the CPU path stays the default.
+  Opt in with `data-renderer="auto"` on the `<canvas id="cupri">` in your page, or try it with
+  `?renderer=auto` on the URL. When the browser has a real WebGL2, Skia then draws straight into
+  the canvas instead of rasterising in wasm and copying out with `putImageData`. An animated shader frame at 960x640 went from 626 ms
+  to 5.3 ms in Firefox and from 160 ms to 1.7 ms in Chrome; an ordinary full repaint gains about a
+  third. The CPU path takes over when there is no WebGL2, only a software WebGL, a context Skia
+  refuses, a GPU frame that fails, or a context lost and not restored within 3 s. The last two
+  happen mid-run, and the page carries on on a fresh canvas with its input intact. Video,
+  transparent overlays and 3D underlays work on both paths.
+  - `data-renderer="webgl"` is the same but also accepts a software-only WebGL;
+    `data-renderer="cpu"` states the default. `?renderer=auto|webgl|cpu` on the URL overrides the
+    attribute. An app left on the default reports why in `doc.Renderer`, with the attribute that
+    turns the GPU on.
+  - `samples/WebLlvmShaders` opts in; `samples/WebLlvm` does not.
+  - The Mono host stays on the CPU, and reports that it has no GPU path.
+  - A custom host built on `WebHostCore` can paint into any `SKSurface` through
+    `IWebGpuTarget` and `WebHostCore.UseGpu`, and fall back with `WebHostCore.FallBackToCpu`.
+    `WebGlTarget` implements it for Skia's GL backend.
+  - An app that names its own `<DirectPInvoke Include="emscripten" />` no longer needs to; the
+    host's build targets now include it.
+- **`doc.Renderer` says what a document is drawn with, and why.** Every host reports it: the
+  desktop host its GL window, or the SDL software window and the reason it is there; Android its
+  GL ES renderer; the web hosts WebGL or the CPU and why. `doc.RendererHistory` keeps every
+  change, `RendererChanged` fires on each, and `DebugDump()` includes both. In a page,
+  `__cupri.rendererState()` returns the same as JSON. Custom hosts call `doc.ReportRenderer`.
+  The Showcase's Diagnostics page and `samples/Shaders` show it.
+- `samples/WebLlvmShaders`: `samples/Shaders` on the NativeAOT-LLVM host.
+- **The desktop GL window falls back to software mid-run.** Previously a GPU lost while the
+  window was open left it frozen or blank: Skia turns every draw on an abandoned context into a
+  no-op. Now an abandoned context, a surface that cannot be made, or a frame that fails closes the
+  GL window and continues in the SDL software window with the same document, and `doc.Renderer`
+  says why. The new window opens at the app's default size and position. A GL viewport on the old
+  context moves to its readback lane rather than freezing on its last frame.
+  `CUPRIFACE_SIMULATE_GPU_LOSS=<seconds>` triggers it on purpose.
+  - Hosts can tell surface producers the same thing with `SurfaceRegistry.GpuContextLost()`.
+    `IGpuSurfaceSource` gains `OnGpuContextLost()`, with a do-nothing default, so existing
+    producers compile unchanged.
 
 ### Fixed
 

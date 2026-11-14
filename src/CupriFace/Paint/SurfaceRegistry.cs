@@ -80,6 +80,13 @@ public interface IGpuSurfaceSource : ISurfaceSource
     /// before the frame is recorded. Throwing here is treated as "no frame this time" rather than
     /// taking the window down.</summary>
     void RenderOnGpu(GRContext context);
+
+    /// <summary>The host's GPU context is gone for good — a lost device, or a desktop window that
+    /// fell back to software mid-run — and <see cref="RenderOnGpu"/> will not be called again.
+    /// Forget everything made on it WITHOUT GL calls (the context may already be destroyed), drop
+    /// any frame that wraps one of its textures, and carry on the way a producer does on a host
+    /// that never had a GPU. Default: nothing, for a producer with no such state.</summary>
+    void OnGpuContextLost() { }
 }
 
 /// <summary>
@@ -436,6 +443,26 @@ public sealed class SurfaceRegistry
     /// that only appears once some unrelated element is painted is not a bug anyone enjoys owning.
     /// Doing it once, centrally, means a producer cannot forget.</para>
     /// </summary>
+    /// <summary>
+    /// For hosts: the GPU context <see cref="RenderGpuFrames"/> was handing out is gone, and frames
+    /// will come without one from now on. Every <see cref="IGpuSurfaceSource"/> is told, and
+    /// <see cref="HasGpuFrameHook"/> goes back to false, so a producer that waits for the hook before
+    /// choosing a lane chooses again. Without this, a producer drawing on the old context keeps its
+    /// last texture-backed frame and never moves — a 3D viewport frozen on its final GPU frame.
+    /// </summary>
+    public void GpuContextLost()
+    {
+        HasGpuFrameHook = false;
+        IGpuSurfaceSource[] gpu;
+        lock (_lock) gpu = [.. _sources.Values.OfType<IGpuSurfaceSource>()];
+        foreach (var g in gpu)
+        {
+            try { g.OnGpuContextLost(); }
+            catch { /* one producer's teardown must not stop the others moving */ }
+        }
+        _arrived = true;
+    }
+
     /// <returns>True if any producer ran.</returns>
     public bool RenderGpuFrames(GRContext context)
     {

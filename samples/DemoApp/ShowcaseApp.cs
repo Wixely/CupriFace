@@ -653,6 +653,25 @@ public sealed partial class ShowcaseModel
     }
     public string VideoDiag => _doc?.VideoDiagnostics ?? "no open players";
 
+    /// <summary>What the host draws this page with: GPU or CPU, the renderer, and why when it is not
+    /// simply "the GPU worked". Every host tries the GPU first and falls back by itself, so this is
+    /// where a slow page that quietly landed on the CPU says so.</summary>
+    public string RendererNow => _doc?.Renderer.ToString() ?? "…";
+
+    /// <summary>Each change of renderer since the page loaded, oldest first — a lost context, a
+    /// restore, the fall back to the CPU. One line per change.</summary>
+    public string RendererLog
+    {
+        get
+        {
+            if (_doc is null || _doc.RendererHistory.Count <= 1) return "no changes since start";
+            // "; " rather than an arrow: the web hosts embed one sans face, and it has no "→" — the
+            // arrow painted as an empty box in the browser.
+            return string.Join("; ", _doc.RendererHistory.Select(r =>
+                $"{r.At.ToLocalTime():HH:mm:ss} {r.Kind}{(r.Reason is null ? "" : $" ({r.Reason})")}"));
+        }
+    }
+
     /// <summary>What the last file drop was. Starts as the instruction, because an empty zone with a
     /// dashed border says "put something here" to a developer and nothing at all to anyone else.</summary>
     public string DropStatus { get; set; } = "Drag a file here from Explorer, Finder or your file manager.";

@@ -6,6 +6,8 @@
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <RootNamespace>CupriFace</RootNamespace>
+    <!-- For one signature: the SkiaSharp overload Paint/ShaderRegistry.cs reaches takes an SKMatrix*. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Description>Renders HTML + CSS to a Skia canvas and binds it to plain C# objects — a UI engine with no browser, no JavaScript engine and no XAML. Lays out (flexbox/grid), shapes text with HarfBuzz, paints with Skia, and renders into any canvas or RGBA buffer, so it also runs headless.</Description>
   </PropertyGroup>
 

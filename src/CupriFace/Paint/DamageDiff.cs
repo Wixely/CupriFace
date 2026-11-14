@@ -30,19 +30,39 @@ public static class DamageDiff
         int ta = na - 1, tb = nb - 1;
         while (ta >= head && tb >= head && Eq(prev[ta], next[tb])) { ta--; tb--; }
 
+        // A shader whose uniforms changed (its clock ticked) differs at its PushShader and at
+        // nothing else: the commands inside it and its PopShader all fall in the equal suffix,
+        // which leaves a span that opens a scope and never closes it. Give the span its close
+        // back, so an animated shader damages its own box instead of the whole viewport.
+        ta = CloseShaders(prev, head, ta);
+        tb = CloseShaders(next, head, tb);
+
         // Suffix pairing is positionally valid only if each middle span is push/pop balanced —
         // otherwise value-equal suffix commands would paint under different transform/clip scopes.
         if (!Balanced(prev, head, ta) || !Balanced(next, head, tb)) return full;
 
         // Transform state at the span start (the prefixes are identical, so one scan serves both).
+        // Likewise the shader groups already open there: a change INSIDE one repaints all of it,
+        // because a shader may read its input anywhere and move it anywhere within its box.
         var m = SKMatrix.Identity;
         var stack = new List<SKMatrix>();
-        for (var i = 0; i < head; i++) Track(prev[i], ref m, stack);
+        var enclosing = SKRect.Empty;
+        var shaderDepth = 0;
+        for (var i = 0; i < head; i++)
+        {
+            Track(prev[i], ref m, stack);
+            if (prev[i] is PushShader ps)
+            {
+                if (shaderDepth++ == 0) enclosing = m.MapRect(SKRect.Create(ps.X, ps.Y, ps.W, ps.H));
+            }
+            else if (prev[i] is PopShader && shaderDepth > 0) shaderDepth--;
+        }
 
         var damage = SKRect.Empty;
         if (!SpanBounds(prev, head, ta, m, ref damage)) return full;
         if (!SpanBounds(next, head, tb, m, ref damage)) return full;
         if (damage.IsEmpty) return SKRect.Empty;
+        if (shaderDepth > 0) damage = SKRect.Union(damage, enclosing);
 
         damage.Inflate(2, 2); // anti-aliasing + rounding slack
         damage.Intersect(full);
@@ -60,9 +80,20 @@ public static class DamageDiff
         var kept = new List<PaintCommand>(64);
         var m = SKMatrix.Identity;
         var stack = new List<SKMatrix>();
+        var shaderDepth = 0;
         foreach (var cmd in cmds)
         {
             Track(cmd, ref m, stack);
+            // A shader group is kept WHOLE: its output inside the rect may be drawn from content
+            // outside it (a ripple, a magnifier), so nothing in it can be culled by position. The
+            // push and pop are painting commands as far as pass 2 is concerned, and never elided.
+            if (cmd is PushShader) shaderDepth++;
+            if (shaderDepth > 0)
+            {
+                kept.Add(cmd);
+                if (cmd is PopShader) shaderDepth--;
+                continue;
+            }
             if (cmd is PushClip or PushClipShape or PopClip or PushTransform or PopTransform
                     or PushOpacity or PopOpacity or PushFilter or PopFilter)
             {
@@ -138,10 +169,30 @@ public static class DamageDiff
         return true;
     }
 
+    // If [from, to] opens shader groups it does not close, the index of the PopShader that closes
+    // the last of them; otherwise the end it was given. Only ever moves the end later, into what
+    // was the equal suffix, so the commands still paired after it are paired exactly as before.
+    private static int CloseShaders(IReadOnlyList<PaintCommand> list, int from, int to)
+    {
+        var depth = 0;
+        for (var i = from; i <= to; i++)
+        {
+            if (list[i] is PushShader) depth++;
+            else if (list[i] is PopShader && depth > 0) depth--;
+        }
+        while (depth > 0 && to + 1 < list.Count)
+        {
+            to++;
+            if (list[to] is PushShader) depth++;
+            else if (list[to] is PopShader) depth--;
+        }
+        return to;
+    }
+
     // Every scope type must open/close within the span (and never pop below the span's start depth).
     private static bool Balanced(IReadOnlyList<PaintCommand> list, int from, int to)
     {
-        int clip = 0, transform = 0, opacity = 0, filter = 0;
+        int clip = 0, transform = 0, opacity = 0, filter = 0, shader = 0;
         for (var i = from; i <= to; i++)
         {
             switch (list[i])
@@ -154,9 +205,11 @@ public static class DamageDiff
                 case PopOpacity: if (--opacity < 0) return false; break;
                 case PushFilter: filter++; break;
                 case PopFilter: if (--filter < 0) return false; break;
+                case PushShader: shader++; break;
+                case PopShader: if (--shader < 0) return false; break;
             }
         }
-        return clip == 0 && transform == 0 && opacity == 0 && filter == 0;
+        return clip == 0 && transform == 0 && opacity == 0 && filter == 0 && shader == 0;
     }
 
     // Maintain the current transform while scanning (mirrors SkiaRasterizer's PushTransform math).
@@ -202,6 +255,8 @@ public static class DamageDiff
     {
         FillRect c => SKRect.Create(c.X, c.Y, c.W, c.H),
         GradientRect c => SKRect.Create(c.X, c.Y, c.W, c.H),
+        ShaderRect c => SKRect.Create(c.X, c.Y, c.W, c.H),
+        PushShader c => SKRect.Create(c.X, c.Y, c.W, c.H),
         TiledImage c => SKRect.Create(c.X, c.Y, c.W, c.H),
         BorderRect c => SKRect.Create(c.X, c.Y, c.W, c.H),
         ShadowRect c => Grow(SKRect.Create(c.X, c.Y, c.W, c.H),

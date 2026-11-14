@@ -6,7 +6,12 @@ using SkiaSharp;
 
 // Regenerates docs/screenshots/*.png from the Showcase.
 //
-//   dotnet run --project tools/Screenshots
+//   dotnet run --project tools/Screenshots                 # every image
+//   dotnet run --project tools/Screenshots -- shaders.png  # only the files named
+//
+// Naming files matters because every run rewrites every image, and some of them change on their own
+// (the Diagnostics page shows live RAM figures): regenerating the set to add one picture would
+// churn a dozen committed binaries.
 //
 // HEADLESS ON PURPOSE. These are published in the README, so the safest way to produce them is one
 // that cannot capture anything but the document: no window, no title bar, no desktop behind it, no
@@ -42,9 +47,14 @@ Directory.CreateDirectory(outDir);
     ("diag",       "diagnostics.png",  false, 600),
 ];
 
+var only = new HashSet<string>(args, StringComparer.OrdinalIgnoreCase);
+bool Wanted(string file) => only.Count == 0 || only.Contains(file);
+
 var failed = 0;
+var written = 0;
 foreach (var (section, file, dark, waitMs) in shots)
 {
+    if (!Wanted(file)) continue;
     var app = new ShowcaseApp(section);
     using var doc = app.CreateDocument();
     // The Noto faces the web hosts embed, so a published image shows the document's text and not
@@ -115,9 +125,32 @@ foreach (var (section, file, dark, waitMs) in shots)
     using (var f = File.Create(path)) data.SaveTo(f);
     surface?.Dispose();
     Console.WriteLine($"{file,-20} {new FileInfo(path).Length / 1024,5} KB");
+    written++;
 }
 
-Console.WriteLine($"\nwrote {shots.Length - failed} of {shots.Length} images to {outDir}");
+// samples/Shaders: not a Showcase page, so it is captured on its own. The shaders run on the CPU
+// raster backend here, exactly as they do in a software window. The clock is set rather than left at
+// zero so the plasma and the wave are mid-motion, and the renderer is reported as what this capture
+// actually is, so the page's "Drawing with" line says something true.
+if (Wanted("shaders.png"))
+{
+    var app = new CupriFace.Samples.Shaders.ShadersApp();
+    using var doc = app.CreateDocument();
+    doc.LoadFonts(Path.Combine(AppContext.BaseDirectory, "fonts"));
+    doc.ReportRenderer(new RendererInfo(RendererKind.Cpu, "Skia raster (headless capture)"));
+    doc.Refresh();
+    doc.Settle(app.Width, app.Height, TimeSpan.FromSeconds(5));
+    doc.Animate(2.4);
+    using (doc.RenderToImage(app.Width, app.Height)) { }
+    using var img = Capture(doc, app, app.Width, app.Height, Scale);
+    using var data = img.Encode(SKEncodedImageFormat.Png, 95);
+    var path = Path.Combine(outDir, "shaders.png");
+    using (var f = File.Create(path)) data.SaveTo(f);
+    Console.WriteLine($"{"shaders.png",-20} {new FileInfo(path).Length / 1024,5} KB");
+    written++;
+}
+
+Console.WriteLine($"\nwrote {written} image(s) to {outDir}");
 if (failed > 0)
 {
     // Non-zero, so a CI regeneration cannot quietly publish a set with holes in it.

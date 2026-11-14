@@ -33,6 +33,7 @@ public sealed class AndroidHost : IDisposable
 
     private CupriApp _app;
     private CupriDocument _doc;
+    private bool _rendererReported;
     private TouchInput _touch;
     private readonly Action<CupriDocument>? _configure;
     private readonly List<CupriApp> _stack = new();      // Back pops; About's launch pushes
@@ -254,6 +255,7 @@ public sealed class AndroidHost : IDisposable
         _app = next;
         _doc = next.CreateDocument();
         _doc.InputProfile = InputProfile.Touch;
+        _rendererReported = false;                       // a new document has been told nothing
         _configure?.Invoke(_doc);
         WireDocument(_doc);
         _touch = new TouchInput(_doc);
@@ -336,6 +338,19 @@ public sealed class AndroidHost : IDisposable
     internal void PaintFrame(SKCanvas canvas, int physicalWidth, int physicalHeight, float density,
                              GRContext? gpu = null)
     {
+        // What it draws with, once, from the GL thread that owns the context. Always the GPU: this
+        // host has no CPU path to fall back to (a GLSurfaceView that cannot get a context shows
+        // nothing, and Android logs why).
+        if (!_rendererReported)
+        {
+            _rendererReported = true;
+            string? glRenderer = null;
+            try { glRenderer = global::Android.Opengl.GLES20.GlGetString(global::Android.Opengl.GLES20.GlRenderer); }
+            catch { /* the report is diagnostics; a failure to ask is not a failure to draw */ }
+            _doc.ReportRenderer(new RendererInfo(RendererKind.Gpu,
+                glRenderer is { Length: > 0 } ? $"OpenGL ES — {glRenderer}" : "OpenGL ES"));
+        }
+
         // The app thinks in density-independent pixels; Android gave us physical ones.
         var dpW = physicalWidth / density;
         var dpH = physicalHeight / density;

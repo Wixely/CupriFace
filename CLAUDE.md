@@ -46,6 +46,7 @@ error   CF0030 (line 6): <img> is not something the engine draws — it lays out
 | `CF0050` / `CF0051` | A CSS property or function that is silently ignored |
 | `CF0052` | An `@import` — the engine steps over it, so the sheet it names (usually a web font) never loads |
 | `CF0053` | A `position: sticky` with no inset on any axis — it pins to nothing and scrolls away |
+| `CF0054` | A `shader()` that will not run — its `@shader` block did not compile (the SkSL error is quoted), or it names no shader |
 | **`CF0060`** | **A `{{path}}` that names nothing on the model** — renders as empty text, looks like missing data |
 | **`CF0070`** | **Contents that do not fit a fixed-height box** — they overflow and paint over the next element |
 | **`CF0071`** | **A box that laid out with no area** but has visible content inside it |
@@ -291,6 +292,11 @@ at 128 MiB** because an unbounded read on wasm ends the tab rather than throwing
 
 `CUPRIFACE_FRAME_DUMP=out.png` dumps what the window actually presented, read back from the render
 target — ground truth when a live window looks wrong but the document seems right.
+
+`CUPRIFACE_SIMULATE_GPU_LOSS=3` abandons the GL window's Skia context three seconds in, so the
+mid-run fallback to the SDL software window can be watched rather than waited for: the console
+names the switch, `doc.Renderer` carries the reason, and a GL viewport moves to its readback lane.
+In a browser the equivalent is `WEBGL_lose_context.loseContext()` on the host canvas, never restored.
 
 `CUPRIFACE_KEY_DEBUG=keys.log` makes the window testify about the input it actually received —
 keys, focus changes, and **every controller button and stick reading**. Reach for it before

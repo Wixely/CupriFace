@@ -48,6 +48,7 @@ public static class WebHostCore
     private static double _lastAriaMs = -1e9;    // the ARIA mirror's own cadence while animating
     private static SKBitmap? _bitmap;
     private static SKBitmap? _straight;          // staging buffer for the premul→straight conversion
+    private static IWebGpuTarget? _gpu;          // set: paint into the canvas on the GPU, present nothing
     private static readonly Stopwatch _clock = Stopwatch.StartNew();
     private static double _lastRefresh;
     private static double _lastAnimMs = double.NaN;   // NaN = nothing drawn yet, so the first frame is due
@@ -108,6 +109,100 @@ public static class WebHostCore
 
     internal static WebVideoBackend? Video => _video;
 
+    /// <summary>
+    /// Paint on the GPU, into <paramref name="target"/>, instead of into a bitmap the page copies out
+    /// with <c>putImageData</c>; null goes back to the bitmap. The host calls this when the page asked
+    /// for WebGL and a context was had — the page decides, because the choice has to be made before
+    /// anything touches the canvas, and a canvas that has handed out one kind of context will never
+    /// hand out the other.
+    ///
+    /// <para>What it buys: the per-pixel work moves to the GPU, which is the whole cost of a
+    /// <c>shader()</c> (measured at 960x640 on NativeAOT-LLVM: 726 ms a frame rasterised, 6.4 on
+    /// WebGL) and about a third of an ordinary full repaint. Layout and the display list are the same
+    /// work either way. See experiments/GpuWeb/README.md.</para>
+    /// </summary>
+    public static void UseGpu(IWebGpuTarget? target)
+    {
+        _gpu = target;
+        if (target is not null)
+        {
+            _bitmap?.Dispose(); _bitmap = null; _straight?.Dispose(); _straight = null;
+            ReportRenderer(new RendererInfo(RendererKind.Gpu, target.Name));
+        }
+        _doc?.InvalidateRetainedFrame();
+        _dirty = true;
+    }
+
+    /// <summary>Whether frames go to the GPU.</summary>
+    public static bool UsingGpu => _gpu is not null;
+
+    /// <summary>What the CPU path is, for <see cref="CupriDocument.Renderer"/>.</summary>
+    public const string CpuRendererName = "Skia raster in wasm, presented with putImageData";
+
+    /// <summary>
+    /// Stop drawing on the GPU and draw on the CPU from the next frame, recording why. The host
+    /// calls this for what only the page can see (a context lost and never given back); the core
+    /// calls it for what happens inside a frame. Either way the page then needs a fresh canvas — one
+    /// that has handed out a WebGL context never hands out a 2D one — which is what
+    /// <see cref="TakeGpuFallback"/> tells the host.
+    /// </summary>
+    public static void FallBackToCpu(string reason)
+    {
+        if (_gpu is null) return;
+        _gpu = null;
+        _gpuFallback = reason;
+        ReportRenderer(new RendererInfo(RendererKind.Cpu, CpuRendererName, reason));
+        _doc?.InvalidateRetainedFrame();
+        _dirty = true;
+    }
+
+    private static string? _gpuFallback;
+
+    /// <summary>The reason the core just fell back to the CPU, once — the host's cue to give the page
+    /// a fresh 2D canvas before the next frame presents into it. Null when nothing happened.</summary>
+    public static string? TakeGpuFallback() { var r = _gpuFallback; _gpuFallback = null; return r; }
+
+    /// <summary>The page's diagnostics call (<c>__cupri.rendererState()</c>): the current renderer and
+    /// every change of it, as JSON — <c>{"current":{…},"history":[{…}]}</c>, each entry carrying
+    /// <c>kind</c>, <c>name</c>, <c>reason</c> (or null) and <c>at</c>. Written with
+    /// <see cref="System.Text.Json.Utf8JsonWriter"/>, which needs no reflection under trimming.</summary>
+    public static string RendererStateJson()
+    {
+        static void One(System.Text.Json.Utf8JsonWriter w, RendererInfo r)
+        {
+            w.WriteStartObject();
+            w.WriteString("kind", r.Kind.ToString());
+            w.WriteString("name", r.Name);
+            if (r.Reason is null) w.WriteNull("reason"); else w.WriteString("reason", r.Reason);
+            w.WriteString("at", r.At.ToString("O"));
+            w.WriteEndObject();
+        }
+        using var ms = new MemoryStream();
+        using (var w = new System.Text.Json.Utf8JsonWriter(ms))
+        {
+            w.WriteStartObject();
+            w.WritePropertyName("current");
+            One(w, _doc?.Renderer ?? _reported ?? RendererInfo.Unknown);
+            w.WriteStartArray("history");
+            if (_doc is not null) foreach (var r in _doc.RendererHistory) One(w, r);
+            w.WriteEndArray();
+            w.WriteEndObject();
+        }
+        return System.Text.Encoding.UTF8.GetString(ms.ToArray());
+    }
+
+    private static RendererInfo? _reported;
+
+    /// <summary>Say what the document is being drawn with. Call after <see cref="Init"/>: a report
+    /// made before the document exists only reaches the console.</summary>
+    public static void ReportRenderer(RendererInfo info)
+    {
+        _reported = info;
+        if (info.Reason is null) Console.WriteLine($"[CupriFace] renderer: {info.Kind} — {info.Name}");
+        else Console.WriteLine($"[CupriFace] renderer: {info.Kind} — {info.Name} ({info.Reason})");
+        _doc?.ReportRenderer(info);
+    }
+
     /// <summary>Build the app's document and wire it to the page. Called once, after the runtime is
     /// resident and <c>Main</c> has registered an app.</summary>
     public static void Init(CupriApp app, Action<CupriDocument>? configure, IWebBridge bridge)
@@ -122,6 +217,10 @@ public static class WebHostCore
 
         configure?.Invoke(_doc);
         _touch = new TouchInput(_doc);
+        // A new page has reported nothing yet. The first frame reports whatever it drew with, unless
+        // the host (choosing between the GPU and the CPU after Init) says something first.
+        _reported = null;
+        _gpuFallback = null;
 
         // The wasm Skia build has ONE embedded face (Noto Mono) — without these, sans-serif silently
         // renders monospaced. Registered faces win over platform lookup; the first family becomes
@@ -283,36 +382,55 @@ public static class WebHostCore
         // is actually presented at, or it is the one soft thing left on a sharp screen.
         _doc.Surfaces.DeviceScale = _effective;
 
-        if (_bitmap is null || _bitmap.Width != width || _bitmap.Height != height)
-        {
-            _bitmap?.Dispose();
-            _bitmap = new SKBitmap(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul));
-        }
+        // The first frame says what it was drawn with, if the host has not already.
+        if (_reported is null)
+            ReportRenderer(_gpu is { } g ? new RendererInfo(RendererKind.Gpu, g.Name) : new RendererInfo(RendererKind.Cpu, CpuRendererName));
 
-        // The staging bitmap RETAINS last frame's pixels, so the engine repaints only the damaged
-        // rect — and tells us when the frame is identical, in which case nothing is converted or
-        // presented at all.
         SKRectI? damage;
-        using (var canvas = new SKCanvas(_bitmap))
+        if (_gpu is { } gpu)
         {
-            if (animating) _doc.Animate(_clock.Elapsed.TotalSeconds);  // @keyframes
-            var bg = _transparent ? SKColors.Transparent : _bg;        // overlays: page shows through
-            // Scale the canvas, then let the engine damage-clip inside it: the clip it applies is
-            // interpreted in the scaled space, which IS logical space, so the region it repaints is
-            // right and only the rectangle it hands back needs converting to device pixels.
+            // The canvas IS the surface: draw into it and the browser composites it — no bitmap, no
+            // straight-alpha staging and no putImageData. Premultiplied output is what a WebGL canvas
+            // composites by default, so transparent apps and video holes need no conversion either.
             //
-            // This used to repaint the whole surface whenever the scale was not exactly 1, on the
-            // grounds that damage coordinates would not map 1:1. They do not — but the mapping is a
-            // multiply, because the scale is uniform. Scale 1 is the rare case, not the common one:
-            // a HiDPI ratio of 2, fractional desktop scaling of 1.25, or any fit-to-viewport factor
-            // all landed here, so most machines re-uploaded every pixel on every hover (#99).
-            canvas.Save();
-            if (_effective != 1f) canvas.Scale(_effective);
-            damage = _doc.RenderIncremental(canvas, p.LogicalWidth, p.LogicalHeight, bg);
-            canvas.Restore();
-            if (damage is { } logical)
-                damage = CupriDocument.ScaleDamageToDevice(logical, _effective, width, height);
-            canvas.Flush();
+            // Anything that goes wrong here falls back to the CPU rather than leaving the page blank
+            // or dead: a surface that cannot be had, a target that has failed for good, or a frame
+            // that throws. The frame is lost and the next one is drawn on the CPU, onto the fresh
+            // canvas the host swaps in when TakeGpuFallback says so.
+            try
+            {
+                var surface = gpu.Begin(width, height, out var fresh);
+                if (surface is null)
+                {
+                    if (gpu.Failure is { } failure) { FallBackToCpu(failure); return false; }
+                    // Lost, not yet restored: nothing can be drawn, and the restore marks the host
+                    // dirty again. Returning skips the mirror too, which describes a frame.
+                    return false;
+                }
+                // A new, resized or restored surface does not hold the last frame; the engine's damage
+                // tracking assumes it does, and would repaint one button onto a blank canvas.
+                if (fresh) _doc.InvalidateRetainedFrame();
+                damage = Draw(surface.Canvas, p, width, height, animating);
+                gpu.End();
+            }
+            catch (Exception ex)
+            {
+                FallBackToCpu($"a GPU frame failed: {ex.GetType().Name}: {ex.Message}");
+                return false;
+            }
+        }
+        else
+        {
+            if (_bitmap is null || _bitmap.Width != width || _bitmap.Height != height)
+            {
+                _bitmap?.Dispose();
+                _bitmap = new SKBitmap(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul));
+            }
+            // The staging bitmap RETAINS last frame's pixels, so the engine repaints only the damaged
+            // rect — and tells us when the frame is identical, in which case nothing is converted or
+            // presented at all.
+            using var canvas = new SKCanvas(_bitmap);
+            damage = Draw(canvas, p, width, height, animating);
         }
         // An identical frame presents nothing. It is not "nothing happened": the frame after an
         // animation ends is usually identical to the last animated one, because the transition
@@ -321,7 +439,7 @@ public static class WebHostCore
         // publish was throttled through the animation, and the settled frame returned here before
         // reaching it (measured: the switch flipped, the mirror never said so). So only the blit is
         // gated on damage; the mirror, the IME placement and the underlays below are not.
-        if (damage is { } d)
+        if (damage is { } d && _bitmap is not null && _gpu is null)
         {
             // What the page receives. Opaque apps present the premultiplied render directly;
             // transparent ones must present STRAIGHT alpha, which is what putImageData expects, so
@@ -393,6 +511,31 @@ public static class WebHostCore
         // through the clip and transform chains.
         _underlays?.Sync(_doc, _scale, key => _video?.IdForSurface(key));
         return damage is not null;
+    }
+
+    /// <summary>One frame onto <paramref name="canvas"/>, whichever kind it is. Returns the damage in
+    /// device pixels, or null for a frame identical to the last.</summary>
+    private static SKRectI? Draw(SKCanvas canvas, PresentInfo p, int width, int height, bool animating)
+    {
+        if (animating) _doc.Animate(_clock.Elapsed.TotalSeconds);  // @keyframes
+        var bg = _transparent ? SKColors.Transparent : _bg;        // overlays: page shows through
+        // Scale the canvas, then let the engine damage-clip inside it: the clip it applies is
+        // interpreted in the scaled space, which IS logical space, so the region it repaints is
+        // right and only the rectangle it hands back needs converting to device pixels.
+        //
+        // This used to repaint the whole surface whenever the scale was not exactly 1, on the
+        // grounds that damage coordinates would not map 1:1. They do not — but the mapping is a
+        // multiply, because the scale is uniform. Scale 1 is the rare case, not the common one:
+        // a HiDPI ratio of 2, fractional desktop scaling of 1.25, or any fit-to-viewport factor
+        // all landed here, so most machines re-uploaded every pixel on every hover (#99).
+        canvas.Save();
+        if (_effective != 1f) canvas.Scale(_effective);
+        var damage = _doc.RenderIncremental(canvas, p.LogicalWidth, p.LogicalHeight, bg);
+        canvas.Restore();
+        if (damage is { } logical)
+            damage = CupriDocument.ScaleDamageToDevice(logical, _effective, width, height);
+        canvas.Flush();
+        return damage;
     }
 
     // ---- pointer -------------------------------------------------------------------------------

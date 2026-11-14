@@ -78,6 +78,14 @@ internal sealed unsafe class GlTarget
         return true;
     }
 
+    /// <summary>Forget the objects without deleting them, for a context that is gone: deleting
+    /// would be GL calls on a destroyed context, and the names mean nothing on the next one.</summary>
+    internal void Forget()
+    {
+        Fbo = Texture = Depth = 0;
+        Width = Height = 0;
+    }
+
     /// <summary>Release everything. Must be called with the owning context current — the only moment
     /// deleting GL objects is legal.</summary>
     internal void Delete(GlFunctions fn)

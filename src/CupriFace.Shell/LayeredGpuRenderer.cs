@@ -13,6 +13,8 @@ internal sealed class LayeredGpuRenderer : IDisposable
     private bool _contextReady;
     public GRContext Context { get; private set; } = null!;
     public SKSurface Surface { get; private set; } = null!;
+    /// <summary>The off-screen context's GL_RENDERER.</summary>
+    public string Renderer { get; private set; } = "";
 
     public LayeredGpuRenderer()
     {
@@ -35,6 +37,7 @@ internal sealed class LayeredGpuRenderer : IDisposable
             using var gl = Silk.NET.OpenGL.GL.GetApi(loader);
             var renderer = gl.GetStringS(Silk.NET.OpenGL.StringName.Renderer);
             if (string.IsNullOrEmpty(renderer)) throw new InvalidOperationException("Off-screen OpenGL is unusable.");
+            Renderer = renderer;
             _interface = GRGlInterface.Create(name =>
                 name.StartsWith("gl", StringComparison.Ordinal) && loader.TryGetProcAddress(name, out var address)
                     ? address : 0) ?? throw new InvalidOperationException("Skia GL interface unavailable.");

@@ -5,6 +5,9 @@ using CupriFace.Interaction;
 
 namespace CupriFace.Shell;
 
+/// <summary>The GL window's GPU failed while it was open; carries the reason to the fallback.</summary>
+internal sealed class GpuLostException(string reason) : Exception(reason);
+
 /// <summary>
 /// Runs a <see cref="CupriApp"/> in a desktop window: tries GPU (GL), falls back to the
 /// SDL software window, and wires pointer input to the app's document. Its siblings render the
@@ -194,6 +197,9 @@ public static class DesktopHost
         // known failure modes are handled these days (a broken GL stack raises an ordinary
         // exception and falls through to SDL below) — but an explicit override beats debugging.
         var forceSoftware = preferSoftware || Environment.GetEnvironmentVariable("CUPRIFACE_SOFTWARE") is "1" or "true" or "TRUE";
+        // Why, when it is forced — for doc.Renderer, which is where a slow window explains itself.
+        string? forcedWhy = preferSoftware ? "the app asked for software rendering"
+            : forceSoftware ? "software rendering was forced with CUPRIFACE_SOFTWARE" : null;
         // The SDL window with a real GL context (#143): touch and GPU rendering together. Opt-in
         // for now — making touchscreen machines pick it automatically is a policy decision, and
         // CUPRIFACE_SOFTWARE stays the kill switch above it, so software always wins a tie.
@@ -210,6 +216,7 @@ public static class DesktopHost
         {
             Console.WriteLine("[CupriFace] GL probe failed (no OpenGL here); using the SDL software window.");
             forceSoftware = true;
+            forcedWhy = "this Mac has no OpenGL (the GL probe process did not survive)";
         }
 
         try
@@ -238,6 +245,16 @@ public static class DesktopHost
             // for the new one.
             window.DeviceScaleChanged += _ => { doc.InvalidateRetainedFrame(); dirty = true; };
             window.ShouldRender = NeedsRender; // GL: skip draw + swap entirely on clean frames
+            // What it draws with, once the context exists (it is made inside Run). Reported on
+            // the first tick rather than here, which is before the window has opened.
+            var rendererReported = false;
+            window.Tick += () =>
+            {
+                if (rendererReported) return;
+                rendererReported = true;
+                doc.ReportRenderer(new RendererInfo(RendererKind.Gpu,
+                    SkiaWindow.GlRenderer is { Length: > 0 } r ? $"OpenGL — {r}" : "OpenGL"));
+            };
             window.Render += Draw;
 
             // Accessibility: whichever bridge this OS has (UIA on Windows, AT-SPI on Linux),
@@ -370,6 +387,16 @@ public static class DesktopHost
             app.ClipboardWriteRequested += clipboardWriter;
             try { window.Run(); }
             finally { hostSurfaces = null; app.ClipboardWriteRequested -= clipboardWriter; }
+
+            // The GPU failed while the window was open: it has closed itself, and the software
+            // window below takes over with the same document — state, scroll and focus intact.
+            if (window.GpuFailure is { } lost)
+            {
+                // Producers drawing on the window's context move to their software lane.
+                doc.Surfaces.GpuContextLost();
+                window.Dispose();
+                throw new GpuLostException(lost);
+            }
         }
         catch (Exception ex)
         {
@@ -383,6 +410,8 @@ public static class DesktopHost
                 ? "[CupriFace] Off-screen GPU rendering requested; using Windows layered presentation."
                 : forceSoftware
                 ? "[CupriFace] Software rendering requested; using the SDL software window."
+                : ex is GpuLostException
+                ? "[CupriFace] Opening the SDL software window after the GPU failure above."
                 : $"[CupriFace] GPU unavailable ({ex.GetType().Name}: {ex.Message}); using the SDL software window.");
             using var window = new SdlSoftwareWindow(
                 app.Title,
@@ -408,6 +437,24 @@ public static class DesktopHost
             // A monitor change goes through here too — PollDeviceScale recreates the surface at the
             // new pixel size, so the same invalidation covers both.
             window.SurfaceRecreated += () => { doc.InvalidateRetainedFrame(); dirty = true; };
+
+            // What it draws with, and why it is not the GL window when it is not. The window knows
+            // what it set up; only this host knows why it is here at all.
+            var whyNotGlWindow = sdlGl || (layeredGpu && !forceSoftware) ? null
+                : forceSoftware ? forcedWhy
+                : ex is GpuLostException
+                ? $"the GPU stopped working while the GL window was open: {ex.Message}"
+                : $"the GL window could not be opened ({ex.GetType().Name}: {ex.Message})";
+            var softwareReported = false;
+            window.Tick += () =>
+            {
+                if (softwareReported) return;
+                softwareReported = true;
+                var info = window.Renderer;
+                if (info.Kind == RendererKind.Cpu && info.Reason is null && whyNotGlWindow is not null)
+                    info = info with { Reason = whyNotGlWindow };
+                doc.ReportRenderer(info);
+            };
 
             // The same bridge on the software window — this is the path GL-less machines (RDP,
             // VMs, CI runners, and every headless Linux box) actually take, so assistive tech
