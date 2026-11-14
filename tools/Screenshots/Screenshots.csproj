@@ -28,6 +28,11 @@
     <!-- The desktop composition root, for its 3D surface — the 3D page shows an empty panel without
          one, which is correct behaviour and a poor screenshot. -->
     <ProjectReference Include="..\..\samples\Viewer\Viewer.csproj" />
+    <!-- samples/Shaders' app, as SOURCE: that sample is an executable referencing the desktop
+         shell, and the web samples share it the same way. The generator binds its model. -->
+    <Compile Include="..\..\samples\Shaders\ShadersApp.cs" Link="ShadersApp.cs" />
+    <ProjectReference Include="..\..\src\CupriFace.Binding.Gen\CupriFace.Binding.Gen.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>
