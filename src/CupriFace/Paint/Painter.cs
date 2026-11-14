@@ -15,9 +15,56 @@ public sealed class Painter
     private readonly ImageStore? _images;
     private readonly SurfaceRegistry? _surfaces;
     private readonly VectorRegistry? _vectors;
+    private readonly ShaderRegistry? _shaders;
     public Painter(ImageStore? images = null, SurfaceRegistry? surfaces = null,
-                   VectorRegistry? vectors = null)
-    { _images = images; _surfaces = surfaces; _vectors = vectors; }
+                   VectorRegistry? vectors = null, ShaderRegistry? shaders = null)
+    { _images = images; _surfaces = surfaces; _vectors = vectors; _shaders = shaders; }
+
+    // ---- shaders --------------------------------------------------------------------------
+    // What a shader's built-in uniforms are filled from this frame. Set by the document before
+    // Build; the painter stamps them into each ShaderCall so the display list stays a snapshot.
+
+    /// <summary>Document time in seconds — <c>iTime</c>.</summary>
+    public float ShaderTime;
+    /// <summary>The pointer in document coordinates, and where it last went down. The press is
+    /// negated once released; all four are 0 until a pointer has been seen.</summary>
+    public float PointerX, PointerY, PressX, PressY;
+    public bool PointerDown;
+
+    /// <summary>Whether the list just built shows a shader that reads the clock / the pointer —
+    /// what the document needs to know to keep frames coming, or to repaint on a pointer move.</summary>
+    public bool ShadersUseTime { get; private set; }
+    public bool ShadersUsePointer { get; private set; }
+
+    /// <summary>When set, the root's own <c>filter: shader()</c> is left for the caller to wrap
+    /// around the WHOLE frame (overlays, caret and focus ring included) rather than pushed around
+    /// the root's box here.</summary>
+    public bool RootShadersArePageLevel;
+
+    /// <summary>One use of a shader over the box (x,y,w,h), with this frame's clock and pointer
+    /// stamped in — or null when the name refers to nothing that compiled, in which case the
+    /// caller paints as though the shader were not written.</summary>
+    public ShaderCall? CallFor(ShaderUse use, float x, float y, float w, float h)
+    {
+        if (_shaders?.Get(use.Name) is not { } shader) return null;
+        float time = 0f, px = 0f, py = 0f, dx = 0f, dy = 0f;
+        // Only what the shader READS is stamped in. A static shader's call is then value-equal
+        // from one frame to the next, and the damage diff sees nothing to repaint.
+        if (shader.UsesTime) { time = ShaderTime; ShadersUseTime = true; }
+        if (shader.UsesPointer)
+        {
+            ShadersUsePointer = true;
+            px = PointerX - x; py = PointerY - y;
+            // z/w: the press position while down, negated after release (Shadertoy's convention).
+            if (PressX != 0f || PressY != 0f)
+            {
+                var sign = PointerDown ? 1f : -1f;
+                dx = sign * MathF.Max(0.001f, MathF.Abs(PressX - x));
+                dy = sign * MathF.Max(0.001f, MathF.Abs(PressY - y));
+            }
+        }
+        return new ShaderCall(shader, use, _shaders.ValuesFor(use.Name), w, h, time, px, py, dx, dy);
+    }
 
     /// <summary>Dev overlay: outline every element's border box (scrollers in a second colour) on top
     /// of the normal paint. Toggled via <c>CupriDocument.DebugOverlay</c>.</summary>
@@ -46,6 +93,7 @@ public sealed class Painter
         var list = new DisplayList();
         var topLayer = new List<RenderNode>();
         _dragCard = null;
+        ShadersUseTime = ShadersUsePointer = false;
         CollectTopLayer(root, topLayer);
 
         // backdrop-filter on a top-layer scrim (a modal/drawer/shelf) blurs the page BEHIND it. Skia has
@@ -237,6 +285,20 @@ public sealed class Painter
         // there is — every fade-and-slide entrance — and it took a two-animation element to make it
         // obvious, because one animation rarely moves AND fades at once (found while fixing #284).
         var layer = TransformedBounds(node, absX, absY, full);
+
+        // filter: shader(…) — outside everything else, so the shader is handed the element as it
+        // finally looks (faded, turned, blurred). The first one written is innermost. Its box is
+        // the same transformed border box the layers below use; a shader that is not registered
+        // pushes nothing, and the element paints as though the declaration were not there.
+        var shaded = 0;
+        if (s.ShaderFilters is { Count: > 0 } shaderFilters && layer.Width > 0 && layer.Height > 0
+            && !(RootShadersArePageLevel && node.Parent is null))
+            for (var i = shaderFilters.Count - 1; i >= 0; i--)
+                if (CallFor(shaderFilters[i], layer.Left, layer.Top, layer.Width, layer.Height) is { } call)
+                {
+                    list.Add(new PushShader(layer.Left, layer.Top, layer.Width, layer.Height, call));
+                    shaded++;
+                }
 
         var filtered = s.Filter is { Count: > 0 };
         if (filtered)
@@ -536,6 +598,7 @@ public sealed class Painter
         if (transformed) list.Add(new PopTransform());
         if (faded) list.Add(new PopOpacity());
         if (filtered) list.Add(new PopFilter());
+        for (; shaded > 0; shaded--) list.Add(new PopShader());
     }
 
     /// <summary>The background's image layer for one box: a gradient spanning the box when nothing
@@ -553,6 +616,13 @@ public sealed class Painter
     private void PaintOneLayer(DisplayList list, BackgroundLayer layer, BackgroundGeometry geom,
                                float x, float y, float w, float h, CornerRadii radius)
     {
+        if (layer.Shader is { } use)
+        {
+            // A shader has no intrinsic size and computes every pixel it is asked for, so it
+            // always spans the box: background-size and -repeat have nothing to tile.
+            if (CallFor(use, x, y, w, h) is { } call) list.Add(new ShaderRect(x, y, w, h, radius, call));
+            return;
+        }
         if (layer.Gradient is { } grad)
         {
             if (geom.FillsBox(0, 0, w, h)) { list.Add(new GradientRect(x, y, w, h, radius, grad)); return; }

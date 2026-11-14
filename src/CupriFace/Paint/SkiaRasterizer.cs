@@ -300,16 +300,64 @@ public sealed class SkiaRasterizer
 
     /// <summary>Rasterise a command sequence — the full list, or a culled subset (the surface
     /// fast path replays only what intersects its damage; see <c>DamageDiff.CullTo</c>).</summary>
-    public void Paint(SKCanvas canvas, IReadOnlyList<PaintCommand> commands)
+    public void Paint(SKCanvas canvas, IReadOnlyList<PaintCommand> commands) =>
+        Paint(canvas, commands, 0, commands.Count);
+
+    // The commands in [from, to). A range rather than the whole list because a shader group is
+    // rasterised by recursing into the span between its push and its pop.
+    private void Paint(SKCanvas canvas, IReadOnlyList<PaintCommand> commands, int from, int to)
     {
         using var fill = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
         using var stroke = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
         using var textPaint = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
 
-        foreach (var cmd in commands)
+        for (var index = from; index < to; index++)
         {
+            var cmd = commands[index];
             switch (cmd)
             {
+                case ShaderRect sr:
+                {
+                    using var shader = sr.Call.Shader.ToShader(sr.Call, null, sr.X, sr.Y);
+                    if (shader is null) break;
+                    fill.Shader = shader;
+                    DrawRect(canvas, fill, sr.X, sr.Y, sr.W, sr.H, sr.Radius);
+                    fill.Shader = null;
+                    break;
+                }
+
+                case PushShader ps:
+                {
+                    // filter: shader(). Skia has no reachable "run this SkSL over a layer" in the
+                    // pinned SkiaSharp (the runtime-shader image filter is not bound), so the group
+                    // is recorded as a picture and handed to the shader as a child it can sample
+                    // anywhere. A picture rather than an offscreen surface: it is rasterised at the
+                    // resolution the frame is actually drawn at, on whichever backend that is, and
+                    // nothing has to be read back from a GPU.
+                    var close = MatchingPop(commands, index, to);
+                    var box = new SKRect(ps.X, ps.Y, ps.X + ps.W, ps.Y + ps.H);
+                    using var rec = new SKPictureRecorder();
+                    Paint(rec.BeginRecording(box), commands, index + 1, close);
+                    using var pic = rec.EndRecording();
+                    // A picture shader puts its tile's corner at the origin, which is exactly the
+                    // shader's own coordinate space: iChannel0.eval(p) is the pixel at p.
+                    using var content = SKShader.CreatePicture(pic, SKShaderTileMode.Decal, SKShaderTileMode.Decal,
+                        SKMatrix.Identity, box);
+                    using var shader = ps.Call.Shader.ToShader(ps.Call, content, ps.X, ps.Y);
+                    if (shader is not null)
+                    {
+                        fill.Shader = shader;
+                        canvas.DrawRect(box, fill);
+                        fill.Shader = null;
+                    }
+                    else canvas.DrawPicture(pic); // could not bind: show the element, unshaded
+                    index = close;                // the loop steps over the PopShader
+                    break;
+                }
+
+                case PopShader:
+                    break; // consumed by its PushShader; a stray one has nothing to close
+
                 case FillRect r:
                     fill.Color = r.Color;
                     DrawRect(canvas, fill, r.X, r.Y, r.W, r.H, r.Radius);
@@ -637,6 +685,19 @@ public sealed class SkiaRasterizer
         fill.Shader = shader;
         DrawRect(canvas, fill, x, y, w, h, radius);
         fill.Shader = null;
+    }
+
+    // The PopShader that closes the PushShader at index open, or the end of the range if the
+    // list runs out first.
+    private static int MatchingPop(IReadOnlyList<PaintCommand> commands, int open, int to)
+    {
+        var depth = 0;
+        for (var i = open; i < to; i++)
+        {
+            if (commands[i] is PushShader) depth++;
+            else if (commands[i] is PopShader && --depth == 0) return i;
+        }
+        return to;
     }
 
     /// <summary>Clip to a (possibly per-corner) rounded box.</summary>

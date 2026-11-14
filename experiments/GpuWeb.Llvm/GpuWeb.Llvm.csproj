@@ -1,0 +1,93 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The GpuWeb probe on the NativeAOT-LLVM toolchain: the same two lanes (CPU bitmap + putImageData,
+    or Skia's GPU backend on WebGL), with the engine compiled to wasm instead of interpreted. See
+    ../GpuWeb/README.md for what both were measured at.
+
+    The project shape is samples/WebLlvm's, minus the host: restore-time facts (the experimental ILC
+    feed, the compiler packages, the native-asset packages) and link facts (the Emscripten paths).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PublishTrimmed>true</PublishTrimmed>
+    <DotNetJsApi>true</DotNetJsApi>
+    <UseAppHost>false</UseAppHost>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+    <!-- Same link line as samples/WebLlvm, so the numbers are that host's numbers. MAX_WEBGL_VERSION
+         is what stops a WebGL2 request being silently downgraded. -->
+    <EmccFlags>$(EmccFlags) -O1 -sSUPPORT_LONGJMP=wasm -sMAX_WEBGL_VERSION=2</EmccFlags>
+    <UsingBrowserRuntimeWorkload>false</UsingBrowserRuntimeWorkload>
+    <ExecutableExtensionName Condition="$([MSBuild]::IsOSPlatform('Windows'))">.exe</ExecutableExtensionName>
+    <IlcHostRid Condition="'$(IlcHostRid)' == ''">$(NETCoreSdkPortableRuntimeIdentifier)</IlcHostRid>
+    <IlcLlvmVersion Condition="'$(IlcLlvmVersion)' == ''">10.0.0-rc.1.26357.1</IlcLlvmVersion>
+    <RestoreAdditionalProjectSources>
+      https://api.nuget.org/v3/index.json;
+      https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-experimental/nuget/v3/index.json;
+    </RestoreAdditionalProjectSources>
+    <InvariantTimezone>true</InvariantTimezone>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <WasmEnableLegacyJsInterop>false</WasmEnableLegacyJsInterop>
+    <TrimMode>full</TrimMode>
+    <DebuggerSupport>false</DebuggerSupport>
+    <EventSourceSupport>false</EventSourceSupport>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <StackTraceSupport>true</StackTraceSupport>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+
+  <Import Project="../../src/WebFonts.props" />
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/CupriFace/CupriFace.csproj" />
+    <ProjectReference Include="../../samples/DemoApp/DemoApp.csproj" />
+    <ProjectReference Include="../../src/CupriFace.Binding.Gen/CupriFace.Binding.Gen.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <Compile Include="../../samples/Shaders/ShadersApp.cs" Link="ShadersApp.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.DotNet.ILCompiler.LLVM" Version="$(IlcLlvmVersion)" />
+    <PackageReference Include="runtime.$(IlcHostRid).Microsoft.DotNet.ILCompiler.LLVM" Version="$(IlcLlvmVersion)" />
+    <PackageReference Include="SkiaSharp.NativeAssets.WebAssembly" Version="3.116.1"
+                      GeneratePathProperty="true" ExcludeAssets="all" />
+    <PackageReference Include="HarfBuzzSharp.NativeAssets.WebAssembly" Version="8.3.0.1"
+                      GeneratePathProperty="true" ExcludeAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The page calls the exports; nothing managed does, so without these they are trimmed, and
+         without the second they are kept but not exported. -->
+    <TrimmerRootAssembly Include="GpuWeb.Llvm" />
+    <UnmanagedEntryPointsAssembly Include="GpuWeb.Llvm" />
+
+    <LinkerArg Include="--js-library &quot;$(MSBuildThisFileDirectory)imports.js&quot;" />
+
+    <DirectPInvoke Include="js" />
+    <DirectPInvoke Include="emscripten" />
+    <DirectPInvoke Include="libSkiaSharp" />
+    <DirectPInvoke Include="libHarfBuzzSharp" />
+
+    <EmscriptenEnvVars Include="DOTNET_EMSCRIPTEN_LLVM_ROOT=$(EmscriptenUpstreamBinPath)" />
+    <EmscriptenEnvVars Include="DOTNET_EMSCRIPTEN_BINARYEN_ROOT=$(EmscriptenSdkToolsPath)" />
+    <EmscriptenEnvVars Include="DOTNET_EMSCRIPTEN_NODE_JS=$(EmscriptenNodeBinPath)node$(ExecutableExtensionName)" />
+    <EmscriptenEnvVars Include="EM_CACHE=$(EmscriptenCacheSdkCacheDir)" />
+  </ItemGroup>
+
+  <Target Name="AddWasmArchives" BeforeTargets="IlcCompile;LinkNative">
+    <ItemGroup>
+      <NativeLibrary Include="$(PkgSkiaSharp_NativeAssets_WebAssembly)/buildTransitive/netstandard1.0/libSkiaSharp.a/3.1.56/st/libSkiaSharp.a" />
+      <NativeLibrary Include="$(PkgHarfBuzzSharp_NativeAssets_WebAssembly)/buildTransitive/netstandard1.0/libHarfBuzzSharp.a/3.1.56/st/libHarfBuzzSharp.a" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="CopyProbePage" AfterTargets="Publish">
+    <Copy SourceFiles="$(MSBuildProjectDirectory)/wwwroot/index.html" DestinationFolder="$(PublishDir)" />
+  </Target>
+
+</Project>

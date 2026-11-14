@@ -46,6 +46,7 @@ error   CF0030 (line 6): <img> is not something the engine draws — it lays out
 | `CF0050` / `CF0051` | A CSS property or function that is silently ignored |
 | `CF0052` | An `@import` — the engine steps over it, so the sheet it names (usually a web font) never loads |
 | `CF0053` | A `position: sticky` with no inset on any axis — it pins to nothing and scrolls away |
+| `CF0054` | A `shader()` that will not run — its `@shader` block did not compile (the SkSL error is quoted), or it names no shader |
 | **`CF0060`** | **A `{{path}}` that names nothing on the model** — renders as empty text, looks like missing data |
 | **`CF0070`** | **Contents that do not fit a fixed-height box** — they overflow and paint over the next element |
 | **`CF0071`** | **A box that laid out with no area** but has visible content inside it |

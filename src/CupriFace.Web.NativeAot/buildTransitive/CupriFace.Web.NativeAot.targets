@@ -75,6 +75,10 @@
     <LinkerArg Include="--js-library &quot;$(_CupriAotAssets)imports.js&quot; -sEXPORTED_RUNTIME_METHODS=['FS','out','err','ccall','cwrap','setValue','getValue','addRunDependency','addFunction','UTF8ToString','UTF8ArrayToString','lengthBytesUTF8','stringToUTF8Array','FS_createPath','FS_createDataFile','removeRunDependency','safeSetTimeout','runtimeKeepalivePush','runtimeKeepalivePop','UTF16ToString','stringToUTF16','lengthBytesUTF16']" />
 
     <DirectPInvoke Include="js" />
+    <!-- Emscripten's html5 API: the host makes its own WebGL2 context when the page asks for the
+         GPU renderer (Interop.GpuAttach). wasm has no lazy P/Invoke, so it is named here or the
+         first call is a missing-import abort. -->
+    <DirectPInvoke Include="emscripten" />
     <DirectPInvoke Include="libSkiaSharp" />
     <DirectPInvoke Include="libHarfBuzzSharp" />
 

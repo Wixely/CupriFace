@@ -408,6 +408,7 @@ public static partial class CupriDoctor
         BoxesJammedAgainstTheirContainer(doc, registry, width, height, lines, findings);
         WrappedLinesWithNothingBetweenThem(doc, registry, lines, findings);
         BackdropFilterOutsideTopLayer(doc, lines, findings);
+        ShadersThatCannotRun(doc, lines, findings);
         StickyWithNothingToStickTo(doc, lines, findings);
         TextNobodyCanRead(doc, registry, lines, findings);
         if (model is not null) UnresolvedBindings(html, model, lines, findings);
@@ -1230,6 +1231,57 @@ public static partial class CupriDoctor
             foreach (var c in n.Children) Walk(c);
         }
         Walk(doc.Root);
+    }
+
+    /// <summary>
+    /// CF0054: a <c>shader()</c> that will not run — its source did not compile, or its name
+    /// refers to nothing.
+    ///
+    /// <para>Both are silent by design. A background that names a missing shader paints nothing;
+    /// a filter that does paints the element as though the filter were not written. Neither is a
+    /// property or a function the engine lacks, so neither CF0050 nor CF0051 can see it — and a
+    /// shader is the one thing in a stylesheet with a compiler behind it, whose message is exactly
+    /// what the author needs and was otherwise thrown away.</para>
+    /// </summary>
+    private static void ShadersThatCannotRun(CupriDocument doc, string[] lines, List<Finding> findings)
+    {
+        var used = new SortedSet<string>(StringComparer.Ordinal);
+        void Walk(Dom.RenderNode n)
+        {
+            if (n.Style.ShaderFilters is { } filters)
+                foreach (var f in filters) used.Add(f.Name);
+            if (n.Style.BackgroundLayers is { } layers)
+                foreach (var l in layers)
+                    if (l.Shader is { } s) used.Add(s.Name);
+            foreach (var c in n.Children) Walk(c);
+        }
+        Walk(doc.Root);
+
+        var known = doc.Shaders.Names;
+        // Every failure, used or not: a block that does not compile is wrong wherever it is, and
+        // the element that would have used it may simply not be on screen in this state.
+        foreach (var name in doc.Shaders.FailedNames)
+        {
+            used.Remove(name);
+            findings.Add(new Finding(Severity.Error, "CF0054",
+                $"Shader '{name}' did not compile, so everything using it paints as though it were not there: "
+                + doc.Shaders.ErrorFor(name),
+                "Fix the SkSL. It is not GLSL: sample a child with iChannel0.eval(xy) rather than texture(), "
+                + "and loops need bounds known at compile time.",
+                LineOf(lines, "@shader " + name)));
+        }
+        foreach (var name in used)
+        {
+            if (doc.Shaders.Get(name) is not null) continue;
+            var near = Nearest(name, known);
+            findings.Add(new Finding(Severity.Error, "CF0054",
+                $"shader({name}) names no shader — a background using it paints nothing, a filter using it does nothing.",
+                near is not null
+                    ? $"Did you mean shader({near})?"
+                    : "Declare it in the stylesheet as `@shader " + name + " { … }`, or register it with doc.Shaders.Register "
+                      + "(and pass that through `configure:` so the check sees it).",
+                LineOf(lines, "shader(" + name)));
+        }
     }
 
     // ---- shared helpers ------------------------------------------------------------------------

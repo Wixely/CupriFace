@@ -182,6 +182,12 @@ public sealed class ComputedStyle
     // Filter (CSS filter chain — blur / colour-matrix / drop-shadow). Not inherited.
     public List<FilterOp>? Filter;
 
+    /// <summary>The <c>shader(…)</c> entries of <c>filter</c>, in the order written: each repaints
+    /// what the element (and everything under it) drew, the first one innermost. They run after
+    /// the ordinary filter functions whatever order the two were written in. On <c>body</c> they
+    /// cover the whole page, overlays included.</summary>
+    public List<ShaderUse>? ShaderFilters;
+
     // Backdrop filter: blur (etc.) applied to what's painted BEHIND this element. Only honoured on a
     // full-viewport top-layer element (a modal/drawer/shelf scrim) — it blurs the page behind it.
     public List<FilterOp>? BackdropFilter;

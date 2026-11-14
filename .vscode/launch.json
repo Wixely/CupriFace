@@ -2,6 +2,31 @@
   "version": "0.2.0",
   "configurations": [
     {
+      // SkSL shaders on elements and on the whole page: an animated background, a filter over
+      // real content, a pointer-following spotlight, and a switch that shades the entire page.
+      "name": "Shaders — desktop window",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build-shaders",
+      "program": "${workspaceFolder}/samples/Shaders/bin/Debug/net10.0/Shaders.dll",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "stopAtEntry": false
+    },
+    {
+      // The same sample with no window: checks its own markup with CupriDoctor, then writes
+      // shaders-t0.png, shaders-t1.png and shaders-crt.png on the CPU raster backend.
+      "name": "Shaders — headless snapshots",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build-shaders",
+      "program": "${workspaceFolder}/samples/Shaders/bin/Debug/net10.0/Shaders.dll",
+      "cwd": "${workspaceFolder}/samples/Shaders/bin/Debug/net10.0",
+      "env": { "CUPRI_HEADLESS": "1" },
+      "console": "integratedTerminal",
+      "stopAtEntry": false
+    },
+    {
       "name": "TransparentHud — one-swap alpha probe (#212)",
       "type": "coreclr",
       "request": "launch",

@@ -57,6 +57,96 @@ public static unsafe partial class Interop
         catch (Exception ex) { Crash("Tick", ex); return 0; }
     }
 
+    // ---- the GPU renderer, when the page asks for it -------------------------------------------
+    // The page decides (data-renderer="webgl" on the canvas, or ?renderer=webgl), and asks BEFORE
+    // it touches the canvas: a canvas that has handed out a 2D context never hands out a WebGL one,
+    // and the reverse. On any failure the page swaps in a fresh canvas and the CPU path runs as it
+    // always has, so asking costs nothing on a browser that cannot.
+
+    private static nint _glContext;
+    private static WebGlTarget? _gl;
+
+    /// <summary>Make a WebGL2 context on the host canvas and paint into it from now on.</summary>
+    /// <returns>1 on the GPU; 0 or less on the CPU path, the page reading the reason from the
+    /// console: -1 no WebGL2 context, -2 Skia could not use it.</returns>
+    [UnmanagedCallersOnly(EntryPoint = "GpuAttach")]
+    public static int GpuAttach()
+    {
+        try
+        {
+            ContextAttributes attrs;
+            InitAttributes(&attrs);
+            attrs.Alpha = 1; attrs.PremultipliedAlpha = 1;       // holes for video and overlays
+            attrs.Depth = 0; attrs.Stencil = 1;                  // Skia clips with the stencil
+            attrs.Antialias = 0;                                 // Skia antialiases its own edges
+            attrs.PreserveDrawingBuffer = 1;                     // damage repaints need last frame
+            attrs.MajorVersion = 2; attrs.MinorVersion = 0;
+            attrs.EnableExtensionsByDefault = 1;
+            fixed (byte* target = HostCanvas) _glContext = CreateContext(target, &attrs);
+            if (_glContext <= 0)
+            {
+                Console.WriteLine("[CupriFace] renderer: CPU — the browser gave no WebGL2 context.");
+                return -1;
+            }
+            _gl = WebGlTarget.TryCreate(() => MakeCurrent(_glContext) == 0, out var why);
+            if (_gl is null)
+            {
+                Console.WriteLine($"[CupriFace] renderer: CPU — {why}.");
+                DestroyContext(_glContext); _glContext = 0;
+                return -2;
+            }
+            WebHostCore.UseGpu(_gl);
+            return 1;
+        }
+        catch (Exception ex) { Crash("GpuAttach", ex); return -3; }
+    }
+
+    /// <summary>The page saw <c>webglcontextlost</c>. Painting stops until the restore.</summary>
+    [UnmanagedCallersOnly(EntryPoint = "GpuLost")]
+    public static void GpuLost() => Guard("GpuLost", () => _gl?.ContextLost());
+
+    /// <summary>The page saw <c>webglcontextrestored</c>: a new Skia context on it and a full repaint.
+    /// Returns 0 when Skia cannot use the restored context, which leaves the canvas blank — the page
+    /// says so rather than leaving a silent empty rectangle.</summary>
+    [UnmanagedCallersOnly(EntryPoint = "GpuRestored")]
+    public static int GpuRestored()
+    {
+        try
+        {
+            if (_gl is null) return 0;
+            if (!_gl.ContextRestored(out var why))
+            {
+                Console.WriteLine($"[CupriFace] WebGL context restored but unusable: {why}.");
+                return 0;
+            }
+            WebHostCore.MarkDirty();
+            return 1;
+        }
+        catch (Exception ex) { Crash("GpuRestored", ex); return 0; }
+    }
+
+    // The canvas main.js finds by id. A selector, because that is what Emscripten's html5 API takes.
+    private static ReadOnlySpan<byte> HostCanvas => "#cupri\0"u8;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ContextAttributes
+    {
+        public int Alpha, Depth, Stencil, Antialias, PremultipliedAlpha, PreserveDrawingBuffer;
+        public int PowerPreference, FailIfMajorPerformanceCaveat;
+        public int MajorVersion, MinorVersion;
+        public int EnableExtensionsByDefault, ExplicitSwapControl;
+        public int ProxyContextToMainThread, RenderViaOffscreenBackBuffer;
+    }
+
+    [DllImport("emscripten", EntryPoint = "emscripten_webgl_init_context_attributes")]
+    private static extern void InitAttributes(ContextAttributes* attrs);
+    [DllImport("emscripten", EntryPoint = "emscripten_webgl_create_context")]
+    private static extern nint CreateContext(byte* target, ContextAttributes* attrs);
+    [DllImport("emscripten", EntryPoint = "emscripten_webgl_make_context_current")]
+    private static extern int MakeCurrent(nint context);
+    [DllImport("emscripten", EntryPoint = "emscripten_webgl_destroy_context")]
+    private static extern int DestroyContext(nint context);
+
     // ---- input ---------------------------------------------------------------------------------
 
     [UnmanagedCallersOnly(EntryPoint = "PointerDown")]

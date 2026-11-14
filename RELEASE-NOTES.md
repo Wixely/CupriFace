@@ -15,6 +15,41 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ## Unreleased
 
+### Added
+
+- **Shaders: `shader(name)` runs an SkSL program on any element, or on the whole page.**
+  `background-image: shader(plasma)` paints a box with one; `filter: shader(wave, amount 4)` hands
+  the element's own pixels to one as `iChannel0`; the same filter on `body` covers the page,
+  overlays included. Declare a shader in the stylesheet as `@shader name { … }` or register it
+  with `doc.Shaders.Register(name, sksl)`. The engine fills in `iResolution`, `iTime`, `iMouse` and
+  `iChannel0` for a shader that declares them; your own uniforms are set where the shader is used
+  (`shader(name, uniform value)`, so `var()`, bindings and `@keyframes` all reach them) or with
+  `doc.Shaders.SetUniform`. A Shadertoy-style `mainImage` is accepted as written, y-up included —
+  though SkSL is not GLSL, and `texture()`, `while` and multi-pass shaders do not carry over. It
+  needs no GPU: the CPU raster backend (headless rendering, the software window, the web host)
+  runs the same shaders. See TOOLBOX.md §5 and `samples/Shaders`.
+  - **A shader that declares `iTime` keeps the host drawing** for as long as it is on screen
+    (`HasActiveAnimations` and `HasActiveTransitions` are both true). A custom host that already
+    honours those needs no change; one that draws on its own schedule must call `Animate` with a
+    rising time, or the shader holds its first frame.
+  - **`CF0054`**: a `shader()` whose `@shader` block did not compile, with the compiler's message,
+    or whose name refers to nothing. Both otherwise paint as though the shader were not written.
+- `BackgroundLayer` has a third member, `Shader`. Code that constructs or deconstructs one
+  positionally with two values still compiles; a `switch` over its two old members should add it.
+- **The NativeAOT web host can paint on the GPU.** Opt in with `data-renderer="webgl"` on the
+  `<canvas id="cupri">` in your page, or try it with `?renderer=webgl` on the URL. Skia then draws
+  straight into a WebGL2 canvas instead of rasterising in wasm and copying out with
+  `putImageData`. An animated shader frame at 960x640 went from 726 ms to 6.4 ms; an ordinary full
+  repaint from 37.7 to 26.5 ms. The CPU path is still the default. If WebGL2 is unavailable the
+  host logs the reason and falls back to it, and a lost context is restored and repainted. Video,
+  transparent overlays and 3D underlays work on both. `__cupri.renderer` says which one is in use.
+  The Mono host does not have this yet.
+  - A custom host built on `WebHostCore` can paint into any `SKSurface` through the new
+    `IWebGpuTarget` and `WebHostCore.UseGpu`; `WebGlTarget` is the implementation for Skia's GL
+    backend.
+  - An app that names its own `<DirectPInvoke Include="emscripten" />` no longer needs to; the
+    host's build targets now include it.
+
 ### Fixed
 
 - Android video keeps the screen awake during playback and restarts the decoder at its saved

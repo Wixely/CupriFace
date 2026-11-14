@@ -317,6 +317,24 @@ build machine or pipeline that cannot take a preview feed.
 
 Both compile the *same* `ShowcaseApp`, expose the same `WebHost.Run` API and carry the same
 features, so moving between them — or falling back — is a `PackageReference` change and no app code.
+The one exception is the GPU renderer below, which only the NativeAOT host has so far.
+
+**The NativeAOT host can paint on the GPU.** Opt in on the page: `<canvas id="cupri"
+data-renderer="webgl">` (or `?renderer=webgl` on the URL to try it). Frames are then drawn by Skia
+straight into a WebGL2 canvas instead of being rasterised in wasm and copied out with
+`putImageData`. Where the GPU path counts is per-pixel work, which is the whole cost of an animated
+`shader()`. Measured at 960x640 in Firefox on a GTX 980, ms per frame
+(`experiments/GpuWeb/README.md`):
+
+| | CPU (default) | WebGL |
+|---|---|---|
+| Animated shader demo | 726 | 6.4 |
+| Showcase, full repaint | 37.7 | 26.5 |
+
+Layout and the display list cost the same either way. If the browser gives no WebGL2 context, the
+host logs why and falls back to the CPU path on its own. A lost context (GPU reset) is restored and
+repainted. The CPU path stays the default until the GPU path has been tried on more browsers and
+GPUs than one.
 
 **The download is the same size either way**, so the choice is about latency, not payload. AOT buys
 the ~8x and costs two things worth knowing up front. The ILC backend is experimental (pinned, so it

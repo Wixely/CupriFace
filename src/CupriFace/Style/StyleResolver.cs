@@ -1385,6 +1385,7 @@ public sealed class StyleResolver
             var inSize = false;
             Gradient? gradient = null;
             string? src = null;
+            ShaderUse? shader = null;
             foreach (var raw in SplitSlashes(SplitTopLevel(layer, ' ')))
             {
                 if (raw == "/") { inSize = true; continue; }
@@ -1392,6 +1393,7 @@ public sealed class StyleResolver
                 if (inSize) { size.Add(low); continue; }
                 if (ParseGradient(raw) is { } g) { gradient = g; continue; }
                 if (ParseUrl(raw) is { } u) { src = u; continue; }
+                if (ShaderUse.Parse(raw) is { } sh) { shader = sh; continue; }
                 if (Colors.TryParse(raw, out var c)) { s.Background = c; continue; }
                 if (low is "repeat" or "no-repeat" or "repeat-x" or "repeat-y" or "space" or "round")
                 {
@@ -1410,9 +1412,10 @@ public sealed class StyleResolver
             if (size.Count > 0) geom = WithSize(geom, string.Join(' ', size));
             // Every layer is kept, in the order written — the first ends up on top (#279). A layer
             // that names only a colour (the last one usually does) contributes no image.
-            if (gradient is not null || src is not null)
+            if (gradient is not null || src is not null || shader is not null)
             {
-                (layers ??= []).Add(new BackgroundLayer(gradient, src));
+                (layers ??= []).Add(shader is not null ? new BackgroundLayer(null, null, shader)
+                                                       : new BackgroundLayer(gradient, src));
                 (geometries ??= []).Add(geom);
             }
         }
@@ -1467,6 +1470,7 @@ public sealed class StyleResolver
         {
             if (ParseGradient(seg) is { } g) (layers ??= []).Add(new BackgroundLayer(g, null));
             else if (ParseUrl(seg) is { } u) (layers ??= []).Add(new BackgroundLayer(null, u));
+            else if (ShaderUse.Parse(seg) is { } sh) (layers ??= []).Add(new BackgroundLayer(null, null, sh));
         }
         if (layers is not null) s.BackgroundLayers = layers;
     }
@@ -1763,10 +1767,22 @@ public sealed class StyleResolver
     private static readonly Regex _filterFn = new(@"([\w-]+)\(([^)]*)\)", RegexOptions.Compiled);
 
     // filter: blur(4px) brightness(1.2) grayscale(50%) drop-shadow(2px 3px 4px #0008) …
-    private static void ParseFilter(ComputedStyle s, string v) => s.Filter = ParseFilterOps(v);
-
-    private static List<FilterOp>? ParseFilterOps(string v)
+    // …and shader(name, uniform value, …), which is not a FilterOp: it has a name and a variable
+    // number of uniforms rather than three floats, and it is painted by a different mechanism (the
+    // element is recorded and handed to the shader, rather than composited through an image filter).
+    // The two lists are kept apart and both come from this one declaration, so `filter: none`
+    // clears both and a later `filter` replaces both.
+    private static void ParseFilter(ComputedStyle s, string v)
     {
+        s.Filter = ParseFilterOps(v, out var shaders);
+        s.ShaderFilters = shaders;
+    }
+
+    private static List<FilterOp>? ParseFilterOps(string v) => ParseFilterOps(v, out _);
+
+    private static List<FilterOp>? ParseFilterOps(string v, out List<ShaderUse>? shaders)
+    {
+        shaders = null;
         if (v.Trim().Equals("none", StringComparison.OrdinalIgnoreCase)) return null;
         var ops = new List<FilterOp>();
         foreach (Match m in _filterFn.Matches(v))
@@ -1775,6 +1791,7 @@ public sealed class StyleResolver
             var arg = m.Groups[2].Value.Trim();
             switch (fn)
             {
+                case "shader": if (ShaderUse.ParseArguments(arg) is { } use) (shaders ??= []).Add(use); break;
                 case "blur": ops.Add(new FilterOp(FilterKind.Blur, ParsePx(arg), 0, 0, default)); break;
                 case "brightness": ops.Add(new FilterOp(FilterKind.Brightness, Amount(arg), 0, 0, default)); break;
                 case "contrast": ops.Add(new FilterOp(FilterKind.Contrast, Amount(arg), 0, 0, default)); break;

@@ -423,7 +423,10 @@ public sealed partial class CupriDocument : IDisposable
         _fonts = new FontService();
         _images = new Paint.ImageStore();
         _layout = new LayoutEngine(_fonts, _images, Surfaces, Vectors);
-        _painter = new Painter(_images, Surfaces, Vectors);
+        _painter = new Painter(_images, Surfaces, Vectors, Shaders) { RootShadersArePageLevel = true };
+        // A shader registered, replaced or given a new uniform value changes what the retained
+        // display list would draw, so it must not be replayed as it stands.
+        Shaders.Changed = () => _inputsVersion++;
         _rasterizer = new SkiaRasterizer(_fonts);
     }
 
@@ -436,6 +439,54 @@ public sealed partial class CupriDocument : IDisposable
     /// <c>&lt;svg&gt;</c>. Empty in an app that never draws one, and the engine links no SVG code
     /// either way: it knows how to paint a list of paths and nothing about the language.</summary>
     public Paint.VectorRegistry Vectors { get; } = new();
+
+    /// <summary>
+    /// SkSL shaders by name — what <c>background-image: shader(name)</c> and
+    /// <c>filter: shader(name)</c> refer to. Register from code here, or declare one in the
+    /// stylesheet as <c>@shader name { … }</c>.
+    ///
+    /// <para>A shader that declares <c>uniform float iTime</c> keeps the host drawing frames for
+    /// as long as it is on screen (<see cref="HasActiveAnimations"/>); one that does not is
+    /// painted once and costs nothing afterwards.</para>
+    /// </summary>
+    public Paint.ShaderRegistry Shaders { get; } = new();
+
+    // What the last built frame said about its shaders: whether any reads the clock (the host
+    // must keep drawing, and Animate must keep invalidating) or the pointer (a move must repaint
+    // even when it changes no hover state).
+    private bool _shadersUseTime, _shadersUsePointer;
+    private double _shaderTime;
+    // The pointer in document coordinates, for iMouse. Kept apart from _lastHitX/Y, which several
+    // drag paths return before updating — and which are a hit-test cache, not a position.
+    private float _pointerX, _pointerY, _pressX, _pressY;
+    private bool _pointerDown;
+
+    /// <summary>Hand the painter this frame's clock and pointer, for the shaders' uniforms.</summary>
+    private void StampShaderInputs()
+    {
+        _painter.ShaderTime = (float)_shaderTime;
+        _painter.PointerX = _pointerX; _painter.PointerY = _pointerY;
+        _painter.PressX = _pressX; _painter.PressY = _pressY;
+        _painter.PointerDown = _pointerDown;
+    }
+
+    /// <summary>
+    /// <c>body { filter: shader(…) }</c> covers the PAGE: everything the frame draws, including
+    /// the overlays, the caret and the focus ring, which are painted after — and outside — the
+    /// body's own box. So it is wrapped around the finished list here, not pushed by the painter.
+    /// </summary>
+    private void WrapPageShaders(DisplayList list, float width, float height)
+    {
+        if (_root.Style.ShaderFilters is { Count: > 0 } page && width > 0 && height > 0)
+            foreach (var use in page) // the first written is innermost, so each later one wraps it
+                if (_painter.CallFor(use, 0, 0, width, height) is { } call)
+                {
+                    list.Insert(0, new PushShader(0, 0, width, height, call));
+                    list.Add(new PopShader());
+                }
+        _shadersUseTime = _painter.ShadersUseTime;
+        _shadersUsePointer = _painter.ShadersUsePointer;
+    }
 
     /// <summary>Register the assembly used to resolve embedded media sources (a bare
     /// <c>src="Assets/logo.png"</c> on a <c>&lt;cupri-image&gt;</c> — and equally a
@@ -1400,6 +1451,13 @@ public sealed partial class CupriDocument : IDisposable
                 rules.AddRange(CssParser.Parse(styleEl.TextContent));
             for (var i = 0; i < rules.Count; i++) rules[i].Order = i; // later stylesheets win ties
 
+            // @shader blocks: the same immutable sources, compiled once. The rule parser above has
+            // already stepped over them as an at-rule it does not know.
+            if (_components is not null) Shaders.RegisterFromCss(_components.AggregatedCss);
+            Shaders.RegisterFromCss(_css);
+            foreach (var styleEl in dom.QuerySelectorAll("style"))
+                Shaders.RegisterFromCss(styleEl.TextContent);
+
             var kf = Animation.Parse(_css);
             if (_components is not null)
                 foreach (var (k, frames) in Animation.Parse(_components.AggregatedCss)) kf[k] = frames;
@@ -1669,6 +1727,9 @@ public sealed partial class CupriDocument : IDisposable
     public bool Animate(double timeSeconds)
     {
         var any = false;
+        // A shader on screen that reads iTime: the frame differs because the clock did.
+        _shaderTime = timeSeconds;
+        if (_shadersUseTime) any = true;
         var volumeHovered = HoveredVolumeSource() is not null;
         if (volumeHovered && _fullscreenVideo is not null && !_videoControlsHidden)
         {
@@ -1737,7 +1798,10 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>True while a CSS transition is mid-flight (a continuous host should keep calling
     /// <see cref="Animate"/> and repainting until it settles). Also true while a masked field is
     /// peeking its last-typed char, so the host keeps ticking until <see cref="Animate"/> re-masks it.</summary>
-    public bool HasActiveTransitions => _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || FlingActive || OverscrollActive || _pendingNav is not null;
+    public bool HasActiveTransitions => _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || FlingActive || OverscrollActive || _pendingNav is not null
+        // …and while a shader that reads iTime is on screen: hosts gate their Animate call on this,
+        // and Animate is where the shader's clock comes from.
+        || _shadersUseTime;
 
     /// <summary>True only if a *visible* node is currently animating (display:none subtrees are
     /// absent from the render tree). Lets a host render continuously only when it must, instead
@@ -1745,7 +1809,7 @@ public sealed partial class CupriDocument : IDisposable
     /// set only changes when the tree does), so a host may poll it every frame for free. Also true
     /// while a masked field peeks its last-typed char (see <see cref="HasActiveTransitions"/>),
     /// and while any live surface (a playing video) is producing frames.</summary>
-    public bool HasActiveAnimations => (_hasActiveAnim && _animRunning) || _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || Surfaces.AnyTicking || FlingActive || OverscrollActive || _pendingNav is not null || !_posted.IsEmpty
+    public bool HasActiveAnimations => (_hasActiveAnim && _animRunning) || _shadersUseTime || _transitions.Active || MaskPeeking || ReorderEasing || ToastsPending || Surfaces.AnyTicking || FlingActive || OverscrollActive || _pendingNav is not null || !_posted.IsEmpty
         // …and while a fullscreen control bar is still counting down, because the hide happens in
         // Animate and a render-on-demand host would otherwise stop pumping and never reach it.
         // Gated on the timeout being ENABLED: without that, switching it off would leave every
@@ -2233,6 +2297,7 @@ public sealed partial class CupriDocument : IDisposable
         // rebuilt constantly, so the path is the durable half — without this a bar lit up under the
         // pointer and went dark again on the next rebuild, for as long as the pointer sat still.
         ApplyScrollbarHot();
+        StampShaderInputs();
         var list = _painter.Build(_root);
         // Caret + selection are drawn outside the scrolled subtree, so clip them to the focused
         // field's scroll box — otherwise they'd draw over neighbours when the field is scrolled.
@@ -2243,6 +2308,7 @@ public sealed partial class CupriDocument : IDisposable
         AppendCaret(list);
         if (clip is not null) list.Add(new PopClip());
         AppendFocusRing(list);
+        WrapPageShaders(list, width, height);
         _tPaint = Ms(t1, Stopwatch.GetTimestamp());
         return list;
     }
@@ -2852,7 +2918,10 @@ public sealed partial class CupriDocument : IDisposable
     {
         EnsureFontFaces();
         _layout.Layout(_root, width, height);
-        return _painter.Build(_root);
+        StampShaderInputs();
+        var list = _painter.Build(_root);
+        WrapPageShaders(list, width, height);
+        return list;
     }
 
     // ---- interaction (Layer 0 → hit-test → dispatch) -------------------------
@@ -3534,6 +3603,12 @@ public sealed partial class CupriDocument : IDisposable
         return true;
     }
     private bool DispatchClickCore(float x, float y, int clickCount, float adjustRadius = 0f)
+    {
+        _pointerX = _pressX = x; _pointerY = _pressY = y; _pointerDown = true;
+        return _shadersUsePointer | ClickCore(x, y, clickCount, adjustRadius);
+    }
+
+    private bool ClickCore(float x, float y, int clickCount, float adjustRadius)
     {
         EnsureLaidOut();
         _textDrag = false;
@@ -7215,7 +7290,18 @@ public sealed partial class CupriDocument : IDisposable
     }
 
     public bool DispatchPointerMove(float x, float y) => Bump(DispatchPointerMoveCore(Zc(x), Zc(y)));
-    private bool DispatchPointerMoveCore(float x, float y)
+    private bool DispatchPointerMoveCore(float x, float y) => TrackPointer(x, y) | PointerMoveCore(x, y);
+
+    // iMouse. Recorded before anything can return early, and reported as a change only while a
+    // shader on screen reads it — otherwise every pointer move would repaint every document.
+    private bool TrackPointer(float x, float y)
+    {
+        var moved = x != _pointerX || y != _pointerY;
+        _pointerX = x; _pointerY = y;
+        return moved && _shadersUsePointer;
+    }
+
+    private bool PointerMoveCore(float x, float y)
     {
         EnsureLaidOut();
         // A mouse has no tap, and MOVING is the gesture that asks for a hidden control bar back —
@@ -7295,7 +7381,16 @@ public sealed partial class CupriDocument : IDisposable
     /// <summary>Pointer released: end any drag and clear the :active press. Returns true if the press
     /// state cleared (→ repaint needed to un-press).</summary>
     public bool DispatchPointerUp(float x, float y) => Bump(DispatchPointerUpCore(Zc(x), Zc(y)));
-    private bool DispatchPointerUpCore(float x, float y)
+    private bool DispatchPointerUpCore(float x, float y) => ReleasePointer(x, y) | PointerUpCore(x, y);
+
+    private bool ReleasePointer(float x, float y)
+    {
+        var was = _pointerDown;
+        _pointerDown = false; _pointerX = x; _pointerY = y;
+        return was && _shadersUsePointer;
+    }
+
+    private bool PointerUpCore(float x, float y)
     {
         if (_reorderItems is not null) { EndReorder(); return true; }
         if (_splitA is not null) { _splitA = null; _splitB = null; return true; }

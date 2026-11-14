@@ -4,8 +4,18 @@
 
 import { dotnet } from "./dotnet.js";
 
-const canvas = document.getElementById("cupri");
-const ctx = canvas.getContext("2d");
+// `let`, both: the renderer is chosen once the runtime is up, and a failed WebGL attempt replaces
+// the element (see below).
+let canvas = document.getElementById("cupri");
+let ctx = null;
+
+// The renderer. "cpu" (the default) rasterises into wasm memory and copies the damage out with
+// putImageData; "webgl" paints on the GPU, straight into the canvas. The page asks, with
+// data-renderer="webgl" on the canvas, and ?renderer=cpu|webgl overrides it for a test. Chosen
+// before anything touches the canvas, because the first getContext() call fixes its kind for good.
+const rendererWanted = (new URLSearchParams(location.search).get("renderer")
+                        || canvas.dataset.renderer || "cpu").toLowerCase();
+if (rendererWanted !== "webgl") ctx = canvas.getContext("2d");
 
 // The ARIA overlay: a transparent DOM tree over the canvas mirroring the engine's semantics tree,
 // each node at its control's bounds, carrying its data-path and tabindex="-1". Same design and
@@ -171,6 +181,13 @@ for (const lvl of ["debug", "log", "trace", "warn", "info", "error"]) {
 function showError(where, err) {
     const msg = (err && (err.stack || err.message)) || String(err);
     console.error("[CupriFace] " + where, err);
+    if (!ctx) {
+        // A WebGL canvas has no 2D context to write on, so the message goes into the page.
+        bootLog.style.cssText = "display:block;position:fixed;left:0;top:0;margin:0;padding:16px;"
+                              + "background:#fff;color:#b00020;font:14px monospace;white-space:pre-wrap;z-index:9";
+        bootLog.textContent = "CupriFace (LLVM) failed (" + where + "):\n" + msg;
+        return;
+    }
     ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = "#b00020"; ctx.font = "14px monospace";
     ctx.fillText("CupriFace (LLVM) failed (" + where + "):", 16, 28);
@@ -185,9 +202,39 @@ try {
     logBoot("runMain ok");
     const M = runtime.Module;
 
+    // The GPU renderer, if the page asked for it. The context is made from C#, on #cupri, so that
+    // Skia's GL calls find it; on any failure the CPU path runs exactly as it does without asking.
+    let renderer = "cpu";
+    if (rendererWanted === "webgl") {
+        if (M._GpuAttach() === 1) {
+            renderer = "webgl";
+            const gl = canvas.getContext("webgl2");     // the one C# made: asking again returns it
+            console.log("[CupriFace] renderer: WebGL — " + gl.getParameter(gl.RENDERER));
+        } else {
+            // A canvas that has handed out a WebGL context never hands out a 2D one, and a failure
+            // part-way may have taken one. A fresh element is the only way back; nothing is attached
+            // to this one yet, so nothing is lost by replacing it.
+            const fresh = canvas.cloneNode(false);
+            canvas.replaceWith(fresh);
+            canvas = fresh;
+        }
+    }
+    if (renderer === "cpu") ctx = ctx || canvas.getContext("2d");
+    logBoot("renderer " + renderer);
+
+    if (renderer === "webgl") {
+        // A GPU reset, a driver update or too many contexts in the tab takes the context away.
+        // preventDefault is what asks for it back; without it `restored` never fires.
+        canvas.addEventListener("webglcontextlost", e => { e.preventDefault(); M._GpuLost(); logBoot("webgl context lost"); });
+        canvas.addEventListener("webglcontextrestored", () => {
+            logBoot("webgl context restored");
+            if (!M._GpuRestored()) showError("WebGL restore", "the restored WebGL context could not be used");
+        });
+    }
+
     // Bridge for imports.js (which runs inside the Emscripten module scope).
     globalThis.__cupri = {
-        canvas, ctx, a11y, syncA11y, kbd, paints: 0,
+        canvas, ctx, a11y, syncA11y, kbd, paints: 0, renderer,
         // JS → C# strings: write UTF-16 into the engine-owned buffer, then invoke the consumer.
         sendText: (s, entry) => {
             const ptr = M._TextBuffer(s.length + 1);
@@ -590,7 +637,12 @@ try {
 
     function frame(now) {
         try { pollGamepads(); } catch { /* a pad must never take the frame loop down */ }
-        try { M._Tick(canvas.width, canvas.height, dprOf(), now); if (firstTick) { firstTick = false; logBoot("Tick ok"); } }
+        try {
+            // On WebGL nothing is presented (js_present counts the CPU path's paints), so count here
+            // and __paints() means the same thing on both renderers.
+            if (M._Tick(canvas.width, canvas.height, dprOf(), now) && renderer === "webgl") globalThis.__cupri.paints++;
+            if (firstTick) { firstTick = false; logBoot("Tick ok"); }
+        }
         catch (err) { showError("Tick", err); return; }
         requestAnimationFrame(frame);
     }

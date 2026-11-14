@@ -14,6 +14,7 @@ public sealed class DisplayList
     private readonly List<PaintCommand> _commands = new();
     public IReadOnlyList<PaintCommand> Commands => _commands;
     internal void Add(PaintCommand cmd) => _commands.Add(cmd);
+    internal void Insert(int index, PaintCommand cmd) => _commands.Insert(index, cmd);
     public int Count => _commands.Count;
 }
 
@@ -103,6 +104,24 @@ public sealed record PopOpacity : PaintCommand;
 public sealed record PushFilter(IReadOnlyList<FilterOp> Ops, float X, float Y, float W, float H) : PaintCommand;
 
 public sealed record PopFilter : PaintCommand;
+
+/// <summary>Fill the (rounded) box with a registered SkSL shader — <c>background-image:
+/// shader(name)</c>. The shader's coordinates start at the box's top-left corner.</summary>
+public sealed record ShaderRect(float X, float Y, float W, float H, CornerRadii Radius, ShaderCall Call) : PaintCommand;
+
+/// <summary>
+/// <c>filter: shader(name)</c>: everything up to the matching <see cref="PopShader"/> is recorded
+/// rather than drawn, and handed to the shader as <c>iChannel0</c>; the shader's output is what
+/// lands in the box (X,Y,W,H).
+///
+/// <para>Unlike a <see cref="PushFilter"/> layer, the commands inside are not independent of each
+/// other's position: a shader may read its input anywhere, so a pixel of the result can depend on
+/// content far from it. Damage tracking therefore treats the group as one thing — a change inside
+/// it repaints the whole box, and a culled replay keeps all of it or none.</para>
+/// </summary>
+public sealed record PushShader(float X, float Y, float W, float H, ShaderCall Call) : PaintCommand;
+
+public sealed record PopShader : PaintCommand;
 
 /// <summary>Fill an SVG path (authored in a <paramref name="ViewBox"/>-square) scaled into the box.</summary>
 public sealed record FillPath(

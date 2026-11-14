@@ -15,7 +15,9 @@
 </head>
 
 <body>
-  <!-- The engine draws the entire UI here — same ShowcaseApp, compiled with NativeAOT-LLVM. -->
+  <!-- The engine draws the entire UI here — same ShowcaseApp, compiled with NativeAOT-LLVM.
+       Add data-renderer="webgl" to paint on the GPU instead (falls back to the CPU on its own when
+       the browser has no WebGL2); ?renderer=cpu|webgl on the URL overrides it for a test. -->
   <canvas id="cupri"></canvas>
 </body>
 

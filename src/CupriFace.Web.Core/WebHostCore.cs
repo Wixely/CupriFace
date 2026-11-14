@@ -48,6 +48,7 @@ public static class WebHostCore
     private static double _lastAriaMs = -1e9;    // the ARIA mirror's own cadence while animating
     private static SKBitmap? _bitmap;
     private static SKBitmap? _straight;          // staging buffer for the premul→straight conversion
+    private static IWebGpuTarget? _gpu;          // set: paint into the canvas on the GPU, present nothing
     private static readonly Stopwatch _clock = Stopwatch.StartNew();
     private static double _lastRefresh;
     private static double _lastAnimMs = double.NaN;   // NaN = nothing drawn yet, so the first frame is due
@@ -107,6 +108,29 @@ public static class WebHostCore
     public static void NotifyHostFullscreen(bool active) { _doc?.NotifyHostFullscreen(active); _dirty = true; }
 
     internal static WebVideoBackend? Video => _video;
+
+    /// <summary>
+    /// Paint on the GPU, into <paramref name="target"/>, instead of into a bitmap the page copies out
+    /// with <c>putImageData</c>; null goes back to the bitmap. The host calls this when the page asked
+    /// for WebGL and a context was had — the page decides, because the choice has to be made before
+    /// anything touches the canvas, and a canvas that has handed out one kind of context will never
+    /// hand out the other.
+    ///
+    /// <para>What it buys: the per-pixel work moves to the GPU, which is the whole cost of a
+    /// <c>shader()</c> (measured at 960x640 on NativeAOT-LLVM: 726 ms a frame rasterised, 6.4 on
+    /// WebGL) and about a third of an ordinary full repaint. Layout and the display list are the same
+    /// work either way. See experiments/GpuWeb/README.md.</para>
+    /// </summary>
+    public static void UseGpu(IWebGpuTarget? target)
+    {
+        _gpu = target;
+        if (target is not null) { _bitmap?.Dispose(); _bitmap = null; _straight?.Dispose(); _straight = null; }
+        _doc?.InvalidateRetainedFrame();
+        _dirty = true;
+    }
+
+    /// <summary>Whether frames go to the GPU.</summary>
+    public static bool UsingGpu => _gpu is not null;
 
     /// <summary>Build the app's document and wire it to the page. Called once, after the runtime is
     /// resident and <c>Main</c> has registered an app.</summary>
@@ -283,36 +307,35 @@ public static class WebHostCore
         // is actually presented at, or it is the one soft thing left on a sharp screen.
         _doc.Surfaces.DeviceScale = _effective;
 
-        if (_bitmap is null || _bitmap.Width != width || _bitmap.Height != height)
-        {
-            _bitmap?.Dispose();
-            _bitmap = new SKBitmap(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul));
-        }
-
-        // The staging bitmap RETAINS last frame's pixels, so the engine repaints only the damaged
-        // rect — and tells us when the frame is identical, in which case nothing is converted or
-        // presented at all.
         SKRectI? damage;
-        using (var canvas = new SKCanvas(_bitmap))
+        if (_gpu is not null)
         {
-            if (animating) _doc.Animate(_clock.Elapsed.TotalSeconds);  // @keyframes
-            var bg = _transparent ? SKColors.Transparent : _bg;        // overlays: page shows through
-            // Scale the canvas, then let the engine damage-clip inside it: the clip it applies is
-            // interpreted in the scaled space, which IS logical space, so the region it repaints is
-            // right and only the rectangle it hands back needs converting to device pixels.
-            //
-            // This used to repaint the whole surface whenever the scale was not exactly 1, on the
-            // grounds that damage coordinates would not map 1:1. They do not — but the mapping is a
-            // multiply, because the scale is uniform. Scale 1 is the rare case, not the common one:
-            // a HiDPI ratio of 2, fractional desktop scaling of 1.25, or any fit-to-viewport factor
-            // all landed here, so most machines re-uploaded every pixel on every hover (#99).
-            canvas.Save();
-            if (_effective != 1f) canvas.Scale(_effective);
-            damage = _doc.RenderIncremental(canvas, p.LogicalWidth, p.LogicalHeight, bg);
-            canvas.Restore();
-            if (damage is { } logical)
-                damage = CupriDocument.ScaleDamageToDevice(logical, _effective, width, height);
-            canvas.Flush();
+            // The canvas IS the surface: draw into it and the browser composites it — no bitmap, no
+            // straight-alpha staging and no putImageData. Premultiplied output is what a WebGL canvas
+            // composites by default, so transparent apps and video holes need no conversion either.
+            var surface = _gpu.Begin(width, height, out var fresh);
+            // No context (lost, not yet restored): nothing can be drawn, and the restore marks the
+            // host dirty again. Returning here skips the mirror too, which is right — it describes
+            // a frame, and there is none.
+            if (surface is null) return false;
+            // A new, resized or restored surface does not hold the last frame; the engine's damage
+            // tracking assumes it does, and would repaint one button onto a blank canvas.
+            if (fresh) _doc.InvalidateRetainedFrame();
+            damage = Draw(surface.Canvas, p, width, height, animating);
+            _gpu.End();
+        }
+        else
+        {
+            if (_bitmap is null || _bitmap.Width != width || _bitmap.Height != height)
+            {
+                _bitmap?.Dispose();
+                _bitmap = new SKBitmap(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul));
+            }
+            // The staging bitmap RETAINS last frame's pixels, so the engine repaints only the damaged
+            // rect — and tells us when the frame is identical, in which case nothing is converted or
+            // presented at all.
+            using var canvas = new SKCanvas(_bitmap);
+            damage = Draw(canvas, p, width, height, animating);
         }
         // An identical frame presents nothing. It is not "nothing happened": the frame after an
         // animation ends is usually identical to the last animated one, because the transition
@@ -321,7 +344,7 @@ public static class WebHostCore
         // publish was throttled through the animation, and the settled frame returned here before
         // reaching it (measured: the switch flipped, the mirror never said so). So only the blit is
         // gated on damage; the mirror, the IME placement and the underlays below are not.
-        if (damage is { } d)
+        if (damage is { } d && _bitmap is not null && _gpu is null)
         {
             // What the page receives. Opaque apps present the premultiplied render directly;
             // transparent ones must present STRAIGHT alpha, which is what putImageData expects, so
@@ -393,6 +416,31 @@ public static class WebHostCore
         // through the clip and transform chains.
         _underlays?.Sync(_doc, _scale, key => _video?.IdForSurface(key));
         return damage is not null;
+    }
+
+    /// <summary>One frame onto <paramref name="canvas"/>, whichever kind it is. Returns the damage in
+    /// device pixels, or null for a frame identical to the last.</summary>
+    private static SKRectI? Draw(SKCanvas canvas, PresentInfo p, int width, int height, bool animating)
+    {
+        if (animating) _doc.Animate(_clock.Elapsed.TotalSeconds);  // @keyframes
+        var bg = _transparent ? SKColors.Transparent : _bg;        // overlays: page shows through
+        // Scale the canvas, then let the engine damage-clip inside it: the clip it applies is
+        // interpreted in the scaled space, which IS logical space, so the region it repaints is
+        // right and only the rectangle it hands back needs converting to device pixels.
+        //
+        // This used to repaint the whole surface whenever the scale was not exactly 1, on the
+        // grounds that damage coordinates would not map 1:1. They do not — but the mapping is a
+        // multiply, because the scale is uniform. Scale 1 is the rare case, not the common one:
+        // a HiDPI ratio of 2, fractional desktop scaling of 1.25, or any fit-to-viewport factor
+        // all landed here, so most machines re-uploaded every pixel on every hover (#99).
+        canvas.Save();
+        if (_effective != 1f) canvas.Scale(_effective);
+        var damage = _doc.RenderIncremental(canvas, p.LogicalWidth, p.LogicalHeight, bg);
+        canvas.Restore();
+        if (damage is { } logical)
+            damage = CupriDocument.ScaleDamageToDevice(logical, _effective, width, height);
+        canvas.Flush();
+        return damage;
     }
 
     // ---- pointer -------------------------------------------------------------------------------

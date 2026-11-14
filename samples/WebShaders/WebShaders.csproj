@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+
+  <!--
+    samples/Shaders in the browser: the same ShadersApp, on the raw-WASM host. The project file is
+    samples/WebWasm's with a different app — see that one for why each line is here.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
+    <!-- AOT is opt-in: `dotnet publish -c Release -p:Aot=true`. -->
+    <RunAOTCompilation Condition="'$(Aot)' == 'true'">true</RunAOTCompilation>
+    <WasmEmitSymbolMap Condition="'$(Aot)' == 'true'">true</WasmEmitSymbolMap>
+    <WasmNativeDebugSymbols Condition="'$(Aot)' == 'true'">false</WasmNativeDebugSymbols>
+  </PropertyGroup>
+
+  <Import Project="..\..\src\CupriFace.Web.Mono\buildTransitive\CupriFace.Web.Mono.props" />
+  <Import Project="..\..\src\CupriFace.Web.Mono\buildTransitive\CupriFace.Web.Mono.targets" />
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CupriFace.Web.Mono\CupriFace.Web.Mono.csproj" />
+    <!-- [CupriBindable] source generator: binding without reflection, which is what keeps the
+         model readable in a trimmed (published web) build. -->
+    <ProjectReference Include="..\..\src\CupriFace.Binding.Gen\CupriFace.Binding.Gen.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <!-- The app is markup and a stylesheet, so it is shared with the desktop sample as SOURCE:
+         samples/Shaders is an executable that references the desktop shell, which a browser
+         build cannot. -->
+    <Compile Include="..\Shaders\ShadersApp.cs" Link="ShadersApp.cs" />
+  </ItemGroup>
+
+</Project>

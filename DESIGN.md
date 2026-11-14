@@ -132,6 +132,16 @@ Any new dependency must be license-checked before it enters the solution.
 - **Dirty-region invalidation**: only repaint changed subtrees; cache layer
   bitmaps for static subtrees where beneficial.
 - GPU-accelerated via the Layer 0 `GRContext`.
+- **Shaders** (`shader(name)`, SkSL through `SKRuntimeEffect`). A background shader is one
+  `ShaderRect` command. A filter shader is a `PushShader`…`PopShader` group, and the rasteriser
+  records the commands between them into an `SKPicture` and hands that to the effect as a child
+  shader — not a `SaveLayer`, because the pinned SkiaSharp does not bind Skia's runtime-shader
+  image filter, and not an offscreen surface, because a picture is rasterised at the frame's own
+  resolution on whichever backend is drawing and nothing is read back from a GPU. The clock and
+  the pointer are stamped into the command as values, and only for a shader that declares them, so
+  the display list stays a snapshot and a static shader is value-equal from frame to frame. Damage
+  tracking treats a shader group as one thing: a shader may read its input anywhere, so a change
+  inside it repaints its whole box and a culled replay keeps all of it.
 
 ### Layer 5 — Binding (see §6)
 ### Layer 6 — Accessibility (see §5 — yes, before binding; a11y is a design driver)

@@ -1,4 +1,5 @@
 using CupriFace.Web;
+using SkiaSharp;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -408,6 +409,97 @@ public class WebHostCoreTests(ITestOutputHelper output)
         WebHostCore.MarkDirty();
         Assert.True(WebHostCore.Tick(300, 200, 1f, 5), "a dirty document must paint regardless of the ceiling");
         Assert.Equal(after + 1, js.Presents);
+    }
+
+    // ---- the GPU renderer -----------------------------------------------------------------------
+    // WebGlTarget needs a browser; everything the host does AROUND it does not. A CPU surface stands
+    // in for the canvas, and can be "lost" the way a WebGL context is: emptied, and marked fresh.
+
+    private sealed class FakeGpu : IWebGpuTarget
+    {
+        public SKSurface? Surface;
+        public bool Available = true;
+        public int Ends;
+        private int _w, _h;
+        private bool _fresh = true;
+
+        public SKSurface? Begin(int width, int height, out bool fresh)
+        {
+            fresh = false;
+            if (!Available) return null;
+            if (Surface is null || width != _w || height != _h)
+            {
+                Surface?.Dispose();
+                Surface = SKSurface.Create(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul));
+                (_w, _h, _fresh) = (width, height, true);
+            }
+            fresh = _fresh;
+            _fresh = false;
+            return Surface;
+        }
+
+        public void End() => Ends++;
+
+        /// <summary>What a lost-then-restored context leaves: a canvas with nothing on it.</summary>
+        public void LoseAndRestore() { Surface!.Canvas.Clear(SKColors.Transparent); _fresh = true; }
+
+        public SKColor Pixel(int x, int y)
+        {
+            using var img = Surface!.Snapshot();
+            using var bmp = SKBitmap.FromImage(img);
+            return bmp.GetPixel(x, y);
+        }
+    }
+
+    [Fact]
+    public void On_the_GPU_the_frame_is_drawn_into_the_canvas_and_nothing_is_presented()
+    {
+        var js = Boot(new PlainApp());
+        var gpu = new FakeGpu();
+        WebHostCore.UseGpu(gpu);
+        try
+        {
+            Assert.True(WebHostCore.Tick(300, 200, 1f, 16), "the first tick must paint");
+            Assert.Equal(0, js.Presents);                       // the browser composites the canvas itself
+            Assert.Equal(1, gpu.Ends);                          // …once the frame has been sent
+            Assert.Equal(SKColors.White, gpu.Pixel(290, 190));  // the page's background, drawn there
+            Assert.NotNull(js.Aria);                            // the mirror does not depend on the renderer
+
+            Assert.False(WebHostCore.Tick(300, 200, 1f, 32), "nothing changed, so nothing should repaint");
+            Assert.Equal(1, gpu.Ends);
+        }
+        finally { WebHostCore.UseGpu(null); }
+
+        // And back: the bitmap path presents again.
+        Assert.True(WebHostCore.Tick(300, 200, 1f, 48));
+        Assert.Equal(1, js.Presents);
+    }
+
+    /// <summary>The engine repaints only what changed, which assumes the canvas still holds the last
+    /// frame. A restored WebGL context holds nothing, so a hover after a restore must repaint the
+    /// whole page — or the page is one highlighted row on an empty canvas.</summary>
+    [Fact]
+    public void A_restored_context_is_repainted_in_full_not_just_the_damage()
+    {
+        Boot(new ScaledApp(1f));
+        var gpu = new FakeGpu();
+        WebHostCore.UseGpu(gpu);
+        try
+        {
+            Assert.True(WebHostCore.Tick(300, 200, 1f, 16));
+
+            gpu.Available = false;                              // lost: nothing to draw on
+            WebHostCore.MarkDirty();
+            Assert.False(WebHostCore.Tick(300, 200, 1f, 32), "a lost context paints nothing");
+            Assert.Equal(1, gpu.Ends);
+
+            gpu.Available = true;
+            gpu.LoseAndRestore();
+            WebHostCore.PointerMove(30, 70);                    // over .hand: a small damage rect
+            Assert.True(WebHostCore.Tick(300, 200, 1f, 48));
+            Assert.Equal(SKColors.White, gpu.Pixel(290, 4));    // far from the hover: repainted anyway
+        }
+        finally { WebHostCore.UseGpu(null); }
     }
 
     private static RecordingBridge Boot(CupriApp app) => Boot(app, HostKind.WebInterpreted);
