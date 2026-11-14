@@ -172,6 +172,20 @@ public class NativeCallGateTests
     }
 
     [Fact]
+    public async Task Async_close_refuses_new_work_without_blocking_while_an_existing_call_drains()
+    {
+        var gate = new NativeCallGate(new object());
+        Assert.True(gate.TryEnter());
+
+        var closing = gate.CloseAsync();
+
+        Assert.False(closing.IsCompleted);
+        Assert.False(gate.TryEnter());
+        gate.Exit();
+        Assert.True(await closing.WaitAsync(Long));
+    }
+
+    [Fact]
     public void Closing_twice_is_a_no_op()
     {
         var gate = new NativeCallGate(new object());

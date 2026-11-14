@@ -144,9 +144,24 @@ public class LayeredAlphaTests(ITestOutputHelper output)
         // sizes the HWND itself, so those numbers are the stale ones. RenderFrame asks the presenter
         // for the settled outer rect instead. Skipping the surface call is fine; skipping the frame
         // is what this test exists to stop.
-        var beforeFirstFrame = body[..body.IndexOf("RenderFrame", StringComparison.Ordinal)];
-        Assert.DoesNotContain("return 0;", beforeFirstFrame);
+        var beforeFirstFrame = body[..body.IndexOf("RenderFrameCore", StringComparison.Ordinal)];
+        Assert.DoesNotContain("_alphaPresenter is not null", beforeFirstFrame, StringComparison.Ordinal);
         output.WriteLine("resize watch streams frames for layered windows");
+    }
+
+    [Fact]
+    public void The_resize_watch_does_not_reenter_an_active_frame()
+    {
+        var src = Shell("SdlSoftwareWindow.cs");
+        var watch = Body(src, "private int ResizeWatch");
+        var frame = Body(src, "private void RenderFrame()");
+
+        Assert.Contains("TryBeginFrame", watch, StringComparison.Ordinal);
+        Assert.Contains("RenderFrameCore", watch, StringComparison.Ordinal);
+        Assert.Contains("finally { EndFrame(); }", watch, StringComparison.Ordinal);
+        Assert.Contains("TryBeginFrame", frame, StringComparison.Ordinal);
+        Assert.Contains("RenderFrameCore", frame, StringComparison.Ordinal);
+        Assert.Contains("finally { EndFrame(); }", frame, StringComparison.Ordinal);
     }
 
     /// <summary>An opt-in that is quietly dropped is indistinguishable from one that is broken.

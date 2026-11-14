@@ -879,34 +879,54 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     /// </summary>
     public int ModalFrames { get; private set; }
 
+    private int _frameActive;
+
+    private bool TryBeginFrame() => Interlocked.CompareExchange(ref _frameActive, 1, 0) == 0;
+
+    private void EndFrame() => Volatile.Write(ref _frameActive, 0);
+
     private int ResizeWatch(void* userData, Event* e)
     {
-        // A monitor change is a MOVE before it is a resize, and this watch is the only thing that
-        // runs while the window is being dragged — the main loop below gets no turn until the mouse
-        // is released. Polling here is what makes a DPI change land mid-drag instead of on release.
-        if ((EventType)e->Type == EventType.Windowevent && (WindowEventID)e->Window.Event == WindowEventID.Moved)
+        var moved = (EventType)e->Type == EventType.Windowevent
+            && (WindowEventID)e->Window.Event == WindowEventID.Moved;
+        var sizeChanged = (EventType)e->Type == EventType.Windowevent
+            && (WindowEventID)e->Window.Event == WindowEventID.SizeChanged;
+        if (!moved && !sizeChanged) return 0;
+
+        // SDL may invoke an event watch from another thread, or re-enter it from an SDL call made
+        // while painting. The queued event will still reach the main loop, so defer rather than
+        // mutate the document and its retained surfaces from two frames at once.
+        if (!TryBeginFrame()) return 0;
+        try
         {
-            PollDeviceScale();
-            RenderFrame();
-            ModalFrames++;
+            // A monitor change is a MOVE before it is a resize, and this watch is the only thing that
+            // runs while the window is being dragged — the main loop below gets no turn until the mouse
+            // is released. Polling here is what makes a DPI change land mid-drag instead of on release.
+            if (moved)
+            {
+                PollDeviceScale();
+                RenderFrameCore();
+                ModalFrames++;
+            }
+            if (sizeChanged)
+            {
+                // A layered window is sized by UpdateLayeredWindow itself, so the coordinates carried by
+                // THIS event are exactly the stale ones that would be fed back as a resize. RenderFrame
+                // asks the presenter for the window's own settled rect instead, which is why the outer
+                // rect is used there — so it is safe to paint from inside the modal loop, and skipping
+                // this block entirely was costing more than it saved: no frames at all during a drag,
+                // ResizeFrames stuck at 0 (the repo's own instrument for "is this streaming?"), and
+                // PollDeviceScale above never running mid-drag.
+                if (_alphaPresenter is null) EnsureSurface(e->Window.Data1, e->Window.Data2);
+                RenderFrameCore();
+                ResizeFrames++;
+                ModalFrames++;
+                if (SkiaWindow.ResizeDebug)
+                    Console.Error.WriteLine($"[resize] frame {ResizeFrames} at {e->Window.Data1}x{e->Window.Data2}"
+                        + (_alphaPresenter is not null ? $" (layered; presented {_width}x{_height})" : ""));
+            }
         }
-        if ((EventType)e->Type == EventType.Windowevent && (WindowEventID)e->Window.Event == WindowEventID.SizeChanged)
-        {
-            // A layered window is sized by UpdateLayeredWindow itself, so the coordinates carried by
-            // THIS event are exactly the stale ones that would be fed back as a resize. RenderFrame
-            // asks the presenter for the window's own settled rect instead, which is why the outer
-            // rect is used there — so it is safe to paint from inside the modal loop, and skipping
-            // this block entirely was costing more than it saved: no frames at all during a drag,
-            // ResizeFrames stuck at 0 (the repo's own instrument for "is this streaming?"), and
-            // PollDeviceScale above never running mid-drag.
-            if (_alphaPresenter is null) EnsureSurface(e->Window.Data1, e->Window.Data2);
-            RenderFrame();
-            ResizeFrames++;
-            ModalFrames++;
-            if (SkiaWindow.ResizeDebug)
-                Console.Error.WriteLine($"[resize] frame {ResizeFrames} at {e->Window.Data1}x{e->Window.Data2}"
-                    + (_alphaPresenter is not null ? $" (layered; presented {_width}x{_height})" : ""));
-        }
+        finally { EndFrame(); }
         return 0;
     }
 
@@ -981,6 +1001,13 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     private int _alphaReports;
 
     private void RenderFrame()
+    {
+        if (!TryBeginFrame()) return;
+        try { RenderFrameCore(); }
+        finally { EndFrame(); }
+    }
+
+    private void RenderFrameCore()
     {
         if (_gl is not null) { RenderFrameGl(); return; }
         if (OperatingSystem.IsWindows() && _alphaPresenter is not null)

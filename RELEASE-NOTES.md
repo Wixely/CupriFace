@@ -17,6 +17,13 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- Android video startup, pause, and media-session status no longer make blocking LibVLC calls on
+  the UI thread. Native player teardown also drains in the background instead of waiting for a
+  slow live stream on Android's main thread. Live or slow media inputs no longer cause an
+  input-timeout ANR while opening or replacing a video element. No caller changes are required.
+- SDL resize callbacks no longer enter rendering while another frame is active. Native child
+  surfaces can now resize during a frame without concurrently mutating document collections.
+  No caller changes are required.
 - Android video keeps the screen awake during playback and restarts the decoder at its saved
   position after the activity becomes visible again. Unchanged video bounds no longer request
   another native layout on every frame. Custom Android video backends may implement the new
