@@ -50,7 +50,7 @@ on:
 
 jobs:
   stack:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -72,7 +72,7 @@ jobs:
           dbus-run-session -- bash -c 'tools/atspi-probe.sh > /dev/null 2>&1; python3 tools/atspi-probe.py'
 
   dependency:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/setup-dotnet@v4
         with:

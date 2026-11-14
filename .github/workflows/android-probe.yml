@@ -100,7 +100,7 @@ on:
 jobs:
   probe:
     name: Does it render on a phone?
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4

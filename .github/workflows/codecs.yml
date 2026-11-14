@@ -53,7 +53,7 @@ env:
 
 jobs:
   linux-x64:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Tools
         run: sudo apt-get update -qq && sudo apt-get install -y -qq nasm > /dev/null
@@ -394,7 +394,7 @@ jobs:
 
   portable-run-on-linux:
     needs: portable-build-and-run
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/setup-dotnet@v4
         with:
