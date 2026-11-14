@@ -36,19 +36,30 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
     or whose name refers to nothing. Both otherwise paint as though the shader were not written.
 - `BackgroundLayer` has a third member, `Shader`. Code that constructs or deconstructs one
   positionally with two values still compiles; a `switch` over its two old members should add it.
-- **The NativeAOT web host can paint on the GPU.** Opt in with `data-renderer="webgl"` on the
-  `<canvas id="cupri">` in your page, or try it with `?renderer=webgl` on the URL. Skia then draws
-  straight into a WebGL2 canvas instead of rasterising in wasm and copying out with
-  `putImageData`. An animated shader frame at 960x640 went from 726 ms to 6.4 ms; an ordinary full
-  repaint from 37.7 to 26.5 ms. The CPU path is still the default. If WebGL2 is unavailable the
-  host logs the reason and falls back to it, and a lost context is restored and repainted. Video,
-  transparent overlays and 3D underlays work on both. `__cupri.renderer` says which one is in use.
-  The Mono host does not have this yet.
-  - A custom host built on `WebHostCore` can paint into any `SKSurface` through the new
-    `IWebGpuTarget` and `WebHostCore.UseGpu`; `WebGlTarget` is the implementation for Skia's GL
-    backend.
+- **The NativeAOT web host paints on the GPU first, and falls back to the CPU by itself.** When
+  the browser has a real WebGL2, Skia draws straight into the canvas instead of rasterising in
+  wasm and copying out with `putImageData`. An animated shader frame at 960x640 went from 626 ms
+  to 5.3 ms in Firefox and from 160 ms to 1.7 ms in Chrome; an ordinary full repaint gains about a
+  third. The CPU path takes over when there is no WebGL2, only a software WebGL, a context Skia
+  refuses, a GPU frame that fails, or a context lost and not restored within 3 s. The last two
+  happen mid-run, and the page carries on on a fresh canvas with its input intact. Video,
+  transparent overlays and 3D underlays work on both paths.
+  - **This changes the default for existing apps on this host.** To keep the old behaviour, put
+    `data-renderer="cpu"` on the `<canvas id="cupri">` in your page. `data-renderer="webgl"`
+    also accepts a software-only WebGL. `?renderer=auto|webgl|cpu` on the URL overrides either.
+  - The Mono host stays on the CPU, and reports that it has no GPU path.
+  - A custom host built on `WebHostCore` can paint into any `SKSurface` through
+    `IWebGpuTarget` and `WebHostCore.UseGpu`, and fall back with `WebHostCore.FallBackToCpu`.
+    `WebGlTarget` implements it for Skia's GL backend.
   - An app that names its own `<DirectPInvoke Include="emscripten" />` no longer needs to; the
     host's build targets now include it.
+- **`doc.Renderer` says what a document is drawn with, and why.** Every host reports it: the
+  desktop host its GL window, or the SDL software window and the reason it is there; Android its
+  GL ES renderer; the web hosts WebGL or the CPU and why. `doc.RendererHistory` keeps every
+  change, `RendererChanged` fires on each, and `DebugDump()` includes both. In a page,
+  `__cupri.rendererState()` returns the same as JSON. Custom hosts call `doc.ReportRenderer`.
+  The Showcase's Diagnostics page and `samples/Shaders` show it.
+- `samples/WebLlvmShaders`: `samples/Shaders` on the NativeAOT-LLVM host.
 
 ### Fixed
 

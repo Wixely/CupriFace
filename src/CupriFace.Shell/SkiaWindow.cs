@@ -719,6 +719,10 @@ public sealed class SkiaWindow : IDisposable
 
     /// <summary>Throws unless the current context can actually answer <c>glGetString(GL_VERSION)</c>.
     /// Cheap, and it is the exact call whose null result crashes Skia's interface assembly.</summary>
+    /// <summary>The driver's GL_RENDERER, once the context has been checked — what
+    /// <see cref="CupriDocument.Renderer"/> reports for this window.</summary>
+    internal static string GlRenderer { get; private set; } = "";
+
     private static unsafe void VerifyGlIsUsable(Silk.NET.Core.Contexts.IGLContext ctx)
     {
         // If the loader cannot even produce glGetString there is certainly no GL here, and calling
@@ -733,6 +737,7 @@ public sealed class SkiaWindow : IDisposable
             throw new InvalidOperationException(
                 "No usable OpenGL: glGetString(GL_VERSION) returned null (GPU-less or virtual display?).");
 
+        GlRenderer = gl.GetStringS(Silk.NET.OpenGL.StringName.Renderer) ?? "";
         if (GlDebug)
         {
             GlTrace($"version : {gl.GetStringS(Silk.NET.OpenGL.StringName.Version)}");

@@ -31,6 +31,18 @@ public sealed class ShadersApp : CupriApp
     private readonly ShaderModel _model;
     public ShadersApp(bool crt = false) => _model = new ShaderModel { Crt = crt };
 
+    // Every host reports what it draws with; this page shows it, because whether a shader is cheap
+    // depends almost entirely on the answer (on the CPU, an animated one is a full software
+    // repaint of its box every frame).
+    public override void Configure(CupriDocument doc)
+    {
+        _model.Renderer = Describe(doc.Renderer);
+        doc.RendererChanged += r => { _model.Renderer = Describe(r); doc.Refresh(); };
+    }
+
+    private static string Describe(RendererInfo r) =>
+        r.Kind == RendererKind.Unknown ? "a renderer this host does not report" : r.ToString();
+
     public override string Html => """
         <body class="{{PageClass}}">
           <div class="banner">
@@ -62,6 +74,7 @@ public sealed class ShadersApp : CupriApp
               </div>
             </div>
           </div>
+          <div class="foot">Drawing with {{Renderer}}</div>
         </body>
         """;
 
@@ -139,6 +152,7 @@ public sealed class ShadersApp : CupriApp
                 border-radius:999px; background:#2B3550; color:#E8EBF2; font-size:13px; }
 
         .ctl { display:flex; align-items:center; gap:14px; min-height:32px; }
+        .foot { margin-top:20px; color:#7F889B; font-size:12px; overflow-wrap:anywhere; }
         .lbl { color:#9AA3B5; font-size:13px; }
         """;
 }
@@ -152,4 +166,6 @@ public sealed partial class ShaderModel
     public double Amount { get; set; } = 4;
     public bool Crt { get; set; }
     public string PageClass => Crt ? "crt" : "";
+    /// <summary>What the host draws with: <c>doc.Renderer</c>, as a line.</summary>
+    public string Renderer { get; set; } = "";
 }

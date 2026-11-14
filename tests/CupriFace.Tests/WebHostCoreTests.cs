@@ -420,13 +420,17 @@ public class WebHostCoreTests(ITestOutputHelper output)
         public SKSurface? Surface;
         public bool Available = true;
         public int Ends;
+        public string? Failure { get; set; }
+        public string Name => "fake GPU";
+        public Exception? ThrowOnBegin;
         private int _w, _h;
         private bool _fresh = true;
 
         public SKSurface? Begin(int width, int height, out bool fresh)
         {
             fresh = false;
-            if (!Available) return null;
+            if (ThrowOnBegin is { } ex) throw ex;
+            if (!Available || Failure is not null) return null;
             if (Surface is null || width != _w || height != _h)
             {
                 Surface?.Dispose();
@@ -500,6 +504,91 @@ public class WebHostCoreTests(ITestOutputHelper output)
             Assert.Equal(SKColors.White, gpu.Pixel(290, 4));    // far from the hover: repainted anyway
         }
         finally { WebHostCore.UseGpu(null); }
+    }
+
+    /// <summary>GPU first, the CPU whenever the GPU cannot: a target that fails for good ends the
+    /// GPU path inside the frame, the host is told once so the page can swap its canvas, the next
+    /// frame is drawn on the CPU in full, and the document says why.</summary>
+    [Fact]
+    public void A_GPU_that_fails_for_good_falls_back_to_the_CPU_and_says_why()
+    {
+        var js = Boot(new PlainApp());
+        var gpu = new FakeGpu();
+        WebHostCore.UseGpu(gpu);
+        try
+        {
+            Assert.True(WebHostCore.Tick(300, 200, 1f, 16));
+            Assert.Equal(RendererKind.Gpu, WebHostCore.Document.Renderer.Kind);
+
+            gpu.Failure = "the surface could not be made";
+            WebHostCore.MarkDirty();
+            Assert.False(WebHostCore.Tick(300, 200, 1f, 32), "the failing frame draws nothing");
+            Assert.Equal("the surface could not be made", WebHostCore.TakeGpuFallback());
+            Assert.Null(WebHostCore.TakeGpuFallback());               // once
+            Assert.False(WebHostCore.UsingGpu);
+
+            Assert.True(WebHostCore.Tick(300, 200, 1f, 48), "the next frame is drawn on the CPU");
+            Assert.Equal(1, js.Presents);
+            Assert.Equal(300, js.LastDamageW);                        // in full: nothing carried over
+            Assert.Equal(200, js.LastDamageH);
+
+            var doc = WebHostCore.Document;
+            Assert.Equal(RendererKind.Cpu, doc.Renderer.Kind);
+            Assert.Equal("the surface could not be made", doc.Renderer.Reason);
+            Assert.Equal([RendererKind.Gpu, RendererKind.Cpu], doc.RendererHistory.Select(r => r.Kind));
+            Assert.Contains("\"reason\":\"the surface could not be made\"", WebHostCore.RendererStateJson());
+        }
+        finally { WebHostCore.UseGpu(null); }
+    }
+
+    [Fact]
+    public void A_GPU_frame_that_throws_falls_back_to_the_CPU()
+    {
+        var js = Boot(new PlainApp());
+        var gpu = new FakeGpu { ThrowOnBegin = new InvalidOperationException("GL said no") };
+        WebHostCore.UseGpu(gpu);
+        try
+        {
+            Assert.False(WebHostCore.Tick(300, 200, 1f, 16));
+            Assert.Contains("GL said no", WebHostCore.TakeGpuFallback());
+            Assert.True(WebHostCore.Tick(300, 200, 1f, 32));
+            Assert.Equal(1, js.Presents);
+            Assert.Contains("GL said no", WebHostCore.Document.Renderer.Reason);
+        }
+        finally { WebHostCore.UseGpu(null); }
+    }
+
+    /// <summary>A lost context is a pause, not a failure: no frames, no fallback, and the GPU path
+    /// resumes when the target can draw again.</summary>
+    [Fact]
+    public void A_lost_context_pauses_without_falling_back()
+    {
+        Boot(new PlainApp());
+        var gpu = new FakeGpu();
+        WebHostCore.UseGpu(gpu);
+        try
+        {
+            Assert.True(WebHostCore.Tick(300, 200, 1f, 16));
+            gpu.Available = false;
+            WebHostCore.MarkDirty();
+            Assert.False(WebHostCore.Tick(300, 200, 1f, 32));
+            Assert.Null(WebHostCore.TakeGpuFallback());
+            Assert.True(WebHostCore.UsingGpu);
+        }
+        finally { WebHostCore.UseGpu(null); }
+    }
+
+    /// <summary>A host that says nothing still leaves an answer: the first frame reports what it drew
+    /// with. (The Mono host says more — that it has no GPU path — and the NativeAOT host reports
+    /// before its first frame.)</summary>
+    [Fact]
+    public void The_first_frame_reports_the_renderer_when_the_host_has_not()
+    {
+        Boot(new PlainApp());
+        Assert.Equal(RendererKind.Unknown, WebHostCore.Document.Renderer.Kind);
+        Assert.True(WebHostCore.Tick(300, 200, 1f, 16));
+        Assert.Equal(RendererKind.Cpu, WebHostCore.Document.Renderer.Kind);
+        Assert.Equal(WebHostCore.CpuRendererName, WebHostCore.Document.Renderer.Name);
     }
 
     private static RecordingBridge Boot(CupriApp app) => Boot(app, HostKind.WebInterpreted);

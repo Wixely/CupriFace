@@ -190,6 +190,12 @@ body.dark .pill { color:#8fb8e0; border-color:#345069; }
 .cstat-l { color:var(--cupri-muted); font-size:12px; }
 .cstat-v { color:var(--cupri-text); font-weight:bold; font-size:22px; }
 .cstat cupri-sparkline { width:84px; height:32px; }
+/* A diagnostics card holding a sentence (a renderer's fallback reason), not a number: it takes the
+   row up to the chart's width and wraps, rather than a fixed 574px that runs off a phone. */
+.diag-wide { flex:1 1 auto; min-width:0; max-width:574px; overflow-wrap:anywhere; }
+.diag-k { font-size:12px; color:var(--cupri-muted); margin-bottom:2px; }
+.diag-v { font-size:14px; line-height:1.45; margin-bottom:12px; }
+.diag-v:last-child { margin-bottom:0; }
 .diaghdr { display:flex; align-items:baseline; justify-content:space-between; max-width:580px; margin-bottom:8px; }
 .diaghdr-l { color:var(--cupri-muted); font-size:13px; font-weight:bold; }
 .diaghdr-v { color:var(--cupri-text); font-size:20px; font-weight:bold; }

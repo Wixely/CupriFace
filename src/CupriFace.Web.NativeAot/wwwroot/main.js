@@ -9,13 +9,14 @@ import { dotnet } from "./dotnet.js";
 let canvas = document.getElementById("cupri");
 let ctx = null;
 
-// The renderer. "cpu" (the default) rasterises into wasm memory and copies the damage out with
-// putImageData; "webgl" paints on the GPU, straight into the canvas. The page asks, with
-// data-renderer="webgl" on the canvas, and ?renderer=cpu|webgl overrides it for a test. Chosen
-// before anything touches the canvas, because the first getContext() call fixes its kind for good.
+// The renderer: GPU FIRST, the CPU whenever the GPU cannot. "auto" (the default) paints on the GPU
+// through WebGL2 when the browser has a real one, and otherwise rasterises in wasm and copies the
+// damage out with putImageData - and falls back to that, mid-run, on anything that ends the GPU
+// path (see Interop.cs). "webgl" also accepts a software-only WebGL; "cpu" never tries. Set with
+// data-renderer on the canvas; ?renderer=auto|webgl|cpu overrides it for a test. Nothing touches the
+// canvas until the choice is made, because the first getContext() call fixes its kind for good.
 const rendererWanted = (new URLSearchParams(location.search).get("renderer")
-                        || canvas.dataset.renderer || "cpu").toLowerCase();
-if (rendererWanted !== "webgl") ctx = canvas.getContext("2d");
+                        || canvas.dataset.renderer || "auto").toLowerCase();
 
 // The ARIA overlay: a transparent DOM tree over the canvas mirroring the engine's semantics tree,
 // each node at its control's bounds, carrying its data-path and tabindex="-1". Same design and
@@ -202,39 +203,89 @@ try {
     logBoot("runMain ok");
     const M = runtime.Module;
 
-    // The GPU renderer, if the page asked for it. The context is made from C#, on #cupri, so that
-    // Skia's GL calls find it; on any failure the CPU path runs exactly as it does without asking.
-    let renderer = "cpu";
-    if (rendererWanted === "webgl") {
-        if (M._GpuAttach() === 1) {
-            renderer = "webgl";
-            const gl = canvas.getContext("webgl2");     // the one C# made: asking again returns it
-            console.log("[CupriFace] renderer: WebGL — " + gl.getParameter(gl.RENDERER));
-        } else {
-            // A canvas that has handed out a WebGL context never hands out a 2D one, and a failure
-            // part-way may have taken one. A fresh element is the only way back; nothing is attached
-            // to this one yet, so nothing is lost by replacing it.
-            const fresh = canvas.cloneNode(false);
-            canvas.replaceWith(fresh);
-            canvas = fresh;
-        }
-    }
-    if (renderer === "cpu") ctx = ctx || canvas.getContext("2d");
-    logBoot("renderer " + renderer);
+    // Every listener on the canvas goes through onCanvas, so a canvas swapped in later (the CPU
+    // fallback needs a fresh element) gets all of them again. A swap mid-gesture loses that gesture
+    // and nothing else.
+    let renderer = "pending";            // "webgl" | "cpu", decided after Init
+    const canvasHandlers = [];
+    const onCanvas = (type, fn, opts) => { canvasHandlers.push([type, fn, opts]); canvas.addEventListener(type, fn, opts); };
+    let resizeObs = null;
 
-    if (renderer === "webgl") {
-        // A GPU reset, a driver update or too many contexts in the tab takes the context away.
-        // preventDefault is what asks for it back; without it `restored` never fires.
-        canvas.addEventListener("webglcontextlost", e => { e.preventDefault(); M._GpuLost(); logBoot("webgl context lost"); });
-        canvas.addEventListener("webglcontextrestored", () => {
-            logBoot("webgl context restored");
-            if (!M._GpuRestored()) showError("WebGL restore", "the restored WebGL context could not be used");
-        });
+    // Onto the CPU path. `swap` when the canvas may hold a WebGL context: it never hands out a 2D one
+    // after that, so a fresh element takes its place, with every handler, the resize watch and the
+    // backing-store size carried over. C# has already recorded why.
+    function useCpuCanvas(swap) {
+        if (swap) {
+            const fresh = canvas.cloneNode(false);           // attributes, inline style, id
+            canvas.replaceWith(fresh);
+            if (resizeObs) { resizeObs.unobserve(canvas); resizeObs.observe(fresh); }
+            canvas = fresh;
+            for (const [type, fn, opts] of canvasHandlers) canvas.addEventListener(type, fn, opts);
+        }
+        ctx = canvas.getContext("2d");
+        renderer = "cpu";
+        globalThis.__cupri.canvas = canvas;
+        globalThis.__cupri.ctx = ctx;
+        logBoot("renderer cpu" + (swap ? " (fresh canvas)" : ""));
+    }
+
+    // A GPU reset, a driver update or too many contexts in the tab takes the context away.
+    // preventDefault is what asks for it back; without it `restored` never fires. A context that is
+    // not back within LOST_MS is treated as gone, and the page carries on on the CPU.
+    const LOST_MS = 3000;
+    let lostTimer = 0;
+    onCanvas("webglcontextlost", e => {
+        if (renderer !== "webgl") return;
+        e.preventDefault();
+        M._GpuLost();
+        logBoot("webgl context lost");
+        clearTimeout(lostTimer);
+        lostTimer = setTimeout(() => {
+            if (renderer !== "webgl") return;
+            withText("the WebGL context was lost and the browser did not restore it within " + (LOST_MS / 1000) + " s",
+                     len => M._GpuFallback(len));
+            useCpuCanvas(true);
+        }, LOST_MS);
+    });
+    onCanvas("webglcontextrestored", () => {
+        if (renderer !== "webgl") return;
+        clearTimeout(lostTimer);
+        logBoot("webgl context restored");
+        if (M._GpuRestored() === 2) useCpuCanvas(true);
+    });
+
+    // GPU first. Called once, after Init, so every report lands in doc.Renderer.
+    function startRenderer() {
+        if (rendererWanted === "cpu") {
+            withText('the page asked for the CPU renderer (data-renderer="cpu")', len => M._UseCpu(len));
+            useCpuCanvas(false);
+            return;
+        }
+        if (M._GpuAttach(rendererWanted === "webgl" ? 1 : 0) !== 1) { useCpuCanvas(true); return; }
+        // The name, for diagnostics. Chromium answers the plain query with "WebKit WebGL" and only
+        // the debug extension with the real GPU; Firefox answers the plain query honestly and
+        // deprecates the extension, so the extension is asked only when it is needed.
+        const gl = canvas.getContext("webgl2");          // the one C# made: asking again returns it
+        let name = "";
+        try { name = gl.getParameter(gl.RENDERER); } catch { }
+        try {
+            if (!name || /^WebKit/i.test(name)) {
+                const dbg = gl.getExtension("WEBGL_debug_renderer_info");
+                if (dbg) name = gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || name;
+            }
+        } catch { }
+        withText(name || "", len => M._GpuStart(len));
+        renderer = "webgl";
+        logBoot("renderer webgl " + name);
     }
 
     // Bridge for imports.js (which runs inside the Emscripten module scope).
     globalThis.__cupri = {
-        canvas, ctx, a11y, syncA11y, kbd, paints: 0, renderer,
+        canvas, ctx, a11y, syncA11y, kbd, paints: 0,
+        // Diagnostics: what is drawing ("webgl" | "cpu"), and the engine's full account of it -
+        // the current renderer, why, and every change since the page loaded (doc.RendererHistory).
+        get renderer() { return renderer; },
+        rendererState: () => { const p = M._RendererState(); return p ? JSON.parse(M.UTF16ToString(p)) : null; },
         // JS → C# strings: write UTF-16 into the engine-owned buffer, then invoke the consumer.
         sendText: (s, entry) => {
             const ptr = M._TextBuffer(s.length + 1);
@@ -334,7 +385,7 @@ try {
     window.addEventListener("resize", sizeCanvas);
     // ResizeObserver AS WELL: a CSS box can change without a window resize (a flex sibling, a
     // devtools split), and ResizeObserver sees that where the window event does not.
-    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(sizeCanvas).observe(canvas);
+    if (typeof ResizeObserver !== 'undefined') { resizeObs = new ResizeObserver(sizeCanvas); resizeObs.observe(canvas); }
     // ...and neither of those fires when a window is dragged to a monitor with a different scale
     // factor: devicePixelRatio changes while the element's CSS box does not. A dppx media query is
     // the one thing that does, and it has to be re-armed after each match because the query it was
@@ -361,7 +412,7 @@ try {
         try { M._SetCoarsePointer(isCoarse ? 1 : 0); } catch { /* before the engine is live */ }
     };
 
-    canvas.addEventListener("pointerdown", e => {
+    onCanvas("pointerdown", e => {
         // Not while a real editing element has focus — the engine decides where focus goes next,
         // and yanking it to the hidden textarea first closes a phone's keyboard for a frame.
         if (!editingNow()) focusKbd();
@@ -374,23 +425,23 @@ try {
         // never done (#85).
         else if (e.button === 0) M._PointerDown(x, y, e.detail || 1);
     });
-    canvas.addEventListener("contextmenu", e => {
+    onCanvas("contextmenu", e => {
         e.preventDefault();
         if (coarse) return;                       // touch gets the menu from long-press instead
         focusKbd(); const [x, y] = at(e); M._ContextMenu(x, y);
     });
-    canvas.addEventListener("pointermove", e => {
+    onCanvas("pointermove", e => {
         const [x, y] = at(e);
         if (touch(e)) { M._TouchMove(e.pointerId, x, y, e.timeStamp); e.preventDefault(); }
         else M._PointerMove(x, y);
     });
-    canvas.addEventListener("pointerup", e => {
+    onCanvas("pointerup", e => {
         const [x, y] = at(e);
         if (touch(e)) { M._TouchUp(e.pointerId, x, y, e.timeStamp); e.preventDefault(); }
         else M._PointerUp(x, y);
     });
-    canvas.addEventListener("pointercancel", e => { if (touch(e)) M._TouchCancel(e.pointerId, e.timeStamp); });
-    canvas.addEventListener("wheel", e => {
+    onCanvas("pointercancel", e => { if (touch(e)) M._TouchCancel(e.pointerId, e.timeStamp); });
+    onCanvas("wheel", e => {
         profile(false);
         const [x, y] = at(e);
         // Ctrl+wheel is the zoom chord, as every browser has it — and the host decides, because an
@@ -416,23 +467,23 @@ try {
     const accepts = () => { try { return !!M._AcceptsFileDrop(); } catch { return false; } };
     const hasFiles = e => Array.prototype.includes.call(e.dataTransfer?.types || [], "Files");
 
-    canvas.addEventListener("dragenter", e => {
+    onCanvas("dragenter", e => {
         if (!hasFiles(e) || !accepts()) return;
         e.preventDefault();
     });
-    canvas.addEventListener("dragover", e => {
+    onCanvas("dragover", e => {
         if (!hasFiles(e) || !accepts()) return;
         e.preventDefault();                       // "yes, you may drop here"
         e.dataTransfer.dropEffect = "copy";
         const [x, y] = at(e);
         M._DropOver(x, y);
     });
-    canvas.addEventListener("dragleave", e => {
+    onCanvas("dragleave", e => {
         // Fires for children too; only a leave that actually exits the canvas counts.
         if (e.relatedTarget && canvas.contains(e.relatedTarget)) return;
         M._DropLeave();
     });
-    canvas.addEventListener("drop", e => {
+    onCanvas("drop", e => {
         if (!hasFiles(e)) return;
         e.preventDefault();                       // never let the browser open the file itself
         if (!accepts()) { M._DropLeave(); return; }
@@ -543,6 +594,7 @@ try {
     kbd.addEventListener("paste", e => { const t = e.clipboardData.getData("text/plain"); e.preventDefault(); if (t) globalThis.__cupri.sendText(t, "KeyChar"); keepSelected(); });
 
     M._Init();
+    startRenderer();
     // The app may want a different ceiling than the default; it can only say so once it exists.
     // From here sizeCanvas() re-asks on every sizing, so a per-device answer tracks the device.
     askCap = (d, w, h) => M._MaxDevicePixelRatioFor(d, w, h);
@@ -640,7 +692,11 @@ try {
         try {
             // On WebGL nothing is presented (js_present counts the CPU path's paints), so count here
             // and __paints() means the same thing on both renderers.
-            if (M._Tick(canvas.width, canvas.height, dprOf(), now) && renderer === "webgl") globalThis.__cupri.paints++;
+            // 2: the GPU failed inside that frame and C# has switched to the CPU; the canvas must be
+            // swapped before the next Tick presents into it.
+            const r = M._Tick(canvas.width, canvas.height, dprOf(), now);
+            if (r === 2) useCpuCanvas(true);
+            else if (r === 1 && renderer === "webgl") globalThis.__cupri.paints++;
             if (firstTick) { firstTick = false; logBoot("Tick ok"); }
         }
         catch (err) { showError("Tick", err); return; }

@@ -1,0 +1,111 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- buildTransitive does not cross ProjectReference edges, so this sample imports by hand what a
+       nupkg consumer gets automatically — props FIRST, as NuGet injects them, because the RID has
+       to be set before the ILC/Emscripten targets evaluate it. Importing rather than copying is
+       what makes this sample the test of the files a consumer actually receives.
+
+       THE LIMIT OF THAT CLAIM, which #216 found the hard way: this reads the files in the TREE, and
+       for an entire release those were not the files in the nupkg — the StaticWebAssets SDK
+       generated its own props over the top at pack time and this sample could not have noticed.
+       What is packed is now asserted in CI, by unpacking the nupkg and grepping the props for
+       RuntimeIdentifier. Keep both: this one proves the files work, that one proves they ship. -->
+
+  <Import Project="..\..\src\CupriFace.Web.NativeAot\buildTransitive\CupriFace.Web.NativeAot.props" />
+
+  <!--
+    samples/Shaders on the NativeAOT-LLVM host: the same ShadersApp the desktop window and the Mono
+    sample (samples/WebShaders) run, compiled ahead of time. The project file is samples/WebLlvm's
+    with a different app; see that one for why each line is here.
+
+    This is the sample that shows the GPU renderer earning its keep. The host paints on WebGL when
+    the browser has a real GPU and falls back to the CPU by itself; an animated shader is about a
+    hundred times cheaper on the first than the second. ?renderer=cpu on the URL shows the
+    difference, and the page's own readout says which one is drawing and why.
+
+    What is left here is exactly what a package CANNOT supply, and it is worth knowing which is
+    which. Restore-time facts — the experimental feed, the ILC compiler packages, the two
+    native-asset packages — must live in the app's own file, because restore has picked its sources
+    long before any of the host's build files are read. Everything else now comes from the package:
+    the link line, the Emscripten JS library, the static archives, the trimmer root that keeps the
+    host's exports alive, and the RID.
+
+    See git history for the version of this file that WAS the host (#78).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <!-- Set HERE, by the app, because a package genuinely cannot set it: NuGet does not apply
+         package build files during restore, and restore is what decides whether the assets file
+         gets a net10.0/browser-wasm target (#216). The host's props used to default this, which
+         worked for this sample — it imports those props in its project body, so they applied at
+         restore — and did nothing for a real package consumer. That difference was the bug. The
+         sample carries the line now so it does what a consumer must. -->
+    <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PublishTrimmed>true</PublishTrimmed>
+    <DotNetJsApi>true</DotNetJsApi>
+    <UseAppHost>false</UseAppHost>
+    <!-- -O1 keeps the edit-publish loop tolerable; bump to -O3 (+ wasm-opt) for shipping. The
+         longjmp flag satisfies libSkiaSharp's __wasm_longjmp (image-codec error paths). -->
+    <EmccFlags>$(EmccFlags) -O1 -sSUPPORT_LONGJMP=wasm</EmccFlags>
+    <UsingBrowserRuntimeWorkload>false</UsingBrowserRuntimeWorkload>
+    <!-- Only Windows suffixes executables. This feeds the Emscripten node path below, and hard-coding
+         .exe made the Linux link die on a missing "node.exe" — the last Windows-ism in this file. -->
+    <ExecutableExtensionName Condition="$([MSBuild]::IsOSPlatform('Windows'))">.exe</ExecutableExtensionName>
+    <!-- The NativeAOT-LLVM compiler itself is a native executable, so it must match the machine
+         doing the build even though the OUTPUT is always browser-wasm. Deriving the host RID from
+         the SDK is what lets this project build on Windows and Linux from one definition.
+
+         Pinning the version (rather than a floating 10.0.0-*) stops a nightly feed drop silently
+         changing the compiler under us and keeps the package path deterministic. Override either
+         property on the command line to try a newer compiler. -->
+    <IlcHostRid Condition="'$(IlcHostRid)' == ''">$(NETCoreSdkPortableRuntimeIdentifier)</IlcHostRid>
+    <IlcLlvmVersion Condition="'$(IlcLlvmVersion)' == ''">10.0.0-rc.1.26357.1</IlcLlvmVersion>
+    <IlcHostPackagePath>$(NuGetPackageRoot)runtime.$(IlcHostRid).microsoft.dotnet.ilcompiler.llvm/$(IlcLlvmVersion)</IlcHostPackagePath>
+    <!-- THE restore-time fact a package cannot supply: ILCompiler.LLVM is not on nuget.org. -->
+    <RestoreAdditionalProjectSources>
+      https://api.nuget.org/v3/index.json;
+      https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-experimental/nuget/v3/index.json;
+    </RestoreAdditionalProjectSources>
+    <InvariantTimezone>true</InvariantTimezone>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <WasmEnableLegacyJsInterop>false</WasmEnableLegacyJsInterop>
+    <TrimMode>full</TrimMode>
+    <DebuggerSupport>false</DebuggerSupport>
+    <EventSourceSupport>false</EventSourceSupport>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <StackTraceSupport>true</StackTraceSupport>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The browser host. -->
+    <ProjectReference Include="..\..\src\CupriFace.Web.NativeAot\CupriFace.Web.NativeAot.csproj" />
+    <!-- [CupriBindable] source generator: binding without reflection, which is what keeps the
+         model readable in a trimmed build. -->
+    <ProjectReference Include="..\..\src\CupriFace.Binding.Gen\CupriFace.Binding.Gen.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <!-- The app is markup, a stylesheet and its @shader blocks, shared with the desktop sample as
+         SOURCE: samples/Shaders is an executable that references the desktop shell. -->
+    <Compile Include="..\Shaders\ShadersApp.cs" Link="ShadersApp.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Restore-time, therefore app-side. ExcludeAssets=all because only the STATIC ARCHIVES are
+         wanted — the host's targets add those to the native link; the managed assets would collide
+         with the ones the engine already brings. -->
+    <PackageReference Include="Microsoft.DotNet.ILCompiler.LLVM" Version="$(IlcLlvmVersion)" />
+    <PackageReference Include="runtime.$(IlcHostRid).Microsoft.DotNet.ILCompiler.LLVM" Version="$(IlcLlvmVersion)" />
+    <PackageReference Include="SkiaSharp.NativeAssets.WebAssembly" Version="3.116.1"
+                      GeneratePathProperty="true" ExcludeAssets="all" />
+    <PackageReference Include="HarfBuzzSharp.NativeAssets.WebAssembly" Version="8.3.0.1"
+                      GeneratePathProperty="true" ExcludeAssets="all" />
+  </ItemGroup>
+
+  <!-- …and the targets last, as NuGet would. -->
+  <Import Project="..\..\src\CupriFace.Web.NativeAot\buildTransitive\CupriFace.Web.NativeAot.targets" />
+
+</Project>

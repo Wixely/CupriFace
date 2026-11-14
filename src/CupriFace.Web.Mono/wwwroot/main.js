@@ -419,6 +419,10 @@ try {
         I,
         isCoarse: () => I.IsCoarsePointer(),
         a11yAct,
+        // The same diagnostics contract as the NativeAOT host. This host has no GPU path yet, so
+        // it is always "cpu" and the state says why.
+        renderer: "cpu",
+        rendererState: () => JSON.parse(I.RendererState()),
     });
     logBoot('exports ok');
 

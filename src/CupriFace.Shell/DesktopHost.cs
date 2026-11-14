@@ -194,6 +194,9 @@ public static class DesktopHost
         // known failure modes are handled these days (a broken GL stack raises an ordinary
         // exception and falls through to SDL below) — but an explicit override beats debugging.
         var forceSoftware = preferSoftware || Environment.GetEnvironmentVariable("CUPRIFACE_SOFTWARE") is "1" or "true" or "TRUE";
+        // Why, when it is forced — for doc.Renderer, which is where a slow window explains itself.
+        string? forcedWhy = preferSoftware ? "the app asked for software rendering"
+            : forceSoftware ? "software rendering was forced with CUPRIFACE_SOFTWARE" : null;
         // The SDL window with a real GL context (#143): touch and GPU rendering together. Opt-in
         // for now — making touchscreen machines pick it automatically is a policy decision, and
         // CUPRIFACE_SOFTWARE stays the kill switch above it, so software always wins a tie.
@@ -210,6 +213,7 @@ public static class DesktopHost
         {
             Console.WriteLine("[CupriFace] GL probe failed (no OpenGL here); using the SDL software window.");
             forceSoftware = true;
+            forcedWhy = "this Mac has no OpenGL (the GL probe process did not survive)";
         }
 
         try
@@ -238,6 +242,16 @@ public static class DesktopHost
             // for the new one.
             window.DeviceScaleChanged += _ => { doc.InvalidateRetainedFrame(); dirty = true; };
             window.ShouldRender = NeedsRender; // GL: skip draw + swap entirely on clean frames
+            // What it draws with, once the context exists (it is made inside Run). Reported on
+            // the first tick rather than here, which is before the window has opened.
+            var rendererReported = false;
+            window.Tick += () =>
+            {
+                if (rendererReported) return;
+                rendererReported = true;
+                doc.ReportRenderer(new RendererInfo(RendererKind.Gpu,
+                    SkiaWindow.GlRenderer is { Length: > 0 } r ? $"OpenGL — {r}" : "OpenGL"));
+            };
             window.Render += Draw;
 
             // Accessibility: whichever bridge this OS has (UIA on Windows, AT-SPI on Linux),
@@ -408,6 +422,22 @@ public static class DesktopHost
             // A monitor change goes through here too — PollDeviceScale recreates the surface at the
             // new pixel size, so the same invalidation covers both.
             window.SurfaceRecreated += () => { doc.InvalidateRetainedFrame(); dirty = true; };
+
+            // What it draws with, and why it is not the GL window when it is not. The window knows
+            // what it set up; only this host knows why it is here at all.
+            var whyNotGlWindow = sdlGl || (layeredGpu && !forceSoftware) ? null
+                : forceSoftware ? forcedWhy
+                : $"the GL window could not be opened ({ex.GetType().Name}: {ex.Message})";
+            var softwareReported = false;
+            window.Tick += () =>
+            {
+                if (softwareReported) return;
+                softwareReported = true;
+                var info = window.Renderer;
+                if (info.Kind == RendererKind.Cpu && info.Reason is null && whyNotGlWindow is not null)
+                    info = info with { Reason = whyNotGlWindow };
+                doc.ReportRenderer(info);
+            };
 
             // The same bridge on the software window — this is the path GL-less machines (RDP,
             // VMs, CI runners, and every headless Linux box) actually take, so assistive tech

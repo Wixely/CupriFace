@@ -16,8 +16,10 @@
 
 <body>
   <!-- The engine draws the entire UI here — same ShowcaseApp, compiled with NativeAOT-LLVM.
-       Add data-renderer="webgl" to paint on the GPU instead (falls back to the CPU on its own when
-       the browser has no WebGL2); ?renderer=cpu|webgl on the URL overrides it for a test. -->
+       It paints on the GPU (WebGL2) when the browser has one and falls back to the CPU by itself,
+       at startup or mid-run; __cupri.rendererState() says which and why. data-renderer="cpu" opts
+       out of the GPU, "webgl" also accepts a software-only WebGL; ?renderer=auto|webgl|cpu on the
+       URL overrides it for a test. -->
   <canvas id="cupri"></canvas>
 </body>
 

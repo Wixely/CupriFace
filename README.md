@@ -150,6 +150,7 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 | `samples/Web` | Web host (alt): a **minimal** Blazor `<SKCanvasView>` embedding example — clicks only, see below |
 | `samples/Demo3d` | The Showcase's **3D** page: a small glTF/PBR renderer behind `ISurfaceSource`, composited two different ways depending on the host |
 | `samples/WebLlvm` | The Showcase in the browser compiled AOT (NativeAOT-LLVM) — **the recommended web route**: same app, ~8x quicker to interact with |
+| `samples/WebLlvmShaders` | `samples/Shaders` on the NativeAOT-LLVM host: animated `shader()`s on WebGL, falling back to the CPU by itself; the page says which it is drawing with (`?renderer=cpu` to compare) |
 | `samples/Scaling` | The four `PresentInfo` strategies side by side (headless PNGs) |
 | `samples/DpiProbe` | Live display-scaling readout: monitor scale, app scale, effective scale, and the callbacks behind them |
 | `samples/TouchProbe` | Raw SDL touch instrument: which touch devices exist, every finger and mouse event with raw and converted coordinates, and whether a tap reached an element — how #143 was diagnosed |
@@ -317,24 +318,33 @@ build machine or pipeline that cannot take a preview feed.
 
 Both compile the *same* `ShowcaseApp`, expose the same `WebHost.Run` API and carry the same
 features, so moving between them — or falling back — is a `PackageReference` change and no app code.
-The one exception is the GPU renderer below, which only the NativeAOT host has so far.
+The one exception is the GPU renderer below, which only the NativeAOT host has so far; the Mono
+host is always on the CPU, and says so.
 
-**The NativeAOT host can paint on the GPU.** Opt in on the page: `<canvas id="cupri"
-data-renderer="webgl">` (or `?renderer=webgl` on the URL to try it). Frames are then drawn by Skia
-straight into a WebGL2 canvas instead of being rasterised in wasm and copied out with
-`putImageData`. Where the GPU path counts is per-pixel work, which is the whole cost of an animated
-`shader()`. Measured at 960x640 in Firefox on a GTX 980, ms per frame
-(`experiments/GpuWeb/README.md`):
+**The NativeAOT host paints on the GPU first.** When the browser has a real WebGL2, Skia draws
+straight into the canvas instead of rasterising in wasm and copying out with `putImageData`, and
+when it cannot, the host falls back to the CPU path by itself. That covers no WebGL2 at all, a
+software-only WebGL, Skia refusing the context, a frame that fails, and a context lost and not
+given back within 3 seconds; the last two happen mid-run, and the page carries on on a fresh
+canvas. Nothing to write. `data-renderer="cpu"` on the `<canvas id="cupri">` opts out, and
+`?renderer=auto|webgl|cpu` on the URL overrides it for a test.
 
-| | CPU (default) | WebGL |
+Where it counts is per-pixel work, the whole cost of an animated `shader()`. `samples/WebLlvmShaders`
+at 960x640, milliseconds per frame on the host's own frame loop:
+
+| | CPU | WebGL |
 |---|---|---|
-| Animated shader demo | 726 | 6.4 |
-| Showcase, full repaint | 37.7 | 26.5 |
+| Firefox 148 (GTX 980) | 626 | 5.3 |
+| Chrome 153 (GTX 1060) | 160 | 1.7 |
 
-Layout and the display list cost the same either way. If the browser gives no WebGL2 context, the
-host logs why and falls back to the CPU path on its own. A lost context (GPU reset) is restored and
-repainted. The CPU path stays the default until the GPU path has been tried on more browsers and
-GPUs than one.
+An ordinary page gains less: a full Showcase repaint went from 37.7 to 26.5 ms in the probe
+(`experiments/GpuWeb/README.md`), since layout and the display list cost the same either way.
+
+**Every host says what it is drawing with.** `doc.Renderer` is the current renderer and the reason
+when it is not simply "the GPU worked"; `doc.RendererHistory` is every change; `RendererChanged`
+fires on each; `DebugDump()` includes both. The desktop host reports its GL window or why it is on
+the SDL software window, Android its GL ES renderer, the web hosts their WebGL or why not. In a
+page, `__cupri.rendererState()` returns the same as JSON. The Showcase's Diagnostics page shows it.
 
 **The download is the same size either way**, so the choice is about latency, not payload. AOT buys
 the ~8x and costs two things worth knowing up front. The ILC backend is experimental (pinned, so it

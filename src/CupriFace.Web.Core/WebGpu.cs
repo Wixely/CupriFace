@@ -22,6 +22,13 @@ public interface IWebGpuTarget
 
     /// <summary>The frame is drawn: send it to the GPU.</summary>
     void End();
+
+    /// <summary>Why this target can never draw again, or null while it can (or may: a lost context
+    /// waiting to be restored is null here). Non-null makes the host fall back to the CPU.</summary>
+    string? Failure { get; }
+
+    /// <summary>What is drawing, for <see cref="CupriDocument.Renderer"/>.</summary>
+    string Name { get; }
 }
 
 /// <summary>
@@ -72,17 +79,31 @@ public sealed class WebGlTarget : IWebGpuTarget, IDisposable
     /// <summary>Whether there is a context to draw with — false between a loss and a restore.</summary>
     public bool Available => _gr is not null;
 
+    public string? Failure { get; private set; }
+
+    /// <summary>The GL renderer, as the page read it (the C side cannot see the unmasked string).
+    /// Set by the host once the context exists.</summary>
+    public string Name { get; set; } = "WebGL2";
+
     public SKSurface? Begin(int width, int height, out bool fresh)
     {
         fresh = false;
-        if (_gr is null || !_makeCurrent()) return null;
+        if (Failure is not null || _gr is null) return null;
+        if (!_makeCurrent()) { Failure = "the WebGL context would not become current"; return null; }
         if (_surface is null || _target!.Width != width || _target.Height != height)
         {
             // A resize clears the canvas's drawing buffer, so a new surface is always a fresh one.
             DisposeSurface();
             _target = new GRBackendRenderTarget(width, height, 0, 8, new GRGlFramebufferInfo(0, GlRgba8));
             _surface = SKSurface.Create(_gr, _target, GRSurfaceOrigin.BottomLeft, SKColorType.Rgba8888);
-            if (_surface is null) { DisposeSurface(); return null; }
+            if (_surface is null)
+            {
+                // A live context that will not give a surface at this size (past the GPU's largest
+                // renderbuffer, or out of memory) will not give one next frame either.
+                DisposeSurface();
+                Failure = $"Skia could not make a {width}x{height} surface on the WebGL canvas";
+                return null;
+            }
             _fresh = true;
         }
         fresh = _fresh;
@@ -99,7 +120,7 @@ public sealed class WebGlTarget : IWebGpuTarget, IDisposable
     {
         DisposeSurface();
         if (_gr is null) return;
-        _gr.AbandonContext(true);
+        _gr.AbandonContext(false);    // no GL calls: the context they would go to is gone
         _gr.Dispose();
         _gr = null;
     }
@@ -111,6 +132,7 @@ public sealed class WebGlTarget : IWebGpuTarget, IDisposable
         ContextLost();
         _gr = CreateContext(_makeCurrent, out why);
         _fresh = true;
+        if (_gr is null) Failure = $"the WebGL context came back but {why}";
         return _gr is not null;
     }
 
@@ -120,5 +142,13 @@ public sealed class WebGlTarget : IWebGpuTarget, IDisposable
         _target?.Dispose(); _target = null;
     }
 
-    public void Dispose() { DisposeSurface(); _gr?.Dispose(); _gr = null; }
+    /// <summary>Let go of everything, issuing no GL calls — the host disposes this when it is falling
+    /// back to the CPU, and then throws the canvas away, so the context may already be lost.</summary>
+    public void Dispose()
+    {
+        DisposeSurface();
+        _gr?.AbandonContext(false);
+        _gr?.Dispose();
+        _gr = null;
+    }
 }

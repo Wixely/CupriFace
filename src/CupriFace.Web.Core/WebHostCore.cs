@@ -124,13 +124,84 @@ public static class WebHostCore
     public static void UseGpu(IWebGpuTarget? target)
     {
         _gpu = target;
-        if (target is not null) { _bitmap?.Dispose(); _bitmap = null; _straight?.Dispose(); _straight = null; }
+        if (target is not null)
+        {
+            _bitmap?.Dispose(); _bitmap = null; _straight?.Dispose(); _straight = null;
+            ReportRenderer(new RendererInfo(RendererKind.Gpu, target.Name));
+        }
         _doc?.InvalidateRetainedFrame();
         _dirty = true;
     }
 
     /// <summary>Whether frames go to the GPU.</summary>
     public static bool UsingGpu => _gpu is not null;
+
+    /// <summary>What the CPU path is, for <see cref="CupriDocument.Renderer"/>.</summary>
+    public const string CpuRendererName = "Skia raster in wasm, presented with putImageData";
+
+    /// <summary>
+    /// Stop drawing on the GPU and draw on the CPU from the next frame, recording why. The host
+    /// calls this for what only the page can see (a context lost and never given back); the core
+    /// calls it for what happens inside a frame. Either way the page then needs a fresh canvas — one
+    /// that has handed out a WebGL context never hands out a 2D one — which is what
+    /// <see cref="TakeGpuFallback"/> tells the host.
+    /// </summary>
+    public static void FallBackToCpu(string reason)
+    {
+        if (_gpu is null) return;
+        _gpu = null;
+        _gpuFallback = reason;
+        ReportRenderer(new RendererInfo(RendererKind.Cpu, CpuRendererName, reason));
+        _doc?.InvalidateRetainedFrame();
+        _dirty = true;
+    }
+
+    private static string? _gpuFallback;
+
+    /// <summary>The reason the core just fell back to the CPU, once — the host's cue to give the page
+    /// a fresh 2D canvas before the next frame presents into it. Null when nothing happened.</summary>
+    public static string? TakeGpuFallback() { var r = _gpuFallback; _gpuFallback = null; return r; }
+
+    /// <summary>The page's diagnostics call (<c>__cupri.rendererState()</c>): the current renderer and
+    /// every change of it, as JSON — <c>{"current":{…},"history":[{…}]}</c>, each entry carrying
+    /// <c>kind</c>, <c>name</c>, <c>reason</c> (or null) and <c>at</c>. Written with
+    /// <see cref="System.Text.Json.Utf8JsonWriter"/>, which needs no reflection under trimming.</summary>
+    public static string RendererStateJson()
+    {
+        static void One(System.Text.Json.Utf8JsonWriter w, RendererInfo r)
+        {
+            w.WriteStartObject();
+            w.WriteString("kind", r.Kind.ToString());
+            w.WriteString("name", r.Name);
+            if (r.Reason is null) w.WriteNull("reason"); else w.WriteString("reason", r.Reason);
+            w.WriteString("at", r.At.ToString("O"));
+            w.WriteEndObject();
+        }
+        using var ms = new MemoryStream();
+        using (var w = new System.Text.Json.Utf8JsonWriter(ms))
+        {
+            w.WriteStartObject();
+            w.WritePropertyName("current");
+            One(w, _doc?.Renderer ?? _reported ?? RendererInfo.Unknown);
+            w.WriteStartArray("history");
+            if (_doc is not null) foreach (var r in _doc.RendererHistory) One(w, r);
+            w.WriteEndArray();
+            w.WriteEndObject();
+        }
+        return System.Text.Encoding.UTF8.GetString(ms.ToArray());
+    }
+
+    private static RendererInfo? _reported;
+
+    /// <summary>Say what the document is being drawn with. Call after <see cref="Init"/>: a report
+    /// made before the document exists only reaches the console.</summary>
+    public static void ReportRenderer(RendererInfo info)
+    {
+        _reported = info;
+        if (info.Reason is null) Console.WriteLine($"[CupriFace] renderer: {info.Kind} — {info.Name}");
+        else Console.WriteLine($"[CupriFace] renderer: {info.Kind} — {info.Name} ({info.Reason})");
+        _doc?.ReportRenderer(info);
+    }
 
     /// <summary>Build the app's document and wire it to the page. Called once, after the runtime is
     /// resident and <c>Main</c> has registered an app.</summary>
@@ -146,6 +217,10 @@ public static class WebHostCore
 
         configure?.Invoke(_doc);
         _touch = new TouchInput(_doc);
+        // A new page has reported nothing yet. The first frame reports whatever it drew with, unless
+        // the host (choosing between the GPU and the CPU after Init) says something first.
+        _reported = null;
+        _gpuFallback = null;
 
         // The wasm Skia build has ONE embedded face (Noto Mono) — without these, sans-serif silently
         // renders monospaced. Registered faces win over platform lookup; the first family becomes
@@ -307,22 +382,42 @@ public static class WebHostCore
         // is actually presented at, or it is the one soft thing left on a sharp screen.
         _doc.Surfaces.DeviceScale = _effective;
 
+        // The first frame says what it was drawn with, if the host has not already.
+        if (_reported is null)
+            ReportRenderer(_gpu is { } g ? new RendererInfo(RendererKind.Gpu, g.Name) : new RendererInfo(RendererKind.Cpu, CpuRendererName));
+
         SKRectI? damage;
-        if (_gpu is not null)
+        if (_gpu is { } gpu)
         {
             // The canvas IS the surface: draw into it and the browser composites it — no bitmap, no
             // straight-alpha staging and no putImageData. Premultiplied output is what a WebGL canvas
             // composites by default, so transparent apps and video holes need no conversion either.
-            var surface = _gpu.Begin(width, height, out var fresh);
-            // No context (lost, not yet restored): nothing can be drawn, and the restore marks the
-            // host dirty again. Returning here skips the mirror too, which is right — it describes
-            // a frame, and there is none.
-            if (surface is null) return false;
-            // A new, resized or restored surface does not hold the last frame; the engine's damage
-            // tracking assumes it does, and would repaint one button onto a blank canvas.
-            if (fresh) _doc.InvalidateRetainedFrame();
-            damage = Draw(surface.Canvas, p, width, height, animating);
-            _gpu.End();
+            //
+            // Anything that goes wrong here falls back to the CPU rather than leaving the page blank
+            // or dead: a surface that cannot be had, a target that has failed for good, or a frame
+            // that throws. The frame is lost and the next one is drawn on the CPU, onto the fresh
+            // canvas the host swaps in when TakeGpuFallback says so.
+            try
+            {
+                var surface = gpu.Begin(width, height, out var fresh);
+                if (surface is null)
+                {
+                    if (gpu.Failure is { } failure) { FallBackToCpu(failure); return false; }
+                    // Lost, not yet restored: nothing can be drawn, and the restore marks the host
+                    // dirty again. Returning skips the mirror too, which describes a frame.
+                    return false;
+                }
+                // A new, resized or restored surface does not hold the last frame; the engine's damage
+                // tracking assumes it does, and would repaint one button onto a blank canvas.
+                if (fresh) _doc.InvalidateRetainedFrame();
+                damage = Draw(surface.Canvas, p, width, height, animating);
+                gpu.End();
+            }
+            catch (Exception ex)
+            {
+                FallBackToCpu($"a GPU frame failed: {ex.GetType().Name}: {ex.Message}");
+                return false;
+            }
         }
         else
         {

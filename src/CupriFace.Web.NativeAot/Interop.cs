@@ -53,76 +53,151 @@ public static unsafe partial class Interop
     [UnmanagedCallersOnly(EntryPoint = "Tick")]
     public static int Tick(int width, int height, float deviceScale, double nowMs)
     {
-        try { return WebHostCore.Tick(width, height, deviceScale, nowMs) ? 1 : 0; }
+        // 2: the GPU just failed and the core fell back to the CPU. The page swaps in a fresh canvas
+        // (2D, since this one has a WebGL context for good) before the next Tick presents into it.
+        try
+        {
+            var painted = WebHostCore.Tick(width, height, deviceScale, nowMs);
+            if (WebHostCore.TakeGpuFallback() is not null) { ReleaseGl(); return 2; }
+            return painted ? 1 : 0;
+        }
         catch (Exception ex) { Crash("Tick", ex); return 0; }
     }
 
-    // ---- the GPU renderer, when the page asks for it -------------------------------------------
-    // The page decides (data-renderer="webgl" on the canvas, or ?renderer=webgl), and asks BEFORE
-    // it touches the canvas: a canvas that has handed out a 2D context never hands out a WebGL one,
-    // and the reverse. On any failure the page swaps in a fresh canvas and the CPU path runs as it
-    // always has, so asking costs nothing on a browser that cannot.
+    // ---- the renderer: GPU first, the CPU whenever the GPU cannot -------------------------------
+    // The page drives this, after Init, because only the page owns the canvas: GpuAttach makes a
+    // WebGL2 context, the page reads its name and calls GpuStart. Every failure — no context, Skia
+    // refusing it, a software-only WebGL, a context lost and never given back, a frame that throws —
+    // ends on the CPU path, with the reason in doc.Renderer and the page swapping in a fresh canvas
+    // (one that has handed out a WebGL context never hands out a 2D one). Anything that returns 2
+    // below means "swap now".
 
     private static nint _glContext;
     private static WebGlTarget? _gl;
 
-    /// <summary>Make a WebGL2 context on the host canvas and paint into it from now on.</summary>
-    /// <returns>1 on the GPU; 0 or less on the CPU path, the page reading the reason from the
-    /// console: -1 no WebGL2 context, -2 Skia could not use it.</returns>
+    /// <summary>Make a WebGL2 context on the host canvas and a Skia GPU context on it.</summary>
+    /// <param name="allowSoftware">0 refuses a WebGL the browser flags as a major performance
+    /// caveat — a software rasteriser such as SwiftShader. A policy, not a measurement: whether one
+    /// beats the host's own CPU path has not been measured here, and the CPU path is the one that
+    /// has been. 1 takes whatever WebGL there is.</param>
+    /// <returns>1 ready (the page then calls <see cref="GpuStart"/>); 2 not available — the reason
+    /// is already in doc.Renderer and the page swaps to a fresh 2D canvas.</returns>
     [UnmanagedCallersOnly(EntryPoint = "GpuAttach")]
-    public static int GpuAttach()
+    public static int GpuAttach(int allowSoftware)
     {
         try
         {
-            ContextAttributes attrs;
-            InitAttributes(&attrs);
-            attrs.Alpha = 1; attrs.PremultipliedAlpha = 1;       // holes for video and overlays
-            attrs.Depth = 0; attrs.Stencil = 1;                  // Skia clips with the stencil
-            attrs.Antialias = 0;                                 // Skia antialiases its own edges
-            attrs.PreserveDrawingBuffer = 1;                     // damage repaints need last frame
-            attrs.MajorVersion = 2; attrs.MinorVersion = 0;
-            attrs.EnableExtensionsByDefault = 1;
-            fixed (byte* target = HostCanvas) _glContext = CreateContext(target, &attrs);
+            _glContext = Create(failIfSoftware: allowSoftware == 0);
             if (_glContext <= 0)
             {
-                Console.WriteLine("[CupriFace] renderer: CPU — the browser gave no WebGL2 context.");
-                return -1;
+                // Say WHICH no: a browser with no WebGL2 at all is a different fact from one whose
+                // only WebGL2 is software. Asking again on the same canvas is allowed while it has no
+                // context, and the probe is destroyed at once.
+                var reason = "the browser gave no WebGL2 context";
+                if (allowSoftware == 0)
+                {
+                    var soft = Create(failIfSoftware: false);
+                    if (soft > 0) { DestroyContext(soft); reason = "the browser offers only a software WebGL2 (flagged as a major performance caveat), so the CPU path is used; data-renderer=\"webgl\" accepts it"; }
+                }
+                CpuBecause(reason);
+                return 2;
             }
             _gl = WebGlTarget.TryCreate(() => MakeCurrent(_glContext) == 0, out var why);
             if (_gl is null)
             {
-                Console.WriteLine($"[CupriFace] renderer: CPU — {why}.");
                 DestroyContext(_glContext); _glContext = 0;
-                return -2;
+                CpuBecause(why ?? "Skia's GL backend refused the context");
+                return 2;
             }
-            WebHostCore.UseGpu(_gl);
             return 1;
         }
-        catch (Exception ex) { Crash("GpuAttach", ex); return -3; }
+        catch (Exception ex) { ReleaseGl(); CpuBecause($"setting up the GPU failed: {ex.GetType().Name}: {ex.Message}"); return 2; }
     }
+
+    private static nint Create(bool failIfSoftware)
+    {
+        ContextAttributes attrs;
+        InitAttributes(&attrs);
+        attrs.Alpha = 1; attrs.PremultipliedAlpha = 1;       // holes for video and overlays
+        attrs.Depth = 0; attrs.Stencil = 1;                  // Skia clips with the stencil
+        attrs.Antialias = 0;                                 // Skia antialiases its own edges
+        attrs.PreserveDrawingBuffer = 1;                     // damage repaints need last frame
+        attrs.FailIfMajorPerformanceCaveat = failIfSoftware ? 1 : 0;
+        attrs.MajorVersion = 2; attrs.MinorVersion = 0;
+        attrs.EnableExtensionsByDefault = 1;
+        fixed (byte* target = HostCanvas) return CreateContext(target, &attrs);
+    }
+
+    /// <summary>The page has the context's name (only it can read the unmasked renderer string):
+    /// draw on the GPU from the next frame.</summary>
+    [UnmanagedCallersOnly(EntryPoint = "GpuStart")]
+    public static void GpuStart(int len) => Guard("GpuStart", () =>
+    {
+        if (_gl is null) return;
+        var name = In(len);
+        _gl.Name = string.IsNullOrWhiteSpace(name) ? "WebGL2" : $"WebGL2 — {name}";
+        WebHostCore.UseGpu(_gl);
+    });
+
+    /// <summary>The page asked for the CPU (<c>data-renderer="cpu"</c>): record that it was asked,
+    /// so a diagnostics page does not read it as a GPU that failed.</summary>
+    [UnmanagedCallersOnly(EntryPoint = "UseCpu")]
+    public static void UseCpu(int len) => Guard("UseCpu", () => CpuBecause(In(len)));
+
+    /// <summary>Something only the page can see has ended the GPU path for good — a context lost
+    /// and never given back. The page swaps the canvas itself after this returns.</summary>
+    [UnmanagedCallersOnly(EntryPoint = "GpuFallback")]
+    public static void GpuFallback(int len) => Guard("GpuFallback", () =>
+    {
+        WebHostCore.FallBackToCpu(In(len));
+        WebHostCore.TakeGpuFallback();       // the page is already swapping; nothing to signal
+        ReleaseGl();
+    });
 
     /// <summary>The page saw <c>webglcontextlost</c>. Painting stops until the restore.</summary>
     [UnmanagedCallersOnly(EntryPoint = "GpuLost")]
-    public static void GpuLost() => Guard("GpuLost", () => _gl?.ContextLost());
+    public static void GpuLost() => Guard("GpuLost", () =>
+    {
+        if (_gl is null) return;
+        _gl.ContextLost();
+        WebHostCore.ReportRenderer(new RendererInfo(RendererKind.Gpu, _gl.Name,
+            "the WebGL context was lost; waiting for the browser to restore it"));
+    });
 
-    /// <summary>The page saw <c>webglcontextrestored</c>: a new Skia context on it and a full repaint.
-    /// Returns 0 when Skia cannot use the restored context, which leaves the canvas blank — the page
-    /// says so rather than leaving a silent empty rectangle.</summary>
+    /// <summary>The page saw <c>webglcontextrestored</c>: a new Skia context on it and a full
+    /// repaint. 1 back on the GPU; 2 the restored context is unusable, so the CPU from here.</summary>
     [UnmanagedCallersOnly(EntryPoint = "GpuRestored")]
     public static int GpuRestored()
     {
         try
         {
             if (_gl is null) return 0;
-            if (!_gl.ContextRestored(out var why))
+            if (!_gl.ContextRestored(out _))
             {
-                Console.WriteLine($"[CupriFace] WebGL context restored but unusable: {why}.");
-                return 0;
+                WebHostCore.FallBackToCpu(_gl.Failure ?? "the restored WebGL context could not be used");
+                WebHostCore.TakeGpuFallback();
+                ReleaseGl();
+                return 2;
             }
+            WebHostCore.ReportRenderer(new RendererInfo(RendererKind.Gpu, _gl.Name));
             WebHostCore.MarkDirty();
             return 1;
         }
         catch (Exception ex) { Crash("GpuRestored", ex); return 0; }
+    }
+
+    /// <summary>The diagnostics call: what the page is drawn with and every change of it, as JSON
+    /// (<see cref="WebHostCore.RendererStateJson"/>). <c>__cupri.rendererState()</c> in the page.</summary>
+    [UnmanagedCallersOnly(EntryPoint = "RendererState")]
+    public static char* RendererState() { try { return Out(WebHostCore.RendererStateJson()); } catch (Exception ex) { Crash("RendererState", ex); return null; } }
+
+    private static void CpuBecause(string reason) =>
+        WebHostCore.ReportRenderer(new RendererInfo(RendererKind.Cpu, WebHostCore.CpuRendererName, reason));
+
+    private static void ReleaseGl()
+    {
+        _gl?.Dispose(); _gl = null;
+        if (_glContext > 0) { DestroyContext(_glContext); _glContext = 0; }
     }
 
     // The canvas main.js finds by id. A selector, because that is what Emscripten's html5 API takes.

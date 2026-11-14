@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>CupriFace — shaders (NativeAOT-LLVM)</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- No favicon here on purpose: the host sets one at boot from CupriApp.Icon (see the js_favicon
+       import in imports.js), so the logo lives in exactly one place — Assets/logo-512.png. -->
+  <script type='module' src="main.js"></script>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #f4f5f7; font-family: sans-serif; }
+    #cupri { display: block; width: 100vw; height: 100vh; outline: none; }
+    html, body { background: #0E1016; }
+  </style>
+</head>
+
+<body>
+  <!-- The engine draws the entire UI here — samples/Shaders' ShadersApp, compiled with NativeAOT-LLVM.
+       It paints on the GPU (WebGL2) when the browser has one and falls back to the CPU by itself,
+       at startup or mid-run; the line at the bottom of the page says which and why.
+       ?renderer=cpu shows what the GPU is saving. -->
+  <canvas id="cupri"></canvas>
+</body>
+
+</html>
