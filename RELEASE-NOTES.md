@@ -13,6 +13,13 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- Android picture-in-picture video now restarts when its activity becomes visible after the device
+  is unlocked, even when Android does not resume the PiP activity. No caller changes are required.
+
 ## v0.47.0
 
 ### Added

@@ -36,6 +36,20 @@ public sealed class AndroidPictureInPictureContractTests
         Assert.DoesNotContain("new AndroidPlayer", body, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void NativePipRestoresPlaybackWhenItBecomesVisibleAfterDeviceUnlock()
+    {
+        var activity = Source("CupriFace.Android", "CupriActivity.cs");
+        var start = activity.IndexOf("protected override void OnStart()", StringComparison.Ordinal);
+        var resume = activity.IndexOf("protected override void OnResume()", start, StringComparison.Ordinal);
+        var stop = activity.IndexOf("protected override void OnStop()", resume, StringComparison.Ordinal);
+
+        Assert.True(start >= 0 && start < resume && resume < stop, "activity lifecycle methods are missing or out of order");
+        Assert.Contains("_videoBackend?.SetActivityVisible(true)", activity[start..resume], StringComparison.Ordinal);
+        Assert.DoesNotContain("_videoBackend?.SetActivityVisible(true)", activity[resume..stop], StringComparison.Ordinal);
+        Assert.Contains("_videoBackend?.SetActivityVisible(false)", activity[stop..], StringComparison.Ordinal);
+    }
+
     private static string Source(string project, string file)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
