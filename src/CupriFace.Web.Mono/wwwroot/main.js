@@ -458,6 +458,27 @@ try {
         try { const c = askCap(window.devicePixelRatio || 1, cssW, cssH); if (c > 0) dprCap = c; }
         catch {}
     };
+    // The soft keyboard. A phone browser does not resize the page for it: it shrinks the VISUAL
+    // viewport and leaves the layout, and so this canvas, the size it was — with the keyboard over
+    // the bottom of it and the field being typed into underneath. Say how much of the canvas is
+    // covered and the engine lays the app out in the rest, then scrolls or pans the focused field
+    // into it; the same thing Android's host gets from a view that really did get shorter.
+    //
+    // Both edges are in layout-viewport coordinates, so this is also right for a canvas that is
+    // not the whole page, and zero wherever the browser resizes the page itself
+    // (interactive-widget=resizes-content). A pinch-zoomed page has a small visual viewport too,
+    // and that is not a keyboard.
+    const vv = window.visualViewport;
+    let inset = -1;
+    const reportInset = () => {
+        if (!vv) return;
+        const covered = Math.abs(vv.scale - 1) < 0.01
+            ? Math.max(0, Math.round(canvas.getBoundingClientRect().bottom - (vv.offsetTop + vv.height)))
+            : 0;
+        if (covered === inset) return;
+        try { I.SetViewportInset(covered); inset = covered; } catch { /* before the engine is live; sizeCanvas asks again */ }
+    };
+    if (vv) { vv.addEventListener('resize', reportInset); vv.addEventListener('scroll', reportInset); }
     const sizeCanvas = () => {
         const cssW = canvas.clientWidth || 940, cssH = canvas.clientHeight || 720;
         refreshCap(cssW, cssH);                 // before dprOf(), which consumes what it sets
@@ -467,6 +488,7 @@ try {
         // GUARDED: assigning width/height clears the canvas even when the value is unchanged, so an
         // unguarded call flashes the page blank on every resize event while dragging.
         if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+        reportInset();
         placeA11y();
     };
     sizeCanvas();

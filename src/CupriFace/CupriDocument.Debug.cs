@@ -23,7 +23,7 @@ public sealed partial class CupriDocument
     /// </summary>
     public string DebugDump(float width, float height)
     {
-        _layout.Layout(_root, width, height);
+        LayoutTree(width, height);
 
         using var stream = new MemoryStream();
         using (var w = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))

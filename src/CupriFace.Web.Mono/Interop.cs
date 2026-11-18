@@ -56,6 +56,7 @@ internal partial class Interop
     [JSExport] internal static void TouchUp(int id, double x, double y, double tMs) => WebHostCore.TouchUp(id, x, y, tMs);
     [JSExport] internal static void TouchCancel(int id, double tMs) => WebHostCore.TouchCancel(id, tMs);
     [JSExport] internal static void SetCoarsePointer(bool coarse) => WebHostCore.SetCoarsePointer(coarse);
+    [JSExport] internal static void SetViewportInset(double bottomCssPx) => WebHostCore.SetViewportInset(bottomCssPx);
 
     // Files dropped on the canvas. Mono marshals string and byte[] itself, so these are the plain
     // shapes; the NativeAOT host pushes the same sequence through pointers because its ABI has

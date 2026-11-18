@@ -13,6 +13,27 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Fixed
+
+- **The soft keyboard no longer covers the field it was opened for.** A field was only brought
+  back into view when it sat inside exactly one scroller, and on Android only. Now, on every
+  host, a focused field is revealed through every scroller it is inside, and when nothing can
+  scroll far enough — a field at the bottom of a page that does not scroll — the page itself
+  slides up by what is missing and returns when the keyboard goes or the field loses focus
+  (`doc.ViewportPanY` reports it). `position:fixed` chrome stays on the screen edge and the field
+  is kept clear of a bar pinned there. Nothing to call: a host that resizes for the keyboard is
+  handled by the engine, so `EnsureCaretVisible()` is no longer needed after a resize.
+- **Web hosts: the keyboard is now seen at all.** A phone browser leaves the canvas full height
+  with the keyboard over it; the page now reports the covered part (`visualViewport`) and the app
+  is laid out in what is left. The same report means a `100vh` canvas no longer hides its bottom
+  edge behind a mobile browser's toolbar. **If you ship your own copy of `main.js`, take the new
+  one**; a host with its own interop needs the `SetViewportInset` export. Verified against the
+  host core and in headless renders, not yet on a physical phone.
+- **`DumpTree` reports a `position:fixed` node where it is on screen.** It added the offset of
+  whatever the node was nested in, so the coordinates were wrong to hand to `DispatchClick`.
+
 ## v0.47.0
 
 ### Added

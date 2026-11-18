@@ -53,6 +53,9 @@ public static class WebHostCore
     private static double _lastRefresh;
     private static double _lastAnimMs = double.NaN;   // NaN = nothing drawn yet, so the first frame is due
     private static int _lastW, _lastH;
+    // What the page says is covered at the bottom of the canvas (CSS px) — the soft keyboard — and
+    // the value the last frame was actually drawn with. See SetViewportInset.
+    private static int _insetBottom, _insetDrawn;
     private static float _lastDpr = 1f;   // so a monitor change repaints, not just a resize
     private static bool _dirty = true;
     private static string _cursor = "";
@@ -287,6 +290,7 @@ public static class WebHostCore
         _cursor = "";
         _lastTextInput = default;
         _lastW = _lastH = 0;
+        _insetBottom = _insetDrawn = 0;
         _lastAnimMs = double.NaN;    // a second Init must not inherit the first run's frame clock
     }
 
@@ -371,7 +375,12 @@ public static class WebHostCore
         // The app thinks in CSS pixels and must keep doing so — its media queries, its fixed design
         // size and its own zoom are all statements about the page, not about the panel.
         var hs = HostScale.ForFramebuffer(width, height, dpr);
-        var p = _app.Present((int)hs.LogicalClientWidth, (int)hs.LogicalClientHeight);
+        // Minus whatever the soft keyboard is covering: the app is presented the part of the canvas
+        // that can be seen, exactly as if the canvas had been made that much shorter. A quarter of
+        // it is always left, so a nonsense report cannot lay the page out into nothing.
+        var clientH = (int)hs.LogicalClientHeight;
+        var inset = Math.Clamp(_insetBottom, 0, clientH * 3 / 4);
+        var p = _app.Present((int)hs.LogicalClientWidth, clientH - inset);
 
         // Step two: fold in what the app chose. P stays available on its own because half the
         // callers below are in CSS space and the browser scales those itself.
@@ -528,11 +537,23 @@ public static class WebHostCore
         // multiply, because the scale is uniform. Scale 1 is the rare case, not the common one:
         // a HiDPI ratio of 2, fractional desktop scaling of 1.25, or any fit-to-viewport factor
         // all landed here, so most machines re-uploaded every pixel on every hover (#99).
+        // The covered strip is outside the area the engine is now asked to draw, so nothing it
+        // repaints reaches it — and it still holds the bottom of a taller frame. Wipe it once, when
+        // the inset changes, and present the whole canvas that time.
+        var insetChanged = _insetBottom != _insetDrawn;
+        if (insetChanged)
+        {
+            _insetDrawn = _insetBottom;
+            _doc.InvalidateRetainedFrame();
+            canvas.Clear(bg);
+        }
         canvas.Save();
         if (_effective != 1f) canvas.Scale(_effective);
         var damage = _doc.RenderIncremental(canvas, p.LogicalWidth, p.LogicalHeight, bg);
         canvas.Restore();
-        if (damage is { } logical)
+        if (insetChanged)
+            damage = new SKRectI(0, 0, width, height);
+        else if (damage is { } logical)
             damage = CupriDocument.ScaleDamageToDevice(logical, _effective, width, height);
         canvas.Flush();
         return damage;
@@ -807,6 +828,27 @@ public static class WebHostCore
         var next = coarse ? InputProfile.Touch : InputProfile.Desktop;
         if (_doc.InputProfile == next) return;
         _doc.InputProfile = next;
+        _dirty = true;
+    }
+
+    /// <summary>How much of the BOTTOM of the canvas is covered by something the page did not
+    /// draw, in CSS pixels — in practice the soft keyboard.
+    ///
+    /// <para>A phone browser does not resize the page when its keyboard opens: it shrinks the
+    /// <c>visualViewport</c> and leaves the layout — and so the canvas — the size it was, with the
+    /// keyboard over the bottom half. The page reports the covered part here and the app is laid
+    /// out in what is left, which turns this host's keyboard into the same thing Android's is: a
+    /// shorter viewport. The engine does the rest, and does it once for every host — a focused
+    /// field is scrolled, or the page panned, until it is on screen
+    /// (<see cref="CupriDocument.ViewportPanY"/>).</para>
+    ///
+    /// <para>Zero whenever the browser resizes the page itself
+    /// (<c>interactive-widget=resizes-content</c>), since the canvas is then already short.</para></summary>
+    public static void SetViewportInset(double bottomCssPx)
+    {
+        var next = double.IsFinite(bottomCssPx) ? Math.Max(0, (int)Math.Round(bottomCssPx)) : 0;
+        if (next == _insetBottom) return;
+        _insetBottom = next;
         _dirty = true;
     }
 

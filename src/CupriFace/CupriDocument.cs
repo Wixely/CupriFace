@@ -2281,14 +2281,26 @@ public sealed partial class CupriDocument : IDisposable
             Rebuild();
         }
         EnsureFontFaces();
-        _layout.Layout(_root, width, height);
+        // The viewport changed height under a focused field. Shorter is the soft keyboard arriving
+        // (every host reports it as a shorter viewport) and the caret has NOT moved, so the ordinary
+        // caret-follow would not look again and the field just tapped would sit behind the keyboard.
+        // Taller only matters while the page is panned: that is the keyboard leaving, and the pan
+        // it needed has to be let go.
+        if (_focusKey is not null && _revealHeight > 0 && MathF.Abs(height - _revealHeight) > 0.5f)
+        {
+            var grew = height > _revealHeight;
+            if (!grew || _viewportPan != 0) _caretMoved = true;
+            if (grew) _revealFromRest = true;
+        }
+        _revealHeight = height;
+        LayoutTree(width, height);
         // Recorded BEFORE the capture pass, which reads the viewport height to bound what an
         // auto-height virtual list may window. Assigning it afterwards left that height at 0 on the
         // very first layout, so the first list measured itself as 1px tall and the next frame built
         // one row where it needed eight — a visible flash of a nearly empty list, once, at startup.
         _laidOutWidth = width; _laidOutHeight = height; _layoutDirty = false;
         CaptureVirtualHeights(_root); // measured pitches + scroll anchoring, before anything reads offsets
-        ScrollCaretIntoView();  // after layout, before paint: keep the caret visible in a scrolled field
+        ScrollCaretIntoView(height); // after layout, before paint: keep the caret visible
         ScrollCaretIntoViewX(); // and horizontally, in a single-line (nowrap) field
         var t1 = Stopwatch.GetTimestamp();
         _tLayout = Ms(t0, t1);
@@ -2299,6 +2311,14 @@ public sealed partial class CupriDocument : IDisposable
         ApplyScrollbarHot();
         StampShaderInputs();
         var list = _painter.Build(_root);
+        // A panned page has moved off one end of the viewport and left a strip nothing paints. It
+        // is the page's own colour that belongs there, as a browser's canvas takes the body's —
+        // not whatever the host happened to clear with.
+        if (_viewportPan != 0 && PageBackground is { Alpha: > 0 } pageBg)
+        {
+            var strip = MathF.Min(MathF.Abs(_viewportPan), height);
+            list.Insert(0, new FillRect(0, _viewportPan > 0 ? height - strip : 0, width, strip, CornerRadii.None, pageBg));
+        }
         // Caret + selection are drawn outside the scrolled subtree, so clip them to the focused
         // field's scroll box — otherwise they'd draw over neighbours when the field is scrolled.
         var clip = CaretClipRect();
@@ -2352,20 +2372,145 @@ public sealed partial class CupriDocument : IDisposable
         Refresh();
     }
 
-    private void ScrollCaretIntoView()
+    /// <summary>
+    /// How far the whole document is currently slid up (positive) or down (negative) to keep the
+    /// field being typed into on screen, in document units. Zero almost always.
+    ///
+    /// <para>Scrolling is how a focused field is normally revealed, and it is tried first, through
+    /// every scroller the field sits in. This is what is left when scrolling cannot do it: a field
+    /// at the bottom of a page that does not scroll, on a screen the soft keyboard has just halved.
+    /// There is nothing to scroll, so the page itself moves — the same thing a browser does with
+    /// its visual viewport, and the same thing Android calls <c>adjustPan</c>.</para>
+    ///
+    /// <para>It moves no further than the field needs, stays put while the next field tapped is
+    /// already visible, and goes back to zero when the field loses focus or the viewport grows
+    /// back enough to show the field where it was laid out. Everything follows it — paint,
+    /// hit-testing, the accessibility tree, the caret rectangle a host hands its IME — because it
+    /// is applied to the laid-out tree rather than to the canvas.</para>
+    /// </summary>
+    public float ViewportPanY => _viewportPan;
+
+    private float _viewportPan;       // applied to the tree after every layout — see LayoutTree
+    private float _revealHeight;      // the viewport height the caret was last revealed against
+    private bool _revealFromRest;     // the viewport grew: recompute the pan from zero, not from where it is
+
+    /// <summary>Layout, then the viewport pan on top of it. Layout pins the root to 0,0 every time,
+    /// so the pan has to be put back every time — which is also what makes it survive a rebuild.</summary>
+    private void LayoutTree(float width, float height)
     {
-        if (!_caretMoved || _focusKey is null) return;
+        _layout.Layout(_root, width, height);
+        ShiftViewport(_viewportPan);
+    }
+
+    private void SetViewportPan(float pan)
+    {
+        if (MathF.Abs(pan) < 0.5f) pan = 0;
+        ShiftViewport(pan - _viewportPan);
+        _viewportPan = pan;
+    }
+
+    // The root carries everything in flow. A position:fixed node owns viewport coordinates of its
+    // own, so the root does not carry it — and mostly it should not be carried: a tab bar, a toast
+    // or a scrim is pinned to the SCREEN, and a pan that dragged it up the page would leave it
+    // floating in the middle of the content. See PanFollowers for the ones that do go.
+    private void ShiftViewport(float dy)
+    {
+        if (dy == 0) return;
+        _root.Y -= dy;
+        foreach (var layer in PanFollowers(FindFocused(_root), pinned: null)) layer.Y -= dy;
+    }
+
+    /// <summary>
+    /// The position:fixed nodes that travel with a viewport pan; the rest go to
+    /// <paramref name="pinned"/>.
+    ///
+    /// <para>Three kinds follow the page. The one holding the focused field, because that field is
+    /// what the pan is for — a sheet or dialog with a form in it. A popup anchored to something
+    /// that moved (a combobox's list, under the field being typed into), or it would come away
+    /// from its anchor. And anything fixed INSIDE one of those, which belongs to it.</para>
+    /// </summary>
+    private List<RenderNode> PanFollowers(RenderNode? field, List<RenderNode>? pinned)
+    {
+        var followers = new List<RenderNode>();
+        Walk(_root, inFollower: false);
+        return followers;
+
+        void Walk(RenderNode n, bool inFollower)
+        {
+            foreach (var c in n.Children)
+            {
+                var follows = inFollower;
+                if (c.IsTopLayer)
+                {
+                    follows = inFollower || Holds(c, field) || AnchorMoves(c);
+                    if (follows) followers.Add(c);
+                    else if (c.Style.Display != DisplayType.None) pinned?.Add(c);
+                }
+                Walk(c, follows);
+            }
+        }
+
+        static bool Holds(RenderNode layer, RenderNode? node)
+        {
+            for (var n = node; n is not null; n = n.Parent) if (ReferenceEquals(n, layer)) return true;
+            return false;
+        }
+
+        // In flow, or inside the layer that holds the field: either way its anchor moved.
+        bool AnchorMoves(RenderNode popup)
+        {
+            if (popup.Element?.GetAttribute("data-cupri-anchor") is not { Length: > 0 } id) return false;
+            if (FindNode(_root, n => n.Element?.GetAttribute("id") == id) is not { } anchor) return false;
+            for (var n = anchor; n is not null; n = n.Parent)
+                if (n.IsTopLayer) return Holds(n, field);
+            return true;
+        }
+
+        static RenderNode? FindNode(RenderNode n, Func<RenderNode, bool> match)
+        {
+            if (match(n)) return n;
+            foreach (var c in n.Children) if (FindNode(c, match) is { } f) return f;
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Bring the focused field back on screen: through every scroller it sits in, then against the
+    /// viewport itself.
+    ///
+    /// <para>Runs when the caret moved (typing, a tap, focus arriving) or the viewport shrank under
+    /// a focused field — the soft keyboard, on every host, since each of them reports it as a
+    /// shorter viewport. Never on an ordinary frame: a reader who scrolls away from the field they
+    /// are typing in is allowed to, until they type again.</para>
+    ///
+    /// <para>Three steps, each doing only what the one before could not. Innermost first, every
+    /// scroller shows the field inside its own band — nearest alone is not enough, a list inside a
+    /// scrolling page has to end up visible in both. Then, if the field is in every band and still
+    /// off the screen (a scroller taller than what the keyboard left), the scrollers give what
+    /// range they have towards the viewport. Then the page pans by whatever remains.</para>
+    /// </summary>
+    private void ScrollCaretIntoView(float viewportHeight)
+    {
+        if (_focusKey is null)
+        {
+            // Nothing is being typed into, so nothing is owed a displaced page.
+            SetViewportPan(0);
+            return;
+        }
+        if (!_caretMoved) return;
         _caretMoved = false;
         var field = FindFocused(_root);
         if (field is null) return;
-        var sc = ScrollableContainer(field);
-        if (sc is null) return;
+
+        // Minimal movement is the rule — except when the viewport GREW. Then the pan was for a
+        // keyboard that has gone, and holding it would leave the page displaced over empty space.
+        if (_revealFromRest) SetViewportPan(0);
+        _revealFromRest = false;
 
         var anchor = FindCaretAnchor(field) ?? field;
         var value = FocusedDisplayText();
         var caret = Math.Clamp(_caret, 0, value.Length);
         var t = RowForCaret(BuildTextRows(anchor, value), caret); // wrap-aware for textarea + wrapped field
-        float rowY = t.Y, rowH = t.Height;
 
         // Reveal the FIELD's border box, not just the caret's text row — with breathing room.
         // Scrolling the bare row flush to the band's last pixel is technically "visible", but on a
@@ -2375,19 +2520,83 @@ public sealed partial class CupriDocument : IDisposable
         // back to the row, which is the only part that MUST be seen.
         const float margin = 8f;
         var (_, fieldY) = PaintedTopLeft(field);
-        float top = rowY, bottom = rowY + rowH;
-        var boxTop = fieldY - margin;
-        var boxBottom = fieldY + field.Height + margin;
+        float rowTop = t.Y, rowBottom = t.Y + t.Height;
+        float boxTop = fieldY - margin, boxBottom = fieldY + field.Height + margin;
 
-        var (_, scY) = PaintedTopLeft(sc);
-        var bandTop = scY + sc.ContentTopInset;
-        var bandBottom = bandTop + sc.ContentBoxHeight;
-        if (boxBottom - boxTop <= sc.ContentBoxHeight) { top = boxTop; bottom = boxBottom; }
+        // The boxes do not move until the next layout, so what each scroll did is tracked here
+        // rather than read back. Two of them: a textarea scrolling ITSELF moves its rows and not
+        // its box.
+        float rowShift = 0, boxShift = 0;
+        (float Top, float Bottom) Target(float room, bool rowOnly) =>
+            !rowOnly && boxBottom - boxTop <= room
+                ? (boxTop - boxShift, boxBottom - boxShift)
+                : (rowTop - rowShift, rowBottom - rowShift);
+        void Scroll(RenderNode sc, float by)
+        {
+            var want = Math.Clamp(sc.ScrollY + by, 0, sc.MaxScrollY);
+            var moved = want - sc.ScrollY;
+            sc.ScrollY = want;
+            rowShift += moved;
+            if (!ReferenceEquals(sc, field)) boxShift += moved;
+        }
+        static (float Top, float Bottom) Band(RenderNode sc)
+        {
+            var top = PaintedTopLeft(sc).Y + sc.ContentTopInset;
+            return (top, top + sc.ContentBoxHeight);
+        }
 
-        var newScroll = sc.ScrollY;
-        if (top < bandTop) newScroll = sc.ScrollY + (top - bandTop);              // scroll up to reveal
-        else if (bottom > bandBottom) newScroll = sc.ScrollY + (bottom - bandBottom); // down
-        sc.ScrollY = Math.Clamp(newScroll, 0, sc.MaxScrollY);
+        // 1. Inside every scroller. A fixed node is positioned by the viewport, not by what it is
+        //    written inside, so nothing above one can move it and the walk ends there.
+        for (var sc = field; sc is not null; sc = sc.Parent)
+        {
+            if (sc.IsScrollable)
+            {
+                var (bandTop, bandBottom) = Band(sc);
+                var (top, bottom) = Target(sc.ContentBoxHeight, rowOnly: ReferenceEquals(sc, field));
+                if (top < bandTop) Scroll(sc, top - bandTop);                  // scroll up to reveal
+                else if (bottom > bandBottom) Scroll(sc, bottom - bandBottom); // down
+            }
+            if (sc.IsTopLayer) break;
+        }
+
+        // What of the viewport can actually be seen. A bar pinned along its top or bottom edge
+        // does not move with anything below, so the field has to clear it as well: revealed to the
+        // last pixel of the viewport, it would be sitting under the tab bar. Only a bar — something
+        // wide, on an edge, and short; a scrim covers the whole screen and hides nothing.
+        float seenTop = 0, seenBottom = viewportHeight;
+        var pinned = new List<RenderNode>();
+        PanFollowers(field, pinned);
+        foreach (var bar in pinned)
+        {
+            if (bar.Width < _laidOutWidth / 2 || bar.Height <= 0 || bar.Height > viewportHeight / 3) continue;
+            if (bar.Y <= 0.5f) seenTop = MathF.Max(seenTop, bar.Y + bar.Height);
+            else if (bar.Y + bar.Height >= viewportHeight - 0.5f) seenBottom = MathF.Min(seenBottom, bar.Y);
+        }
+
+        // 2. Against the viewport, with whatever range those scrollers have left — but never so
+        //    far that the field leaves the band of the scroller doing it.
+        float Residual()
+        {
+            var (top, bottom) = Target(seenBottom - seenTop, rowOnly: false);
+            return bottom > seenBottom && top > seenTop ? MathF.Min(bottom - seenBottom, top - seenTop)
+                 : top < seenTop && bottom < seenBottom ? MathF.Max(top - seenTop, bottom - seenBottom)
+                 : 0;
+        }
+        for (var sc = field.Parent; sc is not null && MathF.Abs(Residual()) > 0.5f; sc = sc.Parent)
+        {
+            if (sc.IsScrollable)
+            {
+                var need = Residual();
+                var (bandTop, bandBottom) = Band(sc);
+                var (top, bottom) = Target(sc.ContentBoxHeight, rowOnly: false);
+                Scroll(sc, need > 0 ? MathF.Min(need, MathF.Max(0, top - bandTop))
+                                    : MathF.Max(need, MathF.Min(0, bottom - bandBottom)));
+            }
+            if (sc.IsTopLayer) break;
+        }
+
+        // 3. The page itself, for what nothing could scroll.
+        SetViewportPan(_viewportPan + Residual());
     }
 
     /// <summary>
@@ -2917,7 +3126,7 @@ public sealed partial class CupriDocument : IDisposable
     public DisplayList BuildDisplayList(float width, float height)
     {
         EnsureFontFaces();
-        _layout.Layout(_root, width, height);
+        LayoutTree(width, height);
         StampShaderInputs();
         var list = _painter.Build(_root);
         WrapPageShaders(list, width, height);
@@ -3245,7 +3454,7 @@ public sealed partial class CupriDocument : IDisposable
     {
         if (!_layoutDirty || _laidOutWidth <= 0 || _laidOutHeight <= 0) return;
         EnsureFontFaces();
-        _layout.Layout(_root, _laidOutWidth, _laidOutHeight);
+        LayoutTree(_laidOutWidth, _laidOutHeight);
         _layoutDirty = false;
     }
 
@@ -3375,7 +3584,7 @@ public sealed partial class CupriDocument : IDisposable
         if (_layoutDirty || _laidOutWidth != w || _laidOutHeight != h)
         {
             EnsureFontFaces();
-            _layout.Layout(_root, w, h);
+            LayoutTree(w, h);
             _laidOutWidth = w;
             _laidOutHeight = h;
             _layoutDirty = false;
@@ -7851,6 +8060,9 @@ public sealed partial class CupriDocument : IDisposable
 
         void Walk(RenderNode n, int depth, float ox, float oy)
         {
+            // A position:fixed node owns viewport coordinates; what it is written inside does not
+            // offset it — which a panned page (ViewportPanY) makes true of the root as well.
+            if (n.IsTopLayer) ox = oy = 0;
             var x = ox + n.X;
             var y = oy + n.Y;
             if (n.IsText && !includeText) return;

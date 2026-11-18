@@ -262,6 +262,9 @@ public static unsafe partial class Interop
     [UnmanagedCallersOnly(EntryPoint = "SetCoarsePointer")]
     public static void SetCoarsePointer(int coarse) => Guard("SetCoarsePointer", () => WebHostCore.SetCoarsePointer(coarse != 0));
 
+    [UnmanagedCallersOnly(EntryPoint = "SetViewportInset")]
+    public static void SetViewportInset(double bottomCssPx) => Guard("SetViewportInset", () => WebHostCore.SetViewportInset(bottomCssPx));
+
     [UnmanagedCallersOnly(EntryPoint = "EditKeyPress")]
     public static void EditKeyPress(int code, int mods) => Guard("EditKeyPress", () => WebHostCore.EditKeyPress(code, mods));
 

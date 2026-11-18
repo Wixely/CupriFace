@@ -166,6 +166,13 @@ doc.DispatchClick(box.X + box.W / 2f, box.Y + box.H / 2f);
 
 Render, click, render again — state changes are checkable too, not just static layout.
 
+**The soft keyboard is a shorter viewport, on every host** — Android pads the view by the IME
+inset, the web hosts subtract what `visualViewport` lost. So "does the keyboard cover this field"
+is checkable headless: focus the field, render again at the height a keyboard leaves
+(`doc.RenderToImage(412, 540)` after 915), and ask `HitTesting.ScreenBox` where it is. The engine
+scrolls every scroller the field is in and pans the page for the rest (`doc.ViewportPanY`);
+`tests/CupriFace.Tests/SoftKeyboardRevealTests.cs` is a worked example.
+
 **Touch is a finger, not a mouse, and it has its own driver.** A tap is not a click: touch
 activates on finger-UP, so a press that turns into a scroll must never press what it began on.
 `TouchDriver` is one call per gesture, on a clock it owns — nothing sleeps, and the same script

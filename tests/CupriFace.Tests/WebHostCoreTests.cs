@@ -968,4 +968,75 @@ public class WebHostCoreTests(ITestOutputHelper output)
         Assert.True(js.LastDamageX + d.Item1 <= W && js.LastDamageY + d.Item2 <= H,
             "damage runs past the surface");
     }
+
+    // ---- the soft keyboard ----------------------------------------------------------------------
+
+    /// <summary>A page that does not scroll, with its field near the bottom of a phone — the shape
+    /// a keyboard covers completely.</summary>
+    private sealed class BottomFieldApp : CupriApp
+    {
+        public sealed class Form { public string Email { get; set; } = "ada@example.com"; }
+        public float LastH;
+        public override object? Model { get; } = new Form();
+        public override string Html =>
+            "<body><div class='hero'>h</div><cupri-textfield class='email' value=\"{{Email}}\"></cupri-textfield></body>";
+        public override string Css => "body{margin:0;background:#fff} .hero{height:780px}";
+        public override PresentInfo Present(float w, float h) { LastH = h; return new(w, h, 1f); }
+    }
+
+    /// <summary>A phone browser does not resize the page for its keyboard — it shrinks the visual
+    /// viewport and leaves the canvas where it was, with the keyboard over the bottom of it. The
+    /// page reports what is covered; the app must be presented the rest, and the field being typed
+    /// into must end up in it.</summary>
+    [Fact]
+    public void A_keyboard_over_the_canvas_presents_the_app_what_is_left_and_reveals_the_field()
+    {
+        const int W = 412, H = 915, Keyboard = 375;
+        var app = new BottomFieldApp();
+        var js = Boot(app);
+        Assert.True(WebHostCore.Tick(W, H, 1f, 16));
+        Assert.Equal(H, app.LastH);
+        var doc = WebHostCore.Document;
+
+        static Dom.RenderNode Field(CupriDocument d) =>
+            TestDoc.Find(d.Root, n => n.Element?.GetAttribute("role") == "textbox")!;
+        var (x, y) = TestDoc.Center(Field(doc));
+        WebHostCore.PointerDown(x, y, 1);
+        WebHostCore.Tick(W, H, 1f, 32);
+        Assert.True(doc.GetTextInputState().Focused, "the click did not focus the field");
+        Assert.True(y > H - Keyboard, "the field is not under the keyboard, so this proves nothing");
+
+        WebHostCore.SetViewportInset(Keyboard);
+        Assert.True(WebHostCore.Tick(W, H, 1f, 48), "the keyboard arriving must repaint");
+
+        Assert.Equal(H - Keyboard, app.LastH);
+        var (_, fy, _, fh) = Interaction.HitTesting.ScreenBox(Field(doc));
+        output.WriteLine($"field {fy:0}..{fy + fh:0}, visible 0..{H - Keyboard}, pan {doc.ViewportPanY:0}");
+        Assert.True(fy >= 0 && fy + fh <= H - Keyboard, $"the field is at {fy:0}..{fy + fh:0}, behind the keyboard");
+        // The strip under the keyboard still held the bottom of the taller frame: the whole canvas
+        // is presented once, wiped, so it cannot show through as the keyboard slides away.
+        Assert.Equal((W, H), (js.LastDamageW, js.LastDamageH));
+        // The IME is told where the caret IS, which is where it was panned to.
+        Assert.True(js.TextInput is { Focused: true } ti && ti.Y <= H - Keyboard,
+            $"the caret was reported at {js.TextInput?.Y}, under the keyboard");
+
+        WebHostCore.SetViewportInset(0);
+        Assert.True(WebHostCore.Tick(W, H, 1f, 64), "the keyboard leaving must repaint");
+        Assert.Equal(H, app.LastH);
+        Assert.Equal(0f, doc.ViewportPanY);
+    }
+
+    [Fact]
+    public void A_nonsense_inset_cannot_lay_the_page_out_into_nothing()
+    {
+        var app = new BottomFieldApp();
+        Boot(app);
+        WebHostCore.SetViewportInset(5000);
+        Assert.True(WebHostCore.Tick(412, 915, 1f, 16));
+        Assert.True(app.LastH >= 915 / 4, $"the app was presented {app.LastH}px of a 915px canvas");
+
+        WebHostCore.SetViewportInset(double.NaN);
+        WebHostCore.Tick(412, 915, 1f, 32);
+        Assert.Equal(915, app.LastH);
+    }
 }
