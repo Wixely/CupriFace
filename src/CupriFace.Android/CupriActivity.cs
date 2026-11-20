@@ -220,11 +220,19 @@ public abstract class CupriActivity : global::Android.App.Activity
 #pragma warning restore CA1422, CS0618
     }
 
+    protected override void OnStart()
+    {
+        base.OnStart();
+        // OnStop is the "no longer visible" boundary, so OnStart is its matching return path.
+        // A PiP activity becomes visible here after device unlock without necessarily reaching
+        // OnResume; waiting for Resume leaves its decoder stopped and the PiP surface black.
+        _videoBackend?.SetActivityVisible(true);
+    }
+
     protected override void OnResume()
     {
         base.OnResume();
         _view?.OnResume();
-        _videoBackend?.SetActivityVisible(true);
         // A WhenDirty view paints nothing until asked: after a pause/resume round-trip the
         // surface is fresh and blank, and only an explicit render request fills it again.
         _host?.MarkDirty();

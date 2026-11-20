@@ -33,6 +33,8 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   host core and in headless renders, not yet on a physical phone.
 - **`DumpTree` reports a `position:fixed` node where it is on screen.** It added the offset of
   whatever the node was nested in, so the coordinates were wrong to hand to `DispatchClick`.
+- Android picture-in-picture video now restarts when its activity becomes visible after the device
+  is unlocked, even when Android does not resume the PiP activity. No caller changes are required.
 
 ## v0.47.0
 
