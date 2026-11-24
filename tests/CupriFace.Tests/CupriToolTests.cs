@@ -210,9 +210,17 @@ public class CupriToolTests(ITestOutputHelper output)
         Assert.Contains("SettingsApp from DemoApp.dll (SettingsApp.html + SettingsApp.css) bound to its Settings", outText);
         Assert.Contains("at 600x520, 412x915", outText);          // "app" is the app's own window size
         Assert.True(File.Exists(outPng));
-        // Findings name the file the markup came from, found through the stamped project directory.
-        var html = Path.Combine(RepoRoot(), "samples", "DemoApp", "Assets", "SettingsApp.html");
-        Assert.Contains(html + "(", outText);
+        Assert.Contains("doctor: no problems found", outText);    // #326: it fits a phone now
+    }
+
+    [Fact]
+    public void App_FindsTheMarkupFileOnDisk_SoFindingsCanNameIt()
+    {
+        // Found through the project directory the Debug build stamps, by content — not from a finding,
+        // so the test does not depend on a sample being wrong.
+        var subject = Subject.FromApp(DemoAppDll(), "SettingsApp", fonts: null);
+
+        Assert.Equal(Path.Combine(RepoRoot(), "samples", "DemoApp", "Assets", "SettingsApp.html"), subject.HtmlPath);
     }
 
     [Fact]

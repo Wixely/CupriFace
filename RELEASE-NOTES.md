@@ -147,6 +147,9 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **The Settings sample fits its own window and a phone.** Its panel was a content-box `width:520px`
+  plus padding and margin, 620px in all: 20px past its own 600px window and 208px past a phone. It is
+  now `border-box` with a `max-width`, and narrows its labels below 480px. (#326)
 - **Work posted with `doc.Post` now runs on the SDL software window when nothing else changes.** The
   incremental renderer's fast path returned before draining the queue, so on an otherwise idle page
   posted work never ran — and the host was woken for it again on every tick. Hosts drawing with

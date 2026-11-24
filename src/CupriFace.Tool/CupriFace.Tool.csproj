@@ -30,6 +30,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="CupriFace.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- The agent skill, embedded from the repository's own copy so there is one source:
          `cupri skill` writes it into a project's .claude/skills. -->
     <EmbeddedResource Include="..\..\.claude\skills\cupriface-ui\SKILL.md" LogicalName="SKILL.md" Link="SKILL.md" />
