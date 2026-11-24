@@ -138,6 +138,10 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   path, `CopySelection`, the IME/host text state (`GetTextInputState`) and a tag box's Backspace
   check, which could take back a chip from a field that had text in it. All of them now read the
   model the way the edit paths already did.
+- **CupriDoctor no longer reports every binding inside a repeat over an `IEnumerable<T>` property**
+  as CF0060. Its item-type lookup asked the interface for the interfaces it implements, which do not
+  include itself, so a list typed `IEnumerable<Row>` (rather than `List<Row>` or an array) had no item
+  type and every `{{Field}}` in its rows was an error on markup that rendered correctly.
 - **`cupri-textarea` shows the spaces that were typed.** Its lines used normal white-space, so runs of
   spaces collapsed and leading ones vanished — indented text lost its indentation, and the caret,
   placed by index into the real text, drifted off what was drawn. Now `pre-wrap`, as a browser's is.

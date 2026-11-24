@@ -2547,6 +2547,11 @@ public static partial class CupriDoctor
             current = prop.PropertyType;
         }
         if (current.IsArray) return current.GetElementType();
+        // A property typed IEnumerable<T> ITSELF: an interface's GetInterfaces() lists the ones it
+        // extends, not itself, so the loop below found nothing for it and every binding inside the
+        // repeat was reported as naming nothing — at Severity.Error, on markup that renders.
+        if (current.IsGenericType && current.GetGenericTypeDefinition() == typeof(IEnumerable<>))
+            return current.GetGenericArguments()[0];
         foreach (var i in current.GetInterfaces())
             if (i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>))
                 return i.GetGenericArguments()[0];
