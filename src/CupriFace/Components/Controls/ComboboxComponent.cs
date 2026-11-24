@@ -12,7 +12,7 @@ namespace CupriFace.Components.Controls;
 /// suggestion writes its value. Free-text: whatever you type is the value, so it also allows entries
 /// that aren't in the list.
 /// </summary>
-public sealed class ComboboxComponent : ComponentBase
+public class ComboboxComponent : ComponentBase
 {
     public override string Tag => "cupri-combobox";
     public override string DefaultCss => """

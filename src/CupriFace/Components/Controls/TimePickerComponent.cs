@@ -10,7 +10,7 @@ namespace CupriFace.Components.Controls;
 /// scrollable columns (hours 00–23, minutes 00–59). Picking an hour or minute updates that part and
 /// keeps the popup open (<c>data-set-keep</c>) so you can pick both; the trigger toggles it closed.
 /// </summary>
-public sealed class TimePickerComponent : ComponentBase
+public class TimePickerComponent : ComponentBase
 {
     public override string Tag => "cupri-timepicker";
     public override string DefaultCss => """

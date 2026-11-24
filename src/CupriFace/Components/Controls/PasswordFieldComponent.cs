@@ -8,7 +8,7 @@ namespace CupriFace.Components.Controls;
 /// editing, and this component masks it while unfocused). Editing works like <c>&lt;cupri-textfield&gt;</c>.
 /// If <c>reveal</c> is two-way bound, a trailing eye toggles between masked and plaintext.
 /// </summary>
-public sealed class PasswordFieldComponent : ComponentBase
+public class PasswordFieldComponent : ComponentBase
 {
     public override string Tag => "cupri-password";
     public override string DefaultCss => """

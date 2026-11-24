@@ -12,7 +12,7 @@ namespace CupriFace.Components.Controls;
 /// closes; the swatch matching the current value is ringed. Like the other popups it needs
 /// <c>open="{{…}}"</c> bound to a bool so the open state survives the per-keystroke rebuild.
 /// </summary>
-public sealed class ColorComponent : ComponentBase
+public class ColorComponent : ComponentBase
 {
     public override string Tag => "cupri-color";
     public override string DefaultCss => """

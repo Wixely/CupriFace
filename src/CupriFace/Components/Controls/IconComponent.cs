@@ -7,7 +7,7 @@ namespace CupriFace.Components.Controls;
 /// current text color. Decorative by default (aria-hidden); set <c>aria-label</c> for an
 /// image role.
 /// </summary>
-public sealed class IconComponent : ComponentBase
+public class IconComponent : ComponentBase
 {
     public override string Tag => "cupri-icon";
     public override string DefaultCss => ".cupri-icon { display:inline-block; }";

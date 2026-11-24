@@ -9,7 +9,7 @@ namespace CupriFace.Components.Controls;
 /// — a connected button bar bound to a value (radios rendered as a segmented control). Clicking a
 /// segment writes its value; the matching one is active.
 /// </summary>
-public sealed class SegmentedComponent : ComponentBase
+public class SegmentedComponent : ComponentBase
 {
     public override string Tag => "cupri-segmented";
     public override string DefaultCss => """
@@ -45,7 +45,7 @@ public sealed class SegmentedComponent : ComponentBase
 }
 
 /// <summary>A choice inside <c>&lt;cupri-segmented&gt;</c>; the parent consumes it (see SegmentedComponent).</summary>
-public sealed class SegmentComponent : ComponentBase
+public class SegmentComponent : ComponentBase
 {
     public override string Tag => "cupri-segment";
     public override string DefaultCss => "";

@@ -5,7 +5,7 @@ namespace CupriFace.Components.Controls;
 /// <summary>
 /// <c>&lt;cupri-badge&gt;</c> — a small themed pill that keeps its child label.
 /// </summary>
-public sealed class BadgeComponent : ComponentBase
+public class BadgeComponent : ComponentBase
 {
     public override string Tag => "cupri-badge";
 

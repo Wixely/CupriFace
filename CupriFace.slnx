@@ -4,6 +4,8 @@
     <Project Path="samples/AndroidLottie/AndroidLottie.csproj" />
     <Project Path="samples/AndroidViewer/AndroidViewer.csproj" />
     <Project Path="samples/BidiText/BidiText.csproj" />
+    <Project Path="samples/ComponentLibrary/ComponentLibrary.csproj" />
+    <Project Path="samples/ComponentLibraryApp/ComponentLibraryApp.csproj" />
     <Project Path="samples/Controls/Controls.csproj" />
     <Project Path="samples/ControlsGallery/ControlsGallery.csproj" />
     <Project Path="samples/DarkMode/DarkMode.csproj" />

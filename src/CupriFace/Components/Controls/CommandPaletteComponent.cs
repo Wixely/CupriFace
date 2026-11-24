@@ -12,7 +12,7 @@ namespace CupriFace.Components.Controls;
 /// Each <c>&lt;cupri-command&gt;</c> carries a <c>data-set-path</c>/<c>data-set-value</c> (navigate, or set a
 /// model field the app reacts to) plus an optional <c>icon</c>. Reuses the combobox typeahead machinery.
 /// </summary>
-public sealed class CommandPaletteComponent : ComponentBase
+public class CommandPaletteComponent : ComponentBase
 {
     public override string Tag => "cupri-command-palette";
     public override string DefaultCss => """

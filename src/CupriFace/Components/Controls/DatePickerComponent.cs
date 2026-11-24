@@ -12,7 +12,7 @@ namespace CupriFace.Components.Controls;
 /// months in place (they set the value to the same day in the adjacent month via
 /// <c>data-set-keep</c>, so the popup stays open). The shown month follows the selected value.
 /// </summary>
-public sealed class DatePickerComponent : ComponentBase
+public class DatePickerComponent : ComponentBase
 {
     public override string Tag => "cupri-datepicker";
     public override string DefaultCss => """

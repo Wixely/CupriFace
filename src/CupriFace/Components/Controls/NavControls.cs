@@ -8,7 +8,7 @@ namespace CupriFace.Components.Controls;
 /// — a tab strip plus the active tab's panel. Clicking a header writes the tab's id to the
 /// bound value (via the generic <c>data-set-*</c> click), which re-renders the active panel.
 /// </summary>
-public sealed class TabsComponent : ComponentBase
+public class TabsComponent : ComponentBase
 {
     public override string Tag => "cupri-tabs";
     public override string DefaultCss => """
@@ -52,7 +52,7 @@ public sealed class TabsComponent : ComponentBase
 /// <c>&lt;cupri-accordion&gt;</c> — a container for <c>&lt;cupri-accordion-item&gt;</c>s; each item
 /// keeps its own bound open state.
 /// </summary>
-public sealed class AccordionComponent : ComponentBase
+public class AccordionComponent : ComponentBase
 {
     public override string Tag => "cupri-accordion";
     public override string DefaultCss => """
@@ -66,7 +66,7 @@ public sealed class AccordionComponent : ComponentBase
 /// <c>&lt;cupri-accordion-item label="…" open="{{Flag}}"&gt;…&lt;/cupri-accordion-item&gt;</c> — a
 /// collapsible section. The header toggles the bound open flag (reuses the overlay toggle).
 /// </summary>
-public sealed class AccordionItemComponent : ComponentBase
+public class AccordionItemComponent : ComponentBase
 {
     public override string Tag => "cupri-accordion-item";
     public override string DefaultCss => """
@@ -97,7 +97,7 @@ public sealed class AccordionItemComponent : ComponentBase
 }
 
 /// <summary><c>&lt;cupri-tree&gt;</c> — root container for a hierarchy of tree items.</summary>
-public sealed class TreeComponent : ComponentBase
+public class TreeComponent : ComponentBase
 {
     public override string Tag => "cupri-tree";
     public override string DefaultCss => """
@@ -116,7 +116,7 @@ public sealed class TreeComponent : ComponentBase
 /// that toggles its bound open flag; nested items are indented and shown only when open.
 /// Leaf items (no children) render without a toggle chevron.
 /// </summary>
-public sealed class TreeItemComponent : ComponentBase
+public class TreeItemComponent : ComponentBase
 {
     public override string Tag => "cupri-tree-item";
     public override string DefaultCss => """
@@ -152,7 +152,7 @@ public sealed class TreeItemComponent : ComponentBase
 /// (the lifted row follows the pointer, the others slide to open a gap); on drop it raises the document's
 /// <c>OnReorder</c> event with the item's old/new index, which typically reorders the bound model list.
 /// </summary>
-public sealed class ReorderComponent : ComponentBase
+public class ReorderComponent : ComponentBase
 {
     public override string Tag => "cupri-reorder";
     public override string DefaultCss => """
@@ -169,7 +169,7 @@ public sealed class ReorderComponent : ComponentBase
 /// between the two bound model lists. Wrap each column's header + list however you like; the board just
 /// groups every <c>&lt;cupri-reorder&gt;</c> beneath it and lays the columns out in a row.
 /// </summary>
-public sealed class BoardComponent : ComponentBase
+public class BoardComponent : ComponentBase
 {
     public override string Tag => "cupri-board";
     public override string DefaultCss => """
@@ -199,7 +199,7 @@ public sealed class BoardComponent : ComponentBase
 /// height and materialises 300px of rows, so it looks right until it is scrolled. With
 /// <c>auto</c> the engine measures the laid-out box and windows off that.</para>
 /// </summary>
-public sealed class VirtualListComponent : ComponentBase
+public class VirtualListComponent : ComponentBase
 {
     public override string Tag => "cupri-virtual";
     public override string DefaultCss => """
@@ -233,7 +233,7 @@ public sealed class VirtualListComponent : ComponentBase
 
 /// <summary><c>&lt;cupri-reorder-item&gt;…&lt;/cupri-reorder-item&gt;</c> — one draggable row: a grip
 /// handle followed by the item's content. Dragging the grip reorders the list.</summary>
-public sealed class ReorderItemComponent : ComponentBase
+public class ReorderItemComponent : ComponentBase
 {
     public override string Tag => "cupri-reorder-item";
     public override string DefaultCss => """

@@ -1,0 +1,56 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    An app consuming a component library (samples/ComponentLibrary), two ways:
+
+      dotnet run                                        the library through a ProjectReference
+      dotnet run -p:LeafFromPackage=true                the library through its .nupkg, restored from
+                 -p:LeafVersion=<version>               a local folder
+
+    Same code either way; the second is the proof that the library works as a PACKAGE — that its
+    markup and CSS travel inside the assembly and its behaviour needs nothing from the app.
+
+    The package route, done from a scratch folder so nothing is added to this repository's feeds:
+
+      dotnet build src/CupriFace.Binding.Gen -c Release
+      dotnet pack  src/CupriFace               -c Release -p:Version=0.0.1-libtest -o <scratch>/feed
+      dotnet pack  samples/ComponentLibrary    -c Release -p:Version=0.0.1-libtest -o <scratch>/feed
+      copy this .csproj and Program.cs to <scratch>/app, beside a NuGet.config of
+          <clear /> + <scratch>/feed + nuget.org   (and a scratch globalPackagesFolder, so a test
+          version of CupriFace never lands in the machine's package cache)
+      dotnet run -c Release -p:LeafFromPackage=true -p:LeafVersion=0.0.1-libtest
+
+    Copying out of the repository matters: inside it, the repository's own NuGet.config and
+    samples/Directory.Build.targets would apply, and the test would no longer be what a stranger
+    with only the .nupkg experiences.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>CupriFace.Samples.ComponentLibraryApp</RootNamespace>
+    <LeafFromPackage Condition="'$(LeafFromPackage)' == ''">false</LeafFromPackage>
+    <LeafVersion Condition="'$(LeafVersion)' == ''">0.1.0-dev</LeafVersion>
+    <!-- `dotnet publish -r win-x64 -p:Aot=true`: a NativeAOT build, to show that an app using a
+         component library — its embedded assets, its behaviour, a subclass of one of its controls —
+         trims and compiles ahead of time with no warnings. A property rather than PublishAot on the
+         command line, which would flow to the netstandard source generators and fail them (as in
+         samples/Viewer). -->
+    <PublishAot Condition="'$(Aot)' == 'true'">true</PublishAot>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(LeafFromPackage)' != 'true'">
+    <ProjectReference Include="..\ComponentLibrary\ComponentLibrary.csproj" />
+    <!-- From a package, CupriFace carries this generator itself; a ProjectReference does not. -->
+    <ProjectReference Include="..\..\src\CupriFace.Binding.Gen\CupriFace.Binding.Gen.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(LeafFromPackage)' == 'true'">
+    <!-- CupriFace arrives as this package's dependency, as it would for anyone using the library. -->
+    <PackageReference Include="Leaf.Controls" Version="$(LeafVersion)" />
+  </ItemGroup>
+
+</Project>

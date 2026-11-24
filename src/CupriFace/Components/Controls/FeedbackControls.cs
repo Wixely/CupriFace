@@ -3,7 +3,7 @@ using AngleSharp.Dom;
 namespace CupriFace.Components.Controls;
 
 /// <summary><c>&lt;cupri-alert type&gt;</c> — a coloured inline banner with an icon; keeps its message.</summary>
-public sealed class AlertComponent : ComponentBase
+public class AlertComponent : ComponentBase
 {
     public override string Tag => "cupri-alert";
     public override string DefaultCss => """
@@ -27,7 +27,7 @@ public sealed class AlertComponent : ComponentBase
 }
 
 /// <summary><c>&lt;cupri-spinner&gt;</c> — a rotating loading indicator (an icon spun via @keyframes).</summary>
-public sealed class SpinnerComponent : ComponentBase
+public class SpinnerComponent : ComponentBase
 {
     public override string Tag => "cupri-spinner";
     public override string DefaultCss => """
@@ -45,7 +45,7 @@ public sealed class SpinnerComponent : ComponentBase
 }
 
 /// <summary><c>&lt;cupri-skeleton&gt;</c> — a pulsing placeholder block for loading states.</summary>
-public sealed class SkeletonComponent : ComponentBase
+public class SkeletonComponent : ComponentBase
 {
     public override string Tag => "cupri-skeleton";
     public override string DefaultCss => """

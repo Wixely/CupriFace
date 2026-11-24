@@ -56,6 +56,46 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   `ReplaceSource`.
 - `EditKey.F1` … `EditKey.F12`: the desktop windows now deliver the function keys (one-shot, no
   auto-repeat). The engine gives them no meaning, so they reach an app's own key handling.
+- **Component libraries: ship `cupri`-style controls as an ordinary NuGet class library**
+  (COMPONENT-PACKAGING.md, TOOLBOX.md §8). A library implements `ICupriComponentLibrary` (`Name`,
+  a tag `Prefix` such as `"acme-"`, `Components`, shared `Css`) and the app adds it with
+  `registry.Add(new AcmeControls())` — usually through an extension method the library ships,
+  `base.Components.AddAcmeControls()`. All registration is explicit code: trim- and NativeAOT-safe.
+- **Components can carry behaviour: `ICupriBehaviour.Attach(CupriDocument)`.** Called once per
+  document; the component registers ordinary `OnAction` / `OnPointer` / `OnRebuilt` handlers keyed on
+  attributes its own markup emits, so they keep working across every rebuild. A package now ships
+  markup, CSS and handlers, and the app wires nothing.
+- **An override contract, pinned by tests.** Component CSS is emitted in layers — built-ins, then
+  libraries, then the app's own components and replacements — all before the app's stylesheet, so
+  at equal specificity the app always wins, a library beats the built-ins it restyles, and a
+  replacement beats what it replaced, whatever order things were added in. **Component class names
+  (`.cupri-button`, `.cupri-tt-bubble`, …) are now public API**: renaming one is a breaking change.
+- **`ComponentRegistry.Add` and `Replace`, which say what they mean.** `Add` refuses a tag that is
+  already registered (`ComponentConflictException`, naming the owner); `Replace` refuses a tag that is
+  NOT, so a misspelled override throws instead of quietly adding a dead control; a library is refused
+  whole if any tag lacks its prefix or is taken — a library only adds, only the app replaces. Also
+  `Find(tag)` (wrap a component you cannot subclass), `Registrations`, `Libraries`, `Conflicts`.
+- **Every built-in component is unsealed** (`ButtonComponent`, `SliderComponent`, …): subclass one,
+  call `base.Expand(el)`, adjust the result, and `Replace` the original — or give the subclass its
+  own `Tag` and `Add` it beside the original.
+- **CupriDoctor CF0022** (warning): a tag registered twice through `Register`, the second silently
+  winning. **CF0020** now also covers a library's prefix (an unknown `<acme-*>` is an error with a
+  suggestion), and notes (info) any other custom-element-shaped tag nothing handles — which is what
+  `cupri preview` shows for a page using a library, since the tool knows only the built-ins.
+- `samples/ComponentLibrary` (the `Leaf.Controls` package: `leaf-counter`, `leaf-card`,
+  `leaf-status`) and `samples/ComponentLibraryApp`, which consumes it through a ProjectReference or
+  through its packed `.nupkg` — the proof that the packaging works, not a description of it.
+
+### Changed
+
+- **`ComponentRegistry.Register` still lets the last registration win, but no longer silently**: a
+  second registration of a tag is recorded in `registry.Conflicts` and reported by the doctor as
+  CF0022. Nothing breaks; to quiet it, say what you meant — `Replace(...)` for an override, `Add(...)`
+  for a new tag. (The TOOLBOX example used to register `cupri-rating`, which is a built-in.)
+- Component CSS order within the aggregated stylesheet now follows the layers above. Built-ins come
+  first as before; an app that registered a component over a built-in now gets that component's CSS
+  after the built-ins rather than in the built-in's old slot, which only matters if you relied on a
+  built-in rule beating your replacement's at equal specificity.
 
 ### Fixed
 

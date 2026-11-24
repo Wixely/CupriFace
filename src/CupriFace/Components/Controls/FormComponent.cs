@@ -24,7 +24,7 @@ namespace CupriFace.Components.Controls;
 /// <para>So the two halves an app previously wired by hand — which fields to validate, and what a
 /// submit belongs to — become the same declaration.</para>
 /// </summary>
-public sealed class FormComponent : ComponentBase
+public class FormComponent : ComponentBase
 {
     public override string Tag => "cupri-form";
 
