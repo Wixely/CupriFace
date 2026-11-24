@@ -2262,6 +2262,19 @@ jobs:
               exit 1
             }
           done
+          # The engine package must CARRY its build-time pieces: the generators and the binding
+          # check in analyzers/, the Assets pipeline in buildTransitive/. None of them is a package
+          # of its own (IsPackable=false, so the loop above skips them), and every project in this
+          # repository gets them by ProjectReference whether or not they are packed — so nothing
+          # else here would notice a consumer receiving a package without them.
+          unzip -l dist/CupriFace."$VERSION".nupkg > engine-pkg.txt
+          for f in analyzers/dotnet/cs/CupriFace.Binding.Gen.dll \
+                   analyzers/dotnet/cs/CupriFace.Binding.Analyzers.dll \
+                   analyzers/dotnet/cs/CupriFace.Resources.Gen.dll \
+                   buildTransitive/CupriFace.targets \
+                   buildTransitive/CupriFace.Resources.targets; do
+            grep -q "$f" engine-pkg.txt || { echo "::error::CupriFace packed without $f"; cat engine-pkg.txt; exit 1; }
+          done
           # The media package must actually CARRY the decoders it promises — a nupkg without
           # runtimes/ would install fine and then never play anything.
           if [ -f native/win-x64/cupricodecs.dll ]; then

@@ -48,6 +48,25 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 - **A skill for coding agents: `cupriface-ui`.** In this repository at `.claude/skills/cupriface-ui`;
   `cupri skill` installs it into any project. It tells an agent that CupriFace is not a browser, to
   look at its UI with `cupri preview` rather than a browser, and the layout rules that differ.
+- **Binding typos are a build warning now.** Every `{{Path}}` in an app's markup is checked against
+  the C# model it is bound to, and one that names nothing is reported by the compiler as **CF0060**
+  — the doctor's code, a Warning, at the line and column in the `.html` file (or inside the C#
+  string the markup is written in): `App.html(12,25): warning CF0060: {{NavComponnets}} does not
+  name anything on ShowcaseModel, so it renders as empty text. Did you mean {{NavComponents}}?`
+  The model is worked out from a `CupriApp` (its `Html`/`MarkupSource` and the static type its
+  `Model` returns) and from `CupriDocument.Load(markup).Bind(model)`; anything else says so with
+  `[CupriMarkup("Assets/App.html")]` on the model class (or
+  `[assembly: CupriMarkup("Assets/App.html", typeof(Model))]`). Models whose names cannot be known
+  from their type — `object`, an interface, a dictionary, JSON, `IBindableShape` — are not checked.
+  `dotnet_diagnostic.CF0060.severity = error` in a `.globalconfig` (`is_global = true`) fails the
+  build on one and `= none` turns it off — an `.editorconfig` section does not reach a finding in an
+  `.html` file. `<NoWarn>CF0060</NoWarn>` works too. Details in TOOLBOX.md §3 "Build-time binding checks".
+- **The CupriFace package now carries the Assets pipeline.** Every file under an app's `Assets/`
+  folder is embedded under its logical name (`Assets/App.html`) and the typed `Assets` class is
+  generated, with nothing to import — previously that took `CupriFace.Resources.targets`, which only
+  existed inside this repository. **If you copied that file into your project, delete the copy and
+  its `<Import>`** (a leftover copy is tolerated, not needed). An app whose `Assets/` folder belongs
+  to something else sets `<CupriFaceAssets>false</CupriFaceAssets>`.
 - `IBindableShape`: a model whose properties are not .NET properties (JSON, a dictionary) lists its
   names, so CupriDoctor's binding check (CF0060) can check it — by value, into repeated items.
 - `CupriDocument.ReplaceSource(html, css)` swaps a live document's markup and stylesheet, keeping its

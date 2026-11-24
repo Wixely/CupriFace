@@ -1,0 +1,21 @@
+<Project>
+  <!--
+    Flows into apps that consume the CupriFace nupkg. In this repository projects import
+    src/CupriFace.Resources.targets directly instead, since a ProjectReference does not carry
+    buildTransitive.
+
+    The Assets pipeline (TOOLBOX.md §2.1): every file under the app's Assets/ folder is embedded
+    under a stable logical name ("Assets/App.html"), the typed `Assets` class is generated from them,
+    and the markup reaches the build-time binding check (CF0060) as AdditionalFiles. A project with
+    no Assets/ folder gets nothing from this.
+
+    To turn it off — an Assets/ folder that belongs to something else — set, in the app's project:
+        <CupriFaceAssets>false</CupriFaceAssets>
+
+    Skipped when the project already imported the same file itself (the guard property it sets), so
+    a project that wired the pipeline up by hand before it was packaged does not embed everything
+    twice.
+  -->
+  <Import Project="$(MSBuildThisFileDirectory)CupriFace.Resources.targets"
+          Condition="'$(CupriFaceAssets)' != 'false' And '$(_CupriFaceResourcesImported)' != 'true'" />
+</Project>

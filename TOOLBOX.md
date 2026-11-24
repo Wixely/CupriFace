@@ -68,7 +68,7 @@ if (!report.IsClean) Console.WriteLine(report);
 | `CF0050` / `CF0051` | A CSS property, or a function like `repeating-linear-gradient()`, that is silently ignored |
 | `CF0052` | An `@import` — stepped over rather than fetched, so the stylesheet it names (usually a web font) never loads |
 | `CF0054` | A `shader()` that will not run: its `@shader` block did not compile (the compiler's message is quoted), or its name refers to nothing — the element then paints as though it were not written |
-| `CF0060` | A `{{path}}` that names nothing on the model — it renders as empty text, which is indistinguishable from data you have not loaded yet |
+| `CF0060` | A `{{path}}` that names nothing on the model — it renders as empty text, which is indistinguishable from data you have not loaded yet. **Also a compiler warning**, at the line and column in the `.html` — see §3 "Build-time binding checks" |
 | `CF0070` | Contents that do not fit a fixed-height box. They do not clip (`overflow: visible` is the CSS default) — they paint over whatever follows, which reads as a z-order bug rather than a height that is too small |
 | `CF0071` | A box that laid out with no area at all while holding visible content |
 | `CF0074` | Two rounded, filled boxes sitting flush against each other with nothing between them — a margin nobody set, so the two curves collide and the pair reads as one broken shape. Only the corners on the seam are examined and both sides must be curved, which is why a card header above a card body (square where they meet, flush by design) stays silent. Overlap is left alone too: a stack of round avatars pulled together is a design, and only a gap of exactly zero means "unset". A box that is not painted where it was laid out is skipped as well — `opacity: 0` on it or any ancestor, or a `transform` on the box itself — because its layout-box adjacency says nothing about the pixels. Info, not a warning — the layout works, it reads badly |
@@ -416,8 +416,11 @@ a tripped guard throws `CupriResourceException`.
 
 ### The recommended pattern — embedded, but editable
 
-Author files under an **`Assets/`** folder (real `.html`/`.css`, full IDE tooling). Import the
-resource pipeline and the generator in your `.csproj`:
+Author files under an **`Assets/`** folder (real `.html`/`.css`, full IDE tooling). **From the
+CupriFace package that is all there is to it** — the package embeds everything under `Assets/` and
+generates the `Assets` class (set `<CupriFaceAssets>false</CupriFaceAssets>` if your `Assets/` folder
+belongs to something else). Inside this repository, where a ProjectReference does not carry the
+package's build files, import the resource pipeline and the generator in the `.csproj`:
 
 ```xml
 <ItemGroup>
@@ -474,6 +477,72 @@ fallback, which is **not** AOT‑safe. Value coercion (`"60"` → `int`, etc.) i
 Mutating the model in a click handler and returning re‑binds automatically. If you mutate the model
 outside of an input dispatch (e.g. a background timer), call `doc.Refresh()` (or set
 `RefreshIntervalSeconds` on your `CupriApp`).
+
+### Build-time binding checks (CF0060)
+
+A misspelt binding resolves to null and renders as empty text — on screen it is a model with no data
+yet. The doctor finds it when you run it; **the compiler finds it on every build.** An analyzer in
+the CupriFace package checks every `{{Path}}` and every `data-repeat` in an app's markup against the
+C# model, and reports one that names nothing where it is written:
+
+```
+Assets\ShowcaseApp.html(12,25): warning CF0060: {{NavComponnets}} does not name anything on ShowcaseModel,
+    so it renders as empty text. Did you mean {{NavComponents}}?
+```
+
+Double-click it and the editor opens the `.html` at that column. Markup written in C# (an `Html`
+override, a `const`, a string passed to `CupriDocument.Load`) is reported inside the string literal.
+
+**How it finds the model.** Nothing to configure for the usual shapes:
+
+- a `CupriApp` — whatever its `Html` returns, or failing that its `MarkupSource` (`Assets.App.Html`,
+  `EmbeddedAsset("Assets/App.html")`, a constant string), bound to the **static type** of what
+  `Model` returns, so `public override object Model => _model;` checks against `_model`'s field type;
+- `CupriDocument.Load(markup, …).Bind(model)`, chained, or through one local that nothing reassigns.
+
+Anything else — markup loaded in one place and bound in another, a host that is not a `CupriApp` —
+names its markup on the model:
+
+```csharp
+[CupriMarkup("Assets/Board.html")]                          // CupriFace.Binding
+public sealed partial class BoardModel { … }
+
+[assembly: CupriMarkup("Assets/Board.html", typeof(BoardModel))]   // a model you cannot annotate
+```
+
+The file must reach the compiler as an `AdditionalFiles` item — everything under `Assets/` does, via
+the package's Assets pipeline (§2.1). A project that adds its own is matched by the end of the path.
+
+**What it checks is the doctor's rule, exactly.** Existence, not value — a property that is null is
+fine. Dotted paths walk property types (`{{User.Name}}`, `{{Tasks.Count}}`). Inside a `data-repeat`
+a name may come from the item or from anything outside it, as at runtime; item types are found to a
+fixed point, so a list that lives on an item type is in scope too. `{{.}}` and `{{this}}` are the
+context itself. A `data-repeat` that names nothing is reported (its list renders no rows), and the
+bindings inside it are not — fix the list and they are checked.
+
+**What it deliberately does not check.** The build sees declared types; the runtime sees values. So
+it stays silent wherever the type cannot say what names a value will have: a model or property typed
+`object` or an interface, a type parameter, `dynamic`, a dictionary, `System.Text.Json` nodes, an
+`IBindableShape`, a hand-written `IBindableAccessor` (its switch is its own business), and a
+`data-repeat` over a non-generic or `object` collection. A property typed as a base class is widened
+by every class in the project that derives from it — `{{Current.Radius}}` on a `Shape Current`
+holding a `Circle` is not reported. Like the doctor, a name is accepted if it exists on the model or
+on ANY list's items in the document, which misses a name used outside its own list but never cries
+wolf on markup the engine renders correctly. For those, run the doctor with a real model.
+
+**Severity.** A Warning by default. Set it in a **`.globalconfig`** beside the project, not in a
+section of `.editorconfig`:
+
+```ini
+is_global = true
+dotnet_diagnostic.CF0060.severity = error    # fail the build on a binding typo
+# dotnet_diagnostic.CF0060.severity = none   # or switch it off
+```
+
+An `.editorconfig` section is matched against the C# file a diagnostic is in, and a finding in an
+`.html` file is in no C# file — so `[*.html]` and `[*.cs]` sections never reach it (a `[*.cs]`
+section does reach a finding inside a C# string). `<WarningsAsErrors>CF0060</WarningsAsErrors>` or
+`<NoWarn>CF0060</NoWarn>` in the project work too.
 
 ---
 
