@@ -363,7 +363,39 @@ public sealed class ComponentRegistry
         return this;
     }
 
-    /// <summary>The first-party control library (DESIGN.md §10.5).</summary>
+    /// <summary>
+    /// A registry holding only the built-in controls named, for a build that should carry nothing
+    /// else (#325): <c>ComponentRegistry.Of(new SliderComponent(), new SwitchComponent())</c>.
+    ///
+    /// <para><see cref="Default"/> constructs every control, so an app that returns it from
+    /// <see cref="CupriApp.Components"/> keeps all of them — charts, date pickers, Markdown, video —
+    /// in a trimmed or NativeAOT publish whether the markup uses them or not. Only the controls
+    /// constructed here are reachable from this one, so the trimmer removes the rest.</para>
+    ///
+    /// <para>They join the <see cref="ComponentLayer.BuiltIn"/> layer, exactly as in
+    /// <see cref="Default"/>, so the cascade is unchanged and libraries and replacements are added
+    /// on top as usual. A control that expands into another control needs that one named too; one
+    /// left out stays an unexpanded tag, which <see cref="Diagnostics.CupriDoctor"/> reports as
+    /// CF0020 when it is given this registry.</para>
+    /// </summary>
+    /// <exception cref="ComponentConflictException">The same tag is named twice.</exception>
+    public static ComponentRegistry Of(params ICupriComponent[] controls)
+    {
+        ArgumentNullException.ThrowIfNull(controls);
+        var registry = new ComponentRegistry();
+        foreach (var c in controls)
+        {
+            ArgumentNullException.ThrowIfNull(c);
+            if (registry._components.ContainsKey(c.Tag))
+                throw new ComponentConflictException($"<{c.Tag}> is named twice.");
+            registry.BuiltIn(c);
+        }
+        return registry;
+    }
+
+    /// <summary>The first-party control library (DESIGN.md §10.5): every built-in control. The
+    /// convenient choice, and what <see cref="CupriApp.Components"/> returns unless overridden — see
+    /// <see cref="Of"/> for a build that should carry only the controls it uses.</summary>
     public static ComponentRegistry Default() => new ComponentRegistry()
         // Inputs
         .BuiltIn(new SliderComponent())

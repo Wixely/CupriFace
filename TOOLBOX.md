@@ -2454,6 +2454,77 @@ var w = doc.Windows?.Open(myDocument, new WindowOptions { Title = "Inspector", W
   touch, controllers (a pad drives the main window's document), native video overlays, accessibility
   bridges, and the F12 inspector.
 
+## 8.1.4 Minimal web builds
+
+A trimmed or NativeAOT publish keeps what is *reachable*, not what a page uses. By default that is
+more than most pages need: `CupriApp.Components` returns `ComponentRegistry.Default()`, which
+constructs every control, and the web hosts embed two fonts and wire up video and file drops
+whether the app uses them or not. Four settings leave those parts out of the binary. Each one
+removes code at publish time, not just at run time:
+
+```csharp
+// Only the controls the markup uses. Default() constructs all of them, so all of them stay.
+public override ComponentRegistry Components =>
+    ComponentRegistry.Of(new SliderComponent(), new SwitchComponent());
+```
+
+```xml
+<!-- in the app's .csproj -->
+<CupriWebFonts>regular</CupriWebFonts>      <!-- all (default) | regular | none -->
+<CupriWebVideo>false</CupriWebVideo>        <!-- no browser-video backend -->
+<CupriWebFileDrop>false</CupriWebFileDrop>  <!-- the page accepts no drops -->
+```
+
+What each one does, measured on `samples/WebLlvmShaders` (NativeAOT-LLVM, `-O1`, a 15,768,972-byte
+wasm before any of them and 14,557,940 with the sample's own settings, which keep the regular face;
+brotli-11 takes the download from 3,895,626 to 3,631,523 bytes):
+
+| Setting | What goes | wasm bytes |
+|---|---|---:|
+| `ComponentRegistry.Of(...)` with the 2 controls used | every other control: charts, pickers, Markdown, carousel… | −492,068 |
+| `CupriWebFonts=regular` | NotoSans-Bold.ttf. Bold text is the regular face, thickened | −631,670 |
+| `CupriWebFonts=none` | NotoSans-Regular.ttf as well | −621,449 more |
+| *(nothing to set: the host's narrower root, below)* | host code no export reaches | −62,998 |
+| `CupriWebVideo=false`, `CupriWebFileDrop=false` | the host's video backend and drop reader | −24,296 together |
+
+- **A control left out of `Of`** stays an unexpanded tag. `CupriDoctor` given the registry reports
+  it as CF0020, and `cupri check --app` passes the app's own registry. A control that expands into
+  another one needs both named.
+- **With `CupriWebFonts=none`**, the app brings its own face: `doc.LoadFont(bytes)` in `Configure`.
+  The first face registered becomes `sans-serif`. Without one, text is drawn in Noto Mono, the only
+  face in the wasm Skia build. The host prints a console line saying so.
+- **With `CupriWebVideo=false`**, a `<cupri-video>` shows its poster. **With `CupriWebFileDrop=false`**,
+  the page tells the browser it accepts no drops. The page's exports stay in both cases and do
+  nothing.
+- **They work on both web hosts.** On Mono the trimmer drops the same code; only the NativeAOT
+  figures above are measured.
+
+`samples/WebLlvmShaders` is the reference minimal build and `samples/WebLlvm` the full one. CI
+publishes both and checks the result, not the source:
+
+- excluded types are absent from ILC's map;
+- the bold face's bytes are absent from the wasm;
+- every export the page calls is still there;
+- the minimal build boots, animates and answers input in Chromium (`MinimalBuildTests`).
+
+The sizes, raw and compressed, go to the job summary.
+
+**How the NativeAOT host is rooted.** The page calls the host through `[UnmanagedCallersOnly]`
+exports, so nothing managed reaches them and they must be rooted explicitly. The host roots only its
+`Interop` type (`buildTransitive/CupriFace.Web.NativeAot.roots.xml`); everything else is kept
+because those exports call it. It used to root the whole host assembly, which kept every method
+whether or not a feature switch had made it unreachable. Narrowing the root cut 71,685 bytes from
+the full Showcase with no switch set. `<CupriWebRootWholeHost>true</CupriWebRootWholeHost>`
+restores the old root if a build ever needs it.
+
+**Not yet removable:**
+
+- **The engine's media model.** `VideoChapter`, `VideoTrack` and their generic instantiations stay
+  with video off, because the engine itself reaches them.
+- **612,764 bytes of `codepages.nlp`.** AngleSharp's legacy-charset support pulls in
+  System.Text.Encoding.CodePages.
+- **Native Skia and HarfBuzz.** Shrinking them would need differently built native archives.
+
 ## 8.2 Scrolling
 
 `overflow: scroll` scrolls on **both axes**, independently. A box whose content is wider than it is

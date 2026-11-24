@@ -206,6 +206,17 @@ public static class WebHostCore
         _doc?.ReportRenderer(info);
     }
 
+    private static void LoadBundledFont(string resource)
+    {
+        using var fs = typeof(WebHostCore).Assembly.GetManifestResourceStream(resource)
+                       ?? throw new InvalidOperationException(
+                           $"The host is missing its embedded font '{resource}'. Without a real sans " +
+                           "face every app renders monospaced (see src/WebFonts.props).");
+        var buf = new byte[fs.Length];
+        fs.ReadExactly(buf);
+        _doc!.LoadFont(buf);
+    }
+
     /// <summary>Build the app's document and wire it to the page. Called once, after the runtime is
     /// resident and <c>Main</c> has registered an app.</summary>
     public static void Init(CupriApp app, Action<CupriDocument>? configure, IWebBridge bridge)
@@ -227,17 +238,13 @@ public static class WebHostCore
 
         // The wasm Skia build has ONE embedded face (Noto Mono) — without these, sans-serif silently
         // renders monospaced. Registered faces win over platform lookup; the first family becomes
-        // the generic sans target (see FontService).
-        foreach (var res in new[] { "fonts.NotoSans-Regular.ttf", "fonts.NotoSans-Bold.ttf" })
-        {
-            using var fs = typeof(WebHostCore).Assembly.GetManifestResourceStream(res)
-                           ?? throw new InvalidOperationException(
-                               $"The host is missing its embedded font '{res}'. Without a real sans " +
-                               "face every app renders monospaced (see src/WebFonts.props).");
-            var buf = new byte[fs.Length];
-            fs.ReadExactly(buf);
-            _doc.LoadFont(buf);
-        }
+        // the generic sans target (see FontService). Each is a feature switch (WebFeatures): tested
+        // one at a time and directly, so a publish that turned one off folds the test and drops it.
+        if (WebFeatures.RegularFont) LoadBundledFont("fonts.NotoSans-Regular.ttf");
+        if (WebFeatures.BoldFont) LoadBundledFont("fonts.NotoSans-Bold.ttf");
+        if (!WebFeatures.RegularFont && !WebFeatures.BoldFont)
+            Console.WriteLine("[CupriFace] no bundled sans face (CupriWebFonts=none). Text uses the fonts the app " +
+                              "registered with doc.LoadFont, and Noto Mono where it registered none.");
 
         _bg = _app.Background;
         _transparent = _app.Transparent;
@@ -254,9 +261,13 @@ public static class WebHostCore
         // Video: the browser decodes (no codecs in the wasm binary). Each <cupri-video> gets an
         // underlaid element; the engine punches a transparent hole where it shows and paints its own
         // controls on top. Rect/clip sync happens after each painted frame.
-        _video = new WebVideoBackend(_js);
+        // A feature switch (WebFeatures.Video): off, and the backend is never built or reachable.
+        if (WebFeatures.Video)
+        {
+            _video = new WebVideoBackend(_js);
+            _doc.UseVideo(_video);
+        }
         _underlays = new WebUnderlays(_js);
-        _doc.UseVideo(_video);
 
         // Fullscreen requests (the ⛶ control) go to the browser's Fullscreen API. Escape exits
         // natively; the resize that follows reflows the app like any window resize.
@@ -455,7 +466,7 @@ public static class WebHostCore
             // they convert into a staging buffer (Skia unpremultiplies for us). Video holes need the
             // same: their alpha-0 pixels only reach the page through the straight-alpha path.
             var present = _bitmap;
-            if (_transparent || (_video?.AnyReady ?? false) || (_underlays?.Any ?? false))
+            if (_transparent || (WebFeatures.Video && (_video?.AnyReady ?? false)) || (_underlays?.Any ?? false))
             {
                 var fresh = _straight is null || _straight.Width != width || _straight.Height != height;
                 if (fresh)
@@ -518,7 +529,7 @@ public static class WebHostCore
         // One syncer for every underlaid element. Video resolves to the player id it already
         // owns; a surface asking for a canvas gets one created here. Both then move identically
         // through the clip and transform chains.
-        _underlays?.Sync(_doc, _scale, key => _video?.IdForSurface(key));
+        _underlays?.Sync(_doc, _scale, key => WebFeatures.Video ? _video?.IdForSurface(key) : null);
         return damage is not null;
     }
 
@@ -588,10 +599,10 @@ public static class WebHostCore
 
     /// <summary>The name of the file whose metadata is being assembled. Sent separately because the
     /// C ABI has no string type, so each one crosses through the shared buffer in its own call.</summary>
-    public static void DropName(string name) => _dropName = name;
+    public static void DropName(string name) { if (WebFeatures.FileDrop) _dropName = name; }
 
     /// <summary>The media type of the file being assembled — whatever the browser inferred.</summary>
-    public static void DropType(string mediaType) => _dropType = mediaType;
+    public static void DropType(string mediaType) { if (WebFeatures.FileDrop) _dropType = mediaType; }
 
     /// <summary>One file in the drop, identified by the handle JS kept for it. Gathered rather than
     /// dispatched: a drop of three files is one gesture and must reach the app as one event.
@@ -602,6 +613,7 @@ public static class WebHostCore
     /// file until someone tried to open it.</para></summary>
     public static void DropFile(int id, double size, bool isDirectory)
     {
+        if (!WebFeatures.FileDrop) return;
         var name = _dropName; var type = _dropType;   // captured: the fields move on to the next file
         _dropName = ""; _dropType = "";
         var length = (long)size;
@@ -616,6 +628,7 @@ public static class WebHostCore
     /// <summary>Every file has crossed: raise the drop at the point the page reported.</summary>
     public static void DropCommit(double x, double y)
     {
+        if (!WebFeatures.FileDrop) return;
         var files = _dropPending.ToArray();
         _dropPending.Clear();
         if (files.Length == 0) return;
@@ -624,18 +637,20 @@ public static class WebHostCore
 
     /// <summary>Dragging over the canvas — the highlight the desktop hosts cannot offer.</summary>
     public static void DropOver(double x, double y)
-    { if (_doc?.DispatchDropOver(L(x), L(y)) == true) _dirty = true; }
+    { if (WebFeatures.FileDrop && _doc?.DispatchDropOver(L(x), L(y)) == true) _dirty = true; }
 
     /// <summary>The drag left, or was abandoned.</summary>
     public static void DropLeave()
     {
+        if (!WebFeatures.FileDrop) return;
         _dropPending.Clear();
         if (_doc?.DispatchDropLeave() == true) _dirty = true;
     }
 
     /// <summary>Whether the document would do anything with a drop. The page asks before it tells the
-    /// browser it accepts the drag, so a document with no handler keeps the "no entry" cursor.</summary>
-    public static bool AcceptsFileDrop() => _doc?.AcceptsFileDrop == true;
+    /// browser it accepts the drag, so a document with no handler keeps the "no entry" cursor. With
+    /// <see cref="WebFeatures.FileDrop"/> off, never.</summary>
+    public static bool AcceptsFileDrop() => WebFeatures.FileDrop && _doc?.AcceptsFileDrop == true;
 
     // Ask the page for part of a file and wait. The round trip is a token rather than a promise
     // because the C ABI carries neither — JS answers by calling DropBytes/DropFailed with the token
@@ -664,6 +679,7 @@ public static class WebHostCore
     /// <summary>JS answering a <c>DropRead</c>: the bytes for that token.</summary>
     public static void DropBytes(int token, byte[] bytes)
     {
+        if (!WebFeatures.FileDrop) return;
         if (_dropReads.Remove(token, out var tcs)) tcs.TrySetResult(bytes);
     }
 
@@ -671,6 +687,7 @@ public static class WebHostCore
     /// Faulted rather than empty: an app must be able to tell "unreadable" from "zero bytes".</summary>
     public static void DropFailed(int token, string message)
     {
+        if (!WebFeatures.FileDrop) return;
         if (_dropReads.Remove(token, out var tcs))
             tcs.TrySetException(new IOException($"The dropped file could not be read: {message}"));
     }
@@ -917,7 +934,7 @@ public static class WebHostCore
 
     public static void VideoMeta(int id, double duration, int width, int height)
     {
-        if (_video?.Get(id) is not { } p) return;
+        if (!WebFeatures.Video || _video?.Get(id) is not { } p) return;
         p.DurationSeconds = duration;
         p.Natural = width > 0 && height > 0 ? (width, height) : null;
         _dirty = true;   // intrinsic size may reflow the element
@@ -925,6 +942,7 @@ public static class WebHostCore
 
     public static void VideoReady(int id)
     {
+        if (!WebFeatures.Video) return;
         if (_video?.Get(id) is not { } p) return;
         p.Ready = true;  // HostComposited flips on → the next paint punches the hole
         _dirty = true;
@@ -934,6 +952,7 @@ public static class WebHostCore
     /// engine's controls follow it, so they can never claim a playback the browser refused.</summary>
     public static void VideoPlayState(int id, bool playing)
     {
+        if (!WebFeatures.Video) return;
         if (_video?.Get(id) is not { } p) return;
         p.PlayingNow = playing;
         _doc?.Refresh();  // relabel the play/pause control
@@ -941,9 +960,9 @@ public static class WebHostCore
     }
 
     public static void VideoTime(int id, double seconds)
-    { if (_video?.Get(id) is { } p) p.PositionSeconds = seconds; }
+    { if (WebFeatures.Video && _video?.Get(id) is { } p) p.PositionSeconds = seconds; }
 
-    public static void VideoEnded(int id) => _video?.Get(id)?.RaiseEnded();
+    public static void VideoEnded(int id) { if (WebFeatures.Video) _video?.Get(id)?.RaiseEnded(); }
 
     public static bool IsCoarsePointer() => _doc?.InputProfile.CoarsePointer == true;
 

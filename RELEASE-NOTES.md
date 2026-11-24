@@ -17,6 +17,21 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Added
 
+- **Minimal web builds: leave out the controls, fonts, video and file drops a page does not use**
+  (#325). Each of these removes code at publish time, not just at run time:
+  - `ComponentRegistry.Of(new SliderComponent(), ...)` registers only the controls named, so a
+    trimmed or NativeAOT publish drops the rest. `Default()` constructs every control, so every
+    control stays.
+  - `<CupriWebFonts>regular|none</CupriWebFonts>` leaves out the web hosts' bundled bold face, or
+    both faces. Bold text is then the regular face thickened.
+  - `<CupriWebVideo>false</CupriWebVideo>` and `<CupriWebFileDrop>false</CupriWebFileDrop>` leave
+    out the host's video backend and drop reader.
+
+  `samples/WebLlvmShaders` is now the minimal build: 15,768,972 → 14,557,940 bytes of wasm, and
+  3.90 → 3.63 MB under brotli. CI checks the published output: what is excluded is absent from
+  ILC's map and the wasm, the page's exports are all there, and the page runs in Chromium. Both
+  builds' sizes go to the job summary. TOOLBOX.md §8.1.4 has the figure for each setting.
+
 - **Dev tools for desktop apps: hot reload, an F12 inspector, and the doctor on every save.** In a
   Debug build of a desktop app, saving `Assets/App.html` or `App.css` reloads it into the running
   window with the model, focus and scroll intact, and a C# hot reload (the debugger's, or
@@ -147,6 +162,11 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ### Fixed
 
+- **The NativeAOT web host no longer keeps every method it contains.** It rooted its whole
+  assembly so the page's exports would survive trimming. That also kept every method a feature
+  switch had made unreachable. It now roots only the exports, which keep the rest by calling it:
+  71,685 bytes off the full Showcase with nothing set, and the export list is unchanged.
+  `<CupriWebRootWholeHost>true</CupriWebRootWholeHost>` restores the old root. (#325)
 - **The Settings sample fits its own window and a phone.** Its panel was a content-box `width:520px`
   plus padding and margin, 620px in all: 20px past its own 600px window and 208px past a phone. It is
   now `border-box` with a `max-width`, and narrows its labels below 480px. (#326)

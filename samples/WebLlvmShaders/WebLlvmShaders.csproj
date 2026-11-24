@@ -80,6 +80,15 @@
     <UseSystemResourceKeys>true</UseSystemResourceKeys>
     <StackTraceSupport>true</StackTraceSupport>
     <DebugType>none</DebugType>
+    <!-- THE MINIMAL BUILD (#325). The page uses two controls, no video and no file drops, so it
+         carries none of the rest: ShadersApp registers only its slider and switch
+         (ComponentRegistry.Of), and these switches take the host's video and drop support and its
+         bundled bold face out of the binary — bold text is the regular face thickened. Each is
+         removed at publish, not skipped at run time; TOOLBOX.md "Minimal web builds" has the numbers.
+         samples/WebLlvm is the full build to compare against. -->
+    <CupriWebFonts>regular</CupriWebFonts>
+    <CupriWebVideo>false</CupriWebVideo>
+    <CupriWebFileDrop>false</CupriWebFileDrop>
   </PropertyGroup>
 
   <ItemGroup>

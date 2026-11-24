@@ -49,4 +49,32 @@
     <_AOT_InternalForceInterpretAssemblies Include="$(CupriInterpretAssemblies)" Condition="'$(CupriInterpretAssemblies)' != ''" />
     <_AOT_InternalForceInterpretAssemblies Include="CupriFace.dll" Condition="'$(CupriInterpretAssemblies)' == ''" />
   </ItemGroup>
+
+  <!--
+    What the app leaves out of its binary (#325), each a feature switch (WebFeatures in the host).
+
+    The bundled sans faces: <CupriWebFonts>all</CupriWebFonts> (the default),
+    `regular` (bold is synthesised from it), or `none` (the app registers its own with
+    doc.LoadFont). Trim="true" makes them feature switches, so a face that is off is removed from
+    the published binary, not merely left unread. Kept identical in CupriFace.Web.NativeAot.targets.
+  -->
+  <PropertyGroup>
+    <CupriWebFonts Condition="'$(CupriWebFonts)' == ''">all</CupriWebFonts>
+    <_CupriWebFontRegular>true</_CupriWebFontRegular>
+    <_CupriWebFontRegular Condition="'$(CupriWebFonts)' == 'none'">false</_CupriWebFontRegular>
+    <_CupriWebFontBold>true</_CupriWebFontBold>
+    <_CupriWebFontBold Condition="'$(CupriWebFonts)' != 'all'">false</_CupriWebFontBold>
+  </PropertyGroup>
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="CupriFace.Web.Fonts.Regular" Value="$(_CupriWebFontRegular)" Trim="true" />
+    <RuntimeHostConfigurationOption Include="CupriFace.Web.Fonts.Bold" Value="$(_CupriWebFontBold)" Trim="true" />
+    <!-- <CupriWebVideo>false</CupriWebVideo>: no browser-video backend; a <cupri-video> shows its
+         poster. <CupriWebFileDrop>false</CupriWebFileDrop>: the page is told no drop is accepted. -->
+    <RuntimeHostConfigurationOption Include="CupriFace.Web.Video" Value="$(CupriWebVideo)" Trim="true" Condition="'$(CupriWebVideo)' != ''" />
+    <RuntimeHostConfigurationOption Include="CupriFace.Web.FileDrop" Value="$(CupriWebFileDrop)" Trim="true" Condition="'$(CupriWebFileDrop)' != ''" />
+  </ItemGroup>
+  <Target Name="CupriCheckWebFonts" BeforeTargets="CoreCompile;PrepareForPublish"
+          Condition="'$(CupriWebFonts)' != 'all' and '$(CupriWebFonts)' != 'regular' and '$(CupriWebFonts)' != 'none'">
+    <Error Code="CUPRI1003" Text="CupriWebFonts is '$(CupriWebFonts)'; it takes all (the default), regular, or none." />
+  </Target>
 </Project>

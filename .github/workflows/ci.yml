@@ -495,8 +495,9 @@ jobs:
         if: runner.os == 'Windows'
         run: dotnet workload install wasm-tools
 
+      # The map is ILC's list of what it compiled, which the minimal-build check below reads.
       - name: Publish
-        run: dotnet publish samples/WebLlvm/WebLlvm.csproj -c Release
+        run: dotnet publish samples/WebLlvm/WebLlvm.csproj -c Release -p:IlcGenerateMapFile=true
 
       - name: Verify a wasm module came out
         shell: bash
@@ -504,6 +505,28 @@ jobs:
           f=$(find samples/WebLlvm/bin/Release -name 'dotnet.native.wasm' | head -1)
           test -n "$f" || { echo "::error::no wasm module was produced"; exit 1; }
           ls -l "$f"
+
+      # THE MINIMAL BUILD (#325): samples/WebLlvmShaders registers two controls and publishes without
+      # the host's video, file drop or bold face. A switch folded the wrong way still links, so the
+      # check is against what was published: what it leaves out is absent from ILC's map and from the
+      # wasm, what it keeps is there, the page's exports are all still callable, and both builds'
+      # sizes (raw, gzip, brotli) go to the job summary. That it RUNS is the web-touch job's
+      # "minimal" leg. Linux only: one OS is enough to measure, and the Windows leg proves the link.
+      - name: Publish the minimal build
+        if: runner.os == 'Linux'
+        run: dotnet publish samples/WebLlvmShaders/WebLlvmShaders.csproj -c Release -p:IlcGenerateMapFile=true
+
+      - name: Minimal build leaves out what it says it does
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          python3 -m pip install --quiet brotli || echo "brotli unavailable: its column reports n/a"
+          full=samples/WebLlvm/obj/Release/net10.0/browser-wasm/native/WebLlvm
+          min=samples/WebLlvmShaders/obj/Release/net10.0/browser-wasm/native/WebLlvmShaders
+          python3 .github/scripts/minimal-web-build.py \
+            --full samples/WebLlvm/bin/Release/net10.0/browser-wasm/publish "$full.map.xml" "$full.exports" \
+            --minimal samples/WebLlvmShaders/bin/Release/net10.0/browser-wasm/publish "$min.map.xml" "$min.exports" \
+            --fonts src/WebFonts
   # The web host's touch contract, driven by a REAL browser.
   #
   # Every other input claim here is held by a real client — FlaUI on Windows, pyatspi on Linux,
@@ -532,6 +555,14 @@ jobs:
             # Only this host's composition root wires a 3D surface, so only here is there a canvas
             # underlay to assert on. WebWasm shows the poster, and the test skips rather than fails.
             gl3d: "1"
+          # The minimal build (#325) RUNS: boots, animates, its bound controls answer, text keeps its
+          # face. A different app from the Showcase, so only its own test applies.
+          - host: NativeAOT-LLVM minimal
+            project: samples/WebLlvmShaders/WebLlvmShaders.csproj
+            wwwroot: samples/WebLlvmShaders/bin/Release/net10.0/browser-wasm/publish
+            id: llvm
+            minimal: "1"
+            filter: FullyQualifiedName~MinimalBuildTests
     steps:
       - uses: actions/checkout@v4
 
@@ -581,7 +612,10 @@ jobs:
           CUPRI_WEB_WWWROOT: ${{ github.workspace }}/${{ matrix.wwwroot }}
           CUPRI_WEB_HOST: ${{ matrix.id }}
           CUPRI_WEB_3D: ${{ matrix.gl3d }}
-        run: dotnet test tests/WebTouchGate/WebTouchGate.csproj -c Release --no-build --logger "console;verbosity=normal"
+          CUPRI_WEB_MINIMAL: ${{ matrix.minimal }}
+        run: >
+          dotnet test tests/WebTouchGate/WebTouchGate.csproj -c Release --no-build --logger "console;verbosity=normal"
+          --filter "${{ matrix.filter || 'FullyQualifiedName~CupriFace.WebTouchGate' }}"
 
 
 
@@ -2398,6 +2432,9 @@ jobs:
           for spec in \
             "CupriFace.Gl:buildTransitive/CupriFace.Gl.props:DirectPInvoke" \
             "CupriFace.Web.NativeAot:buildTransitive/CupriFace.Web.NativeAot.props:EmccFlags" \
+            "CupriFace.Web.NativeAot:buildTransitive/CupriFace.Web.NativeAot.roots.xml:CupriFace.Web.Interop" \
+            "CupriFace.Web.NativeAot:buildTransitive/CupriFace.Web.NativeAot.targets:CupriFace.Web.Fonts.Regular" \
+            "CupriFace.Web.Mono:buildTransitive/CupriFace.Web.Mono.targets:CupriFace.Web.Fonts.Regular" \
             "CupriFace.Web.Mono:buildTransitive/CupriFace.Web.Mono.props:WasmBuildNative" \
             "CupriFace.Shell:buildTransitive/CupriFace.Shell.targets:CupriFace.DevTools.IsSupported" \
           ; do

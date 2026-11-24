@@ -59,8 +59,14 @@
          nothing: the app never calls Init or Tick from managed code — the page does. Measured
          rather than assumed, by exporting a probe method from a library and looking for its symbol
          in the published wasm: absent without this line, present with it. What it prevents is a
-         clean build whose page then finds no exports to call. -->
-    <TrimmerRootAssembly Include="CupriFace.Web.NativeAot" />
+         clean build whose page then finds no exports to call.
+
+         What is rooted is the export surface, not the assembly (#325): the descriptor keeps every
+         method of Interop, and the rest of the host is kept because those methods reach it. Rooting
+         the whole assembly kept code a feature switch had made unreachable. CupriWebRootWholeHost
+         puts the old root back, should a build ever need it. -->
+    <TrimmerRootDescriptor Include="$(MSBuildThisFileDirectory)CupriFace.Web.NativeAot.roots.xml" Condition="'$(CupriWebRootWholeHost)' != 'true'" />
+    <TrimmerRootAssembly Include="CupriFace.Web.NativeAot" Condition="'$(CupriWebRootWholeHost)' == 'true'" />
 
     <!-- …and this is what makes them callable FROM THE PAGE. Keeping a method (above) and exporting
          it are two different things: ILC scans only the assemblies listed here for
@@ -102,6 +108,34 @@
       <NativeLibrary Include="$(PkgSkiaSharp_NativeAssets_WebAssembly)/buildTransitive/netstandard1.0/libSkiaSharp.a/3.1.56/st/libSkiaSharp.a" />
       <NativeLibrary Include="$(PkgHarfBuzzSharp_NativeAssets_WebAssembly)/buildTransitive/netstandard1.0/libHarfBuzzSharp.a/3.1.56/st/libHarfBuzzSharp.a" />
     </ItemGroup>
+  </Target>
+
+  <!--
+    What the app leaves out of its binary (#325), each a feature switch (WebFeatures in the host).
+
+    The bundled sans faces: <CupriWebFonts>all</CupriWebFonts> (the default),
+    `regular` (bold is synthesised from it), or `none` (the app registers its own with
+    doc.LoadFont). Trim="true" makes them feature switches, so a face that is off is removed from
+    the published binary, not merely left unread. Kept identical in CupriFace.Web.Mono.targets.
+  -->
+  <PropertyGroup>
+    <CupriWebFonts Condition="'$(CupriWebFonts)' == ''">all</CupriWebFonts>
+    <_CupriWebFontRegular>true</_CupriWebFontRegular>
+    <_CupriWebFontRegular Condition="'$(CupriWebFonts)' == 'none'">false</_CupriWebFontRegular>
+    <_CupriWebFontBold>true</_CupriWebFontBold>
+    <_CupriWebFontBold Condition="'$(CupriWebFonts)' != 'all'">false</_CupriWebFontBold>
+  </PropertyGroup>
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="CupriFace.Web.Fonts.Regular" Value="$(_CupriWebFontRegular)" Trim="true" />
+    <RuntimeHostConfigurationOption Include="CupriFace.Web.Fonts.Bold" Value="$(_CupriWebFontBold)" Trim="true" />
+    <!-- <CupriWebVideo>false</CupriWebVideo>: no browser-video backend; a <cupri-video> shows its
+         poster. <CupriWebFileDrop>false</CupriWebFileDrop>: the page is told no drop is accepted. -->
+    <RuntimeHostConfigurationOption Include="CupriFace.Web.Video" Value="$(CupriWebVideo)" Trim="true" Condition="'$(CupriWebVideo)' != ''" />
+    <RuntimeHostConfigurationOption Include="CupriFace.Web.FileDrop" Value="$(CupriWebFileDrop)" Trim="true" Condition="'$(CupriWebFileDrop)' != ''" />
+  </ItemGroup>
+  <Target Name="CupriCheckWebFonts" BeforeTargets="CoreCompile;PrepareForPublish"
+          Condition="'$(CupriWebFonts)' != 'all' and '$(CupriWebFonts)' != 'regular' and '$(CupriWebFonts)' != 'none'">
+    <Error Code="CUPRI1003" Text="CupriWebFonts is '$(CupriWebFonts)'; it takes all (the default), regular, or none." />
   </Target>
 
   <!-- Put the host's JS half beside the app's page. This host publishes as a plain wasm app rather
