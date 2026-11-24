@@ -37,6 +37,8 @@
 
   <!-- The logical/device/effective-scale model, shared as source with the tests (#137). -->
   <Import Project="..\Hosting.props" />
+  <!-- How desktop input reaches a document, shared with the tests (main and secondary windows). -->
+  <Import Project="..\DesktopHosting.props" />
 
   <!-- Portable native Skia + HarfBuzz for win/linux/osx (shared with the engine). -->
   <Import Project="..\SkiaNativeAssets.props" />

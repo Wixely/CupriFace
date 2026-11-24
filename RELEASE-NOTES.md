@@ -113,6 +113,27 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   `leaf-status`) and `samples/ComponentLibraryApp`, which consumes it through a ProjectReference or
   through its packed `.nupkg` — the proof that the packaging works, not a description of it.
 
+- **Open, Save and folder dialogs: `doc.FileDialogs`.** `OpenFilesAsync` / `OpenFileAsync` (filters,
+  multi-select, initial folder), `SaveFileAsync` (default name, filters) and `PickFolderAsync`, with
+  `FileFilter("Images", "png", "jpg")` for the type list. They return paths, **null when the user
+  cancelled**, and the code after the `await` runs on the document's thread, so it may touch the model
+  directly. The app keeps drawing while a dialog is open. **Null on a host without dialogs** (web,
+  Android, headless) — check before showing an "Open…" button. Windows uses the Common Item Dialog,
+  macOS `NSOpenPanel`/`NSSavePanel` as a sheet, Linux the xdg-desktop-portal FileChooser.
+  `CUPRIFACE_FILE_DIALOGS=0` turns them off. TOOLBOX.md §8.1.3.
+- **More windows: `doc.Windows.Open(app)` / `Open(document, options)`.** Another `CupriApp` or any
+  document in a window of its own, on the same thread as the main one, with all of its input — pointer,
+  wheel, keys including the F-keys, text, clipboard chords, drops, cursors. `AppWindow.Close()`, a
+  `Title` setter, and `Closed` with the reason (`User`, `App`, `Host`). Null where a host cannot open
+  windows. Second windows draw in software and do not yet get touch, controllers, native video
+  overlays or the accessibility bridges. The dev tools pop-out is now built on the same window.
+- `samples/DesktopDemo`: a small notes app with Open…, Save as…, Choose folder… and a second window.
+- **Verified on Windows only.** The Windows dialogs were driven for real (OK with a typed path, OK
+  with a default name and extension, Cancel, WM_CLOSE, a cancelled token, a refused second request)
+  and second windows by synthetic SDL input on the software path, at 150% scaling. The macOS and Linux
+  dialog code, and second windows beside a GLFW (GPU) main window, are written but **have never run** —
+  expect the first run there to find something.
+
 ### Changed
 
 - **`ComponentRegistry.Register` still lets the last registration win, but no longer silently**: a
@@ -125,6 +146,11 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   built-in rule beating your replacement's at equal specificity.
 
 ### Fixed
+
+- **Work posted with `doc.Post` now runs on the SDL software window when nothing else changes.** The
+  incremental renderer's fast path returned before draining the queue, so on an otherwise idle page
+  posted work never ran — and the host was woken for it again on every tick. Hosts drawing with
+  `RenderIncremental` get it for free.
 
 - **`doc.Focus(selector)` moves keyboard focus to the field as well as the caret.** Called from a
   button's click handler — "Edit" putting the user into a field — it left the button marked focused

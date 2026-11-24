@@ -3,6 +3,7 @@ using CupriFace;
 using CupriFace.DevTools;
 using CupriFace.Hosting;
 using CupriFace.Interaction;
+using CupriFace.Shell.Dialogs;
 
 namespace CupriFace.Shell;
 
@@ -140,6 +141,12 @@ public static class DesktopHost
         }
 
         var clock = Stopwatch.StartNew();
+
+        // Every window beside the main one — the dev tools popped out, and windows the app opens
+        // through doc.Windows — and the one place their SDL events are routed. Disposed in each
+        // window branch's finally, BEFORE that window: the SDL window's Dispose calls SDL_Quit.
+        var childWindows = new SdlChildWindows();
+        doc.Windows = new DesktopAppWindows(doc, childWindows, OpenExternal, clock);
         // The three scales, kept apart (#137). `scale` is P — the APPLICATION's factor, and the only
         // one pointer coordinates need, because both windows now hand this host logical client units
         // already. `effective` is T = D*P — the one the canvas, the surfaces, the damage rectangle
@@ -263,9 +270,9 @@ public static class DesktopHost
             CupriDevTools.IsSupported && devtools is not null && devtools.IsOpen && !devtools.Detached && x >= appClientW;
 
         // The popped-out panel, kept in step with the panel's state once per tick of whichever window
-        // the app got: opened beside the app when it is wanted, closed when it is not, and drawn when
-        // the panel changed. `ownsEvents` is true for the GLFW window, which leaves SDL's queue to it.
-        void SyncPopout(bool ownsEvents, (int X, int Y) at)
+        // the app got: opened beside the app when it is wanted, closed when it is not, and redrawn when
+        // the panel changed. Its events and its drawing are the child-window hub's, like any other.
+        void SyncPopout((int X, int Y) at)
         {
             if (!CupriDevTools.IsSupported || devtools is null) return;
             var want = devtools.IsOpen && devtools.Detached;
@@ -273,7 +280,7 @@ public static class DesktopHost
             {
                 if (popout is null)
                 {
-                    popout = new DevToolsWindow(devtools, ownsEvents, () => dirty = true);
+                    popout = new DevToolsWindow(devtools, childWindows, () => dirty = true);
                     // Its own close button closes the dev tools, as a browser's undocked ones do.
                     // Still popped out, so the next F12 opens the window again.
                     popout.CloseRequested += () => { devtools.IsOpen = false; dirty = true; };
@@ -289,10 +296,10 @@ public static class DesktopHost
                 popout.Close();
                 dirty = true;
             }
-            if (popout is { IsOpen: true })
+            if (popout is { IsOpen: true } && popoutDirty)
             {
-                if (popoutDirty) { popoutDirty = false; popout.Invalidate(); }
-                popout.Pump();
+                popoutDirty = false;
+                popout.Invalidate();
             }
         }
 
@@ -315,7 +322,7 @@ public static class DesktopHost
                 if (InPanel(x)) { panelPressed = true; return devtools.PanelPointerDown(x - appClientW, y, clicks); }
                 if (devtools.AppPointerDown(x / scale, y / scale)) return true;
             }
-            return DesktopPointerDown(doc, x / scale, y / scale, clicks);
+            return DocumentInput.PointerDown(doc, x / scale, y / scale, clicks);
         }
 
         bool PointerMoveAt(float x, float y)
@@ -330,7 +337,7 @@ public static class DesktopHost
                 if (pointerInPanel) { pointerInPanel = false; devtools.PanelPointerLeave(); }
                 if (devtools.AppPointerMove(x / scale, y / scale)) return true;
             }
-            return DesktopPointerMove(doc, x / scale, y / scale);
+            return DocumentInput.PointerMove(doc, x / scale, y / scale);
         }
 
         bool PointerUpAt(float x, float y)
@@ -340,7 +347,7 @@ public static class DesktopHost
                 if (panelPressed) { panelPressed = false; return devtools.PanelPointerUp(x - appClientW, y); }
                 if (devtools.AppPointerUp(x / scale, y / scale)) return true;
             }
-            return DesktopPointerUp(doc, x / scale, y / scale);
+            return DocumentInput.PointerUp(doc, x / scale, y / scale);
         }
 
         Style.CursorType CursorFor(float x, float y)
@@ -434,7 +441,11 @@ public static class DesktopHost
             // for the new one.
             window.DeviceScaleChanged += _ => { doc.InvalidateRetainedFrame(); dirty = true; };
             window.ShouldRender = NeedsRender; // GL: skip draw + swap entirely on clean frames
-            if (CupriDevTools.IsSupported) window.Tick += () => SyncPopout(ownsEvents: true, window.ScreenPosition);
+            // GLFW has nothing to do with SDL, so a second window's events are the hub's to read.
+            childWindows.OwnsEvents = true;
+            if (CupriDevTools.IsSupported) window.Tick += () => SyncPopout(window.ScreenPosition);
+            window.Tick += childWindows.Pump;
+            doc.FileDialogs = DesktopFileDialogs.Create(() => window.Win32Hwnd, () => window.CocoaWindow, doc.Post);
             // What it draws with, once the context exists (it is made inside Run). Reported on
             // the first tick rather than here, which is before the window has opened.
             var rendererReported = false;
@@ -503,17 +514,8 @@ public static class DesktopHost
             window.PointerWheel += (x, y, dy, mods) =>
             {
                 if (InPanel(x)) { Mark(devtools!.PanelWheel(x - appClientW, y, -dy * 50f)); return; }
-                // Ctrl+wheel is zoom — one ladder rung per notch, as every browser has it. A plain
-                // wheel scrolls. The split lives here so the engine never learns chord conventions.
-                // Anchored at the pointer, because a wheel zoom HAS a pointer — the user is
-                // pointing at the thing they want to look at more closely.
-                if (mods.HasFlag(KeyMods.Ctrl))
-                {
-                    if (dy > 0) doc.ZoomIn(x / scale, y / scale);
-                    else if (dy < 0) doc.ZoomOut(x / scale, y / scale);
-                    dirty = true;
-                }
-                else Mark(doc.DispatchWheel(x / scale, y / scale, -dy * 50f)); // wheel up → scroll up
+                // Ctrl+wheel is zoom, a plain wheel scrolls — DocumentInput.Wheel, as in every window.
+                Mark(DocumentInput.Wheel(doc, x / scale, y / scale, dy, mods));
             };
             // A drop from the OS. The window already converted to logical client units and found
             // the pointer; dividing out the app's own present scale is this host's usual last step,
@@ -565,10 +567,10 @@ public static class DesktopHost
             window.Shortcut += (ch, mods) =>
             {
                 if (!DevToolsShortcut(ch, mods, () => window.ClipboardText, v => window.ClipboardText = v))
-                    Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v);
+                    DocumentInput.Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v);
                 dirty = true;
             };
-            doc.ContextRequested += cmd => { ContextAction(doc, cmd, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
+            doc.ContextRequested += cmd => { DocumentInput.ContextAction(doc, cmd, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             // A copy button (data-cupri-copy) supplies its own text rather than copying a selection.
             doc.ClipboardWriteRequested += v => window.ClipboardText = v;
             doc.WindowCommandRequested += cmd => SyncFullscreen(doc, window, cmd switch
@@ -591,6 +593,9 @@ public static class DesktopHost
                 app.ClipboardWriteRequested -= clipboardWriter;
                 if (CupriDevTools.IsSupported && devtools is not null) devtools.ClipboardWriteRequested -= clipboardWriter;
                 DisposePopout();
+                // A GPU failure hands over to the software window below, and the app's other
+                // windows go on living there; any other way out is the end of the run.
+                if (window.GpuFailure is null) childWindows.Dispose();
             }
 
             // The GPU failed while the window was open: it has closed itself, and the software
@@ -642,12 +647,12 @@ public static class DesktopHost
             // A monitor change goes through here too — PollDeviceScale recreates the surface at the
             // new pixel size, so the same invalidation covers both.
             window.SurfaceRecreated += () => { doc.InvalidateRetainedFrame(); dirty = true; };
-            if (CupriDevTools.IsSupported)
-            {
-                window.Tick += () => SyncPopout(ownsEvents: false, window.ScreenPosition);
-                // This window drains SDL's one queue; the pop-out's events are handed over here.
-                window.ForeignWindowEvent = e => { if (CupriDevTools.IsSupported && popout is not null) popout.Handle(e); };
-            }
+            // This window drains SDL's one queue; the other windows' events are handed to the hub.
+            childWindows.OwnsEvents = false;
+            window.ForeignWindowEvent = childWindows.Handle;
+            if (CupriDevTools.IsSupported) window.Tick += () => SyncPopout(window.ScreenPosition);
+            window.Tick += childWindows.Pump;
+            doc.FileDialogs = DesktopFileDialogs.Create(() => window.Win32Hwnd, () => window.CocoaWindow, doc.Post);
 
             // What it draws with, and why it is not the GL window when it is not. The window knows
             // what it set up; only this host knows why it is here at all.
@@ -807,7 +812,7 @@ public static class DesktopHost
             // core pointer from touch and Wayland does not, so one build looks fine in a desktop
             // session and is inert in Game Mode.
             window.TouchPointer += (pointerId, phase, x, y) =>
-                Mark(!InPanel(x) && DesktopFinger(doc, pointerId, phase, x / scale, y / scale));
+                Mark(!InPanel(x) && DocumentInput.Finger(doc, pointerId, phase, x / scale, y / scale));
             window.PointerMove += (x, y) =>
             {
                 Mark(PointerMoveAt(x, y));
@@ -827,17 +832,8 @@ public static class DesktopHost
             window.PointerWheel += (x, y, dy, mods) =>
             {
                 if (InPanel(x)) { Mark(devtools!.PanelWheel(x - appClientW, y, -dy * 50f)); return; }
-                // Ctrl+wheel is zoom — one ladder rung per notch, as every browser has it. A plain
-                // wheel scrolls. The split lives here so the engine never learns chord conventions.
-                // Anchored at the pointer, because a wheel zoom HAS a pointer — the user is
-                // pointing at the thing they want to look at more closely.
-                if (mods.HasFlag(KeyMods.Ctrl))
-                {
-                    if (dy > 0) doc.ZoomIn(x / scale, y / scale);
-                    else if (dy < 0) doc.ZoomOut(x / scale, y / scale);
-                    dirty = true;
-                }
-                else Mark(doc.DispatchWheel(x / scale, y / scale, -dy * 50f)); // wheel up → scroll up
+                // Ctrl+wheel is zoom, a plain wheel scrolls — DocumentInput.Wheel, as in every window.
+                Mark(DocumentInput.Wheel(doc, x / scale, y / scale, dy, mods));
             };
             // A drop from the OS. The window already converted to logical client units and found
             // the pointer; dividing out the app's own present scale is this host's usual last step,
@@ -887,10 +883,10 @@ public static class DesktopHost
             window.Shortcut += (ch, mods) =>
             {
                 if (!DevToolsShortcut(ch, mods, () => window.ClipboardText, v => window.ClipboardText = v))
-                    Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v);
+                    DocumentInput.Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v);
                 dirty = true;
             };
-            doc.ContextRequested += cmd => { ContextAction(doc, cmd, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
+            doc.ContextRequested += cmd => { DocumentInput.ContextAction(doc, cmd, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             // A copy button (data-cupri-copy) supplies its own text rather than copying a selection.
             doc.ClipboardWriteRequested += v => window.ClipboardText = v;
             doc.WindowCommandRequested += cmd => SyncFullscreen(doc, window, cmd switch
@@ -913,29 +909,11 @@ public static class DesktopHost
                 app.ClipboardWriteRequested -= clipboardWriter;
                 if (CupriDevTools.IsSupported && devtools is not null) devtools.ClipboardWriteRequested -= clipboardWriter;
                 DisposePopout();
+                childWindows.Dispose();
             }
         }
     }
 
-    // Raw-pointer elements get first refusal so a desktop mouse can drive the same captured hold /
-    // drag interactions as touch. Everything else keeps the ordinary click/hover/drag path.
-    //
-    // The pointer id is a PARAMETER rather than the constant 0 it used to be, because a finger is
-    // not the mouse and several can be down at once (#143). The mouse keeps 0 for ever; fingers get
-    // 1 upwards from the window. Passing 0 for a finger would make two fingers one pointer, and
-    // capture would then be handed back and forth between them.
-    // EVERY phase goes through DispatchPointer first — including a pointer nothing owns, and
-    // including the lift. That is not tidiness: an uncaptured pointer is exactly what the engine's
-    // page-zoom tracker follows, and the ONLY thing that retires a finger from that set is seeing
-    // its Up. Routing an uncaptured lift straight to the single-pointer path (which is what the
-    // capture check used to do) leaves the finger on the page's books for ever. Two taps then look
-    // like two fingers, the next press starts a "pinch" against a meaningless baseline, and the
-    // page zooms away under the user — measured on a Steam Deck as "any kind of drag, even
-    // accidental, massively zooms in". It bit the mouse too: a click left pointer 0 on the books,
-    // so one later finger was enough to make a phantom pair.
-    //
-    // When the engine declines, the ordinary click/hover/drag path still runs, so nothing that
-    // worked before changes.
     /// <summary>
     /// Change fullscreen and tell the DOCUMENT what actually happened.
     ///
@@ -961,33 +939,6 @@ public static class DesktopHost
         window.SetFullscreen(on);
         doc.NotifyHostFullscreen(window.IsFullscreen);
     }
-
-    private static bool DesktopPointerDown(CupriDocument doc, float x, float y, int clickCount, int pointerId = 0) =>
-        doc.DispatchPointer(pointerId, PointerPhase.Down, x, y) || doc.DispatchClick(x, y, clickCount);
-
-    private static bool DesktopPointerMove(CupriDocument doc, float x, float y, int pointerId = 0) =>
-        doc.DispatchPointer(pointerId, PointerPhase.Move, x, y) || doc.DispatchPointerMove(x, y);
-
-    private static bool DesktopPointerUp(CupriDocument doc, float x, float y, int pointerId = 0) =>
-        doc.DispatchPointer(pointerId, PointerPhase.Up, x, y) || doc.DispatchPointerUp(x, y);
-
-    /// <summary>
-    /// One finger from the SDL window (#143).
-    ///
-    /// <para>A tap goes through the same door a click does — raw pointer first, then the ordinary
-    /// click path — so a control that works with a mouse works with a finger and nothing needs a
-    /// touch-specific branch. What differs is the id, and that only the FIRST finger drives hover
-    /// and the cursor: a second finger is part of a gesture, not a second mouse, and moving the
-    /// cursor to it would fight the first.</para>
-    /// </summary>
-    private static bool DesktopFinger(CupriDocument doc, int pointerId, PointerPhase phase, float x, float y) =>
-        phase switch
-        {
-            // A finger taps (touch-adjusted); only the mouse clicks exactly where it points.
-            PointerPhase.Down => doc.DispatchPointer(pointerId, PointerPhase.Down, x, y) || doc.DispatchTap(x, y),
-            PointerPhase.Move => DesktopPointerMove(doc, x, y, pointerId),
-            _ => DesktopPointerUp(doc, x, y, pointerId),
-        };
 
     // Launch ourselves with --cupriface-gl-probe and read the verdict off the exit code: 0 means the
     // child brought GL up end to end; anything else — a managed throw, a native SIGSEGV, a hang —
@@ -1036,41 +987,5 @@ public static class DesktopHost
         if (!ExternalLinkPolicy.IsAllowed(href)) return;
         try { Process.Start(new ProcessStartInfo(href) { UseShellExecute = true }); }
         catch { /* no handler / malformed url — ignore */ }
-    }
-
-    // Text shortcuts common to both hosts. The engine owns selection/editing; the host owns the
-    // OS clipboard (get/set passed in) — keeping the engine free of any platform clipboard code.
-    private static void Shortcut(CupriDocument doc, char ch, KeyMods mods, Func<string?> getClip, Action<string> setClip)
-    {
-        switch (ch)
-        {
-            case 'a': doc.DispatchKey(null, EditKey.SelectAll); break;
-            case 'c': if (doc.CopySelection() is { } cp) setClip(cp); break;
-            case 'x': if (doc.CutSelection() is { } ct) setClip(ct); break;
-            case 'v': if (getClip() is { Length: > 0 } pv) doc.DispatchKey(pv, EditKey.None); break;
-            case 'z': if (mods.HasFlag(KeyMods.Shift)) doc.Redo(); else doc.Undo(); break; // Ctrl+Shift+Z = redo
-            case 'y': doc.Redo(); break;
-            // Page zoom, browser keys. The chrome owns these the way a browser does — they never
-            // reach the app's OnShortcut. (The windows only send =/-/0 as chords for this purpose.)
-            case '=': doc.ZoomIn(); break;
-            case '-': doc.ZoomOut(); break;
-            case '0': doc.ZoomReset(); break;
-            // Anything else is the app's own shortcut (doc.OnShortcut) — e.g. Ctrl+K opening a command
-            // palette. The web host has always forwarded these via KeyChord; the desktop hosts dropped
-            // them, so a documented feature only worked in the browser.
-            default: doc.DispatchKey(ch.ToString(), EditKey.None, mods); break;
-        }
-    }
-
-    // A context-menu command routes through the SAME clipboard seam as the keyboard shortcuts.
-    private static void ContextAction(CupriDocument doc, ContextCommand cmd, Func<string?> getClip, Action<string> setClip)
-    {
-        switch (cmd)
-        {
-            case ContextCommand.Cut: if (doc.CutSelection() is { } ct) setClip(ct); break;
-            case ContextCommand.Copy: if (doc.CopySelection() is { } cp) setClip(cp); break;
-            case ContextCommand.Paste: if (getClip() is { Length: > 0 } pv) doc.DispatchKey(pv, EditKey.None); break;
-            case ContextCommand.SelectAll: doc.DispatchKey(null, EditKey.SelectAll); break;
-        }
     }
 }

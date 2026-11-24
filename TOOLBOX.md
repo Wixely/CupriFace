@@ -2363,6 +2363,97 @@ CupriDoctor.Check(html, css, configure: doc => doc.UseSvg());
 Without `configure:`, `CF0030` reports every `<svg>` as undrawable — correctly, because the document
 the checker built has no SVG support in it.
 
+## 8.1.3 The desktop's own file dialogs, and more windows
+
+Two host services an app reaches through its document. **Both are null where the host has none** —
+a browser, Android, a headless test — so the same app class runs everywhere and simply asks:
+
+| | Windows | macOS | Linux | Web / Android / headless |
+|---|---|---|---|---|
+| `doc.FileDialogs` | Common Item Dialog | `NSOpenPanel` / `NSSavePanel` sheet | xdg-desktop-portal `FileChooser` | `null` |
+| `doc.Windows` | SDL window | SDL window | SDL window | `null` |
+
+The host sets them **after** `CupriApp.Configure` runs, so read them when you need them (in a
+handler), never cache them during `Configure`, where they are still null. `samples/DesktopDemo` is a
+worked example of everything below.
+
+### Open, Save, folder: `doc.FileDialogs`
+
+```csharp
+doc.OnClick(".open", async _ =>
+{
+    if (doc.FileDialogs is not { } dialogs) return;          // no dialogs on this host
+    var path = await dialogs.OpenFileAsync(new OpenFileOptions
+    {
+        Title = "Open a note",
+        Filters = [new FileFilter("Text", "txt", "md"), FileFilter.AllFiles],
+    });
+    if (path is null) return;                                // the user cancelled
+    _model.Text = await File.ReadAllTextAsync(path);
+    doc.Refresh();                                           // safe: we are on the document's thread
+});
+```
+
+| Call | Returns | Options |
+|---|---|---|
+| `OpenFilesAsync(OpenFileOptions?)` | `string[]?` | `Title`, `Filters`, `AllowMultiple`, `InitialDirectory` |
+| `OpenFileAsync(OpenFileOptions?)` | `string?` | the same, one file |
+| `SaveFileAsync(SaveFileOptions?)` | `string?` | `Title`, `Filters`, `InitialDirectory`, `DefaultName` |
+| `PickFolderAsync(PickFolderOptions?)` | `string?` | `Title`, `InitialDirectory` |
+
+- **Cancelled is `null`**, not an exception. A `CancellationToken` that fires closes the dialog and
+  cancels the task; a dialog the OS could not show faults it with the reason.
+- **The app keeps drawing while a dialog is open.** On Windows the dialog runs on a thread of its
+  own (still owned by, and modal to, your window); on macOS it is a sheet; on Linux the desktop draws
+  it in another process. Nothing waits on the render loop.
+- **The code after the `await` runs on the document's thread**, inside the next frame, so it may
+  touch the model and the document directly. The answer crosses back through `doc.Post`.
+- **One at a time per window.** A second request while one is open throws
+  `InvalidOperationException`; `dialogs.IsShowing` says whether one is.
+- `FileFilter` takes extensions as `"png"`, `".png"` or `"*.png"`; `"*"` is every file. Anything
+  else (a glob with a wildcard in the middle, `"png;jpg"`) is refused when the filter is built.
+  On Windows the first filter's extension is appended to a name typed without one. macOS shows one
+  list of allowed types (the union of the filters); the Linux portal matches them case-insensitively.
+- Save does not write: it returns the path the user chose, after the OS has asked about
+  overwriting.
+- `CUPRIFACE_FILE_DIALOGS=0` turns them off, to try an app's fallback on a desktop.
+- On Linux the portal must exist on the session bus; without one the request faults with a
+  `NotSupportedException` that says so.
+
+### More windows: `doc.Windows`
+
+```csharp
+if (doc.Windows is { } windows)
+{
+    var window = windows.Open(new SettingsApp());            // another CupriApp, in its own window
+    if (window is not null)
+        window.Closed += why => _model.Status = $"settings closed ({why})";
+}
+
+// …or any document, laid out responsively at the window's size
+var w = doc.Windows?.Open(myDocument, new WindowOptions { Title = "Inspector", Width = 360, Height = 480 });
+```
+
+- `Open(CupriApp)` builds a fresh `app.CreateDocument()` and uses the app's `Title`, `Width`,
+  `Height`, `Background` and `Present`. `Open(CupriDocument, WindowOptions?)` shows a document you
+  already have (`Title`, `Width`, `Height` in logical units, `Background`, `Resizable`).
+- It returns **null** when the OS refused the window. A document can be in one window at a time.
+- **Every window runs on the same thread** — the host's. Code in one window can change another
+  window's model and call its `Refresh()` directly. Call `Open` on that thread (a handler, or through
+  `doc.Post`).
+- Input in a window goes to **its** document: pointer, wheel (Ctrl+wheel zooms it), keys including
+  the F-keys, typed text, Ctrl+A/C/X/V/Z/Y against the OS clipboard, the context menu, files dropped
+  on it, cursors. Its `data-window-command` fullscreen and `data-window-drag` act on that window.
+- `window.Close()` is safe from the window's own click handler — it goes at the end of the tick.
+  `Closed` fires once, with `WindowCloseReason.User` (its close button), `App` (`Close()`), or
+  `Host` (the main window closed and took it along). `window.Title` retitles it; `windows.OpenWindows`
+  lists those still open.
+- A document in a second window gets its own `FileDialogs` (dialogs come up over *that* window) and
+  the same `Windows`, so it can open more.
+- Not in a second window (yet): GPU rendering (they draw in software, like the dev tools pop-out),
+  touch, controllers (a pad drives the main window's document), native video overlays, accessibility
+  bridges, and the F12 inspector.
+
 ## 8.2 Scrolling
 
 `overflow: scroll` scrolls on **both axes**, independently. A box whose content is wider than it is
