@@ -20,14 +20,19 @@ public static class Cli
 cupri — preview and check a CupriFace UI as the engine draws it (not as a browser would).
 
   cupri preview <page.html> [page.css] [options]   render to a PNG, and run the doctor
+  cupri preview --app <MyApp.dll> [--type MyApp]    the same, for a BUILT app: its own markup,
+                                                    model, components and Configure
   cupri check   <page.html> [page.css] [options]   the doctor only (for CI: exit 1 on errors)
+  cupri check   --app <MyApp.dll> [--type MyApp]
   cupri skill   [--dir <project>] [--print]        install the CupriFace UI skill for agents
 
-The stylesheet defaults to the .css beside the .html with the same name.
+The stylesheet defaults to the .css beside the .html with the same name. With --app, build the app
+first: the preview is of what it runs.
 
 Options:
   --model <file.json>    data to bind: {{Name}}, data-repeat="Items", two-way controls
-  --sizes <list>         desktop, tablet, phone, small-phone, or WxH; default desktop,phone
+  --sizes <list>         desktop, tablet, phone, small-phone, app (the app's own size) or WxH;
+                         default desktop,phone
   -o, --out <file.png>   where the image goes (default: <page>.preview.png)
   --outlines             outline every element's box in the image (finds overlaps)
   --tree [depth]         print the laid-out tree with coordinates, at the first size
@@ -67,61 +72,57 @@ Read the PNG. Then fix what the doctor printed. A browser will show you somethin
 
     private static int Preview(Options o, TextWriter output, bool render)
     {
-        var html = File.ReadAllText(o.Html);
-        var css = o.Css is null ? "" : File.ReadAllText(o.Css);
-        var model = o.Model is null ? null : JsonModel.Parse(File.ReadAllText(o.Model));
-        var components = ComponentRegistry.Default();
-
-        void Configure(CupriDocument d)
+        var subject = o.App is { } dll
+            ? Subject.FromApp(dll, o.Type, o.Fonts)
+            : Subject.FromFiles(o.Html!, o.Css, o.Model, o.Fonts);
+        var sizes = o.Sizes;
+        if (o.AppSizeRequested)
         {
-            d.UseSvg();
-            if (o.Fonts is { } fonts) d.LoadFonts(fonts);
+            // "app" in --sizes: the size the app asks its window to open at.
+            var own = subject.WindowSize ?? throw new UsageException("--sizes app needs --app: a page has no size of its own.");
+            sizes = sizes.Select(s => s == AppSize ? own : s).ToList();
         }
+        var html = subject.Html;
+        var css = subject.Css;
+        var model = subject.Model;
 
-        output.WriteLine($"[cupri] {Path.GetFileName(o.Html)}"
-            + (o.Css is null ? " (no stylesheet)" : $" + {Path.GetFileName(o.Css)}")
-            + (o.Model is null ? "" : $" bound to {Path.GetFileName(o.Model)}")
-            + $" at {string.Join(", ", o.Sizes.Select(s => $"{s.Width}x{s.Height}"))}");
+        output.WriteLine($"[cupri] {subject.Description} at {string.Join(", ", sizes.Select(s => $"{s.Width}x{s.Height}"))}");
 
-        // Relative paths in the markup (images, fonts) resolve against the page's folder — or, for a
-        // page in an app's Assets/ folder, against the project, because an app names its embedded
-        // assets "Assets/logo.png" from there and that is what its markup says.
         var previousDir = Environment.CurrentDirectory;
-        var pageDir = Path.GetDirectoryName(Path.GetFullPath(o.Html))!;
-        Environment.CurrentDirectory = Path.GetFileName(pageDir).Equals("Assets", StringComparison.OrdinalIgnoreCase)
-            ? Path.GetDirectoryName(pageDir)! : pageDir;
+        Environment.CurrentDirectory = subject.WorkDir;
         try
         {
             if (render)
             {
-                using var doc = CupriDocument.Load(html, css).UseComponents(components);
-                Configure(doc);
-                if (model is not null) doc.Bind(model);
+                using var doc = subject.Create();
                 doc.Refresh();
-                using (doc.RenderToImage(o.Sizes[0].Width, o.Sizes[0].Height)) { }   // warm layout + images
-                using var sheet = DeviceSheet.Render(doc, o.Sizes, outlines: o.Outlines);
+                using (doc.RenderToImage(sizes[0].Width, sizes[0].Height)) { }   // warm layout + images
+                using var sheet = DeviceSheet.Render(doc, sizes, outlines: o.Outlines);
                 using var data = sheet.Encode(SKEncodedImageFormat.Png, 95);
-                using (var f = File.Create(o.Out)) data.SaveTo(f);
-                output.WriteLine($"[cupri] image: {o.Out}  ({sheet.Width}x{sheet.Height}) — open it and look");
+                var outPath = o.Out ?? Path.Combine(previousDir, subject.Name + ".preview.png");
+                using (var f = File.Create(outPath)) data.SaveTo(f);
+                output.WriteLine($"[cupri] image: {outPath}  ({sheet.Width}x{sheet.Height}) — open it and look");
 
                 if (o.TreeDepth is { } depth)
                 {
-                    using (doc.RenderToImage(o.Sizes[0].Width, o.Sizes[0].Height)) { }
-                    output.WriteLine($"[cupri] tree at {o.Sizes[0].Width}x{o.Sizes[0].Height}:");
+                    using (doc.RenderToImage(sizes[0].Width, sizes[0].Height)) { }
+                    output.WriteLine($"[cupri] tree at {sizes[0].Width}x{sizes[0].Height}:");
                     output.WriteLine(doc.DumpTree(depth));
                 }
             }
 
             var report = o.Sweep
-                ? CupriDoctor.Sweep(html, css, components, model, Configure, o.Sizes)
-                : CupriDoctor.Check(html, css, o.Sizes, components, model, Configure);
-            foreach (var f in report.Findings) output.WriteLine(Format(f, o));
+                ? CupriDoctor.Sweep(html, css, subject.Components, model, subject.Configure, sizes)
+                : CupriDoctor.Check(html, css, sizes, subject.Components, model, subject.Configure);
+            foreach (var f in report.Findings) output.WriteLine(Format(f, subject));
             var states = o.Sweep ? $", {report.Checks} states checked" : "";
             output.WriteLine(report.IsClean
                 ? $"[cupri] doctor: no problems found{states}"
                 : $"[cupri] doctor: {Summary(report)}{states}");
             if (model is null && html.Contains("{{", StringComparison.Ordinal))
-                output.WriteLine("[cupri] note: the markup has {{bindings}} and no --model, so binding checks were skipped and they render empty.");
+                output.WriteLine(o.App is null
+                    ? "[cupri] note: the markup has {{bindings}} and no --model, so binding checks were skipped and they render empty."
+                    : "[cupri] note: the markup has {{bindings}} and the app's Model is null, so binding checks were skipped.");
 
             return o.FailOn is { } level && report.Findings.Any(f => f.Severity >= level) ? 1 : 0;
         }
@@ -130,10 +131,12 @@ Read the PNG. Then fix what the doctor printed. A browser will show you somethin
 
     /// <summary>The compiler's diagnostic format — <c>path(line): warning CF0060: …</c> — which VS
     /// Code's <c>$msCompile</c> matcher and most CI annotators read.</summary>
-    internal static string Format(Finding f, Options o)
+    internal static string Format(Finding f, Subject s)
     {
-        var inCss = f.Code.StartsWith("CF005", StringComparison.Ordinal) && o.Css is not null;
-        var file = inCss ? o.Css! : o.Html;
+        // CSS findings carry a stylesheet line when there is a stylesheet; a source with no file on
+        // disk (an app's markup written in C#) is named after the property it came from.
+        var inCss = f.Code.StartsWith("CF005", StringComparison.Ordinal) && s.Css.Length > 0;
+        var file = inCss ? s.CssPath ?? $"{s.Name}.Css" : s.HtmlPath ?? $"{s.Name}.Html";
         var sev = f.Severity switch { Severity.Error => "error", Severity.Warning => "warning", _ => "info" };
         var where = (f.Viewports.Length > 0 ? $" [at {f.Viewports} only]" : "") + (f.State.Length > 0 ? $" [{f.State}]" : "");
         var fix = f.Fix.Length > 0 ? "  -> " + f.Fix : "";
@@ -193,11 +196,14 @@ Read the PNG. Then fix what the doctor printed. A browser will show you somethin
 
     internal sealed class Options
     {
-        public required string Html { get; init; }
+        public string? Html { get; init; }
+        public string? App { get; init; }
+        public string? Type { get; init; }
+        public bool AppSizeRequested { get; init; }
         public string? Css { get; init; }
         public string? Model { get; init; }
         public required IReadOnlyList<(int Width, int Height)> Sizes { get; init; }
-        public required string Out { get; init; }
+        public string? Out { get; init; }
         public bool Outlines { get; init; }
         public int? TreeDepth { get; init; }
         public bool Sweep { get; init; }
@@ -206,7 +212,7 @@ Read the PNG. Then fix what the doctor printed. A browser will show you somethin
 
         public static Options Parse(string[] args)
         {
-            string? html = null, css = null, model = null, outPath = null, fonts = null;
+            string? html = null, css = null, model = null, outPath = null, fonts = null, app = null, type = null;
             IReadOnlyList<(int, int)> sizes = CupriDoctor.DesktopAndPhone;
             bool outlines = false, sweep = false;
             int? tree = null;
@@ -217,6 +223,8 @@ Read the PNG. Then fix what the doctor printed. A browser will show you somethin
                 switch (a)
                 {
                     case "--model": model = Next(args, ref i, a); break;
+                    case "--app": app = Next(args, ref i, a); break;
+                    case "--type": type = Next(args, ref i, a); break;
                     case "--sizes": sizes = ParseSizes(Next(args, ref i, a)); break;
                     case "-o" or "--out": outPath = Next(args, ref i, a); break;
                     case "--outlines": outlines = true; break;
@@ -244,20 +252,33 @@ Read the PNG. Then fix what the doctor printed. A browser will show you somethin
                         break;
                 }
             }
-            if (html is null) throw new UsageException("Give the page: cupri preview page.html [page.css].");
-            if (!File.Exists(html)) throw new UsageException($"No such file: {html}");
+            if (app is not null)
+            {
+                if (html is not null) throw new UsageException("Give a page or --app, not both.");
+                if (model is not null) throw new UsageException("--app previews with the app's own model; --model is for pages.");
+                if (!File.Exists(app)) throw new UsageException($"No such file: {app} (build the app first)");
+            }
+            else
+            {
+                if (type is not null) throw new UsageException("--type picks an app, and needs --app.");
+                if (html is null) throw new UsageException("Give the page: cupri preview page.html [page.css], or --app MyApp.dll.");
+                if (!File.Exists(html)) throw new UsageException($"No such file: {html}");
+            }
             if (css is not null && !File.Exists(css)) throw new UsageException($"No such file: {css}");
             if (model is not null && !File.Exists(model)) throw new UsageException($"No such file: {model}");
             if (fonts is not null && !Directory.Exists(fonts)) throw new UsageException($"No such folder: {fonts}");
             // The stylesheet beside the page, by name — App.html → App.css — unless one was given.
-            css ??= Path.ChangeExtension(html, ".css") is var sibling && File.Exists(sibling) ? sibling : null;
+            if (html is not null)
+                css ??= Path.ChangeExtension(html, ".css") is var sibling && File.Exists(sibling) ? sibling : null;
             // Absolute from here on: the preview runs with the page's folder as the working directory.
             static string? Full(string? p) => p is null ? null : Path.GetFullPath(p);
             return new Options
             {
-                Html = Full(html)!, Css = Full(css), Model = Full(model), Sizes = sizes, Outlines = outlines,
+                Html = Full(html), App = Full(app), Type = type, Css = Full(css), Model = Full(model), Sizes = sizes,
+                AppSizeRequested = sizes.Contains(AppSize), Outlines = outlines,
                 Sweep = sweep, TreeDepth = tree, Fonts = Full(fonts), FailOn = failOn,
-                Out = Full(outPath ?? Path.ChangeExtension(html, ".preview.png"))!,
+                // A page's image goes beside it; an app's, where the command was run (Preview).
+                Out = Full(outPath ?? (html is null ? null : Path.ChangeExtension(html, ".preview.png"))),
             };
         }
 
@@ -272,6 +293,7 @@ Read the PNG. Then fix what the doctor printed. A browser will show you somethin
                     case "tablet": sizes.Add((768, 1024)); break;
                     case "phone": sizes.Add((412, 915)); break;
                     case "small-phone": sizes.Add((360, 640)); break;
+                    case "app": sizes.Add(AppSize); break;
                     default:
                         var parts = raw.Split('x', 'X');
                         if (parts.Length != 2
@@ -287,6 +309,9 @@ Read the PNG. Then fix what the doctor printed. A browser will show you somethin
             return sizes;
         }
     }
+
+    /// <summary>The placeholder "app" stands for in --sizes, replaced by the app's own size.</summary>
+    internal static readonly (int Width, int Height) AppSize = (-1, -1);
 
     private static string Next(string[] args, ref int i, string option) =>
         ++i < args.Length ? args[i] : throw new UsageException($"{option} needs a value.");

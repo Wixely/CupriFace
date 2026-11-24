@@ -794,6 +794,89 @@ body { margin:0; font-family:sans-serif; }
         Assert.True(LineWidth("a\n    b") > LineWidth("a\nb") + 10);
     }
 
+    // ---- the Performance tab ----------------------------------------------------------------------
+
+    [Fact]
+    public void Performance_RecordsOnlyWhileItsTabIsShowing()
+    {
+        var (app, panel, session, ws) = Inspect();
+        using var _ = ws; using var __ = app; using var ___ = session; using var ____ = panel;
+        Assert.False(panel.RecordingPerformance);
+
+        panel.ShowingPerformance = true;
+        Assert.True(panel.RecordingPerformance);
+
+        panel.IsOpen = false;                 // closed: nobody is looking, so nothing is recorded
+        Assert.False(panel.RecordingPerformance);
+        panel.IsOpen = true;
+        Assert.True(panel.RecordingPerformance);
+        panel.ShowingPerformance = false;
+        Assert.False(panel.RecordingPerformance);
+    }
+
+    [Fact]
+    public void Performance_ShowsTheAppsFrames_AndWhereTheLastRebuildWent()
+    {
+        var (app, panel, session, ws) = Inspect();
+        using var _ = ws; using var __ = app; using var ___ = session; using var ____ = panel;
+        Settle(app, panel, 700);
+        ClickPanel(panel, "dt-tab-perf");
+        Assert.True(panel.ShowingPerformance);
+
+        // The app does some work: rebuilds and frames, as interaction would cause.
+        for (var i = 0; i < 6; i++) { app.Refresh(); Frame(app); }
+        Thread.Sleep(300);                    // past the panel's quarter-second refresh limit
+        panel.ConsumeDirty();
+        Settle(app, panel, 700);
+
+        var ui = panel.Document.Root;
+        var bars = 0;
+        void Count(RenderNode n) { if (n.Element?.ClassList.Contains("dt-col") == true) bars++; foreach (var c in n.Children) Count(c); }
+        Count(ui);
+        Assert.True(bars >= 6, $"a bar per frame, got {bars}");
+        var perf = TextOf(FindClass(ui, "dt-perf")!);
+        Assert.Contains("frame time", perf);
+        Assert.Contains("Last rebuild", perf);
+        Assert.Contains("parse-html", perf);           // a rebuild stage, by name
+        // The Elements view is hidden — display:none builds no boxes at all, so the tree is not there.
+        Assert.True(FindClass(ui, "dt-tree") is null or { Width: 0 });
+    }
+
+    [Fact]
+    public void Render_ReportsItsFrameTimings()
+    {
+        // The full-frame path — the GL window's — used to leave LastFrame untouched.
+        using var t = new TestDoc(Html, Css, new Model(), 600, 400, components: true);
+        var before = t.Doc.LastFrame;
+        using var bmp = new SKBitmap(600, 400);
+        using var canvas = new SKCanvas(bmp);
+        t.Doc.Refresh();
+        t.Doc.Render(canvas, 600, 400);
+        Assert.NotEqual(before, t.Doc.LastFrame);
+        Assert.True(t.Doc.LastFrame.TotalMs > 0);
+    }
+
+    [Fact]
+    public void Panel_PerformanceTab_PassesTheDoctor_AndRenders()
+    {
+        var (app, panel, session, ws) = Inspect();
+        using var _ = ws; using var __ = app; using var ___ = session; using var ____ = panel;
+        panel.ShowingPerformance = true;
+        for (var i = 0; i < 20; i++) { app.Refresh(); Frame(app); }
+        Thread.Sleep(300);
+        panel.ConsumeDirty();
+        Settle(app, panel, 700);
+
+        var report = CupriDoctor.Check(panel.Document, (int)panel.Width, 700);
+        output.WriteLine(report.ToString());
+        Assert.DoesNotContain(report.Findings, f => f.Severity >= Severity.Warning);
+
+        using var bmp = Draw(app, panel, 600, 700);
+        var path = Path.Combine(Path.GetTempPath(), "cupri-devtools-perf.png");
+        using (var f = File.Create(path)) bmp.Encode(f, SKEncodedImageFormat.Png, 95);
+        output.WriteLine(path);
+    }
+
     [Fact]
     public void Panel_ItsOwnMarkup_PassesTheDoctor()
     {

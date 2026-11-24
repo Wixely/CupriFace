@@ -33,7 +33,9 @@ problem matcher lists. The model is JSON shaped like the app's model: `{{Name}}`
 over arrays and two-way controls all bind to it, and the doctor checks bindings against its keys.
 `--sizes desktop,phone,small-phone` or `1280x800`, `--outlines` to draw every box, `--tree` for the
 laid-out boxes with coordinates, `--sweep` to check every bool flag on and off, and
-`cupri check …` for the findings alone, exiting 1 on an error — for CI. `cupri skill` installs a
+`cupri check …` for the findings alone, exiting 1 on an error — for CI. `cupri preview --app
+bin/Debug/net10.0/MyApp.dll [--type MyApp]` previews a BUILT app instead — its own markup, C# model,
+components and `Configure` — and `--sizes app` is the size its window opens at. `cupri skill` installs a
 skill that teaches coding agents all of this, into the project's `.claude/skills`.
 
 A model written as something other than C# properties — JSON, a dictionary — implements
@@ -189,6 +191,7 @@ with none of them:
 | Problems | The doctor's findings from the last reload; click one to open its line. |
 | Outlines / Reload | `doc.DebugOverlay` on and off; reload and re-check now. |
 | Edit | On the selected element: **Edit as HTML**, **Insert after**, **Insert inside**, **Copy**, **Delete**. With the panel clicked, the keyboard is the panel's: Delete removes the element, Enter edits it, Ctrl+C / Ctrl+X copy and cut its HTML, Ctrl+V pastes HTML after it, Ctrl+Z undoes, Ctrl+S applies the editor (or saves). |
+| Performance (tab) | What each frame of the app cost — a bar per frame against the 60 fps line, frame time avg / p95 / max over two seconds, how many were over budget, layout / paint / diff / raster — and what the last rebuild cost, stage by stage, slowest first. Recorded per document and only while the tab is showing. The host's own presentation (swap, texture upload) is not included, and an idle app draws nothing: an empty chart means nothing changed. |
 | Pop out / Dock | Move the panel into a window of its own beside the app, and back. The app gets its full width back while it is out. Closing that window closes the dev tools; the next F12 opens it popped out again, the way it was left. |
 
 *Open in editor* uses `vscode://file/{path}:{line}`. For another editor set `CUPRIFACE_EDITOR_URI`

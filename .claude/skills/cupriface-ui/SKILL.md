@@ -51,7 +51,9 @@ they render empty and the binding checks are skipped), `--sizes desktop,phone,sm
 `--sizes 1280x800`, `--outlines` (draw every box — shows overlaps), `--tree` (laid-out boxes with
 coordinates: `div.panel 28,28 312x56 << CONTENT OVERFLOWS by 76px`), `--sweep` (also check every
 bool flag in the model on and off — open dialogs, expanded panels), `cupri check …` for the doctor
-alone (exit code 1 on errors, for CI).
+alone (exit code 1 on errors, for CI). In an app project, `cupri preview --app
+bin/Debug/net10.0/MyApp.dll --type MyApp` previews the built app with its real C# model (build
+first; `--sizes app,phone` uses the app's own window size).
 
 The model JSON is the shape of the app's model: `{"Name": "Ada", "Items": [{"Title": "One"}]}`.
 Use realistic, long-ish values — a layout that only works with "Ada" breaks on "Bartholomew".

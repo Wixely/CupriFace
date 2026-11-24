@@ -49,6 +49,18 @@ internal sealed partial class InspectorModel
     public string UndoDisplay { get; set; } = "none";
     public string SaveDisplay { get; set; } = "none";
 
+    public string ElementsDisplay { get; set; } = "flex";
+    public string PerfDisplay { get; set; } = "none";
+    public string ElementsTabCss { get; set; } = "on";
+    public string PerfTabCss { get; set; } = "";
+    public List<PerfBar> Bars { get; set; } = [];
+    public int BudgetBottom { get; set; }
+    public string ChartScale { get; set; } = "";
+    public string PerfNote { get; set; } = "";
+    public List<NameValue> PerfSummary { get; set; } = [];
+    public string LastRebuild { get; set; } = "";
+    public List<NameValue> RebuildPhases { get; set; } = [];
+
     public List<ProblemRow> Problems { get; set; } = [];
     public string ProblemSummary { get; set; } = "";
     public string ProblemsDisplay { get; set; } = "none";
@@ -65,6 +77,13 @@ internal sealed partial class TreeRow
     public string Size { get; set; } = "";
     public string Flag { get; set; } = "";
     public string RowCss { get; set; } = "";
+}
+
+[CupriBindable]
+internal sealed partial class PerfBar
+{
+    public int Height { get; set; }
+    public string BarCss { get; set; } = "";
 }
 
 [CupriBindable]

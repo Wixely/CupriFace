@@ -1389,12 +1389,16 @@ public sealed partial class CupriDocument : IDisposable
     {
         _inputsVersion++; // a fresh DOM invalidates the fast path's retained display list
         var prof = ProfileHook;
-        var t = prof is not null ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+        var perf = Performance;   // this document's own log, while the dev tools are reading it
+        perf?.BeginRebuild();
+        var t = prof is not null || perf is not null ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
         void Mark(string phase)
         {
-            if (prof is null) return;
+            if (prof is null && perf is null) return;
             var now = System.Diagnostics.Stopwatch.GetTimestamp();
-            prof(phase, System.Diagnostics.Stopwatch.GetElapsedTime(t, now).TotalMilliseconds);
+            var ms = System.Diagnostics.Stopwatch.GetElapsedTime(t, now).TotalMilliseconds;
+            prof?.Invoke(phase, ms);
+            perf?.AddPhase(phase, ms);
             t = now;
         }
 
@@ -2095,12 +2099,18 @@ public sealed partial class CupriDocument : IDisposable
     public void Render(SKCanvas canvas, float width, float height)
     {
         var list = BuildFrame(width, height);
-        if (_zoom == 1f) { _rasterizer.Paint(canvas, list); return; }
-
-        var restore = canvas.Save();
-        canvas.Scale(_zoom);
-        _rasterizer.Paint(canvas, list);
-        canvas.RestoreToCount(restore);
+        var r0 = Stopwatch.GetTimestamp();
+        if (_zoom == 1f) _rasterizer.Paint(canvas, list);
+        else
+        {
+            var restore = canvas.Save();
+            canvas.Scale(_zoom);
+            _rasterizer.Paint(canvas, list);
+            canvas.RestoreToCount(restore);
+        }
+        // The full-frame path reports its timings too. Only RenderIncremental used to, so on the GL
+        // window — which draws every frame with this — LastFrame never changed after startup.
+        LastFrame = new FrameTimings(_tLayout, _tPaint, 0, Stopwatch.GetElapsedTime(r0).TotalMilliseconds, 0);
     }
 
     // The previously-presented frame's commands, for RenderIncremental's damage diff. Only that path
@@ -2221,7 +2231,16 @@ public sealed partial class CupriDocument : IDisposable
     }
 
     /// <summary>Timings of the most recent rendered frame (see <see cref="FrameTimings"/>).</summary>
-    public FrameTimings LastFrame { get; private set; }
+    public FrameTimings LastFrame
+    {
+        get => _lastFrame;
+        private set { _lastFrame = value; Performance?.AddFrame(value); }
+    }
+    private FrameTimings _lastFrame;
+
+    /// <summary>A per-document record of frames and rebuilds, for the dev tools' Performance view.
+    /// Null — and free — unless they attach one.</summary>
+    internal DevTools.PerformanceLog? Performance { get; set; }
     private double _tLayout, _tPaint; // BuildFrame's contribution to the frame being rendered
 
     /// <summary>Live playback internals of every open video player that reports any

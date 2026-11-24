@@ -76,6 +76,7 @@ public sealed partial class DevToolsPanel : IDisposable
         _ui.OnClick(".dt-row", e => RowClicked(e));
         _ui.OnClick(".dt-problem", e => ProblemClicked(e));
         WireEditing();
+        WirePerformance();
         if (_reload is not null) _reload.Reloaded += OnReloaded;
     }
 
@@ -94,6 +95,7 @@ public sealed partial class DevToolsPanel : IDisposable
             // Closing hands the keyboard back: reopened, the arrows are the app's until the panel
             // is clicked again.
             if (!value) { Picking = false; _hover = null; PanelHasFocus = false; }
+            UpdateRecording();
             MarkStale();
         }
     }
@@ -156,6 +158,7 @@ public sealed partial class DevToolsPanel : IDisposable
     public bool ConsumeDirty()
     {
         if (_open && !ReferenceEquals(_target.Root, _lastRoot)) _stale = true;
+        if (PerformanceChanged()) _stale = true;   // new frames for the Performance tab
         var d = _dirty || (_open && _stale);
         _dirty = false;
         return d;
@@ -391,6 +394,7 @@ public sealed partial class DevToolsPanel : IDisposable
         BuildDetails();
         BuildProblems();
         BuildEditing();
+        BuildPerformance();
         _ui.Refresh();
     }
 

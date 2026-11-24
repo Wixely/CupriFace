@@ -179,6 +179,46 @@ public class CupriToolTests(ITestOutputHelper output)
         Assert.StartsWith("---\nname: cupriface-ui", File.ReadAllText(installed).Replace("\r\n", "\n"));
     }
 
+    // ---- --app: a built app, with its own model ---------------------------------------------------
+
+    private static string DemoAppDll() => Path.Combine(AppContext.BaseDirectory, "DemoApp.dll");
+
+    [Fact]
+    public void App_PreviewsABuiltApp_WithItsOwnModel_AndNamesItsMarkupFile()
+    {
+        using var d = new Dir();
+        var outPng = Path.Combine(d.Path, "settings.png");
+
+        var (code, outText, _) = Run("preview", "--app", DemoAppDll(), "--type", "SettingsApp", "--sizes", "app,phone", "-o", outPng);
+
+        Assert.Equal(0, code);
+        Assert.Contains("SettingsApp from DemoApp.dll (SettingsApp.html + SettingsApp.css) bound to its Settings", outText);
+        Assert.Contains("at 600x520, 412x915", outText);          // "app" is the app's own window size
+        Assert.True(File.Exists(outPng));
+        // Findings name the file the markup came from, found through the stamped project directory.
+        var html = Path.Combine(RepoRoot(), "samples", "DemoApp", "Assets", "SettingsApp.html");
+        Assert.Contains(html + "(", outText);
+    }
+
+    [Fact]
+    public void App_WithSeveralApps_AsksWhichOne()
+    {
+        var (code, _, err) = Run("check", "--app", DemoAppDll());
+        Assert.Equal(2, code);
+        Assert.Contains("pick one with --type", err);
+        Assert.Contains("SettingsApp", err);
+    }
+
+    [Fact]
+    public void App_RefusesOptionsThatOnlyMeanSomethingForAPage()
+    {
+        using var d = new Dir();
+        var model = d.File("m.json", "{}");
+        Assert.Equal(2, Run("check", "--app", DemoAppDll(), "--type", "SettingsApp", "--model", model).Code);
+        Assert.Equal(2, Run("check", d.File("p.html", "<body></body>"), "--type", "SettingsApp").Code);
+        Assert.Equal(2, Run("check", d.File("q.html", "<body></body>"), "--sizes", "app").Code);
+    }
+
     [Fact]
     public void Usage_ErrorsExitTwo()
     {

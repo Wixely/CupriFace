@@ -21,7 +21,12 @@ internal static class DevToolsMarkup
     <div class="dt-btn dt-save on" style="display:{{SaveDisplay}}">Save to file</div>
   </div>
 
-  <div class="dt-head">Elements</div>
+  <div class="dt-tabs">
+    <div class="dt-tab dt-tab-elements {{ElementsTabCss}}">Elements</div>
+    <div class="dt-tab dt-tab-perf {{PerfTabCss}}">Performance</div>
+  </div>
+
+  <div class="dt-elements" style="display:{{ElementsDisplay}}">
   <div class="dt-tree">
     <div class="dt-row {{RowCss}}" data-index="{{Index}}" data-repeat="Rows">
       <div class="dt-indent" style="width:{{Indent}}px"></div>
@@ -84,6 +89,24 @@ internal static class DevToolsMarkup
     </div>
   </div>
 
+  </div>
+
+  <div class="dt-perf" style="display:{{PerfDisplay}}">
+    <div class="dt-perf-top">
+      <div class="dt-perf-title">Frames (newest on the right)</div>
+      <div class="dt-btn dt-perf-clear">Clear</div>
+    </div>
+    <div class="dt-chart">
+      <div class="dt-budget" style="bottom:{{BudgetBottom}}px"></div>
+      <div class="dt-col {{BarCss}}" style="height:{{Height}}px" data-repeat="Bars"></div>
+    </div>
+    <div class="dt-chart-scale">{{ChartScale}}</div>
+    <div class="dt-perf-note">{{PerfNote}}</div>
+    <div class="dt-kv" data-repeat="PerfSummary"><div class="dt-k">{{Name}}</div><div class="dt-v">{{Value}}</div></div>
+    <div class="dt-sub">{{LastRebuild}}</div>
+    <div class="dt-kv" data-repeat="RebuildPhases"><div class="dt-k">{{Name}}</div><div class="dt-v">{{Value}}</div></div>
+  </div>
+
   <div class="dt-problems-wrap {{ProblemsWrapCss}}" style="display:{{ProblemsDisplay}}">
     <div class="dt-head">Problems — {{ProblemSummary}}</div>
     <div class="dt-problems">
@@ -111,6 +134,23 @@ body.dt { margin:0; height:100vh; display:flex; flex-direction:column; backgroun
 .dt-head { padding:4px 10px; background:#26282e; color:#9aa0aa; font-size:11px; font-weight:600; flex:none;
            border-bottom:1px solid #3a3d45; border-top:1px solid #3a3d45; }
 
+.dt-tabs { display:flex; align-items:center; gap:2px; padding:4px 8px 0; background:#26282e; border-bottom:1px solid #3a3d45; flex:none; }
+.dt-tab { padding:5px 10px; color:#9aa0aa; cursor:pointer; border-radius:4px 4px 0 0; }
+.dt-tab:hover { color:#d4d7dd; }
+.dt-tab.on { color:#f0f2f5; background:#1e1f24; }
+.dt-elements { flex:7 1 0; min-height:0; flex-direction:column; }
+.dt-perf { flex:7 1 0; min-height:0; flex-direction:column; gap:2px; padding:8px 10px; overflow:scroll; }
+.dt-perf-top { display:flex; align-items:center; gap:8px; }
+.dt-perf-title { flex:1 1 auto; min-width:0; color:#9aa0aa; font-weight:600; }
+.dt-chart { position:relative; display:flex; align-items:flex-end; gap:1px; height:80px; padding:0 2px;
+            background:#17181c; border:1px solid #33363e; border-radius:4px; flex:none; margin-top:6px; }
+.dt-col { flex:none; width:3px; background:#5c8fd6; }
+.dt-col.slow { background:#ff8a80; }
+.dt-col.fast { background:#4a4e58; }
+.dt-budget { position:absolute; left:0; right:0; height:1px; background:#ffb74d; }
+.dt-chart-scale { color:#9aa0aa; font-size:11px; margin-bottom:6px; }
+.dt-perf-note { color:#9aa0aa; overflow-wrap:anywhere; }
+.dt-perf .dt-k { width:130px; }
 .dt-tree { flex:3 1 0; min-height:60px; overflow:scroll; padding:2px 0; }
 .dt-row { display:flex; align-items:center; height:20px; padding-right:16px; cursor:pointer; white-space:nowrap; }
 .dt-row:hover { background:#2b2e35; }

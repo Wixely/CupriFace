@@ -45,6 +45,14 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   `cupri check` is the findings alone with an exit code, for CI. It exists because a browser is the
   easy way to look at HTML and the wrong way to look at CupriFace markup — it hides exactly the
   silent failures the doctor finds. The model is JSON, bound and checked like an app's model.
+- **`cupri preview --app MyApp.dll`** previews a built app — its own markup, C# model, component
+  library and `Configure` — rather than a page and a JSON model, and names the `.html`/`.css` the
+  markup came from in its findings. `--sizes app` is the size the app's window opens at.
+- **A Performance tab in the F12 dev tools:** a bar per frame against the 60 fps line, frame time
+  avg / p95 / max, frames over budget, the layout / paint / diff / raster split, and the last
+  rebuild broken down by stage. Recorded per document, only while the tab is showing.
+- `CupriDocument.LastFrame` is now set by `Render` too. It was only set by `RenderIncremental`, so on
+  the GL window — which draws every frame with `Render` — it never changed after startup.
 - **A skill for coding agents: `cupriface-ui`.** In this repository at `.claude/skills/cupriface-ui`;
   `cupri skill` installs it into any project. It tells an agent that CupriFace is not a browser, to
   look at its UI with `cupri preview` rather than a browser, and the layout rules that differ.
