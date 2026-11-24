@@ -300,8 +300,10 @@ public class DesktopTouchTests(ITestOutputHelper output)
         // dispatched with that id — the capture check that used to gate Move and Up is gone, and
         // deliberately: it was what skipped the engine's page-finger bookkeeping and produced the
         // runaway zoom.
+        // The helpers live in DocumentInput now, shared with every window an app opens.
+        var helpers = File.ReadAllText(Path.Combine(Root(), "src", "CupriFace.DesktopHosting", "DocumentInput.cs"));
         foreach (var phase in new[] { "Down", "Move", "Up" })
-            Assert.Contains($"doc.DispatchPointer(pointerId, PointerPhase.{phase}, x, y)", host,
+            Assert.Contains($"doc.DispatchPointer(pointerId, PointerPhase.{phase}, x, y)", helpers,
                 StringComparison.Ordinal);
 
         // The capture check must be GONE, not merely parameterised. Gating Move and Up on it is
@@ -309,5 +311,6 @@ public class DesktopTouchTests(ITestOutputHelper output)
         // on the Deck, and a version that still consults it passes every other assertion here —
         // which it did, when this test was first written, while the bug was reinstated underneath.
         Assert.DoesNotContain("IsPointerCaptured", host);
+        Assert.DoesNotContain("IsPointerCaptured", helpers);
     }
 }

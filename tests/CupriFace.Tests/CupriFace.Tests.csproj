@@ -43,6 +43,8 @@
        would load Silk.NET and SDL into every one of these runs for the sake of maths that needs no
        window. -->
   <Import Project="..\..\src\Hosting.props" />
+  <!-- Desktop input routing (main and secondary windows), compiled in the same way. -->
+  <Import Project="..\..\src\DesktopHosting.props" />
 
   <ItemGroup>
     <!-- Real font files for the registration tests, copied beside the test binary so the tests are

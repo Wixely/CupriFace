@@ -2254,6 +2254,15 @@ public sealed partial class CupriDocument : IDisposable
         // is 2 on a HiDPI screen and 1.25 or 1.5 on a fractionally-scaled desktop. Scale 1 is the
         // exception, so that bail-out cost damage tracking on most machines (#99).
 
+        // Posted work FIRST, before the fast path below can decide that nothing changed. Post wakes a
+        // render-on-demand host (HasActiveAnimations) precisely so that a frame runs the work — and
+        // the queue used to be drained only inside BuildFrame, which the fast path skips. On the SDL
+        // software window, the one host that draws incrementally, posted work therefore never ran
+        // while the page was otherwise idle, and the host was woken for it again on every tick, for
+        // ever. Work that changes the page (a Refresh, a dispatch) bumps _inputsVersion, so draining
+        // here sends this frame down the full path, exactly as if the work had arrived as input.
+        DrainPosted();
+
         // FAST PATH: no input/rebuild/animation touched the document since the retained list was
         // built — only live-surface frames can differ. Re-raster the SAME list clipped to the
         // changed surfaces (DrawSurface resolves its frame at raster time); skip layout, paint
