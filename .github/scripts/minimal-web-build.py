@@ -13,7 +13,8 @@ asserts on the PUBLISHED minimal output rather than on anything managed:
   * controls it never registered, the host's video backend and its drop reader are absent from
     ILC's map (and the two controls it does use are present, so an empty map cannot pass);
   * the bold face's bytes are absent from the wasm and the regular face's are present;
-  * the page can call every export the full build has: the host's export list is the same.
+  * the page can call every export the full build has: the host's export list is the same;
+  * both builds were linked for size (-Oz), which the host's targets default a Release publish to.
 
 Sizes go to $GITHUB_STEP_SUMMARY when it is set. Exit 1 on any failed assertion.
 """
@@ -90,6 +91,16 @@ if regular not in min_wasm:
     failures.append("NotoSans-Regular.ttf is missing from the minimal build, which keeps it")
 if bold not in full_wasm or regular not in full_wasm:
     failures.append("the full build does not embed both faces, so the font check above proves nothing")
+
+# A Release publish links for size (the host's CupriWebOptimizeSize default): emcc -Oz, which also
+# minifies the JS glue. A default that stopped applying still links, so look for its mark: ~16
+# lines of glue, against ~10,000 with comments from the compiler's own -O1.
+for label, d in (("full", full_dir), ("minimal", min_dir)):
+    glue = os.path.join(os.path.dirname(wasm_in(d)), "dotnet.native.js")
+    lines = sum(1 for _ in open(glue, encoding="utf-8", errors="replace"))
+    if lines > 500:
+        failures.append(f"the {label} build's JS glue is not minified ({lines:,} lines): the size-optimised "
+                        "link (emcc -Oz, CupriWebOptimizeSize) did not apply")
 
 missing = host_exports(full_exports) - host_exports(min_exports)
 if missing:

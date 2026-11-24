@@ -138,6 +138,29 @@
     <Error Code="CUPRI1003" Text="CupriWebFonts is '$(CupriWebFonts)'; it takes all (the default), regular, or none." />
   </Target>
 
+  <!--
+    AN OPTIMISED PUBLISH IS OPTIMISED FOR SIZE (#325). The compiler's own defaults are tuned for a
+    quick link: it passes emcc -O1, which never runs wasm-opt, and compiles managed code for speed.
+    For a page those are the wrong way round. Measured on samples/WebLlvmShaders:
+
+      -O1 (the compiler's default)    14,557,940 wasm   3,630,158 brotli   JS glue 395,097
+      Size + -Oz (this default)       12,176,449 wasm   3,581,863 brotli   JS glue 202,199
+
+    Raw is what the browser compiles and holds; brotli is what it downloads. The link takes about
+    75 s longer. wasm-opt is off upstream only because it discards debug info (runtimelab#2357),
+    which a Release link strips anyway; the Showcase passes its whole web gate built this way.
+
+    Only when Optimize is on, so a Debug publish is unchanged, and only where the app has not
+    chosen: its own OptimizationPreference wins, and -Oz goes FIRST so an -O3 in its own
+    EmccExtraArgs still has the last word. <CupriWebOptimizeSize>false</CupriWebOptimizeSize> puts
+    the quick link back, for an edit-publish loop. <StackTraceSupport>false</StackTraceSupport>
+    takes another ~157 KB brotli off, at the price of method names in an exception's trace.
+  -->
+  <PropertyGroup Condition="'$(Optimize)' == 'true' and '$(CupriWebOptimizeSize)' != 'false'">
+    <OptimizationPreference Condition="'$(OptimizationPreference)' == ''">Size</OptimizationPreference>
+    <EmccExtraArgs>-Oz $(EmccExtraArgs)</EmccExtraArgs>
+  </PropertyGroup>
+
   <!-- Put the host's JS half beside the app's page. This host publishes as a plain wasm app rather
        than through the static-web-assets pipeline, so there is no `_content/` to serve from and the
        file has to be copied. The app's own index.html comes along for the same reason. -->

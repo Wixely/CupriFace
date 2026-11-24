@@ -2475,7 +2475,8 @@ public override ComponentRegistry Components =>
 <CupriWebFileDrop>false</CupriWebFileDrop>  <!-- the page accepts no drops -->
 ```
 
-What each one does, measured on `samples/WebLlvmShaders` (NativeAOT-LLVM, `-O1`, a 15,768,972-byte
+What each one does, measured on `samples/WebLlvmShaders` (NativeAOT-LLVM linked at `-O1`, which is
+now `CupriWebOptimizeSize=false` — see "A Release publish links for size" below; a 15,768,972-byte
 wasm before any of them and 14,557,940 with the sample's own settings, which keep the regular face;
 brotli-11 takes the download from 3,895,626 to 3,631,523 bytes):
 
@@ -2516,6 +2517,36 @@ because those exports call it. It used to root the whole host assembly, which ke
 whether or not a feature switch had made it unreachable. Narrowing the root cut 71,685 bytes from
 the full Showcase with no switch set. `<CupriWebRootWholeHost>true</CupriWebRootWholeHost>`
 restores the old root if a build ever needs it.
+
+**A Release publish links for size (NativeAOT-LLVM).** The compiler's own defaults favour a quick
+link: emcc `-O1`, which never runs wasm-opt, and managed code compiled for speed. The host's targets
+turn a Release publish (`Optimize=true`) to `OptimizationPreference=Size` and emcc `-Oz`. Measured on
+`samples/WebLlvmShaders` with its minimal settings:
+
+| Link | wasm | wasm, brotli 11 | JS glue | JS glue, brotli 11 | Publish time |
+|---|---:|---:|---:|---:|---:|
+| `-O1` (`CupriWebOptimizeSize=false`) | 14,557,940 | 3,630,158 | 395,097 | 68,534 | 35 s |
+| `OptimizationPreference=Size` only | 14,272,710 | 3,577,412 | 395,097 | 68,477 | 32 s |
+| `-Oz` only | 12,418,173 | 3,641,225 | 202,199 | 41,057 | 111 s |
+| **Size + `-Oz` (the default)** | **12,176,449** | **3,581,863** | **202,199** | **41,089** | 111 s |
+| Size + `-O3` | 12,421,464 | 3,592,537 | 202,420 | 41,180 | 124 s |
+| Size + `-Oz` + `StackTraceSupport=false` | 11,788,840 | 3,425,261 | 201,828 | 41,093 | 110 s |
+
+- **Most of the saving is raw, not downloaded.** Raw size is what the browser compiles and keeps in
+  memory: 2.4 MB less, about 16%. Brotli already squeezed out most of what wasm-opt removes, so the
+  download shrinks by about 76 KB, glue included.
+- **It is safe.** Upstream turns wasm-opt off only because it discards debug info
+  ([runtimelab#2357](https://github.com/dotnet/runtimelab/issues/2357)), and a Release link strips
+  that anyway. The Showcase passes its whole web gate built this way, and CI checks that both
+  samples' JS glue came out minified, which shows the size link applied.
+- **It is slower to publish**, by about 75 seconds. For an edit-publish loop, set
+  `<CupriWebOptimizeSize>false</CupriWebOptimizeSize>` (or pass `-p:CupriWebOptimizeSize=false`).
+  A Debug publish is unchanged either way.
+- **Your own settings win.** An `OptimizationPreference` in the app's project is left alone, and an
+  `-O3` in its own `EmccExtraArgs` comes after the default `-Oz`, so it has the last word.
+- **`<StackTraceSupport>false</StackTraceSupport>` is the largest download saving left** (another
+  157 KB under brotli). It is not the default, because an exception's trace then no longer names
+  its methods, and that is what a bug report from the field depends on.
 
 **Not yet removable:**
 

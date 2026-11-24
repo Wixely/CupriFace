@@ -32,6 +32,15 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
   ILC's map and the wasm, the page's exports are all there, and the page runs in Chromium. Both
   builds' sizes go to the job summary. TOOLBOX.md §8.1.4 has the figure for each setting.
 
+- **A NativeAOT-LLVM Release publish now links for size** (#325). The host's targets set
+  `OptimizationPreference=Size` and emcc `-Oz`, which runs wasm-opt and minifies the JS glue, in
+  place of the compiler's quick `-O1` link. On `samples/WebLlvmShaders` the wasm goes from
+  14,557,940 to 12,176,449 bytes and the JS glue from 395,097 to 202,199. Under brotli the download
+  is about 76 KB smaller. Publishing takes about 75 seconds longer;
+  `<CupriWebOptimizeSize>false</CupriWebOptimizeSize>` restores the quick link. An app's own
+  `OptimizationPreference` or `EmccExtraArgs` still wins. `<StackTraceSupport>false</StackTraceSupport>`
+  saves another 157 KB under brotli, and TOOLBOX.md §8.1.4 explains why it is not the default.
+
 - **Dev tools for desktop apps: hot reload, an F12 inspector, and the doctor on every save.** In a
   Debug build of a desktop app, saving `Assets/App.html` or `App.css` reloads it into the running
   window with the model, focus and scroll intact, and a C# hot reload (the debugger's, or

@@ -2433,7 +2433,7 @@ jobs:
             "CupriFace.Gl:buildTransitive/CupriFace.Gl.props:DirectPInvoke" \
             "CupriFace.Web.NativeAot:buildTransitive/CupriFace.Web.NativeAot.props:EmccFlags" \
             "CupriFace.Web.NativeAot:buildTransitive/CupriFace.Web.NativeAot.roots.xml:CupriFace.Web.Interop" \
-            "CupriFace.Web.NativeAot:buildTransitive/CupriFace.Web.NativeAot.targets:CupriFace.Web.Fonts.Regular" \
+            "CupriFace.Web.NativeAot:buildTransitive/CupriFace.Web.NativeAot.targets:CupriFace.Web.Fonts.Regular"             "CupriFace.Web.NativeAot:buildTransitive/CupriFace.Web.NativeAot.targets:CupriWebOptimizeSize" \
             "CupriFace.Web.Mono:buildTransitive/CupriFace.Web.Mono.targets:CupriFace.Web.Fonts.Regular" \
             "CupriFace.Web.Mono:buildTransitive/CupriFace.Web.Mono.props:WasmBuildNative" \
             "CupriFace.Shell:buildTransitive/CupriFace.Shell.targets:CupriFace.DevTools.IsSupported" \
