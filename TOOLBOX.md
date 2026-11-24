@@ -1549,9 +1549,11 @@ constructed in code, so it is trim- and NativeAOT-safe with nothing to configure
 `samples/ComponentLibrary` is a complete one (counter with behaviour, card with a markup template,
 status pill) and `samples/ComponentLibraryApp` consumes it, by ProjectReference and by `.nupkg`.
 
-`cupri preview` cannot load a library (that would take reflection): a library tag there is a
-`CF0020` note and draws as a plain box. Check such pages with
-`CupriDoctor.Check(html, css, CupriDoctor.DesktopAndPhone, registry, model)`.
+A PAGE preview (`cupri preview page.html`) knows only the built-in controls: a library tag there is a
+`CF0020` note and draws as a plain box, because finding a library's components from a bare page
+would take reflection. Preview the BUILT app instead — `cupri preview --app MyApp.dll` uses the app's
+own registry, libraries included (`samples/ComponentLibraryApp` previews this way, clean) — or check
+in a test with `CupriDoctor.Check(html, css, CupriDoctor.DesktopAndPhone, registry, model)`.
 
 ### Overriding what you received
 

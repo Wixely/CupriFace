@@ -42,10 +42,9 @@ Options:
 
 Read the PNG. Then fix what the doctor printed. A browser will show you something else.
 
-Component libraries: cupri knows the built-in cupri-* controls only. A tag from a library
-(<acme-card>) is reported as a CF0020 note and draws as a plain box, because loading a library
-here would mean finding its components by reflection. Check such a page where the app's registry
-exists: CupriDoctor.Check(html, css, CupriDoctor.DesktopAndPhone, registry, model).
+Component libraries: a PAGE preview knows the built-in cupri-* controls only — a library's tag
+(<acme-card>) is a CF0020 note and draws as a plain box. Preview the built app instead
+(--app MyApp.dll): it uses the app's own registry, libraries included.
 """;
 
     /// <summary>Run a command. Returns the process exit code: 0 clean, 1 findings at or above
