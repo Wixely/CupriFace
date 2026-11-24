@@ -83,6 +83,14 @@
     <None Include="@(CupriCodecNative)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- The dev tools' feature switch, ON for this test process as it is for a Debug app: hot reload
+       redirects an embedded asset's read to its file only while the switch is on, and the tests in
+       DevToolsTests exercise exactly that. The switch defaulting OFF is checked against a real
+       NativeAOT publish instead (RELEASE-NOTES, Viewer -p:Aot=true), which is where it matters. -->
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="CupriFace.DevTools.IsSupported" Value="true" />
+  </ItemGroup>
+
   <!-- Native Skia + HarfBuzz so RenderToImage/decode run under `dotnet test`. -->
   <Import Project="..\..\src\SkiaNativeAssets.props" />
 

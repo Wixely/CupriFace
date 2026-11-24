@@ -15,8 +15,54 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 
 ## Unreleased
 
+### Added
+
+- **Dev tools for desktop apps: hot reload, an F12 inspector, and the doctor on every save.** In a
+  Debug build of a desktop app, saving `Assets/App.html` or `App.css` reloads it into the running
+  window with the model, focus and scroll intact, and a C# hot reload (the debugger's, or
+  `dotnet watch`) re-reads markup written in code. Every reload runs `CupriDoctor`, and its findings
+  are printed in the compiler's format (`App.html(12): error CF0060: …`), so VS Code's Problems panel
+  lists them — `.vscode/tasks.json` has a `watch-viewer` task with the matcher. **F12** docks an
+  inspector beside the app: the element tree (empty and overflowing boxes flagged), a picker, the box
+  model, computed values, matched rules, bindings, attributes, the line the element was written on
+  with an *Open in editor* link, and the doctor's findings. **Pop out** moves the panel into a window
+  of its own beside the app (the app gets its full width back); **Dock** brings it back. **The markup
+  is editable from the panel:** delete an element, edit it as HTML, insert HTML after it or inside
+  it, cut / copy / paste elements, undo — live in the running app, and **Save to file** writes the
+  result back to the `.html` (only when the file still holds what the edits started from). Edits
+  splice the markup TEXT, so indentation, comments and line endings are kept. Details in TOOLBOX.md
+  §"Dev tools".
+- **Release builds have none of it — not hidden, removed.** The tools hang off a feature switch,
+  `CupriFace.DevTools.IsSupported`, that CupriFace.Shell's build targets set from the APP's
+  configuration: true in Debug, false otherwise, and a trimmed or NativeAOT publish drops the code
+  behind it. Set `<CupriDevTools>true|false</CupriDevTools>` in the app's project to decide yourself.
+- **The shortcut is the app's to move.** Override `CupriApp.DevToolsShortcut` with another
+  `KeyChord` — `new(EditKey.F12, KeyMods.Ctrl | KeyMods.Shift)` — or return null to keep every key.
+  Modifiers must match exactly, so a remapped chord leaves plain F12 to the app.
+- `CupriDocument.ReplaceSource(html, css)` swaps a live document's markup and stylesheet, keeping its
+  model and state — the call hot reload makes, public for an app that loads its UI some other way.
+- `CupriDocument.TemplateHtml` is public: the markup the document is built from now, after any
+  `ReplaceSource`.
+- `EditKey.F1` … `EditKey.F12`: the desktop windows now deliver the function keys (one-shot, no
+  auto-repeat). The engine gives them no meaning, so they reach an app's own key handling.
+
 ### Fixed
 
+- **`doc.Focus(selector)` moves keyboard focus to the field as well as the caret.** Called from a
+  button's click handler — "Edit" putting the user into a field — it left the button marked focused
+  beside the field, so the document had two focused things, Tab continued from the button, and the
+  button was drawn as an empty field with its label gone.
+- **A field focused from code can be clicked into, selected and copied from straight away.** After
+  `doc.Focus(selector)` the field showed no caret, no selection and no `:focus` style until a key had
+  been typed — it was focused but never marked as the focused field, which is what all three are
+  drawn from — and every click put the caret at the start. Fields that `Focus`, `SetFieldValue` or an
+  autofocus leave without an edit buffer (meaning "read the model") were read as EMPTY by the click
+  path, `CopySelection`, the IME/host text state (`GetTextInputState`) and a tag box's Backspace
+  check, which could take back a chip from a field that had text in it. All of them now read the
+  model the way the edit paths already did.
+- **`cupri-textarea` shows the spaces that were typed.** Its lines used normal white-space, so runs of
+  spaces collapsed and leading ones vanished — indented text lost its indentation, and the caret,
+  placed by index into the real text, drifted off what was drawn. Now `pre-wrap`, as a browser's is.
 - **The soft keyboard no longer covers the field it was opened for.** A field was only brought
   back into view when it sat inside exactly one scroller, and on Android only. Now, on every
   host, a focused field is revealed through every scroller it is inside, and when nothing can

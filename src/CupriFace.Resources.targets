@@ -34,4 +34,14 @@
     <CompilerVisibleItemMetadata Include="AdditionalFiles" MetadataName="CupriLogicalName" />
   </ItemGroup>
 
+  <!--
+    Hot reload (CupriFace.DevTools): where these assets live on disk, so a running Debug build can
+    watch Assets/App.html and read the saved file instead of the copy compiled in. Only when the dev
+    tools are on — a Debug build, unless CupriDevTools says otherwise — so a Release binary carries no
+    path from the machine that built it.
+  -->
+  <ItemGroup Condition="'$(CupriDevTools)' == 'true' Or ('$(CupriDevTools)' == '' And '$(Configuration)' == 'Debug')">
+    <AssemblyMetadata Include="CupriFace.AssetsRoot" Value="$(MSBuildProjectDirectory)" />
+  </ItemGroup>
+
 </Project>

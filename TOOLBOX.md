@@ -132,6 +132,83 @@ off, and a turned-off checker finds nothing.
 
 ---
 
+## Dev tools: hot reload and the F12 inspector
+
+A **Debug build of a desktop app** (`DesktopHost.Run`) comes with three things, and a Release build
+with none of them:
+
+- **Hot reload of markup and styles.** Save `Assets/App.html` or `App.css` and the running window
+  reloads it — the model, everything the user typed, focus, scroll and zoom all survive, because a
+  document is rebuilt from template + model on every interaction anyway; only the template changes.
+  An embedded asset is traced back to its project folder (CupriFace.Resources.targets stamps it into
+  a Debug build) and read from disk from then on; a `CupriSource.File` is watched where it is.
+  Markup that fails to build is rejected and the previous source kept.
+- **C# hot reload re-reads the markup too.** Under the debugger (C# Dev Kit) or `dotnet watch`, an
+  edit to C# is applied by the runtime, and the engine then re-reads `CupriApp.Html`/`Css` — so
+  markup written as a C# string, or an app that builds its markup in code, reloads the same way.
+- **The doctor on every save.** Each reload runs `CupriDoctor.Check(doc)` on the live document and
+  prints what it finds in the compiler's format:
+
+  ```
+  [CupriFace] Doctor: checking.
+  C:\src\MyApp\Assets\App.html(14): error CF0060: {{Enviroment}} does not name anything on Model, …
+  [CupriFace] Doctor: 1 error.
+  ```
+
+  VS Code's Problems panel picks those up with a background problem matcher — the `watch-viewer`
+  task in this repo's `.vscode/tasks.json` is a working one to copy — and a click goes to the line.
+
+**F12 docks the inspector** beside the app, which is laid out in the width that is left (so a
+`@media` breakpoint can be watched firing as the panel opens):
+
+| Part | What it gives you |
+|---|---|
+| Elements | The live render tree, `div#id.class` and its size per row; empty and overflowing boxes flagged. Arrow keys walk it once the panel has been clicked; hovering a row highlights the element. |
+| Pick | Click it, then click anything in the app: that element is selected and revealed in the tree. Escape cancels. |
+| Selected | The box model (margin, border, padding — also tinted over the app), computed values, the matched rules most specific first, `{{bindings}}`, attributes, and the line it was written on with **Open in editor**. |
+| Problems | The doctor's findings from the last reload; click one to open its line. |
+| Outlines / Reload | `doc.DebugOverlay` on and off; reload and re-check now. |
+| Edit | On the selected element: **Edit as HTML**, **Insert after**, **Insert inside**, **Copy**, **Delete**. With the panel clicked, the keyboard is the panel's: Delete removes the element, Enter edits it, Ctrl+C / Ctrl+X copy and cut its HTML, Ctrl+V pastes HTML after it, Ctrl+Z undoes, Ctrl+S applies the editor (or saves). |
+| Pop out / Dock | Move the panel into a window of its own beside the app, and back. The app gets its full width back while it is out. Closing that window closes the dev tools; the next F12 opens it popped out again, the way it was left. |
+
+*Open in editor* uses `vscode://file/{path}:{line}`. For another editor set `CUPRIFACE_EDITOR_URI`
+(`cursor://file/{path}:{line}`, `vscode-insiders://…`). `CUPRIFACE_DEVTOOLS=open` starts with the
+panel docked, `=popout` in its own window. With `CUPRIFACE_FRAME_DUMP=out.png` the popped-out
+window dumps its pixels to `out.devtools.png`.
+
+**Moving the shortcut.** The dev tools see their key before the app does, so an app that wants F12
+for itself while being developed moves them — modifiers must match exactly, so plain F12 then
+reaches the app — or returns null to keep every key:
+
+```csharp
+public override KeyChord? DevToolsShortcut => new(EditKey.F12, KeyMods.Ctrl | KeyMods.Shift);
+```
+
+**On, off, and AOT.** The switch is `CupriFace.DevTools.IsSupported`, a feature switch set from the
+APP's configuration by CupriFace.Shell's build targets: true in Debug, false otherwise. With it false,
+a trimmed or NativeAOT publish removes the inspector, the file watcher and the asset redirect
+entirely — there is nothing in the binary to find or switch back on. `<CupriDevTools>true</CupriDevTools>`
+or `false` in the app's project decides it yourself. C# hot reload never applies to an AOT build in
+the first place (there is no JIT to patch); HTML/CSS reload would, if you turned the switch on there.
+
+**Editing is to the markup, as text.** The document is rebuilt from its template on every
+interaction, so an edit to the live elements would last one click. Every template element is tagged
+with where it was written; the selected element is traced back to that span, the TEXT is spliced —
+indentation, comments and line endings as written — and swapped in with `ReplaceSource`, so the model,
+focus and scroll survive. Two consequences worth knowing: a `data-repeat` row is one element in the
+template, so editing any copy edits them all; and the inside of a component is generated, so selecting
+it edits the component's own tag (the panel says which).
+
+**Edits are live until saved.** **Save to file** writes the markup back over the app's `.html` — and
+refuses unless that file still holds exactly the text the edits started from, which covers both a
+file changed on disk since and an app that builds its markup in code. Hot reload then sees the write
+and finds nothing to do. Undo steps back through unsaved edits; a reload from disk discards them.
+
+What it does not do yet: edit a style in the panel (edit the file — the reload is the loop), reload
+images, or run in the browser and Android hosts, whose apps get none of this.
+
+---
+
 ## 1. Mental model
 
 Three inputs, one output:

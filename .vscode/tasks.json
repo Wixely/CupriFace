@@ -23,6 +23,31 @@
       "problemMatcher": "$msCompile"
     },
     {
+      // Hot reload, end to end: `dotnet watch` applies C# edits to the running Viewer, the engine
+      // reloads Assets/*.html|css on save, and every save runs CupriDoctor. Its findings are printed
+      // in the compiler's format, so this matcher lists them in the Problems panel and a click goes
+      // to the line. F12 in the window opens the inspector.
+      "label": "watch-viewer",
+      "detail": "Run the Viewer under dotnet watch: C# + markup hot reload, doctor findings in Problems.",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["watch", "--project", "${workspaceFolder}/samples/Viewer", "run"],
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "cupri-doctor",
+        "fileLocation": "absolute",
+        "pattern": {
+          "regexp": "^(\\S.*)\\((\\d+)\\): (error|warning|info) (CF\\d+): (.*)$",
+          "file": 1, "line": 2, "severity": 3, "code": 4, "message": 5
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^\\[CupriFace\\] Doctor: checking\\.",
+          "endsPattern": "^\\[CupriFace\\] Doctor: (no problems found|.*(error|warning|note))"
+        }
+      }
+    },
+    {
       "label": "build",
       "command": "dotnet",
       "type": "process",

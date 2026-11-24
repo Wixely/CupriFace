@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using CupriFace;
+using CupriFace.DevTools;
 using CupriFace.Hosting;
 using CupriFace.Interaction;
 
@@ -87,6 +88,42 @@ public static class DesktopHost
 
         var doc = app.CreateDocument();
         configure?.Invoke(doc);
+
+        // The dev tools (DevTools/CupriDevTools): hot reload of the markup and stylesheet, the doctor
+        // on every save, and the F12 panel docked beside the app. A Debug build of the APP only.
+        // EVERY use below sits behind `CupriDevTools.IsSupported` itself — not a local copy of it —
+        // because that is the test the trimmer folds, and how a Release publish drops all of it.
+        HotReloadSession? reload = null;
+        DevToolsPanel? devtools = null;
+        if (CupriDevTools.IsSupported)
+        {
+            reload = new HotReloadSession(app, doc);
+            // The threaded render path rasterises the app on another thread with no place to draw a
+            // panel, so it gets hot reload and the doctor but no F12.
+            if (!app.ThreadedRender)
+                devtools = new DevToolsPanel(doc, reload, app.DevToolsShortcut)
+                {
+                    CanDetach = true,   // DevToolsWindow, beside the app
+                    // CUPRIFACE_DEVTOOLS=open starts with the panel docked, =popout in its own window:
+                    // for a session that is about the inspector, and for driving it from a script
+                    // with no key to press.
+                    IsOpen = Environment.GetEnvironmentVariable("CUPRIFACE_DEVTOOLS") is "open" or "popout",
+                    Detached = Environment.GetEnvironmentVariable("CUPRIFACE_DEVTOOLS") is "popout",
+                };
+            Console.WriteLine(devtools is null
+                ? "[CupriFace] Dev tools: no panel under ThreadedRender; hot reload is on."
+                : app.DevToolsShortcut is { } chord
+                ? $"[CupriFace] Dev tools: {chord} opens the inspector (CupriApp.DevToolsShortcut)."
+                : "[CupriFace] Dev tools: no shortcut (CupriApp.DevToolsShortcut is null); hot reload is on.");
+        }
+        var devFrames = 0;              // the first doctor run waits for a laid-out frame
+        var appClientW = 0f;            // where the app ends and the panel starts, logical client units
+        var clientW = 0f;
+        var devtoolsWasOpen = false;
+        var panelPressed = false;       // a press that began in the panel keeps its drag there
+        var pointerInPanel = false;
+        DevToolsWindow? popout = null;  // the panel popped out (DevToolsPanel.Detached)
+        var popoutDirty = false;
         // External links (http/mailto/…) open in the OS browser; internal routing + #anchors are the
         // app's / engine's concern. Both hosts do this, so links behave the same on desktop and web.
         doc.Navigated += e => { if (e.External) OpenExternal(e.Href); };
@@ -122,6 +159,13 @@ public static class DesktopHost
         void Mark(bool changed) { if (changed) dirty = true; }
         bool NeedsRender()
         {
+            if (CupriDevTools.IsSupported)
+            {
+                // A file save or a C# hot reload asked for a reload: run it HERE, between frames.
+                if (reload!.Pump()) dirty = true;
+                if (++devFrames == 2) reload.Request();   // the first doctor run, on a laid-out document
+                if (devtools is not null && devtools.ConsumeDirty()) { dirty = true; popoutDirty = true; }
+            }
             // Periodic re-bind so live computed values (e.g. diagnostics) update on their own.
             if (app.RefreshIntervalSeconds > 0 &&
                 clock.Elapsed.TotalSeconds - lastRefresh >= app.RefreshIntervalSeconds)
@@ -159,7 +203,9 @@ public static class DesktopHost
             // out as though it had half again as much room, so everything came out physically small
             // and did not keep its size when the window moved to another display (#137).
             var host = HostScale.ForFramebuffer(ctx.Width, ctx.Height, deviceScale());
-            var p = app.Present(host.LogicalClientWidth, host.LogicalClientHeight);
+            // With the dev tools docked, the app is laid out in what the panel leaves — the way a
+            // browser's dev tools narrow the page, so its breakpoints can be watched firing.
+            var p = app.Present(AppClientWidth(host.LogicalClientWidth), host.LogicalClientHeight);
             scale = p.Scale <= 0 ? 1f : p.Scale;
             var resolved = host.WithPresentScale(scale);
             effective = resolved.EffectiveScale;
@@ -188,8 +234,151 @@ public static class DesktopHost
             ctx.Canvas.Save();
             if (effective != 1f) ctx.Canvas.Scale(effective);
             doc.Render(ctx.Canvas, p.LogicalWidth, p.LogicalHeight);
+            if (CupriDevTools.IsSupported && devtools is not null) devtools.PaintHighlight(ctx.Canvas);
             ctx.Canvas.Restore();
+            if (CupriDevTools.IsSupported && devtools is not null && devtools.IsOpen && !devtools.Detached)
+            {
+                // The panel is chrome, not app: it takes the monitor's scale and none of the app's.
+                ctx.Canvas.Save();
+                ctx.Canvas.Scale(resolved.DeviceScale);
+                ctx.Canvas.Translate(appClientW, 0);
+                devtools.Render(ctx.Canvas, clientW - appClientW, host.LogicalClientHeight);
+                ctx.Canvas.Restore();
+            }
             hostSurfaces?.Sync(effective);
+        }
+
+        // The width the app is laid out in, given the window's — all of it, unless the dev tools
+        // panel is docked. Also records the split, which is what pointer routing reads.
+        float AppClientWidth(float windowW)
+        {
+            clientW = windowW;
+            appClientW = windowW;
+            if (CupriDevTools.IsSupported && devtools is not null && devtools.IsOpen && !devtools.Detached)
+                appClientW = MathF.Max(160f, windowW - devtools.Width);
+            return appClientW;
+        }
+
+        bool InPanel(float x) =>
+            CupriDevTools.IsSupported && devtools is not null && devtools.IsOpen && !devtools.Detached && x >= appClientW;
+
+        // The popped-out panel, kept in step with the panel's state once per tick of whichever window
+        // the app got: opened beside the app when it is wanted, closed when it is not, and drawn when
+        // the panel changed. `ownsEvents` is true for the GLFW window, which leaves SDL's queue to it.
+        void SyncPopout(bool ownsEvents, (int X, int Y) at)
+        {
+            if (!CupriDevTools.IsSupported || devtools is null) return;
+            var want = devtools.IsOpen && devtools.Detached;
+            if (want && popout is not { IsOpen: true })
+            {
+                if (popout is null)
+                {
+                    popout = new DevToolsWindow(devtools, ownsEvents, () => dirty = true);
+                    // Its own close button closes the dev tools, as a browser's undocked ones do.
+                    // Still popped out, so the next F12 opens the window again.
+                    popout.CloseRequested += () => { devtools.IsOpen = false; dirty = true; };
+                }
+                var d = FrameScale.DeviceScale;
+                if (!popout.Open(at.X, at.Y, at.X + (int)(clientW * d), (int)FrameScale.LogicalClientHeight))
+                    devtools.Detached = false;   // could not open one: dock instead
+                popoutDirty = true;
+                dirty = true;                    // the app gets its full width back
+            }
+            else if (!want && popout is { IsOpen: true })
+            {
+                popout.Close();
+                dirty = true;
+            }
+            if (popout is { IsOpen: true })
+            {
+                if (popoutDirty) { popoutDirty = false; popout.Invalidate(); }
+                popout.Pump();
+            }
+        }
+
+        // Before the window it rides on is disposed: the SDL window's Dispose calls SDL_Quit, which
+        // would leave this one holding a destroyed window.
+        void DisposePopout()
+        {
+            if (!CupriDevTools.IsSupported || popout is null) return;
+            popout.Dispose();
+            popout = null;
+        }
+
+        // Pointer input for BOTH windows, routed: the dev tools panel and its element picker first
+        // (Debug builds), then the app. x/y are the window's logical client units; the app's own
+        // coordinates divide out its present scale, as they always have.
+        bool PointerDownAt(float x, float y, int clicks)
+        {
+            if (CupriDevTools.IsSupported && devtools is not null && devtools.IsOpen)
+            {
+                if (InPanel(x)) { panelPressed = true; return devtools.PanelPointerDown(x - appClientW, y, clicks); }
+                if (devtools.AppPointerDown(x / scale, y / scale)) return true;
+            }
+            return DesktopPointerDown(doc, x / scale, y / scale, clicks);
+        }
+
+        bool PointerMoveAt(float x, float y)
+        {
+            if (CupriDevTools.IsSupported && devtools is not null && devtools.IsOpen)
+            {
+                if (panelPressed || InPanel(x))
+                {
+                    pointerInPanel = true;
+                    return devtools.PanelPointerMove(x - appClientW, y);
+                }
+                if (pointerInPanel) { pointerInPanel = false; devtools.PanelPointerLeave(); }
+                if (devtools.AppPointerMove(x / scale, y / scale)) return true;
+            }
+            return DesktopPointerMove(doc, x / scale, y / scale);
+        }
+
+        bool PointerUpAt(float x, float y)
+        {
+            if (CupriDevTools.IsSupported && devtools is not null)
+            {
+                if (panelPressed) { panelPressed = false; return devtools.PanelPointerUp(x - appClientW, y); }
+                if (devtools.AppPointerUp(x / scale, y / scale)) return true;
+            }
+            return DesktopPointerUp(doc, x / scale, y / scale);
+        }
+
+        Style.CursorType CursorFor(float x, float y)
+        {
+            if (CupriDevTools.IsSupported && devtools is not null && devtools.IsOpen)
+            {
+                if (panelPressed || InPanel(x)) return devtools.PanelCursor(x - appClientW, y);
+                if (devtools.AppCursor is { } pick) return pick;
+            }
+            return doc.CursorAt(x / scale, y / scale);
+        }
+
+        // The dev tools see a key before the app does — the shortcut, Escape while picking, and the
+        // arrows while the panel has focus. True when they took it.
+        bool DevToolsKey(EditKey k, KeyMods mods)
+        {
+            if (!CupriDevTools.IsSupported || devtools is null) return false;
+            // A key in the APP's window while the panel is popped out is not the panel's — its own
+            // window has the keyboard when it is the panel's turn. Only the shortcut applies here.
+            if (devtools.Detached) devtools.PanelHasFocus = false;
+            if (!devtools.HandleKey(k, mods)) return false;
+            dirty = true;
+            return true;
+        }
+
+        // Typed text and Ctrl/Cmd chords, while the docked panel has the keyboard: the HTML editor's,
+        // or the element tree's (copy / cut / paste an element, undo an edit, save).
+        bool DevToolsText(string t)
+        {
+            if (!CupriDevTools.IsSupported || devtools is null || devtools.Detached || !devtools.PanelText(t)) return false;
+            dirty = true;
+            return true;
+        }
+
+        bool DevToolsShortcut(char ch, KeyMods mods, Func<string?> read, Action<string> write)
+        {
+            if (!CupriDevTools.IsSupported || devtools is null || devtools.Detached) return false;
+            return devtools.PanelShortcut(ch, mods, read, write);
         }
 
         // Escape hatch: CUPRIFACE_SOFTWARE=1 skips the GL attempt entirely and goes straight to
@@ -245,6 +434,7 @@ public static class DesktopHost
             // for the new one.
             window.DeviceScaleChanged += _ => { doc.InvalidateRetainedFrame(); dirty = true; };
             window.ShouldRender = NeedsRender; // GL: skip draw + swap entirely on clean frames
+            if (CupriDevTools.IsSupported) window.Tick += () => SyncPopout(ownsEvents: true, window.ScreenPosition);
             // What it draws with, once the context exists (it is made inside Run). Reported on
             // the first tick rather than here, which is before the window has opened.
             var rendererReported = false;
@@ -285,28 +475,25 @@ public static class DesktopHost
             var middleMouseCaptured = false;
             window.PointerDown += (x, y, clicks) =>
             {
-                var logicalX = x / scale;
-                var logicalY = y / scale;
-                Mark(DesktopPointerDown(doc, logicalX, logicalY, clicks));
-                window.SetCursor(doc.CursorAt(logicalX, logicalY));
+                Mark(PointerDownAt(x, y, clicks));
+                window.SetCursor(CursorFor(x, y));
             };
-            window.RightPointerDown += (x, y) => Mark(doc.DispatchContextMenu(x / scale, y / scale));
+            window.RightPointerDown += (x, y) => { if (!InPanel(x)) Mark(doc.DispatchContextMenu(x / scale, y / scale)); };
             window.MiddlePointerDown += (x, y) =>
-                Mark(middleMouseCaptured = doc.DispatchMiddlePointer(MiddleMousePointerId, PointerPhase.Down, x / scale, y / scale));
+            {
+                if (!InPanel(x))
+                    Mark(middleMouseCaptured = doc.DispatchMiddlePointer(MiddleMousePointerId, PointerPhase.Down, x / scale, y / scale));
+            };
             window.PointerMove += (x, y) =>
             {
-                var logicalX = x / scale;
-                var logicalY = y / scale;
-                Mark(DesktopPointerMove(doc, logicalX, logicalY));
-                if (middleMouseCaptured) Mark(doc.DispatchMiddlePointer(MiddleMousePointerId, PointerPhase.Move, logicalX, logicalY));
-                window.SetCursor(doc.CursorAt(logicalX, logicalY));
+                Mark(PointerMoveAt(x, y));
+                if (middleMouseCaptured) Mark(doc.DispatchMiddlePointer(MiddleMousePointerId, PointerPhase.Move, x / scale, y / scale));
+                window.SetCursor(CursorFor(x, y));
             };
             window.PointerUp += (x, y) =>
             {
-                var logicalX = x / scale;
-                var logicalY = y / scale;
-                Mark(DesktopPointerUp(doc, logicalX, logicalY));
-                window.SetCursor(doc.CursorAt(logicalX, logicalY));
+                Mark(PointerUpAt(x, y));
+                window.SetCursor(CursorFor(x, y));
             };
             window.MiddlePointerUp += (x, y) =>
             {
@@ -315,6 +502,7 @@ public static class DesktopHost
             };
             window.PointerWheel += (x, y, dy, mods) =>
             {
+                if (InPanel(x)) { Mark(devtools!.PanelWheel(x - appClientW, y, -dy * 50f)); return; }
                 // Ctrl+wheel is zoom — one ladder rung per notch, as every browser has it. A plain
                 // wheel scrolls. The split lives here so the engine never learns chord conventions.
                 // Anchored at the pointer, because a wheel zoom HAS a pointer — the user is
@@ -331,11 +519,16 @@ public static class DesktopHost
             // the pointer; dividing out the app's own present scale is this host's usual last step,
             // the same one every pointer event above takes.
             window.FilesDropped += (x, y, paths) =>
-                Mark(doc.DispatchFileDrop(x / scale, y / scale,
+                Mark(!InPanel(x) && doc.DispatchFileDrop(x / scale, y / scale,
                     Array.ConvertAll(paths, DroppedFile.FromPath)));
-            window.TextEntered += t => Mark(doc.DispatchKey(t, EditKey.None));
+            window.TextEntered += t =>
+            {
+                if (DevToolsText(t)) return;
+                Mark(doc.DispatchKey(t, EditKey.None));
+            };
             window.EditKeyPressed += (k, mods) =>
             {
+                if (DevToolsKey(k, mods)) return;
                 var handled = window.IsFullscreen && doc.DispatchFullscreenVideoPlaybackShortcut(k, mods);
                 if (!handled) handled = doc.DispatchKey(null, k, mods);
                 Mark(handled);
@@ -369,7 +562,12 @@ public static class DesktopHost
             // bring-up readable: a window line with no engine line after it means the event never
             // reached the document, which until now looked exactly like one the document ignored.
             if (KeyDiag.Enabled) doc.InputObserved += o => KeyDiag.Log("engine " + o);
-            window.Shortcut += (ch, mods) => { Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
+            window.Shortcut += (ch, mods) =>
+            {
+                if (!DevToolsShortcut(ch, mods, () => window.ClipboardText, v => window.ClipboardText = v))
+                    Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v);
+                dirty = true;
+            };
             doc.ContextRequested += cmd => { ContextAction(doc, cmd, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             // A copy button (data-cupri-copy) supplies its own text rather than copying a selection.
             doc.ClipboardWriteRequested += v => window.ClipboardText = v;
@@ -385,8 +583,15 @@ public static class DesktopHost
             doc.WindowMoveRequested += m => window.MoveBy(m.Dx, m.Dy);
             Action<string> clipboardWriter = value => window.ClipboardText = value;
             app.ClipboardWriteRequested += clipboardWriter;
+            if (CupriDevTools.IsSupported && devtools is not null) devtools.ClipboardWriteRequested += clipboardWriter;
             try { window.Run(); }
-            finally { hostSurfaces = null; app.ClipboardWriteRequested -= clipboardWriter; }
+            finally
+            {
+                hostSurfaces = null;
+                app.ClipboardWriteRequested -= clipboardWriter;
+                if (CupriDevTools.IsSupported && devtools is not null) devtools.ClipboardWriteRequested -= clipboardWriter;
+                DisposePopout();
+            }
 
             // The GPU failed while the window was open: it has closed itself, and the software
             // window below takes over with the same document — state, scroll and focus intact.
@@ -437,6 +642,12 @@ public static class DesktopHost
             // A monitor change goes through here too — PollDeviceScale recreates the surface at the
             // new pixel size, so the same invalidation covers both.
             window.SurfaceRecreated += () => { doc.InvalidateRetainedFrame(); dirty = true; };
+            if (CupriDevTools.IsSupported)
+            {
+                window.Tick += () => SyncPopout(ownsEvents: false, window.ScreenPosition);
+                // This window drains SDL's one queue; the pop-out's events are handed over here.
+                window.ForeignWindowEvent = e => { if (CupriDevTools.IsSupported && popout is not null) popout.Handle(e); };
+            }
 
             // What it draws with, and why it is not the GL window when it is not. The window knows
             // what it set up; only this host knows why it is here at all.
@@ -489,6 +700,11 @@ public static class DesktopHost
             void DrawThreaded(RenderContext ctx)
             {
                 presenter!.Present(ctx.Canvas); // draw the previous frame the render thread finished
+                if (CupriDevTools.IsSupported)
+                {
+                    reload!.Pump();
+                    if (++devFrames == 2) reload.Request();
+                }
                 if (app.RefreshIntervalSeconds > 0 && clock.Elapsed.TotalSeconds - lastRefresh >= app.RefreshIntervalSeconds)
                 { lastRefresh = clock.Elapsed.TotalSeconds; doc.Refresh(); }
                 if (doc.HasAnimations || doc.HasActiveTransitions) doc.Animate(clock.Elapsed.TotalSeconds);
@@ -534,6 +750,17 @@ public static class DesktopHost
                 window.RenderIncrementalFrame = ctx =>
                 {
                     if (!NeedsRender()) return null;
+                    // The dev tools panel: while it is docked (and on the frame it closes) draw the
+                    // whole window the way the GL path does. A damage rectangle is the app's, and
+                    // knows nothing of a panel beside it.
+                    if (CupriDevTools.IsSupported && devtools is not null && (devtools.IsOpen || devtoolsWasOpen))
+                    {
+                        devtoolsWasOpen = devtools.IsOpen;
+                        Draw(ctx);
+                        doc.InvalidateRetainedFrame();
+                        a11y.Publish(logicalW, logicalH, effective, window.ScreenPosition);
+                        return new SkiaSharp.SKRectI(0, 0, ctx.Width, ctx.Height);
+                    }
                     // Same split as the GL path: the app is asked about its LOGICAL window, and the
                     // canvas, the damage rect and the a11y geometry all use T = D*P (#137).
                     var host = HostScale.ForFramebuffer(ctx.Width, ctx.Height, deviceScale());
@@ -566,34 +793,31 @@ public static class DesktopHost
             var middleMouseCaptured = false;
             window.PointerDown += (x, y, clicks) =>
             {
-                var logicalX = x / scale;
-                var logicalY = y / scale;
-                Mark(DesktopPointerDown(doc, logicalX, logicalY, clicks));
-                window.SetCursor(doc.CursorAt(logicalX, logicalY));
+                Mark(PointerDownAt(x, y, clicks));
+                window.SetCursor(CursorFor(x, y));
             };
-            window.RightPointerDown += (x, y) => Mark(doc.DispatchContextMenu(x / scale, y / scale));
+            window.RightPointerDown += (x, y) => { if (!InPanel(x)) Mark(doc.DispatchContextMenu(x / scale, y / scale)); };
             window.MiddlePointerDown += (x, y) =>
-                Mark(middleMouseCaptured = doc.DispatchMiddlePointer(MiddleMousePointerId, PointerPhase.Down, x / scale, y / scale));
+            {
+                if (!InPanel(x))
+                    Mark(middleMouseCaptured = doc.DispatchMiddlePointer(MiddleMousePointerId, PointerPhase.Down, x / scale, y / scale));
+            };
             // Touch (#143). Only the SDL window can carry this: GLFW exposes no touch API at
             // all, which is why a tap reaches nothing on a Wayland desktop today — X11 emulates a
             // core pointer from touch and Wayland does not, so one build looks fine in a desktop
             // session and is inert in Game Mode.
             window.TouchPointer += (pointerId, phase, x, y) =>
-                Mark(DesktopFinger(doc, pointerId, phase, x / scale, y / scale));
+                Mark(!InPanel(x) && DesktopFinger(doc, pointerId, phase, x / scale, y / scale));
             window.PointerMove += (x, y) =>
             {
-                var logicalX = x / scale;
-                var logicalY = y / scale;
-                Mark(DesktopPointerMove(doc, logicalX, logicalY));
-                if (middleMouseCaptured) Mark(doc.DispatchMiddlePointer(MiddleMousePointerId, PointerPhase.Move, logicalX, logicalY));
-                window.SetCursor(doc.CursorAt(logicalX, logicalY));
+                Mark(PointerMoveAt(x, y));
+                if (middleMouseCaptured) Mark(doc.DispatchMiddlePointer(MiddleMousePointerId, PointerPhase.Move, x / scale, y / scale));
+                window.SetCursor(CursorFor(x, y));
             };
             window.PointerUp += (x, y) =>
             {
-                var logicalX = x / scale;
-                var logicalY = y / scale;
-                Mark(DesktopPointerUp(doc, logicalX, logicalY));
-                window.SetCursor(doc.CursorAt(logicalX, logicalY));
+                Mark(PointerUpAt(x, y));
+                window.SetCursor(CursorFor(x, y));
             };
             window.MiddlePointerUp += (x, y) =>
             {
@@ -602,6 +826,7 @@ public static class DesktopHost
             };
             window.PointerWheel += (x, y, dy, mods) =>
             {
+                if (InPanel(x)) { Mark(devtools!.PanelWheel(x - appClientW, y, -dy * 50f)); return; }
                 // Ctrl+wheel is zoom — one ladder rung per notch, as every browser has it. A plain
                 // wheel scrolls. The split lives here so the engine never learns chord conventions.
                 // Anchored at the pointer, because a wheel zoom HAS a pointer — the user is
@@ -618,11 +843,16 @@ public static class DesktopHost
             // the pointer; dividing out the app's own present scale is this host's usual last step,
             // the same one every pointer event above takes.
             window.FilesDropped += (x, y, paths) =>
-                Mark(doc.DispatchFileDrop(x / scale, y / scale,
+                Mark(!InPanel(x) && doc.DispatchFileDrop(x / scale, y / scale,
                     Array.ConvertAll(paths, DroppedFile.FromPath)));
-            window.TextEntered += t => Mark(doc.DispatchKey(t, EditKey.None));
+            window.TextEntered += t =>
+            {
+                if (DevToolsText(t)) return;
+                Mark(doc.DispatchKey(t, EditKey.None));
+            };
             window.EditKeyPressed += (k, mods) =>
             {
+                if (DevToolsKey(k, mods)) return;
                 var handled = window.IsFullscreen && doc.DispatchFullscreenVideoPlaybackShortcut(k, mods);
                 if (!handled) handled = doc.DispatchKey(null, k, mods);
                 Mark(handled);
@@ -654,7 +884,12 @@ public static class DesktopHost
             // bring-up readable: a window line with no engine line after it means the event never
             // reached the document, which until now looked exactly like one the document ignored.
             if (KeyDiag.Enabled) doc.InputObserved += o => KeyDiag.Log("engine " + o);
-            window.Shortcut += (ch, mods) => { Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
+            window.Shortcut += (ch, mods) =>
+            {
+                if (!DevToolsShortcut(ch, mods, () => window.ClipboardText, v => window.ClipboardText = v))
+                    Shortcut(doc, ch, mods, () => window.ClipboardText, v => window.ClipboardText = v);
+                dirty = true;
+            };
             doc.ContextRequested += cmd => { ContextAction(doc, cmd, () => window.ClipboardText, v => window.ClipboardText = v); dirty = true; };
             // A copy button (data-cupri-copy) supplies its own text rather than copying a selection.
             doc.ClipboardWriteRequested += v => window.ClipboardText = v;
@@ -670,8 +905,15 @@ public static class DesktopHost
             doc.WindowMoveRequested += m => window.MoveBy(m.Dx, m.Dy);
             Action<string> clipboardWriter = value => window.ClipboardText = value;
             app.ClipboardWriteRequested += clipboardWriter;
+            if (CupriDevTools.IsSupported && devtools is not null) devtools.ClipboardWriteRequested += clipboardWriter;
             try { window.Run(); }
-            finally { hostSurfaces = null; app.ClipboardWriteRequested -= clipboardWriter; }
+            finally
+            {
+                hostSurfaces = null;
+                app.ClipboardWriteRequested -= clipboardWriter;
+                if (CupriDevTools.IsSupported && devtools is not null) devtools.ClipboardWriteRequested -= clipboardWriter;
+                DisposePopout();
+            }
         }
     }
 

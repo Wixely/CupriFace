@@ -297,6 +297,15 @@ at 128 MiB** because an unbounded read on wasm ends the tab rather than throwing
 
 ### For a running window
 
+**A Debug desktop build has dev tools** (TOOLBOX.md §"Dev tools"): saving the app's HTML/CSS
+reloads it live with state intact, every reload prints `CupriDoctor` findings in compiler format,
+and F12 (`CupriApp.DevToolsShortcut`) docks an element inspector, which can pop out into its own
+window. `CUPRIFACE_DEVTOOLS=open` (or `=popout`) starts with it showing, which with
+`CUPRIFACE_FRAME_DUMP` lets you see the inspector without pressing a key (a popped-out panel dumps
+to `<name>.devtools.png`).
+None of it exists in a Release build — every use is behind `CupriDevTools.IsSupported`, a trimmer
+feature switch, and a new host call into `CupriFace.DevTools` must sit behind that test too.
+
 `CUPRIFACE_FRAME_DUMP=out.png` dumps what the window actually presented, read back from the render
 target — ground truth when a live window looks wrong but the document seems right.
 

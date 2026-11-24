@@ -1,0 +1,26 @@
+<Project>
+  <!--
+    Flows into apps that consume the CupriFace.Shell nupkg. In this repository the samples import it
+    through samples/Directory.Build.targets, since a ProjectReference does not carry buildTransitive.
+
+    The dev tools switch (CupriFace.DevTools.CupriDevTools): the F12 inspector, hot reload of markup
+    and styles, and the doctor that runs on every save. ON in a Debug build of the app and OFF in
+    every other, decided here because the configuration that matters is the APP's — the library
+    itself is always a Release package.
+
+    Always written, true or false, rather than only when true: the trimmer folds a feature switch
+    only when it has a value, so an explicit false is what makes a trimmed or NativeAOT publish drop
+    the dev tools' code instead of carrying it switched off.
+
+    To decide for yourself, set the property in the app's project:
+        <CupriDevTools>false</CupriDevTools>   no dev tools, even in Debug
+        <CupriDevTools>true</CupriDevTools>    dev tools in this configuration too
+  -->
+  <PropertyGroup>
+    <CupriDevTools Condition="'$(CupriDevTools)' == '' And '$(Configuration)' == 'Debug'">true</CupriDevTools>
+    <CupriDevTools Condition="'$(CupriDevTools)' != 'true'">false</CupriDevTools>
+  </PropertyGroup>
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="CupriFace.DevTools.IsSupported" Value="$(CupriDevTools)" Trim="true" />
+  </ItemGroup>
+</Project>

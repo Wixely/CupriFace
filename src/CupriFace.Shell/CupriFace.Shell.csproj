@@ -29,6 +29,12 @@
     <PackageReference Include="Tmds.DBus.Protocol" Version="0.94.2" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Sets the dev tools' feature switch in the consuming app: on in its Debug build, off (and
+         trimmed away) in every other. See the file for how an app overrides it. -->
+    <None Include="buildTransitive\CupriFace.Shell.targets" Pack="true" PackagePath="buildTransitive\" />
+  </ItemGroup>
+
   <!-- The logical/device/effective-scale model, shared as source with the tests (#137). -->
   <Import Project="..\Hosting.props" />
 

@@ -525,6 +525,27 @@ public abstract class CupriApp
     /// <summary>Dev aid: outline every element box in the window (see <see cref="CupriDocument.DebugOverlay"/>).</summary>
     public virtual bool DebugOverlay => false;
 
+    /// <summary>
+    /// The key that opens and closes the dev tools panel — the element inspector, the doctor's
+    /// findings and the hot-reload status. <b>F12 by default; null leaves every key to the app.</b>
+    ///
+    /// <para>Only a Debug build of a desktop app has the dev tools at all (see
+    /// <see cref="DevTools.CupriDevTools"/>), so in a Release build this is never consulted and the
+    /// key reaches the app like any other. In a Debug build the dev tools see the key FIRST; an app
+    /// that wants F12 for itself while it is being developed should move them:</para>
+    /// <code>
+    /// public override KeyChord? DevToolsShortcut =&gt; new(EditKey.F12, KeyMods.Ctrl | KeyMods.Shift);
+    /// </code>
+    /// <para>Modifiers must match exactly, so with the chord above a plain F12 still reaches the
+    /// app.</para>
+    /// </summary>
+    public virtual Interaction.KeyChord? DevToolsShortcut => new(Interaction.EditKey.F12);
+
+    // For hot reload, which has to know where the markup came from to watch it. Protected members
+    // cannot be read from outside the type, and these two have no reason to be public.
+    internal CupriSource? MarkupSourceForDevTools => MarkupSource;
+    internal CupriSource? StyleSourceForDevTools => StyleSource;
+
     /// <summary>Fonts registered on every document this app creates, before the model binds —
     /// embedded resources, files or URLs, each read once. The files' own family/weight/style are
     /// used; for declared metadata use an <c>@font-face</c> rule in <see cref="Css"/> instead.</summary>

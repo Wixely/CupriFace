@@ -21,8 +21,9 @@ namespace CupriFace;
 /// </summary>
 public sealed partial class CupriDocument : IDisposable
 {
-    private readonly string _templateHtml;
-    private readonly string? _css;
+    // Not readonly only so ReplaceSource can swap them; nothing else writes either.
+    private string _templateHtml;
+    private string? _css;
     private object? _model;
     private ComponentRegistry? _components;
 
@@ -1150,6 +1151,51 @@ public sealed partial class CupriDocument : IDisposable
         return doc;
     }
 
+    /// <summary>
+    /// Replace the markup and stylesheet of a LIVE document — the hot-reload entry point.
+    ///
+    /// <para>Everything that is state rather than source survives: the bound model (so every value a
+    /// user typed, every flag a click set), focus, scroll positions, zoom, registered click handlers
+    /// and fonts. That is most of what a hot reload has to preserve, and it comes for free here
+    /// because a document is rebuilt from template + model on every interaction anyway; this only
+    /// changes which template.</para>
+    ///
+    /// <para>Pass <paramref name="css"/> as null to keep the current stylesheet. A change of either
+    /// re-parses the rules, <c>@keyframes</c>, <c>@shader</c> and <c>@font-face</c> blocks, and
+    /// invalidates the retained frame so the next render is a full one. Calling it with the text the
+    /// document already has is cheap and returns false.</para>
+    ///
+    /// <para>Like every other member but <see cref="Post"/>, call it on the thread that renders. A
+    /// file watcher should <c>doc.Post(() =&gt; doc.ReplaceSource(html, css))</c>.</para>
+    /// </summary>
+    /// <returns>Whether anything changed.</returns>
+    public bool ReplaceSource(string html, string? css = null)
+    {
+        ArgumentNullException.ThrowIfNull(html);
+        var htmlChanged = !string.Equals(html, _templateHtml, StringComparison.Ordinal);
+        var cssChanged = css is not null && !string.Equals(css, _css, StringComparison.Ordinal);
+        if (!htmlChanged && !cssChanged) return false;
+
+        if (htmlChanged)
+        {
+            _templateHtml = html;
+            _templateDom?.Dispose();
+            _templateDom = null;
+        }
+        if (cssChanged) _css = css;
+        // A template's own <style> blocks feed the rule cache too, so EITHER change invalidates it.
+        _cachedRules = null;
+        _cachedKeyframes = null;
+        InvalidateRetainedFrame();
+        _inputsVersion++;
+        Rebuild();
+        return true;
+    }
+
+    /// <summary>The cascade's rules as last resolved, in source order — for the dev tools, which
+    /// show which of them match an element.</summary>
+    internal IReadOnlyList<CssRule> ActiveRules => _rules;
+
     /// <summary>Register a component library; custom elements expand during build (§10).</summary>
     public CupriDocument UseComponents(ComponentRegistry components)
     {
@@ -1365,7 +1411,7 @@ public sealed partial class CupriDocument : IDisposable
         _dom?.Dispose();
         // Parse the (immutable) template ONCE; every rebuild — each keystroke — deep-clones the parsed
         // DOM instead of re-tokenizing the HTML string, which is severalfold cheaper.
-        _templateDom ??= new HtmlParser().ParseDocument(_templateHtml);
+        _templateDom ??= DevTools.CupriDevTools.IsSupported && _trackSource ? ParseTracked() : new HtmlParser().ParseDocument(_templateHtml);
         var dom = (IDocument)_templateDom.Clone();
         Mark("parse-html");
 
@@ -1870,7 +1916,53 @@ public sealed partial class CupriDocument : IDisposable
     // of the last rebuild. Internal because they describe the document's inputs, not its state —
     // an app already has every one of them, and the doctor is the one caller that has the document
     // but not the app.
-    internal string TemplateHtml => _templateHtml;
+    /// <summary>The markup this document is built from: what it was loaded with, or the last
+    /// <see cref="ReplaceSource"/> — which is how the dev tools' edits and a hot reload change it.</summary>
+    public string TemplateHtml => _templateHtml;
+
+    // ---- source tracking, for the dev tools' element editing ------------------------------------
+
+    /// <summary>The attribute every template element carries while <see cref="TrackSourceElements"/>
+    /// is on: its index in <see cref="SourceStarts"/>. Cloned with the template, so a live element —
+    /// every copy a <c>data-repeat</c> makes of it, too — names the markup it came from.</summary>
+    internal const string SourceAttribute = "data-cupri-src";
+
+    private bool _trackSource;
+    private List<int> _sourceStarts = [];
+
+    /// <summary>Tag every template element with where it was written, so the dev tools can edit the
+    /// markup behind whatever is selected. Off unless the dev tools turn it on; turning it on
+    /// re-parses the template once.</summary>
+    internal bool TrackSourceElements
+    {
+        get => _trackSource;
+        set
+        {
+            if (_trackSource == value) return;
+            _trackSource = value;
+            _templateDom?.Dispose();
+            _templateDom = null;
+            Rebuild();
+        }
+    }
+
+    /// <summary>Where each tracked template element's start tag begins in <see cref="TemplateHtml"/>
+    /// (0-based), indexed by its <see cref="SourceAttribute"/>.</summary>
+    internal IReadOnlyList<int> SourceStarts => _sourceStarts;
+
+    private IDocument ParseTracked()
+    {
+        var dom = new HtmlParser(new HtmlParserOptions { IsKeepingSourceReferences = true }).ParseDocument(_templateHtml);
+        _sourceStarts = [];
+        foreach (var el in dom.All)
+        {
+            // Only what the author wrote: the parser's implied <html>/<head>/<body> have no source.
+            if (el.SourceReference is not { } src) continue;
+            el.SetAttribute(SourceAttribute, _sourceStarts.Count.ToString(CultureInfo.InvariantCulture));
+            _sourceStarts.Add(src.Position.Index);
+        }
+        return dom;
+    }
     internal string? Stylesheet => _css;
     internal object? BoundModel => _model;
     internal ComponentRegistry? ComponentsInUse => _components;
@@ -2913,10 +3005,22 @@ public sealed partial class CupriDocument : IDisposable
         return best;
     }
 
+    /// <summary>
+    /// The focused field's text: the edit buffer, or — when there is none yet — the model's value.
+    ///
+    /// <para>A null buffer is not an empty field. Focus(selector), SetFieldValue and an autofocused
+    /// field all leave it null on purpose, meaning "read the model", and it is only created by the
+    /// first edit. Everything that reads the field's text must fall back to the model the way the
+    /// edit paths do; the ones that read the buffer alone treated a focused, full field as empty —
+    /// every click placed the caret at 0 until a key had been typed.</para>
+    /// </summary>
+    private string FocusedValue() =>
+        _editBuffer ?? (_focusKey is null ? null : BindingEngine.Resolve(_model, _focusKey)?.ToString()) ?? "";
+
     // The caret index in the focused field's buffer nearest the point (x,y) — click-to-place-caret.
     private int CaretFromPoint(RenderNode field, RenderNode anchorNode, float x, float y)
     {
-        var value = _editBuffer ?? "";
+        var value = FocusedValue();
         if (value.Length == 0) return 0;
 
         // Pick the visual (wrap-aware) row nearest y, then the nearest column within it. Works for
@@ -3207,10 +3311,24 @@ public sealed partial class CupriDocument : IDisposable
         if (_dom?.QuerySelector(selector) is not { } el) return false;
         if (el.GetAttribute("data-bind-value") is not { Length: > 0 } bind) return false;
         UpdateFocus(el);                       // no-ops if it is already the focused field
+        // Keyboard focus moves WITH the caret, as it does when the field is clicked. Left where it
+        // was, the control that had it — the button that asked for this — stayed marked focused
+        // beside the field, so the document had two focused things and Tab continued from the wrong one.
+        _kbIndex = FocusableIndexOf(el);
         var value = _model is null ? "" : BindingEngine.Resolve(_model, bind)?.ToString() ?? "";
         _editBuffer = null;
         _caret = _selAnchor = value.Length;
         _caretMoved = true;
+        // Mark it as the focused field NOW. A field is drawn as focused — its caret, its selection,
+        // its :focus border — from data-focus, which a rebuild sets from the focus key; nothing here
+        // caused one, and a later click on the field does not either (focus did not change), so the
+        // caret stayed invisible until the first keystroke and the field looked as if it could not
+        // be clicked into. Marked on the live DOM and RESTYLED rather than rebuilt: a rebuild
+        // cancels a drag in progress (a held scrollbar thumb), and a restyle keeps it.
+        foreach (var other in _dom.QuerySelectorAll("[data-bind-value][data-focus]"))
+            if (!ReferenceEquals(other, el)) other.RemoveAttribute("data-focus");
+        el.SetAttribute("data-focus", "");
+        ReStyle();
         return true;
     }
 
@@ -3930,7 +4048,7 @@ public sealed partial class CupriDocument : IDisposable
         if (!handled && field is not null && _focusKey is not null)
         {
             var pos = CaretFromPoint(field, FindCaretAnchor(field) ?? field, x, y);
-            var buf = _editBuffer ?? "";
+            var buf = FocusedValue();
             if (clickCount >= 3) { var (a, b) = LineAt(buf, pos); _selAnchor = a; _caret = b; }
             else if (clickCount == 2) { var (a, b) = WordAt(buf, pos); _selAnchor = a; _caret = b; }
             else { _caret = pos; _selAnchor = pos; _textDrag = true; }
@@ -5979,7 +6097,7 @@ public sealed partial class CupriDocument : IDisposable
     {
         if (_focusKey is null) return default;
         var field = _layoutDirty ? null : FindFocused(_root);
-        var value = _editBuffer ?? "";
+        var value = FocusedValue();
         return new Interaction.TextInputState(
             Focused: true,
             Role: field?.Element?.GetAttribute("role"),
@@ -6212,7 +6330,7 @@ public sealed partial class CupriDocument : IDisposable
             }
 
             case EditKey.Backspace
-                when _focusTagList is { Length: > 0 } backPath && (_editBuffer ?? "").Length == 0 && !hasSel:
+                when _focusTagList is { Length: > 0 } backPath && FocusedValue().Length == 0 && !hasSel:
                 // The tag-box idiom: Backspace on an EMPTY entry takes back the last chip, so a
                 // mistyped tag is undone where the hand already is instead of by hunting for its ×.
                 // Gated on the entry being empty — while there is text to delete, Backspace deletes
@@ -6372,10 +6490,11 @@ public sealed partial class CupriDocument : IDisposable
     /// plaintext to the clipboard — copy/cut are disabled until the value is revealed.</summary>
     public string? CopySelection()
     {
-        if (_focusKey is null || _editBuffer is null || _selAnchor == _caret || _focusMask) return null;
-        int s = Math.Clamp(Math.Min(_selAnchor, _caret), 0, _editBuffer.Length);
-        int e = Math.Clamp(Math.Max(_selAnchor, _caret), 0, _editBuffer.Length);
-        return e > s ? _editBuffer[s..e] : null;
+        if (_focusKey is null || _selAnchor == _caret || _focusMask) return null;
+        var value = FocusedValue();   // not the buffer alone: a field focused from code has none yet
+        int s = Math.Clamp(Math.Min(_selAnchor, _caret), 0, value.Length);
+        int e = Math.Clamp(Math.Max(_selAnchor, _caret), 0, value.Length);
+        return e > s ? value[s..e] : null;
     }
 
     /// <summary>Copy the selection and delete it (cut). Returns the cut text, or null.</summary>
@@ -8068,7 +8187,7 @@ public sealed partial class CupriDocument : IDisposable
             if (n.IsText && !includeText) return;
             if (maxDepth <= 0 || depth <= maxDepth)
             {
-                var label = new string(' ', depth * 2) + Describe(n);
+                var label = new string(' ', depth * 2) + DescribeNode(n);
                 sb.Append(label.PadRight(Math.Max(34, label.Length + 1)))
                   .Append($"{x:0},{y:0}".PadRight(12))
                   .Append($"{n.Width:0}x{n.Height:0}");
@@ -8097,24 +8216,26 @@ public sealed partial class CupriDocument : IDisposable
             foreach (var c in n.Children)
                 Walk(c, depth + 1, x, y);
         }
+    }
 
-        static string Describe(RenderNode n)
+    /// <summary>How <see cref="DumpTree"/> and the dev tools name a node: <c>div#id.first-class</c>,
+    /// a quoted text run, or <c>tag::before</c> for a generated box.</summary>
+    internal static string DescribeNode(RenderNode n)
+    {
+        if (n.IsText)
         {
-            if (n.IsText)
-            {
-                var t = n.Text!.Replace("\n", " ").Trim();
-                if (t.Length > 30) t = t[..29] + "…";
-                return $"\"{t}\"";
-            }
-            var name = n.Tag.Length > 0 ? n.Tag : "?";
-            // A generated box reads as the pseudo-element it is, not as the engine's stand-in tag.
-            if (n.Tag == PseudoElements.Tag)
-                return (n.Parent?.Tag ?? "") + "::" + n.Element?.GetAttribute(PseudoElements.SideAttribute);
-            if (n.Element?.Id is { Length: > 0 } id) name += "#" + id;
-            if (n.Element?.GetAttribute("class") is { Length: > 0 } cls)
-                name += "." + cls.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0];
-            return name;
+            var t = n.Text!.Replace("\n", " ").Trim();
+            if (t.Length > 30) t = t[..29] + "…";
+            return $"\"{t}\"";
         }
+        var name = n.Tag.Length > 0 ? n.Tag : "?";
+        // A generated box reads as the pseudo-element it is, not as the engine's stand-in tag.
+        if (n.Tag == PseudoElements.Tag)
+            return (n.Parent?.Tag ?? "") + "::" + n.Element?.GetAttribute(PseudoElements.SideAttribute);
+        if (n.Element?.Id is { Length: > 0 } id) name += "#" + id;
+        if (n.Element?.GetAttribute("class") is { Length: > 0 } cls)
+            name += "." + cls.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0];
+        return name;
     }
 
     /// <summary>Convenience CPU-raster render to an image (headless/tests).</summary>

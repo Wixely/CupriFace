@@ -28,7 +28,10 @@ public sealed class TextAreaComponent : ComponentBase
         .cupri-textarea:focus { border-color:var(--cupri-accent,#B87333); }
         .cupri-textarea[data-invalid] { border-color:#d92d20; }
         .cupri-ta-body { color:var(--cupri-text, #1e2430); }
-        .cupri-ta-line { display:block; }
+        /* pre-wrap, as a browser's textarea is: what was typed is what is shown. Normal collapsed
+           runs of spaces and dropped leading ones, so indented text lost its indentation and the
+           caret — placed by index into the real text — drifted off what was drawn. */
+        .cupri-ta-line { display:block; white-space:pre-wrap; }
         .cupri-ta-ph { color:var(--cupri-muted, #98a2b3); }
         """;
 

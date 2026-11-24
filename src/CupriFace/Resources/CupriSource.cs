@@ -29,6 +29,12 @@ public sealed class CupriSource
     /// <summary>A short, non-secret description of the origin (for diagnostics/error messages).</summary>
     public string Origin { get; }
 
+    // Where the bytes live, for hot reload, which watches the file an asset was built from. Set by
+    // the two factories that have one; null for text, bytes and URLs, which have nothing to watch.
+    internal Assembly? EmbeddedIn { get; private init; }
+    internal string? LogicalName { get; private init; }
+    internal string? FilePath { get; private init; }
+
     private CupriSource(ResourceTrust trust, string origin,
         Func<byte[]> read, Func<CancellationToken, Task<byte[]>> readAsync)
     {
@@ -51,6 +57,10 @@ public sealed class CupriSource
         ArgumentException.ThrowIfNullOrEmpty(logicalName);
         byte[] Load()
         {
+            // Hot reload: the file the asset was built from, while it is being watched. Behind the
+            // feature switch so a Release build has no path here at all (DevTools/CupriDevTools).
+            if (DevTools.CupriDevTools.IsSupported && DevTools.AssetRedirect.FileFor(assembly, logicalName) is { } live)
+                return ReadShared(live);
             using var stream = assembly.GetManifestResourceStream(logicalName)
                 ?? throw new CupriResourceException(
                     $"Embedded resource '{logicalName}' not found in '{assembly.GetName().Name}'. " +
@@ -60,7 +70,25 @@ public sealed class CupriSource
             return ms.ToArray();
         }
         return new CupriSource(ResourceTrust.Embedded, $"embedded:{logicalName}",
-            Load, _ => Task.FromResult(Load()));
+            Load, _ => Task.FromResult(Load()))
+        { EmbeddedIn = assembly, LogicalName = logicalName };
+    }
+
+    // An editor may still hold the file open for writing when its save is noticed; sharing both ways
+    // and retrying briefly keeps a reload from failing on the editor's own lock.
+    private static byte[] ReadShared(string path)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                using var ms = new MemoryStream();
+                fs.CopyTo(ms);
+                return ms.ToArray();
+            }
+            catch (IOException) when (attempt < 5) { Thread.Sleep(20); }
+        }
     }
 
     /// <summary>As <see cref="Embedded(Assembly,string)"/>, using the assembly that defines <typeparamref name="TAnchor"/>.</summary>
@@ -85,7 +113,8 @@ public sealed class CupriSource
             }
         }
         return new CupriSource(ResourceTrust.LocalFile, $"file:{full}",
-            Load, ct => System.IO.File.ReadAllBytesAsync(full, ct));
+            Load, ct => System.IO.File.ReadAllBytesAsync(full, ct))
+        { FilePath = full };
     }
 
     /// <summary>

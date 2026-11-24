@@ -505,6 +505,8 @@ public sealed class SkiaWindow : IDisposable
         Key.Down => EditKey.Down,
         Key.Tab => shift ? EditKey.ShiftTab : EditKey.Tab,
         Key.Escape => EditKey.Escape,
+        // F1..F12 are contiguous in both enums.
+        >= Key.F1 and <= Key.F12 => EditKey.F1 + (key - Key.F1),
         _ => EditKey.None,
     };
 
@@ -1116,7 +1118,10 @@ public sealed class SkiaWindow : IDisposable
         // Escape and Tab are one-shot: a held Tab would fly through the focus ring and a held Escape
         // would close a stack of things nobody meant to close. Everything else repeats, which is the
         // set SDL already repeats on the other desktop window.
-        if (edit is EditKey.Escape or EditKey.Tab or EditKey.ShiftTab) { _repeat.Release(); return; }
+        // The function keys are commands, not characters: a held F12 would open and close the dev
+        // tools at the repeat rate.
+        if (edit is EditKey.Escape or EditKey.Tab or EditKey.ShiftTab or >= EditKey.F1 and <= EditKey.F12)
+        { _repeat.Release(); return; }
         _repeatBoard = board;
         _repeatKey = key;
         _repeatEdit = edit;
