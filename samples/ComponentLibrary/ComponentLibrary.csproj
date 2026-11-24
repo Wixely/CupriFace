@@ -1,0 +1,49 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    A component library, shaped the way a third party would ship one (COMPONENT-PACKAGING.md): an
+    ordinary class library that references CupriFace, keeps its markup and CSS in Assets/, and
+    exposes one entry point, `registry.AddLeafControls()`.
+
+    It exists to PROVE the packaging story rather than describe it. samples/ComponentLibraryApp
+    consumes it two ways — through a ProjectReference, and through the .nupkg this project packs —
+    and the test suite references it to pin the override contract against a real second library.
+
+    Packable on purpose, unlike the other samples: `dotnet pack` here produces the package the app
+    restores from a local folder.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Leaf.Controls</RootNamespace>
+    <AssemblyName>Leaf.Controls</AssemblyName>
+    <PackageId>Leaf.Controls</PackageId>
+    <Version Condition="'$(Version)' == ''">0.1.0-dev</Version>
+    <Authors>Wixely</Authors>
+    <Description>A sample CupriFace component library: leaf-counter, leaf-card and leaf-status, with their own markup, CSS and behaviour.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <IsPackable>true</IsPackable>
+    <!-- A library has to be trim- and NativeAOT-clean for an app that publishes that way; this turns
+         the analysers on so a reflection-shaped shortcut fails the library's own build, not the app's. -->
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- PrivateAssets="none": by default a package dependency withholds its analyzers and build
+         assets from whoever consumes THIS package, which would leave an app that only references
+         the library without CupriFace's binding generator — its [CupriBindable] models would quietly
+         lose their AOT-clean accessors. Letting everything flow means the library is a complete
+         reference on its own. -->
+    <ProjectReference Include="..\..\src\CupriFace\CupriFace.csproj" PrivateAssets="none" />
+    <!-- Typed accessors for Assets/ (emits the `Assets` class). A build-time edge only: the generated
+         code lands in this assembly, so the package carries no generator to its consumers. -->
+    <ProjectReference Include="..\..\src\CupriFace.Resources.Gen\CupriFace.Resources.Gen.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- Embed Assets/*.html|css into THIS assembly, where the components read them from. -->
+  <Import Project="..\..\src\CupriFace.Resources.targets" />
+
+</Project>

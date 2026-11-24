@@ -6,7 +6,7 @@ namespace CupriFace.Components.Controls;
 /// <c>&lt;cupri-button variant&gt;</c> — a themed button that keeps its child label. role=button.
 /// variant="primary" (default) or "ghost".
 /// </summary>
-public sealed class ButtonComponent : ComponentBase
+public class ButtonComponent : ComponentBase
 {
     public override string Tag => "cupri-button";
 

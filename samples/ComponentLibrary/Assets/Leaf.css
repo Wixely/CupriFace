@@ -1,0 +1,11 @@
+/* Shared by every leaf-* control: the library's design tokens. Emitted once, before the components'
+   own CSS, after the built-ins and before the app's stylesheet - so an app retunes the whole library
+   by setting these on :root, or restyles one control by its class, with no !important. */
+:root {
+  --leaf-accent: #2f7d5b;
+  --leaf-ink: #1e2430;
+  --leaf-muted: #667085;
+  --leaf-surface: #ffffff;
+  --leaf-line: #d5dbe3;
+  --leaf-radius: 10px;
+}

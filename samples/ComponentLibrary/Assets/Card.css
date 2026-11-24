@@ -1,0 +1,7 @@
+.leaf-card { display:flex; flex-direction:column; gap:12px; padding:16px;
+             border:1px var(--leaf-line); border-radius:var(--leaf-radius);
+             background:var(--leaf-surface); color:var(--leaf-ink); }
+.leaf-card-head { display:flex; flex-direction:column; gap:2px; }
+.leaf-card-heading { font-size:18px; font-weight:bold; }
+.leaf-card-subtitle { font-size:13px; color:var(--leaf-muted); }
+.leaf-card-body { display:flex; flex-direction:column; gap:8px; }

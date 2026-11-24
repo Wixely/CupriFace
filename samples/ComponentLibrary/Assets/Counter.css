@@ -1,0 +1,15 @@
+.leaf-counter { display:flex; align-items:center; justify-content:space-between; gap:12px;
+                padding:8px 12px; border:1px var(--leaf-line); border-radius:var(--leaf-radius);
+                background:var(--leaf-surface); color:var(--leaf-ink); }
+.leaf-counter-label { font-size:15px; }
+.leaf-counter-controls { display:flex; align-items:center; gap:8px; }
+/* The value is a number that changes under the user's finger: tabular digits so 9 -> 10 does not
+   shift the buttons beside it, and a floor so one digit and two take the same room. */
+.leaf-counter-value { min-width:32px; text-align:center; font-weight:bold; font-size:17px;
+                      font-variant-numeric:tabular-nums; }
+/* The library restyles the built-in button it uses. This sits in the library layer, after the
+   built-ins, so it wins at equal specificity - and the app can still override it in turn. */
+.leaf-counter .cupri-button { padding:4px 0; min-width:34px; border-radius:8px;
+                              color:var(--leaf-accent); border:2px var(--leaf-accent); }
+.leaf-counter[data-leaf-at-min] .leaf-counter-step[data-leaf-step^="-"],
+.leaf-counter[data-leaf-at-max] .leaf-counter-step:not([data-leaf-step^="-"]) { opacity:.35; }

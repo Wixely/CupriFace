@@ -7,7 +7,7 @@ namespace CupriFace.Components.Controls;
 /// leading search icon and a trailing clear (×) button that appears once there's text. Editing works
 /// like <c>&lt;cupri-textfield&gt;</c>; it reuses the <c>.cupri-tf-*</c> text classes.
 /// </summary>
-public sealed class SearchFieldComponent : ComponentBase
+public class SearchFieldComponent : ComponentBase
 {
     public override string Tag => "cupri-search";
     public override string DefaultCss => """

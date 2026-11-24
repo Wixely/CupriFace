@@ -57,7 +57,8 @@ error   CF0030 (line 6): <img> is not something the engine draws — it lays out
 | Code | Finds |
 |---|---|
 | `CF0010` / `CF0011` | A tag never closed, or a close matching nothing — reported at the line it *opened* on |
-| `CF0020` / `CF0021` | An unregistered `cupri-*` tag (with "did you mean"), or a control that can never open |
+| `CF0020` / `CF0021` | An unregistered `cupri-*` or library-prefixed tag (with "did you mean"), or a control that can never open |
+| `CF0022` | A tag registered twice through `Register`, the second silently winning (`Replace` says it is meant) |
 | `CF0030` / `CF0031` | `<img>`, `<video>`, `<svg>`, `<canvas>` and friends; anything else that produced no output |
 | `CF0040` / `CF0041` | `<script>` and `onclick=` — there is no JavaScript engine |
 | `CF0050` / `CF0051` | A CSS property or function that is silently ignored |

@@ -125,7 +125,7 @@ internal static class ChartData
 /// series from <c>&lt;cupri-series values="…" color label&gt;</c> children, shown side-by-side (grouped)
 /// or summed (<c>stacked</c>). Add <c>axis</c> for a y-axis + gridlines on a tidy 0..max scale.
 /// </summary>
-public sealed class BarChartComponent : ComponentBase
+public class BarChartComponent : ComponentBase
 {
     public override string Tag => "cupri-bar-chart";
     public override string DefaultCss => """
@@ -260,7 +260,7 @@ public sealed class BarChartComponent : ComponentBase
 }
 
 /// <summary>A bar inside <c>&lt;cupri-bar-chart&gt;</c> (value / label / color); consumed by the parent.</summary>
-public sealed class BarComponent : ComponentBase
+public class BarComponent : ComponentBase
 {
     public override string Tag => "cupri-bar";
     public override string DefaultCss => "";
@@ -269,7 +269,7 @@ public sealed class BarComponent : ComponentBase
 
 /// <summary>A data series inside <c>&lt;cupri-bar-chart&gt;</c> (values / color / label) for grouped or
 /// stacked bars; consumed by the parent.</summary>
-public sealed class SeriesComponent : ComponentBase
+public class SeriesComponent : ComponentBase
 {
     public override string Tag => "cupri-series";
     public override string DefaultCss => "";
@@ -282,7 +282,7 @@ public sealed class SeriesComponent : ComponentBase
 /// lines, give it <c>&lt;cupri-line values="…" color="…" label="…"&gt;</c> children (they share one Y axis
 /// and get a legend); a single series can use <c>values="…"</c> or <c>&lt;cupri-point&gt;</c> children.
 /// </summary>
-public sealed class LineChartComponent : ComponentBase
+public class LineChartComponent : ComponentBase
 {
     public override string Tag => "cupri-line-chart";
     public override string DefaultCss => """
@@ -376,7 +376,7 @@ public sealed class LineChartComponent : ComponentBase
 }
 
 /// <summary>A point inside a line chart / sparkline (value / label); consumed by the parent.</summary>
-public sealed class PointComponent : ComponentBase
+public class PointComponent : ComponentBase
 {
     public override string Tag => "cupri-point";
     public override string DefaultCss => "";
@@ -385,7 +385,7 @@ public sealed class PointComponent : ComponentBase
 
 /// <summary>A series inside <c>&lt;cupri-line-chart&gt;</c> (values / color / label) for multi-line
 /// charts; consumed by the parent.</summary>
-public sealed class LineSeriesComponent : ComponentBase
+public class LineSeriesComponent : ComponentBase
 {
     public override string Tag => "cupri-line";
     public override string DefaultCss => "";
@@ -396,7 +396,7 @@ public sealed class LineSeriesComponent : ComponentBase
 /// <c>&lt;cupri-sparkline values="…" area&gt;</c> — a compact, axis-less trend line that sizes to its box
 /// (defaults inline), for stat cards or inline text. Spans the full width; <c>area</c>/<c>dots</c> optional.
 /// </summary>
-public sealed class SparklineComponent : ComponentBase
+public class SparklineComponent : ComponentBase
 {
     public override string Tag => "cupri-sparkline";
     public override string DefaultCss => """
@@ -422,7 +422,7 @@ public sealed class SparklineComponent : ComponentBase
 /// right without the baseline jumping. Bind <c>values</c> to a rolling window your model maintains and
 /// let the refresh cadence drive it (no dots/labels; the plot is tinted, bordered and clips its line).
 /// </summary>
-public sealed class RollingChartComponent : ComponentBase
+public class RollingChartComponent : ComponentBase
 {
     public override string Tag => "cupri-rolling-chart";
     public override string DefaultCss => """
@@ -451,7 +451,7 @@ public sealed class RollingChartComponent : ComponentBase
 /// <c>&lt;cupri-heatmap values="…" columns="7"&gt;</c> (or <c>&lt;cupri-heat value&gt;</c> children) — a grid
 /// of cells tinted by intensity (contribution-graph style); darker = higher, relative to <c>max</c>.
 /// </summary>
-public sealed class HeatmapComponent : ComponentBase
+public class HeatmapComponent : ComponentBase
 {
     public override string Tag => "cupri-heatmap";
     public override string DefaultCss => """
@@ -482,7 +482,7 @@ public sealed class HeatmapComponent : ComponentBase
 }
 
 /// <summary>A cell inside <c>&lt;cupri-heatmap&gt;</c> (value); consumed by the parent.</summary>
-public sealed class HeatCellComponent : ComponentBase
+public class HeatCellComponent : ComponentBase
 {
     public override string Tag => "cupri-heat";
     public override string DefaultCss => "";

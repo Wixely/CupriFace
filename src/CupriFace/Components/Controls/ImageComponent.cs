@@ -9,7 +9,7 @@ namespace CupriFace.Components.Controls;
 /// <c>file://</c> path. Size it with CSS <c>width</c>/<c>height</c> (aspect preserved if only one is
 /// given); default fit is <c>contain</c>.
 /// </summary>
-public sealed class ImageComponent : ComponentBase
+public class ImageComponent : ComponentBase
 {
     public override string Tag => "cupri-image";
     public override string DefaultCss => ".cupri-image { display:block; overflow:hidden; }";

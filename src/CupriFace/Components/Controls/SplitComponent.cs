@@ -10,7 +10,7 @@ namespace CupriFace.Components.Controls;
 /// dividers this inserts between each pair. Dragging a divider grows one panel and shrinks its neighbour
 /// (adjusting their flex‑grow); the split ratio survives rebuilds. Give the split a bounded size.
 /// </summary>
-public sealed class SplitComponent : ComponentBase
+public class SplitComponent : ComponentBase
 {
     public override string Tag => "cupri-split";
     public override string DefaultCss => """
@@ -39,7 +39,7 @@ public sealed class SplitComponent : ComponentBase
 }
 
 /// <summary>One panel of a <c>&lt;cupri-split&gt;</c>. <c>size</c> sets its initial share (flex‑grow, default 1).</summary>
-public sealed class SplitPanelComponent : ComponentBase
+public class SplitPanelComponent : ComponentBase
 {
     public override string Tag => "cupri-split-panel";
     public override string DefaultCss => ""; // styled by SplitComponent's .cupri-split-panel rule

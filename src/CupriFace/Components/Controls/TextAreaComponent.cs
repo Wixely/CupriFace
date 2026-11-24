@@ -14,7 +14,7 @@ namespace CupriFace.Components.Controls;
 /// key "send" unless an <c>enterkeyhint</c> was authored. Per-field on purpose — a global Enter
 /// shortcut would eat newlines in every other textarea on the page (#90).</para>
 /// </summary>
-public sealed class TextAreaComponent : ComponentBase
+public class TextAreaComponent : ComponentBase
 {
     public override string Tag => "cupri-textarea";
     public override string DefaultCss => """

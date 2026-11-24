@@ -62,7 +62,8 @@ if (!report.IsClean) Console.WriteLine(report);
 |---|---|
 | `CF0001` | The document could not be built at all |
 | `CF0010` / `CF0011` | A tag never closed, or a close that matches nothing — reported at the line it *opened* on |
-| `CF0020` | A `cupri-*` tag nothing registered, with a "did you mean" for near misses |
+| `CF0020` | A `cupri-*` tag (or one under a registered library's prefix) nothing registered, with a "did you mean" for near misses; any other custom-element tag nothing handles is a note |
+| `CF0022` | A tag registered twice through `Register`, the second silently winning — use `Replace` if it is meant |
 | `CF0021` | A control that can never open — `<cupri-select>` and friends keep open state in the model, and without an `open` binding the trigger is inert while still reporting the click as handled |
 | `CF0030` | `<img>`, `<video>`, `<svg>`, `<canvas>`, `<iframe>` and friends, each pointed at what to use here |
 | `CF0031` | Anything else in your markup that produced no render output |
@@ -1426,43 +1427,42 @@ executable's manifest already declares an awareness, that wins — CupriFace doe
 ## 8. Writing your own component
 
 A component maps one tag to a themed primitive subtree. Implement `ICupriComponent` (or extend
-`ComponentBase` for helpers) and register it.
+`ComponentBase` for helpers) and add it to the registry.
 
 ```csharp
 using AngleSharp.Dom;
 using CupriFace.Components;
 
-public sealed class RatingComponent : ComponentBase
+public sealed class StarsComponent : ComponentBase
 {
-    public override string Tag => "cupri-rating";
+    public override string Tag => "my-stars";      // cupri- is the engine's; use your own prefix
 
-    // Low-priority default CSS merged into the stylesheet.
+    // Default CSS merged into the stylesheet, BEFORE the app's own — so the app can restyle it.
     public override string DefaultCss => """
-        .cupri-rating { display:inline-flex; gap:2px; color:#B87333; }
-        .cupri-rating-empty { opacity:.25; }
+        .my-stars { display:inline-flex; gap:2px; color:#B87333; }
+        .my-stars-empty { opacity:.25; }
         """;
 
     public override void Expand(IElement el)
     {
         var value = (int)Num(el, "value", 0);     // helper: parse attribute → number
         el.SetAttribute("role", "img");
-        el.ClassList.Add("cupri-rating");
+        el.ClassList.Add("my-stars");
         // Filled stars for the score, dimmed stars for the rest (icon names come from the built-in set).
         el.InnerHtml = string.Concat(Enumerable.Range(0, 5)
-            .Select(i => IconMarkup("star", 18, i < value ? "" : "cupri-rating-empty")));
+            .Select(i => IconMarkup("star", 18, i < value ? "" : "my-stars-empty")));
     }
 }
 
-var registry = ComponentRegistry.Default().Register(new RatingComponent());
+// In a CupriApp: public override ComponentRegistry Components => base.Components.Add(new StarsComponent());
+var registry = ComponentRegistry.Default().Add(new StarsComponent());
 ```
 
-**Shipping components to other people** — bundling several into a library someone can add to their
-project, and guaranteeing they can override the styles and the code of what they receive — is
-designed in [COMPONENT-PACKAGING.md](COMPONENT-PACKAGING.md) and not built yet. Two things there
-are worth knowing even while writing a component for yourself: component CSS is parsed BEFORE the
-app's, so an app stylesheet already wins ties (that is what makes overriding possible), and a
-component cannot yet carry its own event handlers — behaviour is wired by the app, or by the engine
-off a `data-*` marker the component emits.
+**`Add` refuses a tag that is already registered** (`ComponentConflictException`, naming the owner).
+To override a control on purpose, say so with `Replace` — see *Overriding* below. The original
+`Register` still works and still lets the last registration win, but the doctor now reports a
+second registration of a tag as `CF0022`, because from the outside an override and a collision look
+the same.
 
 `ComponentBase` helpers: `Str(el,name,fallback)`, `Num(el,name,fallback)`, `Flag(el,name)`,
 `Percent(value,min,max)`, `IconMarkup(name,size,cssClass?)`, `NextId()` (unique anchor id).
@@ -1484,6 +1484,111 @@ the built‑ins use), rather than reinventing input handling:
 | `data-cupri-anchor="<id>"` + `data-cupri-placement="top\|bottom"` | Position a popup relative to an anchor. |
 | `data-focus-scope` | Trap focus within this subtree while it's the top overlay. |
 | `data-cupri-icon="<path>"` | Render vector icon path (produced by `IconMarkup`). |
+
+### Behaviour: `ICupriBehaviour`
+
+When the hooks above are not enough, a component brings its own handlers. Implement
+`ICupriBehaviour` next to `ICupriComponent`; the document calls `Attach` **once per document** and
+the component registers ordinary document handlers keyed on attributes its own markup emits:
+
+```csharp
+public class CounterComponent : ComponentBase, ICupriBehaviour
+{
+    public override void Expand(IElement el)
+    {
+        // value="{{Guests}}" arrives as value="2" plus data-bind-value="Guests" — the binder marks
+        // every pure binding, so the path to write back is one attribute away.
+        el.SetAttribute("data-leaf-path", el.GetAttribute("data-bind-value") ?? "");
+        el.RemoveAttribute("data-bind-value");   // that one also means "a text field" to the engine
+        el.InnerHtml = "<cupri-button data-leaf-step='1'>+</cupri-button>";
+    }
+
+    public void Attach(CupriDocument doc) =>
+        doc.OnAction("data-leaf-step", e =>
+        {
+            var path = e.Element.Closest("[data-leaf-path]")!.GetAttribute("data-leaf-path")!;
+            var now = Convert.ToInt32(BindingEngine.Resolve(e.Model, path));
+            return BindingEngine.TrySet(e.Model, path, now + int.Parse(e.Value));   // true → refresh
+        });
+}
+```
+
+- **Key handlers on attributes, never on elements.** The DOM is rebuilt from the template on every
+  model change and keystroke; an attribute-keyed handler finds the markup again in whichever DOM is
+  current, so it survives every rebuild with nothing re-attached.
+- **Per-document state goes inside `Attach`** (a closure): one component instance serves every
+  document using the registry.
+- The seams: `OnAction` (click and keyboard activation), `OnPointer` / `OnManipulate` (drags,
+  gestures), `OnWheel`, `OnSubmit`, `OnContext`, `OnRebuilt` (the freshly expanded DOM). Prefix your
+  attributes (`data-leaf-*`) so two libraries cannot answer each other's clicks.
+- Attached in `UseComponents`, or at the next rebuild for a component added later. There is no
+  detach: compose the registry, then hand it over.
+
+### Component libraries
+
+A library of components is an ordinary NuGet class library — markup and CSS in its own `Assets/`,
+embedded in its own assembly — with one `ICupriComponentLibrary` and an extension method:
+
+```csharp
+public sealed class LeafControls : ICupriComponentLibrary
+{
+    public string Name => "Leaf.Controls";
+    public string Prefix => "leaf-";                         // every tag must carry it
+    public IEnumerable<ICupriComponent> Components => [new CounterComponent(), new CardComponent()];
+    public string Css => Assets.Leaf.Css.ReadText();         // shared tokens (optional)
+}
+public static ComponentRegistry AddLeafControls(this ComponentRegistry r) => r.Add(new LeafControls());
+
+// the app
+public override ComponentRegistry Components => base.Components.AddLeafControls();
+```
+
+A library is added **whole or not at all**: any tag without its prefix, or already registered,
+refuses the lot. A library only adds tags — replacing one is the app's call. Everything is
+constructed in code, so it is trim- and NativeAOT-safe with nothing to configure.
+`samples/ComponentLibrary` is a complete one (counter with behaviour, card with a markup template,
+status pill) and `samples/ComponentLibraryApp` consumes it, by ProjectReference and by `.nupkg`.
+
+`cupri preview` cannot load a library (that would take reflection): a library tag there is a
+`CF0020` note and draws as a plain box. Check such pages with
+`CupriDoctor.Check(html, css, CupriDoctor.DesktopAndPhone, registry, model)`.
+
+### Overriding what you received
+
+**Styles — plain CSS, no `!important`.** Component CSS is emitted in layers, all of it before the
+app's stylesheet; at equal specificity later wins:
+
+`built-ins` < `libraries` < `the app's own components and replacements` < `the app's stylesheet` < `<style>` in the markup
+
+So `.leaf-status.down { background:#000080 }` in the app beats the library's rule of the same
+selector, a library's `.cupri-button` rule beats the built-in, and `:root { --leaf-accent:… }` in the
+app retunes a library's tokens — regardless of the order things were added. Specificity still beats
+order, as in any cascade. **Component class names are public API** — `.cupri-button`,
+`.cupri-tt-bubble`, a library's `.leaf-card` — because consumers style them; renaming one is a
+breaking change.
+
+**Code — subclass, or wrap.** Every built-in component is unsealed:
+
+```csharp
+public sealed class SquareButton : ButtonComponent
+{
+    public override string DefaultCss => base.DefaultCss + ".cupri-button.square { border-radius:0 }";
+    public override void Expand(IElement el) { base.Expand(el); el.ClassList.Add("square"); }
+}
+
+registry.Replace(new SquareButton());                       // takes over <cupri-button>
+registry.Replace(new Logged(registry.Find("leaf-card")!)); // decorate one you cannot subclass
+```
+
+| Call | Tag free | Tag taken |
+|---|---|---|
+| `Add(component)` | adds | throws `ComponentConflictException` |
+| `Add(library)` | adds all | throws; adds none |
+| `Replace(component)` | throws — a typo must not add a dead control | replaces; its CSS moves to the app layer |
+| `Register(component)` | adds | replaces, recorded in `Conflicts`, doctor `CF0022` |
+
+Override `Tag` as well and `Add` the subclass to have it beside the original. `Registrations`,
+`Libraries` and `Conflicts` say what a registry holds and where each tag came from.
 
 ---
 

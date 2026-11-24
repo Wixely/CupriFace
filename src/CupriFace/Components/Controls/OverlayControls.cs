@@ -7,7 +7,7 @@ namespace CupriFace.Components.Controls;
 /// panel, both lifted to the top layer (position:fixed). Clicking the backdrop dismisses it. Add
 /// <c>blur="{{Flag}}"</c> to frost the page behind it (backdrop-filter).
 /// </summary>
-public sealed class DialogComponent : ComponentBase
+public class DialogComponent : ComponentBase
 {
     public override string Tag => "cupri-dialog";
     // .cupri-backdrop (and its .blurred variant) is the shared scrim used by the dialog, drawer and
@@ -41,7 +41,7 @@ public sealed class DialogComponent : ComponentBase
 /// <summary>
 /// <c>&lt;cupri-toast&gt;</c> — a transient message pinned to the bottom-right (top layer).
 /// </summary>
-public sealed class ToastComponent : ComponentBase
+public class ToastComponent : ComponentBase
 {
     public override string Tag => "cupri-toast";
     public override string DefaultCss => """
@@ -64,7 +64,7 @@ public sealed class ToastComponent : ComponentBase
 /// regardless of use), so the injected toasts have their look + enter/exit transition. Pass a kind
 /// (<c>"success"</c>/<c>"error"</c>) to <c>doc.Toast</c> to tint one.
 /// </summary>
-public sealed class ToasterComponent : ComponentBase
+public class ToasterComponent : ComponentBase
 {
     public override string Tag => "cupri-toaster";
     public override string DefaultCss => """

@@ -1196,14 +1196,38 @@ public sealed partial class CupriDocument : IDisposable
     /// show which of them match an element.</summary>
     internal IReadOnlyList<CssRule> ActiveRules => _rules;
 
-    /// <summary>Register a component library; custom elements expand during build (§10).</summary>
+    /// <summary>Register a component library; custom elements expand during build (§10). Every
+    /// <see cref="ICupriBehaviour"/> the registry's components and libraries carry is attached to this
+    /// document here, once each.</summary>
     public CupriDocument UseComponents(ComponentRegistry components)
     {
         _components = components;
-        _cachedRules = null; // component CSS changes the rule set — rebuild the cache
-        _cachedKeyframes = null;
+        _componentsVersion = -1; // forces the sync below: CSS cache dropped, behaviours attached
         Rebuild();
         return this;
+    }
+
+    // The registry version this document last synchronised with, and the behaviours already attached
+    // to it. Kept so a registry changed AFTER it was handed over — a library added by a later
+    // Configure step — still gets its CSS parsed and its handlers attached, rather than expanding
+    // markup that has no styles and no behaviour behind it.
+    private int _componentsVersion = -1;
+    private HashSet<ICupriBehaviour>? _attachedBehaviours;
+
+    /// <summary>Bring the document up to date with its registry: drop the CSS cache and attach any
+    /// behaviour not yet attached. Runs at the top of a rebuild, before anything of the old DOM is
+    /// touched, because an <see cref="ICupriBehaviour.Attach"/> is allowed to call members such as
+    /// <see cref="OnRebuilt"/> that themselves rebuild — the version is recorded first, so that nested
+    /// rebuild finds nothing to do and simply runs, and the outer one then runs again.</summary>
+    private void SyncComponents()
+    {
+        if (_components is null || _components.Version == _componentsVersion) return;
+        _componentsVersion = _components.Version;
+        _cachedRules = null;     // component CSS changes the rule set — rebuild the cache
+        _cachedKeyframes = null;
+        foreach (var behaviour in _components.Behaviours.ToList())
+            if ((_attachedBehaviours ??= new(ReferenceEqualityComparer.Instance)).Add(behaviour))
+                behaviour.Attach(this);
     }
 
     /// <summary>Bind a model; interpolations and <c>data-repeat</c> resolve against it.</summary>
@@ -1387,6 +1411,7 @@ public sealed partial class CupriDocument : IDisposable
 
     private void Rebuild()
     {
+        SyncComponents();
         _inputsVersion++; // a fresh DOM invalidates the fast path's retained display list
         var prof = ProfileHook;
         var perf = Performance;   // this document's own log, while the dev tools are reading it

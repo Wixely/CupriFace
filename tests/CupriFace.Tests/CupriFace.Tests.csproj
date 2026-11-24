@@ -31,6 +31,9 @@
     <!-- The shipped sample apps: their documents are built headlessly here, so a markup or
          binding typo fails in seconds on any OS instead of on a device gate. -->
     <ProjectReference Include="..\..\samples\DemoApp\DemoApp.csproj" />
+    <!-- A real second component library (COMPONENT-PACKAGING.md, phase 4): the override contract is
+         pinned against a library with its own assets and behaviour, not only against test doubles. -->
+    <ProjectReference Include="..\..\samples\ComponentLibrary\ComponentLibrary.csproj" />
     <!-- For the shared web host core (#79): WebHostCore and IWebBridge are public and the
          core has no browser dependency, so the whole host runs here against a fake page —
          which is where video, the straight-alpha present path and the clipboard get tested,

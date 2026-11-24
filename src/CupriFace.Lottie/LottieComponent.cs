@@ -17,7 +17,7 @@ namespace CupriFace.Lottie;
 /// <see cref="LottiePlayer"/>'s job, wired by <c>doc.UseLottie()</c> — components expand markup and
 /// have no document to register a source with.</para>
 /// </summary>
-public sealed class LottieComponent : ComponentBase
+public class LottieComponent : ComponentBase
 {
     public override string Tag => "cupri-lottie";
 

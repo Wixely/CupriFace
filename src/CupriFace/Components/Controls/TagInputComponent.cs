@@ -18,7 +18,7 @@ namespace CupriFace.Components.Controls;
 /// anyway, so "the list without me" is always current, and removal is the same click primitive that
 /// drives a tab strip.</para>
 /// </summary>
-public sealed class TagInputComponent : ComponentBase
+public class TagInputComponent : ComponentBase
 {
     public override string Tag => "cupri-taginput";
 

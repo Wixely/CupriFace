@@ -60,6 +60,21 @@ public class CupriToolTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void Preview_OfAPageUsingAComponentLibrary_NamesTheTagItCannotDraw_WithoutFailing()
+    {
+        // The tool cannot add a library (that would take reflection), so the honest outcome is a
+        // note naming the tag and the reason — not an error, and not an unexplained blank box.
+        using var d = new Dir();
+        var html = d.File("App.html", "<body>\n  <leaf-card heading=\"Booking\">x</leaf-card>\n</body>");
+
+        var (code, outText, _) = Run("preview", html);
+
+        Assert.Equal(0, code);
+        Assert.Contains("App.html(2): info CF0020: <leaf-card> looks like a custom element", outText);
+        Assert.Contains("cupri preview` knows only the built-ins", outText);
+    }
+
+    [Fact]
     public void Preview_ReportsABindingTypo_AtItsLine_InCompilerFormat_AndFails()
     {
         using var d = new Dir();

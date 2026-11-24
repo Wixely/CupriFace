@@ -6,7 +6,7 @@ namespace CupriFace.Components.Controls;
 /// <c>&lt;cupri-menu label open&gt;…&lt;cupri-menu-item&gt;…&lt;/cupri-menu&gt;</c> — a dropdown menu.
 /// Renders a trigger in flow and, when open, an anchored popup (top layer) below it.
 /// </summary>
-public sealed class MenuComponent : ComponentBase
+public class MenuComponent : ComponentBase
 {
     public override string Tag => "cupri-menu";
     public override string DefaultCss => """
@@ -42,7 +42,7 @@ public sealed class MenuComponent : ComponentBase
 /// pointer on right-click and dismisses on an outside click, Escape, or scroll. Wire an item's action
 /// the usual way (a class + <c>OnClick</c>, or <c>data-set-path</c>); picking it also closes the menu.
 /// </summary>
-public sealed class ContextMenuComponent : ComponentBase
+public class ContextMenuComponent : ComponentBase
 {
     public override string Tag => "cupri-context-menu";
     public override string DefaultCss => """
@@ -83,7 +83,7 @@ public sealed class ContextMenuComponent : ComponentBase
 /// it paints and hit-tests within the popup with no extra plumbing; <c>left:100%</c> keeps it flush
 /// (no gap to fall through and dismiss the menu). Nesting works to any depth.
 /// </summary>
-public sealed class MenuItemComponent : ComponentBase
+public class MenuItemComponent : ComponentBase
 {
     public override string Tag => "cupri-menu-item";
     public override string DefaultCss => """
@@ -142,7 +142,7 @@ public sealed class MenuItemComponent : ComponentBase
 /// open regardless. The bubble is always in the DOM but hidden until revealed, so no re-expand is
 /// needed — a hover just re-resolves styles (like any other <c>:hover</c> rule).
 /// </summary>
-public sealed class TooltipComponent : ComponentBase
+public class TooltipComponent : ComponentBase
 {
     public override string Tag => "cupri-tooltip";
     public override string DefaultCss => """

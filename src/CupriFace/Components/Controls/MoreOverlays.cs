@@ -9,7 +9,7 @@ namespace CupriFace.Components.Controls;
 /// trigger that reveals an anchored panel (top layer) below it. Like a menu, but the popup
 /// holds arbitrary content rather than menu items.
 /// </summary>
-public sealed class PopoverComponent : ComponentBase
+public class PopoverComponent : ComponentBase
 {
     public override string Tag => "cupri-popover";
     public override string DefaultCss => """
@@ -42,7 +42,7 @@ public sealed class PopoverComponent : ComponentBase
 /// from an edge over a dismissing backdrop (top layer). <c>side</c> is left or right; add
 /// <c>blur="{{Flag}}"</c> to frost the page behind it.
 /// </summary>
-public sealed class DrawerComponent : ComponentBase
+public class DrawerComponent : ComponentBase
 {
     public override string Tag => "cupri-drawer";
     public override string DefaultCss => """
@@ -79,7 +79,7 @@ public sealed class DrawerComponent : ComponentBase
 /// grab handle. Add <c>blur="{{Flag}}"</c> to frost the page behind it. (Padding lives on an inner
 /// wrapper so the full-width panel doesn't overflow — the engine's width is content-box.)
 /// </summary>
-public sealed class ShelfComponent : ComponentBase
+public class ShelfComponent : ComponentBase
 {
     public override string Tag => "cupri-shelf";
     public override string DefaultCss => """
@@ -113,7 +113,7 @@ public sealed class ShelfComponent : ComponentBase
 /// — a dropdown bound to a value. The trigger shows the selected option's label; the anchored
 /// list writes the picked value (generic <c>data-set-*</c>) and closes itself.
 /// </summary>
-public sealed class SelectComponent : ComponentBase
+public class SelectComponent : ComponentBase
 {
     public override string Tag => "cupri-select";
     public override string DefaultCss => """

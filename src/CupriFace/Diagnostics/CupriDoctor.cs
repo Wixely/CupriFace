@@ -397,6 +397,7 @@ public static partial class CupriDoctor
                                 ComponentRegistry registry, int width, int height, string[] lines, List<Finding> findings)
     {
         UnknownComponents(dom, registry, lines, findings);
+        RegistryConflicts(registry, findings);
         TogglesWithNothingToToggle(dom, lines, findings);
         UnrenderedElements(doc, dom, registry, lines, findings);
         ScriptingHabits(dom, lines, findings);
@@ -601,27 +602,62 @@ public static partial class CupriDoctor
     {
         var known = registry.Tags.ToArray();
         var reported = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // The prefixes this registry owns: cupri- always, plus one per component library added. A tag
+        // carrying one of them is certainly meant to be a component, so a miss is an error; any other
+        // custom-element-shaped tag might be one from a library this check was not given, which is
+        // worth saying but not worth failing a build over.
+        var prefixes = registry.Libraries.Select(l => l.Prefix).Prepend("cupri-").ToArray();
 
         foreach (var el in All(dom))
         {
             var tag = el.LocalName;
-            if (!tag.StartsWith("cupri-", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!tag.Contains('-')) continue;   // a custom element always has a hyphen; HTML's own never do
             if (known.Contains(tag, StringComparer.OrdinalIgnoreCase)) continue;
             // The engine's own stand-in for ::before / ::after — not a component, not the author's.
             if (tag.Equals(PseudoElements.Tag, StringComparison.OrdinalIgnoreCase)) continue;
             // <cupri-option> inside <cupri-select>: the parent reads it and builds the list itself.
             // Data for a component, not a component — rendering nothing is its whole job (#145).
             if (InsideRegisteredComponent(el, registry)) continue;
+            // SVG and MathML have hyphenated element names of their own (font-face, annotation-xml).
+            if (el.Closest("svg, math") is not null) continue;
             if (!reported.Add(tag)) continue;
 
+            var owned = prefixes.FirstOrDefault(p => tag.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+            var line = LineOf(lines, "<" + tag, Occurrence(dom, el));
             var near = Nearest(tag, known);
-            findings.Add(new Finding(Severity.Error, "CF0020",
-                $"<{tag}> is not a registered component, so it renders nothing.",
-                near is null
-                    ? "Register it with registry.Register(new YourComponent()), or check the spelling."
-                    : $"Did you mean <{near}>?",
-                LineOf(lines, "<" + tag, Occurrence(dom, el))));
+            if (owned is not null)
+                findings.Add(new Finding(Severity.Error, "CF0020",
+                    $"<{tag}> is not a registered component, so it renders nothing.",
+                    near is not null
+                        ? $"Did you mean <{near}>?"
+                        : owned == "cupri-"
+                            ? "Register it with registry.Add(new YourComponent()), or check the spelling."
+                            : $"The {registry.Libraries.First(l => l.Prefix == owned).Name} library has no <{tag}> — check the spelling.",
+                    line));
+            else
+                findings.Add(new Finding(Severity.Info, "CF0020",
+                    $"<{tag}> looks like a custom element, but no registered component handles it, so it lays out as a plain box and draws only its children.",
+                    near is not null
+                        ? $"Did you mean <{near}>?"
+                        : "If it comes from a component library, the registry this check ran with does not include that library — " +
+                          "pass the app's registry (components:), and note that `cupri preview` knows only the built-ins.",
+                    line));
         }
+    }
+
+    // ---- 2b. the same tag registered twice, the second silently winning ------------------------
+
+    /// <summary>CF0022: a tag taken over through <see cref="ComponentRegistry.Register"/>, which
+    /// cannot say whether that was meant. A deliberate override and two packages colliding look the
+    /// same from outside — the app gets one of them and nothing says which — so each is reported,
+    /// and <see cref="ComponentRegistry.Replace"/> is the way to make the intent explicit and quiet it.</summary>
+    private static void RegistryConflicts(ComponentRegistry registry, List<Finding> findings)
+    {
+        foreach (var c in registry.Conflicts)
+            findings.Add(new Finding(Severity.Warning, "CF0022",
+                $"<{c.Tag}> was registered twice: {c.Replacement.GetType().Name} silently replaced {c.Previous.GetType().Name}.",
+                $"If the override is intended, register it with registry.Replace(new {c.Replacement.GetType().Name}()); " +
+                "if not, two libraries are claiming the same tag."));
     }
 
     /// <summary>

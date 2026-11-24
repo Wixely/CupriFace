@@ -5,7 +5,7 @@ namespace CupriFace.Components.Controls;
 /// <summary>
 /// <c>&lt;cupri-progress value max&gt;</c> — a themed progress bar. role=progressbar.
 /// </summary>
-public sealed class ProgressComponent : ComponentBase
+public class ProgressComponent : ComponentBase
 {
     public override string Tag => "cupri-progress";
 

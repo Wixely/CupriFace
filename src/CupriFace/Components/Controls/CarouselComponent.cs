@@ -19,7 +19,7 @@ namespace CupriFace.Components.Controls;
 /// spelling, sizing slides so a sliver of the next one shows, which is what tells a reader there is
 /// more to the side without needing a scrollbar to say so.</para>
 /// </summary>
-public sealed class CarouselComponent : ComponentBase
+public class CarouselComponent : ComponentBase
 {
     public override string Tag => "cupri-carousel";
 
@@ -77,7 +77,7 @@ public sealed class CarouselComponent : ComponentBase
 
 /// <summary>Declares one panel of a <see cref="CarouselComponent"/>. Consumed by its parent — the
 /// element renders nothing itself, like <c>cupri-tab</c> and <c>cupri-crumb</c>.</summary>
-public sealed class SlideComponent : ComponentBase
+public class SlideComponent : ComponentBase
 {
     public override string Tag => "cupri-slide";
     public override string DefaultCss => "";

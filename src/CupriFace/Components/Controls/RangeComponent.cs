@@ -17,7 +17,7 @@ namespace CupriFace.Components.Controls;
 /// value and the high thumb's <c>min</c> is the low value, so the existing clamp in the drag does it.
 /// A constraint expressed as data cannot be forgotten by a later edit to the drag path.</para>
 /// </summary>
-public sealed class RangeComponent : ComponentBase
+public class RangeComponent : ComponentBase
 {
     public override string Tag => "cupri-range";
 
