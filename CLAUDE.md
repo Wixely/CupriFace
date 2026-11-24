@@ -19,6 +19,23 @@ finished yet, so **reasoning about the markup will not find it.** You have to ch
 
 Everything below is headless — no window, no GPU, no browser — and runs anywhere `dotnet` does.
 
+**Never preview CupriFace markup in a browser.** It shows what Chrome does with the markup, which is
+not what the engine does — it hides exactly the failures above. The one-command preview is:
+
+```bash
+dotnet run --project src/CupriFace.Tool -- preview path/to/App.html --model sample.json
+# → App.preview.png (desktop + phone side by side) and the doctor's findings, in compiler format
+```
+
+(`cupri preview …` once the tool is installed; `--sizes`, `--outlines`, `--tree`, `--sweep` and
+`cupri check` for CI are in `--help`.) Then read the PNG. The steps below are the same tools from
+C#, for tests and for a document already in hand.
+
+**The `cupriface-ui` skill** ([.claude/skills/cupriface-ui/SKILL.md](.claude/skills/cupriface-ui/SKILL.md))
+is the short form of this section and of "Five things" below, for agents building UI. It also
+ships in the tool (`cupri skill` installs it into another project), so it is what agents outside
+this repository see. **Keep the two in step:** a rule changed here belongs there too.
+
 ### 1. `CupriDoctor` — before you look
 
 ```csharp

@@ -2373,6 +2373,7 @@ public static partial class CupriDoctor
     /// </summary>
     private static void UnresolvedBindings(string html, object model, string[] lines, List<Finding> findings)
     {
+        if (model is Binding.IBindableShape) { UnresolvedShapeBindings(html, model, lines, findings); return; }
         // Every repeat's element type, to a FIXED POINT. Resolving each name against the root type
         // alone missed a repeat whose collection lives on an ITEM type — a per-row detail panel, an
         // options group, a thread — so its element type never entered scope and every binding inside
@@ -2410,6 +2411,66 @@ public static partial class CupriDoctor
                     : $"Did you mean {{{{{near}}}}}?",
                 LineOf(lines, "{{" + path)));
         }
+    }
+
+    /// <summary>
+    /// CF0060 for a model with no .NET type to reflect on — JSON, a dictionary
+    /// (<see cref="Binding.IBindableShape"/>). The same question, answered from values: a path
+    /// exists when each segment is one of the names the object at that point lists. Repeat scopes
+    /// are the ITEMS of every repeated collection reachable from the model, to a fixed point, as the
+    /// typed check does with element types.
+    /// </summary>
+    private static void UnresolvedShapeBindings(string html, object model, string[] lines, List<Finding> findings)
+    {
+        var scopes = new List<object> { model };
+        var repeats = RepeatAttr().Matches(html).Select(r => r.Groups[1].Value.Trim()).Distinct().ToList();
+        bool added;
+        do
+        {
+            added = false;
+            foreach (var name in repeats)
+                foreach (var scope in scopes.ToList())
+                    if (ShapePathExists(scope, name) && Binding.BindingEngine.Resolve(scope, name) is System.Collections.IEnumerable seq and not string)
+                        foreach (var item in seq)
+                            if (item is Binding.IBindableShape && !scopes.Contains(item) && scopes.Count < 500)
+                            {
+                                scopes.Add(item);
+                                added = true;
+                            }
+        } while (added);
+
+        var reported = new HashSet<string>(StringComparer.Ordinal);
+        foreach (Match m in Mustache().Matches(html))
+        {
+            var path = m.Groups[1].Value.Trim();
+            if (path.Length == 0 || path is "this" or ".") continue;
+            if (!reported.Add(path)) continue;
+            if (scopes.Any(o => ShapePathExists(o, path))) continue;
+
+            var leaf = path.Split('.').Last();
+            var names = scopes.OfType<Binding.IBindableShape>().SelectMany(x => x.BindableNames).Distinct().ToArray();
+            var near = Nearest(leaf, names);
+            findings.Add(new Finding(Severity.Error, "CF0060",
+                $"{{{{{path}}}}} does not name anything on the model, so it renders as empty text.",
+                near is null
+                    ? $"Add the property, or check the spelling — nothing in scope is close to '{leaf}'."
+                    : $"Did you mean {{{{{near}}}}}?",
+                LineOf(lines, "{{" + path)));
+        }
+    }
+
+    private static bool ShapePathExists(object root, string path)
+    {
+        object? current = root;
+        var segs = path.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        for (var i = 0; i < segs.Length; i++)
+        {
+            var seg = segs[i].Trim();
+            if (seg is "this" or ".") continue;
+            if (current is not Binding.IBindableShape shape || !shape.BindableNames.Contains(seg)) return false;
+            current = ((Binding.IBindableAccessor)current).GetBindable(seg);
+        }
+        return true;
     }
 
     [GeneratedRegex(@"\{\{\s*([^}]+?)\s*\}\}")]

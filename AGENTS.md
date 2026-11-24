@@ -12,6 +12,16 @@ contents paint over whatever comes next. Nothing throws. You cannot find any of 
 markup, and the screenshot can mislead you too: overflowing content looks like a z-order bug rather
 than a height that is too small.
 
+**Do not preview CupriFace markup in a browser** — it shows you Chrome, not the engine. One command
+renders it through the engine at desktop and phone sizes and prints the doctor's findings:
+
+```bash
+dotnet run --project src/CupriFace.Tool -- preview path/to/App.html --model sample.json   # then read the PNG
+```
+
+The [`cupriface-ui` skill](.claude/skills/cupriface-ui/SKILL.md) is the short guide to building UI
+here; `cupri skill` installs it into another project.
+
 So, headlessly — no window, no GPU, no browser:
 
 ```csharp

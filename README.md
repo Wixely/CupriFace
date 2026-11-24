@@ -145,6 +145,7 @@ A fully-managed pipeline **parse → style → layout → paint → bind → com
 | `src/CupriFace.Lottie` | Optional: Lottie (After Effects JSON) playback via `<cupri-lottie>`, through Skia's own Skottie — managed only |
 | `src/CupriFace.Svg` | Optional: inline `<svg>` — shapes, paths, groups and transforms drawn as vector paths — managed only |
 | `src/CupriFace.Woff2` | Optional: WOFF 2 web fonts decoded to SFNT at runtime — managed only, no new dependency. Not on the NativeAOT-LLVM web host (no brotli archive there) |
+| `src/CupriFace.Tool` | The `cupri` command (`dotnet tool install -g CupriFace.Tool`): renders a page through the engine at desktop and phone sizes into one PNG and prints CupriDoctor's findings in compiler format — the preview to use instead of a browser. `cupri skill` installs the CupriFace UI skill for coding agents |
 | `src/CupriFace.Binding.Gen` | Roslyn source generator for AOT-clean binding accessors |
 | `src/CupriFace.Resources.Gen` | Roslyn source generator turning `Assets/*.html\|.css` into typed members |
 | `samples/HelloBox` | M0 shell smoke (window / CPU-raster) |

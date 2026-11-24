@@ -19,6 +19,26 @@ it has no primitive for lays out and then stays empty — so a stylesheet writte
 crash your app. The cost is that a mistake looks exactly like a layout you have not finished:
 nothing throws, nothing logs, the box is just blank.
 
+**From the command line — and instead of a browser.** A browser preview shows what Chrome does with
+the markup, which is not what the engine does. The `cupri` tool renders through the engine:
+
+```bash
+dotnet tool install -g CupriFace.Tool
+cupri preview Assets/App.html --model sample.json    # App.css beside it is picked up
+```
+
+It writes `App.preview.png` — the page at a desktop and a phone size, side by side — and prints the
+doctor's findings below in compiler format (`App.html(14): error CF0060: …`), which an editor's
+problem matcher lists. The model is JSON shaped like the app's model: `{{Name}}`, `data-repeat`
+over arrays and two-way controls all bind to it, and the doctor checks bindings against its keys.
+`--sizes desktop,phone,small-phone` or `1280x800`, `--outlines` to draw every box, `--tree` for the
+laid-out boxes with coordinates, `--sweep` to check every bool flag on and off, and
+`cupri check …` for the findings alone, exiting 1 on an error — for CI. `cupri skill` installs a
+skill that teaches coding agents all of this, into the project's `.claude/skills`.
+
+A model written as something other than C# properties — JSON, a dictionary — implements
+`IBindableShape` (its list of names) as well as `IBindableAccessor`, and CF0060 checks it by value.
+
 `CupriDoctor` turns that silence into a list:
 
 ```csharp

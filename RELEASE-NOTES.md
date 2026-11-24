@@ -39,6 +39,17 @@ Keep entries short and say what a caller must DO. The audience is someone whose 
 - **The shortcut is the app's to move.** Override `CupriApp.DevToolsShortcut` with another
   `KeyChord` — `new(EditKey.F12, KeyMods.Ctrl | KeyMods.Shift)` — or return null to keep every key.
   Modifiers must match exactly, so a remapped chord leaves plain F12 to the app.
+- **`cupri`, a command-line preview — the CupriFace.Tool package** (`dotnet tool install -g
+  CupriFace.Tool`). `cupri preview App.html --model sample.json` renders the page through the engine
+  at a desktop and a phone size into one PNG and prints CupriDoctor's findings in compiler format;
+  `cupri check` is the findings alone with an exit code, for CI. It exists because a browser is the
+  easy way to look at HTML and the wrong way to look at CupriFace markup — it hides exactly the
+  silent failures the doctor finds. The model is JSON, bound and checked like an app's model.
+- **A skill for coding agents: `cupriface-ui`.** In this repository at `.claude/skills/cupriface-ui`;
+  `cupri skill` installs it into any project. It tells an agent that CupriFace is not a browser, to
+  look at its UI with `cupri preview` rather than a browser, and the layout rules that differ.
+- `IBindableShape`: a model whose properties are not .NET properties (JSON, a dictionary) lists its
+  names, so CupriDoctor's binding check (CF0060) can check it — by value, into repeated items.
 - `CupriDocument.ReplaceSource(html, css)` swaps a live document's markup and stylesheet, keeping its
   model and state — the call hot reload makes, public for an app that loads its UI some other way.
 - `CupriDocument.TemplateHtml` is public: the markup the document is built from now, after any

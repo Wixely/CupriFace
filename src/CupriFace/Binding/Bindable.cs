@@ -25,6 +25,25 @@ public interface IBindableAccessor
     bool SetBindable(string name, object? value);
 }
 
+/// <summary>
+/// A model whose properties are not .NET properties — JSON, a dictionary, a row from a database —
+/// saying which names it has.
+///
+/// <para>Binding never needs this: <see cref="IBindableAccessor"/> is enough to read and write. The
+/// DOCTOR does. Its check that every <c>{{Path}}</c> names something (CF0060) asks whether the
+/// property EXISTS — not whether it holds a value — and for an ordinary model it answers by
+/// reflecting on the type. A dynamic model has no type to reflect on, so without this every one of
+/// its bindings would be reported as naming nothing. Implement it, and the check walks the model's
+/// values instead: the names here, then into whatever <see cref="IBindableAccessor.GetBindable"/>
+/// returns for the next segment, and into the items of repeated collections.</para>
+/// </summary>
+public interface IBindableShape
+{
+    /// <summary>Every name <see cref="IBindableAccessor.GetBindable"/> answers for, including those
+    /// whose value is null.</summary>
+    IEnumerable<string> BindableNames { get; }
+}
+
 /// <summary>Value coercion used by generated <c>SetBindable</c> switches (mirrors the binding
 /// engine's reflection setter). AOT-safe: no reflection, only <see cref="Convert"/>.</summary>
 public static class BindableConvert

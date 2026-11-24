@@ -2245,7 +2245,8 @@ jobs:
                       src/CupriFace.Android/CupriFace.Android.csproj \
                       src/CupriFace.Web.Mono/CupriFace.Web.Mono.csproj \
                       src/CupriFace.Woff2/CupriFace.Woff2.csproj \
-                      src/CupriFace.Web.NativeAot/CupriFace.Web.NativeAot.csproj; do
+                      src/CupriFace.Web.NativeAot/CupriFace.Web.NativeAot.csproj \
+                      src/CupriFace.Tool/CupriFace.Tool.csproj; do
             dotnet pack "$proj" -c Release -p:Version="$VERSION" -o dist
           done
           # The list above is hand-written, and nothing until now noticed when it fell behind the
@@ -2385,6 +2386,7 @@ jobs:
             "CupriFace.Gl:buildTransitive/CupriFace.Gl.props:DirectPInvoke" \
             "CupriFace.Web.NativeAot:buildTransitive/CupriFace.Web.NativeAot.props:EmccFlags" \
             "CupriFace.Web.Mono:buildTransitive/CupriFace.Web.Mono.props:WasmBuildNative" \
+            "CupriFace.Shell:buildTransitive/CupriFace.Shell.targets:CupriFace.DevTools.IsSupported" \
           ; do
             pkg=${spec%%:*}; rest=${spec#*:}; path=${rest%%:*}; needle=${rest#*:}
             unzip -p dist/"$pkg"."$VERSION".nupkg "$path" > packed.props 2>/dev/null || {
