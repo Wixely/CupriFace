@@ -65,7 +65,7 @@ error   CF0030 (line 6): <img> is not something the engine draws — it lays out
 | `CF0052` | An `@import` — the engine steps over it, so the sheet it names (usually a web font) never loads |
 | `CF0053` | A `position: sticky` with no inset on any axis — it pins to nothing and scrolls away |
 | `CF0054` | A `shader()` that will not run — its `@shader` block did not compile (the SkSL error is quoted), or it names no shader |
-| **`CF0060`** | **A `{{path}}` that names nothing on the model** — renders as empty text, looks like missing data |
+| **`CF0060`** | **A `{{path}}` that names nothing on the model** — renders as empty text, looks like missing data. Also a **build warning** now, at the line and column in the `.html` (TOOLBOX.md §3 "Build-time binding checks") |
 | **`CF0070`** | **Contents that do not fit a fixed-height box** — they overflow and paint over the next element |
 | **`CF0071`** | **A box that laid out with no area** but has visible content inside it |
 | **`CF0074`** | **Two rounded, filled boxes sitting flush** — a margin nobody set, so the curves collide and they read as one broken shape. Square-edged boxes meeting are a seam, not a collision; so is a pair that is faded out or transformed, which is painted somewhere other than where it was laid out |

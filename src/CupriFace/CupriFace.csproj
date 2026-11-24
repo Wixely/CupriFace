@@ -18,11 +18,32 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Ship the generator INSIDE this package, so a consumer installing CupriFace from NuGet gets
-         the AOT-clean binding accessors automatically, exactly as projects in this repo do.
+    <!-- Build-time binding checks (CF0060): every {{Path}} in an app's markup against its model.
+         Run over the engine too — anything here that binds markup to a model gets checked. -->
+    <ProjectReference Include="..\CupriFace.Binding.Analyzers\CupriFace.Binding.Analyzers.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <!-- Build order only: the Assets generator is packed below, so it must exist before pack runs.
+         It is not an analyzer of the engine itself, which has no Assets/ folder. -->
+    <ProjectReference Include="..\CupriFace.Resources.Gen\CupriFace.Resources.Gen.csproj"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Ship the generators and the analyzer INSIDE this package, so a consumer installing CupriFace
+         from NuGet gets the AOT-clean binding accessors, the typed Assets class and the build-time
+         binding checks automatically, exactly as projects in this repo do.
          (A ProjectReference is a build-time edge only — it does not travel in the .nupkg.) -->
     <None Include="../CupriFace.Binding.Gen/bin/$(Configuration)/netstandard2.0/CupriFace.Binding.Gen.dll"
           Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    <None Include="../CupriFace.Binding.Analyzers/bin/$(Configuration)/netstandard2.0/CupriFace.Binding.Analyzers.dll"
+          Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    <None Include="../CupriFace.Resources.Gen/bin/$(Configuration)/netstandard2.0/CupriFace.Resources.Gen.dll"
+          Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    <!-- The Assets pipeline that feeds them: Assets/** embedded under stable names and handed to the
+         compiler as AdditionalFiles. In this repo projects import CupriFace.Resources.targets
+         directly, because buildTransitive does not cross a ProjectReference edge. -->
+    <None Include="buildTransitive\CupriFace.targets" Pack="true" PackagePath="buildTransitive\" />
+    <None Include="..\CupriFace.Resources.targets" Pack="true" PackagePath="buildTransitive\" Visible="false" />
   </ItemGroup>
 
   <!-- Portable native Skia + HarfBuzz for win/linux/osx (shared with the shell). -->

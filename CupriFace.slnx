@@ -46,6 +46,7 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/CupriFace.Android/CupriFace.Android.csproj" />
+    <Project Path="src/CupriFace.Binding.Analyzers/CupriFace.Binding.Analyzers.csproj" />
     <Project Path="src/CupriFace.Binding.Gen/CupriFace.Binding.Gen.csproj" />
     <Project Path="src/CupriFace.Gl/CupriFace.Gl.csproj" />
     <Project Path="src/CupriFace.Lottie/CupriFace.Lottie.csproj" />

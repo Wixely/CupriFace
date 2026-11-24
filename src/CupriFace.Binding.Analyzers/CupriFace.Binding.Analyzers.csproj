@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The build-time half of CupriDoctor's CF0060: every {{Path}} in an app's markup checked against
+    the C# model it is bound to, reported as a compiler warning located in the .html file itself.
+    An analyzer rather than a generator because it emits no code, and because an analyzer's findings
+    are what .editorconfig severities, the IDE's error list and warnings-as-errors all already speak.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <!-- Shipped inside the CupriFace package, not as a package of its own. -->
+    <IsPackable>false</IsPackable>
+    <!-- RS2008 wants AnalyzerReleases.*.md beside the rules. This ships one rule, inside the
+         CupriFace package, and its history is RELEASE-NOTES.md like everything else's. -->
+    <NoWarn>$(NoWarn);RS2008</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>
