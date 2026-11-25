@@ -2042,6 +2042,7 @@ jobs:
             git make nasm diffutils
             mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
       # Clone in its OWN step (and traced): the first run died three seconds into a combined
       # step, which named nothing. Whatever breaks next says so by step name.
       - name: Clone sources
@@ -2064,7 +2065,9 @@ jobs:
       - name: Build libopus (static)
         run: |
           set -euxo pipefail
-          cmake -S opus -B opus/build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release \
+          # Ninja, named and installed explicitly: MSYS2's toolchain group stopped carrying
+          # mingw32-make, and "MinGW Makefiles" then found no build program (v0.48.0's tag run).
+          cmake -S opus -B opus/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_SHARED_LIBS=OFF -DOPUS_BUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF
           cmake --build opus/build -j
           find opus/build -name 'libopus.a'
@@ -2109,6 +2112,7 @@ jobs:
             git make diffutils
             mingw-w64-clang-aarch64-toolchain
             mingw-w64-clang-aarch64-cmake
+            mingw-w64-clang-aarch64-ninja
       - name: Clone sources
         run: |
           set -euxo pipefail
@@ -2134,7 +2138,9 @@ jobs:
       - name: Build libopus (static)
         run: |
           set -euxo pipefail
-          cmake -S opus -B opus/build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release \
+          # Ninja, named and installed explicitly: MSYS2's toolchain group stopped carrying
+          # mingw32-make, and "MinGW Makefiles" then found no build program (v0.48.0's tag run).
+          cmake -S opus -B opus/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=clang -DBUILD_SHARED_LIBS=OFF \
             -DOPUS_BUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF
           cmake --build opus/build -j
