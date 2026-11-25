@@ -235,6 +235,7 @@ public static class WebHostCore
         // the host (choosing between the GPU and the CPU after Init) says something first.
         _reported = null;
         _gpuFallback = null;
+        _dropOffSaid = _videoOffSaid = false;
 
         // The wasm Skia build has ONE embedded face (Noto Mono) — without these, sans-serif silently
         // renders monospaced. Registered faces win over platform lookup; the first family becomes
@@ -266,6 +267,17 @@ public static class WebHostCore
         {
             _video = new WebVideoBackend(_js);
             _doc.UseVideo(_video);
+        }
+        else
+        {
+            // Off, a <cupri-video> shows its poster and never plays, which looks like a broken
+            // source. Say so the first time the page has one, which may be several rebuilds in.
+            _doc.OnRebuilt(dom =>
+            {
+                if (_videoOffSaid || WebFeatureNotices.VideoOff(dom) is not { } line) return;
+                _videoOffSaid = true;
+                Console.WriteLine(line);
+            });
         }
         _underlays = new WebUnderlays(_js);
 
@@ -596,6 +608,7 @@ public static class WebHostCore
     private static readonly Dictionary<int, TaskCompletionSource<byte[]>> _dropReads = [];
     private static int _dropToken;
     private static string _dropName = "", _dropType = "";
+    private static bool _dropOffSaid, _videoOffSaid;   // WebFeatureNotices: once per page each
 
     /// <summary>The name of the file whose metadata is being assembled. Sent separately because the
     /// C ABI has no string type, so each one crosses through the shared buffer in its own call.</summary>
@@ -650,7 +663,18 @@ public static class WebHostCore
     /// <summary>Whether the document would do anything with a drop. The page asks before it tells the
     /// browser it accepts the drag, so a document with no handler keeps the "no entry" cursor. With
     /// <see cref="WebFeatures.FileDrop"/> off, never.</summary>
-    public static bool AcceptsFileDrop() => WebFeatures.FileDrop && _doc?.AcceptsFileDrop == true;
+    public static bool AcceptsFileDrop()
+    {
+        if (WebFeatures.FileDrop) return _doc?.AcceptsFileDrop == true;
+        // Off, the browser shows "no entry" over a drop zone the app wrote, which looks like a
+        // broken handler. Say why the first time it happens.
+        if (!_dropOffSaid && WebFeatureNotices.FileDropOff(_doc?.AcceptsFileDrop == true) is { } line)
+        {
+            _dropOffSaid = true;
+            Console.WriteLine(line);
+        }
+        return false;
+    }
 
     // Ask the page for part of a file and wait. The round trip is a token rather than a promise
     // because the C ABI carries neither — JS answers by calling DropBytes/DropFailed with the token

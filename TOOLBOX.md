@@ -2496,17 +2496,20 @@ brotli-11 takes the download from 3,895,626 to 3,631,523 bytes):
   face in the wasm Skia build. The host prints a console line saying so.
 - **With `CupriWebVideo=false`**, a `<cupri-video>` shows its poster. **With `CupriWebFileDrop=false`**,
   the page tells the browser it accepts no drops. The page's exports stay in both cases and do
-  nothing.
+  nothing. Neither fails silently: the first time the page has a `<cupri-video>`, or a file is
+  dragged over a document with a drop handler, the console names the switch that left it out.
 - **They work on both web hosts.** On Mono the trimmer drops the same code; only the NativeAOT
   figures above are measured.
 
 `samples/WebLlvmShaders` is the reference minimal build and `samples/WebLlvm` the full one. CI
 publishes both and checks the result, not the source:
 
-- excluded types are absent from ILC's map;
+- excluded types are absent from ILC's map, and neither build carries the legacy code pages;
 - the bold face's bytes are absent from the wasm;
 - every export the page calls is still there;
-- the minimal build boots, animates and answers input in Chromium (`MinimalBuildTests`).
+- the minimal build boots, animates and answers input in Chromium (`MinimalBuildTests`), and keeps
+  doing so after a resize, on the CPU renderer, and through a lost WebGL context, both one the
+  browser gives back and one it never does.
 
 The sizes, raw and compressed, go to the job summary.
 
@@ -2552,9 +2555,103 @@ turn a Release publish (`Optimize=true`) to `OptimizationPreference=Size` and em
 
 - **The engine's media model.** `VideoChapter`, `VideoTrack` and their generic instantiations stay
   with video off, because the engine itself reaches them.
-- **612,764 bytes of `codepages.nlp`.** AngleSharp's legacy-charset support pulls in
-  System.Text.Encoding.CodePages.
-- **Native Skia and HarfBuzz.** Shrinking them would need differently built native archives.
+- **Native Skia and HarfBuzz: just under half the code.** Measured on `samples/WebLlvmShaders` from
+  a link that kept function names (`NativeDebugSymbols=true`; the shipping link strips them, so
+  these are shares, not exact shipping bytes). The shipping wasm is 11.46 MB: 8.15 MB of code,
+  3.21 MB of data, and the rest is tables. The code splits like this:
+
+  | Part | Code | Share |
+  |---|---:|---:|
+  | Managed: the engine, the app, the .NET libraries (ILC) | 4,367,978 | 48.0% |
+  | Skia, core: raster, paths, text, image filters | 1,457,535 | 16.0% |
+  | Skia, GPU backend (Ganesh on WebGL) | 1,107,629 | 12.2% |
+  | HarfBuzz: text shaping | 586,427 | 6.4% |
+  | Skia, SkSL: the shader compiler, for runtime shaders and the GPU | 521,269 | 5.7% |
+  | Image codecs, zlib, Brotli, all inside Skia: JPEG, WebP, GIF, PNG | 346,191 | 3.8% |
+  | FreeType, inside Skia | 319,547 | 3.5% |
+  | Other: more codec and font code, libc, the NativeAOT runtime | 395,824 | 4.3% |
+  | **Total, this link** | **9,102,400** | |
+
+  None of the native part can be left out with a switch. Skia and HarfBuzz come as prebuilt static
+  archives (`SkiaSharp.NativeAssets.WebAssembly`, `HarfBuzzSharp.NativeAssets.WebAssembly`), and
+  the linker keeps whatever the managed side can reach through P/Invoke. The engine reaches the
+  codecs for every image and FreeType and HarfBuzz for every glyph. The two largest candidates for
+  a later build are the GPU backend and SkSL, 1.63 MB together. A page that never uses the GPU
+  renderer still links them, because the host's renderer choice happens at run time. SkSL is
+  needed on the CPU as well for any `shader()`. Shrinking any of this means building different
+  native archives, which is outside this repository.
+
+### The bundled fonts
+
+Both web hosts embed two faces, so text has a real sans-serif without the app doing anything:
+**Noto Sans 2.015**, Regular (400) and Bold (700), 621,572 and 631,484 bytes. They are static faces,
+not a variable font. Each covers the same 2,965 code points:
+
+| Covered | Not covered |
+|---|---|
+| Latin, with Latin Extended A/B and Vietnamese | Arabic, Hebrew, Indic scripts |
+| Greek, with Greek Extended | CJK |
+| Cyrillic, with its extensions | Emoji |
+| IPA and combining marks, general punctuation, 33 currency signs | Arrows, most mathematical operators |
+
+A character neither face has paints as an empty box unless the app registers a face that has it.
+`CupriDoctor` reports that as CF0080 on the desktop; on the web it shows only in the page.
+
+**The licence.** The faces are under the SIL Open Font License 1.1, which allows bundling them in
+an app, commercial or not, as long as the licence travels with them. Both web packages carry it as
+`THIRD-PARTY-NOTICES/fonts-OFL.txt`, and the repository copy is
+[src/WebFonts/OFL.txt](src/WebFonts/OFL.txt). An app that ships its own `THIRD-PARTY-NOTICES`
+should include it, unless it publishes with `CupriWebFonts=none`.
+
+**The default is `all`, so the fonts are opt-out.** Leaving them out by default would save 1.25 MB
+for every app that never noticed the setting, but an app that updated the package would then
+render in monospace with no error. So a page has to ask for less: `regular` keeps one face and
+thickens it for bold, and `none` leaves both out.
+
+**Bringing your own face.** Publish with `CupriWebFonts=none`, embed the font in the app, and
+register it before the first frame:
+
+```csharp
+public override void Configure(CupriDocument doc)
+{
+    using var s = typeof(MyApp).Assembly.GetManifestResourceStream("MyApp.Inter-Regular.ttf")!;
+    var bytes = new byte[s.Length];
+    s.ReadExactly(bytes);
+    doc.LoadFont(bytes);      // the first face registered becomes sans-serif
+}
+```
+
+Register a bold weight the same way if the app has one. Without it, bold is the regular face
+thickened.
+
+**Covering another script** (Arabic, CJK) needs no `none`: register a face for it alongside the
+bundled ones and name its family in `font-family` on the text that uses it. Automatic fallback for a
+single missing character searches the registered faces only under
+`doc.FontPolicy = FontPolicy.RegisteredOnly`; the default policy asks Skia's font manager, which in
+a browser has nothing to offer.
+
+### AngleSharp's legacy code pages
+
+**Left out by default, with nothing to set.** The HTML parser, AngleSharp, registers .NET's
+legacy code-page provider when it is configured. The provider's tables are a 612,764-byte
+resource, `codepages.nlp`. They decode bytes in charsets like windows-1252 or Shift_JIS. The engine
+always parses markup from a string, so there are never bytes to decode, and the tables are never
+read. Both web hosts tell the linker to skip that registration
+(`buildTransitive/CupriFace.Web.legacy-encodings.xml`), which drops the provider and its tables:
+
+| Build | wasm | wasm, brotli 11 |
+|---|---:|---:|
+| NativeAOT `samples/WebLlvmShaders`, before | 12,176,449 | 3,581,863 |
+| NativeAOT `samples/WebLlvmShaders`, after | **11,461,035** (−715,414) | **3,398,876** (−182,987) |
+| NativeAOT `samples/WebLlvm` (the Showcase) | 15,217,112 → **14,504,723** | |
+| Mono `samples/WebShaders`, whole `_framework`, brotli | 4,954,474 → **4,780,446** (−174,028) | |
+
+What changes for an app: `Encoding.GetEncoding("windows-1252")` and other legacy code pages now
+throw `NotSupportedException` in a web build, as they do in any .NET app that has not registered
+the provider itself. Before, they worked only because AngleSharp registered it. To get them back,
+publish with `<CupriWebLegacyEncodings>true</CupriWebLegacyEncodings>`, or register the provider
+in your own code, which also keeps it. On the Mono host, publish clean (or delete `obj/`) after
+changing the setting, because the trimmer does not rerun when only its arguments change.
 
 ## 8.2 Scrolling
 

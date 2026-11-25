@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Leaves the legacy code-page tables out of a web build (#325): 612,764 bytes of codepages.nlp, and
+  the code that reads it.
+
+  Nothing in the engine needs them. It parses its markup from a string, so there are no bytes to
+  decode and a <meta charset> has nothing to act on. They are in the build only because AngleSharp's
+  default configuration constructs an EncodingMetaHandler, whose constructor registers
+  CodePagesEncodingProvider. Constructing the configuration is enough to keep it, whatever the
+  services passed. So the constructor is the thing to stub: with it empty, nothing reaches the
+  provider and the linker drops the tables.
+
+  What changes: Encoding.GetEncoding("windows-1252") and the other legacy code pages throw
+  NotSupportedException, as they do in any .NET app that does not register the provider itself.
+  AngleSharp catches that and decodes as UTF-8. <CupriWebLegacyEncodings>true</CupriWebLegacyEncodings>
+  keeps them, for an app that decodes legacy-charset bytes itself.
+
+  Read by ILC (the NativeAOT host) and by ILLink (the Mono host).
+-->
+<linker>
+  <assembly fullname="AngleSharp">
+    <type fullname="AngleSharp.Browser.EncodingMetaHandler">
+      <method signature="System.Void .ctor()" body="stub" />
+    </type>
+  </assembly>
+</linker>

@@ -15,6 +15,7 @@ asserts on the PUBLISHED minimal output rather than on anything managed:
   * the bold face's bytes are absent from the wasm and the regular face's are present;
   * the page can call every export the full build has: the host's export list is the same;
   * both builds were linked for size (-Oz), which the host's targets default a Release publish to.
+  * neither build carries AngleSharp's legacy code-page tables (CupriWebLegacyEncodings, default off).
 
 Sizes go to $GITHUB_STEP_SUMMARY when it is set. Exit 1 on any failed assertion.
 """
@@ -101,6 +102,14 @@ for label, d in (("full", full_dir), ("minimal", min_dir)):
     if lines > 500:
         failures.append(f"the {label} build's JS glue is not minified ({lines:,} lines): the size-optimised "
                         "link (emcc -Oz, CupriWebOptimizeSize) did not apply")
+
+# AngleSharp's legacy code pages (codepages.nlp, 612,764 bytes) are left out of every web build by
+# default: the host stubs the constructor that registers their provider. A stub that stopped
+# matching (AngleSharp renamed the type) fails quietly and puts them back, so look for the provider.
+for label, m in (("full", full_map), ("minimal", min_map)):
+    if "CodePagesEncodingProvider" in open(m, encoding="utf-8").read():
+        failures.append(f"the {label} build still compiles CodePagesEncodingProvider: the legacy-encodings "
+                        "substitution (CupriFace.Web.legacy-encodings.xml) no longer matches AngleSharp")
 
 missing = host_exports(full_exports) - host_exports(min_exports)
 if missing:

@@ -71,6 +71,9 @@ CupriFace.Web.NativeAot is the RECOMMENDED host and the faster one, for the same
 
   <ItemGroup>
     <ProjectReference Include="..\CupriFace\CupriFace.csproj" />
+    <!-- WebFeatureNotices: the host's tests run with every feature on, so the "off" lines are
+         checked as functions. -->
+    <InternalsVisibleTo Include="CupriFace.Tests" />
     <!-- Skia + HarfBuzz natives for the browser (the engine's desktop natives are ignored here).
          BOTH are required and both fail LATE if missing, which is exactly why they belong to the
          package rather than to every app: text shaping (FontService → SKShaper) dlopens
@@ -114,6 +117,7 @@ CupriFace.Web.NativeAot is the RECOMMENDED host and the faster one, for the same
          repo-internal apps (samples/WebWasm) set the same properties in their own csproj. -->
     <None Include="buildTransitive\CupriFace.Web.Mono.props" Pack="true" PackagePath="buildTransitive\" />
     <None Include="buildTransitive\CupriFace.Web.Mono.targets" Pack="true" PackagePath="buildTransitive\" />
+    <None Include="buildTransitive\CupriFace.Web.legacy-encodings.xml" Pack="true" PackagePath="buildTransitive\" />
   </ItemGroup>
 
 </Project>
