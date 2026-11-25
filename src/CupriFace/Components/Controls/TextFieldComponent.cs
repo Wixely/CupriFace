@@ -7,7 +7,7 @@ namespace CupriFace.Components.Controls;
 /// text field. role=textbox; two-way binds its value; focus/caret/typing are driven by the
 /// document's key dispatch.
 /// </summary>
-public sealed class TextFieldComponent : ComponentBase
+public class TextFieldComponent : ComponentBase
 {
     public override string Tag => "cupri-textfield";
     public override string DefaultCss => """

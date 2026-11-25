@@ -1,6 +1,7 @@
 body { background:#e7eaf0; }
-.panel { width:520px; background:white; border-radius:16px; padding:26px; font-family:sans-serif; margin:24px; }
-.titlebar { display:flex; align-items:center; justify-content:space-between; margin-bottom:22px; }
+/* border-box, and a max rather than a width: the card is 572px at most and shrinks to fit a phone. */
+.panel { box-sizing:border-box; max-width:572px; background:white; border-radius:16px; padding:26px; font-family:sans-serif; margin:24px; }
+.titlebar { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px; margin-bottom:22px; }
 .title { font-size:23px; font-weight:bold; color:#1e2430; }
 .field { display:flex; align-items:center; margin-bottom:16px; }
 .row { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
@@ -9,3 +10,9 @@ body { background:#e7eaf0; }
 cupri-slider { flex:1; }
 cupri-progress { flex:1; }
 .actions { display:flex; justify-content:flex-end; gap:12px; margin-top:6px; }
+
+/* A phone: a narrower label leaves the sliders room to drag. */
+@media (max-width: 480px) {
+  .panel { margin:16px; padding:20px; }
+  .label { width:104px; }
+}

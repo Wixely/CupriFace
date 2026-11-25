@@ -397,6 +397,7 @@ public static partial class CupriDoctor
                                 ComponentRegistry registry, int width, int height, string[] lines, List<Finding> findings)
     {
         UnknownComponents(dom, registry, lines, findings);
+        RegistryConflicts(registry, findings);
         TogglesWithNothingToToggle(dom, lines, findings);
         UnrenderedElements(doc, dom, registry, lines, findings);
         ScriptingHabits(dom, lines, findings);
@@ -601,27 +602,62 @@ public static partial class CupriDoctor
     {
         var known = registry.Tags.ToArray();
         var reported = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // The prefixes this registry owns: cupri- always, plus one per component library added. A tag
+        // carrying one of them is certainly meant to be a component, so a miss is an error; any other
+        // custom-element-shaped tag might be one from a library this check was not given, which is
+        // worth saying but not worth failing a build over.
+        var prefixes = registry.Libraries.Select(l => l.Prefix).Prepend("cupri-").ToArray();
 
         foreach (var el in All(dom))
         {
             var tag = el.LocalName;
-            if (!tag.StartsWith("cupri-", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!tag.Contains('-')) continue;   // a custom element always has a hyphen; HTML's own never do
             if (known.Contains(tag, StringComparer.OrdinalIgnoreCase)) continue;
             // The engine's own stand-in for ::before / ::after — not a component, not the author's.
             if (tag.Equals(PseudoElements.Tag, StringComparison.OrdinalIgnoreCase)) continue;
             // <cupri-option> inside <cupri-select>: the parent reads it and builds the list itself.
             // Data for a component, not a component — rendering nothing is its whole job (#145).
             if (InsideRegisteredComponent(el, registry)) continue;
+            // SVG and MathML have hyphenated element names of their own (font-face, annotation-xml).
+            if (el.Closest("svg, math") is not null) continue;
             if (!reported.Add(tag)) continue;
 
+            var owned = prefixes.FirstOrDefault(p => tag.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+            var line = LineOf(lines, "<" + tag, Occurrence(dom, el));
             var near = Nearest(tag, known);
-            findings.Add(new Finding(Severity.Error, "CF0020",
-                $"<{tag}> is not a registered component, so it renders nothing.",
-                near is null
-                    ? "Register it with registry.Register(new YourComponent()), or check the spelling."
-                    : $"Did you mean <{near}>?",
-                LineOf(lines, "<" + tag, Occurrence(dom, el))));
+            if (owned is not null)
+                findings.Add(new Finding(Severity.Error, "CF0020",
+                    $"<{tag}> is not a registered component, so it renders nothing.",
+                    near is not null
+                        ? $"Did you mean <{near}>?"
+                        : owned == "cupri-"
+                            ? "Register it with registry.Add(new YourComponent()), or check the spelling."
+                            : $"The {registry.Libraries.First(l => l.Prefix == owned).Name} library has no <{tag}> — check the spelling.",
+                    line));
+            else
+                findings.Add(new Finding(Severity.Info, "CF0020",
+                    $"<{tag}> looks like a custom element, but no registered component handles it, so it lays out as a plain box and draws only its children.",
+                    near is not null
+                        ? $"Did you mean <{near}>?"
+                        : "If it comes from a component library, the registry this check ran with does not include that library — " +
+                          "pass the app's registry (components:), and note that `cupri preview` knows only the built-ins.",
+                    line));
         }
+    }
+
+    // ---- 2b. the same tag registered twice, the second silently winning ------------------------
+
+    /// <summary>CF0022: a tag taken over through <see cref="ComponentRegistry.Register"/>, which
+    /// cannot say whether that was meant. A deliberate override and two packages colliding look the
+    /// same from outside — the app gets one of them and nothing says which — so each is reported,
+    /// and <see cref="ComponentRegistry.Replace"/> is the way to make the intent explicit and quiet it.</summary>
+    private static void RegistryConflicts(ComponentRegistry registry, List<Finding> findings)
+    {
+        foreach (var c in registry.Conflicts)
+            findings.Add(new Finding(Severity.Warning, "CF0022",
+                $"<{c.Tag}> was registered twice: {c.Replacement.GetType().Name} silently replaced {c.Previous.GetType().Name}.",
+                $"If the override is intended, register it with registry.Replace(new {c.Replacement.GetType().Name}()); " +
+                "if not, two libraries are claiming the same tag."));
     }
 
     /// <summary>
@@ -2373,6 +2409,7 @@ public static partial class CupriDoctor
     /// </summary>
     private static void UnresolvedBindings(string html, object model, string[] lines, List<Finding> findings)
     {
+        if (model is Binding.IBindableShape) { UnresolvedShapeBindings(html, model, lines, findings); return; }
         // Every repeat's element type, to a FIXED POINT. Resolving each name against the root type
         // alone missed a repeat whose collection lives on an ITEM type — a per-row detail panel, an
         // options group, a thread — so its element type never entered scope and every binding inside
@@ -2410,6 +2447,66 @@ public static partial class CupriDoctor
                     : $"Did you mean {{{{{near}}}}}?",
                 LineOf(lines, "{{" + path)));
         }
+    }
+
+    /// <summary>
+    /// CF0060 for a model with no .NET type to reflect on — JSON, a dictionary
+    /// (<see cref="Binding.IBindableShape"/>). The same question, answered from values: a path
+    /// exists when each segment is one of the names the object at that point lists. Repeat scopes
+    /// are the ITEMS of every repeated collection reachable from the model, to a fixed point, as the
+    /// typed check does with element types.
+    /// </summary>
+    private static void UnresolvedShapeBindings(string html, object model, string[] lines, List<Finding> findings)
+    {
+        var scopes = new List<object> { model };
+        var repeats = RepeatAttr().Matches(html).Select(r => r.Groups[1].Value.Trim()).Distinct().ToList();
+        bool added;
+        do
+        {
+            added = false;
+            foreach (var name in repeats)
+                foreach (var scope in scopes.ToList())
+                    if (ShapePathExists(scope, name) && Binding.BindingEngine.Resolve(scope, name) is System.Collections.IEnumerable seq and not string)
+                        foreach (var item in seq)
+                            if (item is Binding.IBindableShape && !scopes.Contains(item) && scopes.Count < 500)
+                            {
+                                scopes.Add(item);
+                                added = true;
+                            }
+        } while (added);
+
+        var reported = new HashSet<string>(StringComparer.Ordinal);
+        foreach (Match m in Mustache().Matches(html))
+        {
+            var path = m.Groups[1].Value.Trim();
+            if (path.Length == 0 || path is "this" or ".") continue;
+            if (!reported.Add(path)) continue;
+            if (scopes.Any(o => ShapePathExists(o, path))) continue;
+
+            var leaf = path.Split('.').Last();
+            var names = scopes.OfType<Binding.IBindableShape>().SelectMany(x => x.BindableNames).Distinct().ToArray();
+            var near = Nearest(leaf, names);
+            findings.Add(new Finding(Severity.Error, "CF0060",
+                $"{{{{{path}}}}} does not name anything on the model, so it renders as empty text.",
+                near is null
+                    ? $"Add the property, or check the spelling — nothing in scope is close to '{leaf}'."
+                    : $"Did you mean {{{{{near}}}}}?",
+                LineOf(lines, "{{" + path)));
+        }
+    }
+
+    private static bool ShapePathExists(object root, string path)
+    {
+        object? current = root;
+        var segs = path.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        for (var i = 0; i < segs.Length; i++)
+        {
+            var seg = segs[i].Trim();
+            if (seg is "this" or ".") continue;
+            if (current is not Binding.IBindableShape shape || !shape.BindableNames.Contains(seg)) return false;
+            current = ((Binding.IBindableAccessor)current).GetBindable(seg);
+        }
+        return true;
     }
 
     [GeneratedRegex(@"\{\{\s*([^}]+?)\s*\}\}")]
@@ -2450,6 +2547,11 @@ public static partial class CupriDoctor
             current = prop.PropertyType;
         }
         if (current.IsArray) return current.GetElementType();
+        // A property typed IEnumerable<T> ITSELF: an interface's GetInterfaces() lists the ones it
+        // extends, not itself, so the loop below found nothing for it and every binding inside the
+        // repeat was reported as naming nothing — at Severity.Error, on markup that renders.
+        if (current.IsGenericType && current.GetGenericTypeDefinition() == typeof(IEnumerable<>))
+            return current.GetGenericArguments()[0];
         foreach (var i in current.GetInterfaces())
             if (i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>))
                 return i.GetGenericArguments()[0];

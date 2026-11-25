@@ -1,0 +1,22 @@
+<Project>
+  <!--
+    What a NuGet consumer of CupriFace.Shell gets from its buildTransitive targets, applied to every
+    sample here, because a ProjectReference does not carry buildTransitive: the dev tools switch
+    (F12 inspector, hot reload, doctor on save) on in Debug and off in every other configuration.
+    Harmless for a sample that never opens a desktop window — only DesktopHost reads the switch.
+  -->
+  <Import Project="..\src\CupriFace.Shell\buildTransitive\CupriFace.Shell.targets" />
+
+  <!--
+    The build-time binding check (CF0060) that the CupriFace package carries in analyzers/, wired
+    into every sample for the same reason: an analyzer inside a package reaches its consumers, and
+    one referenced by the engine project does not reach the projects that reference the engine.
+    A no-op for a sample that binds no markup. The Assets pipeline it reads is NOT imported here —
+    the samples that use it import src/CupriFace.Resources.targets themselves, and the rest embed
+    their files their own way.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\src\CupriFace.Binding.Analyzers\CupriFace.Binding.Analyzers.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+</Project>

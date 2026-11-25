@@ -10,7 +10,7 @@ namespace CupriFace.Components.Controls;
 /// current page. Renders ‹ prev, the first/last pages, a small window around the current page (with
 /// … gaps), and next ›. Clicking a page or arrow writes the new page number.
 /// </summary>
-public sealed class PaginationComponent : ComponentBase
+public class PaginationComponent : ComponentBase
 {
     public override string Tag => "cupri-pagination";
     // Every slot (page numbers AND the … gaps) is the same fixed width, and the slot COUNT is

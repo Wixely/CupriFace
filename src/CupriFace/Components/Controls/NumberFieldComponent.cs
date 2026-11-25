@@ -7,7 +7,7 @@ namespace CupriFace.Components.Controls;
 /// numeric field. role=spinbutton; two-way binds its value; supports typed digit entry
 /// (filtered to numeric) plus up/down steppers. Bound to an int/double on the model.
 /// </summary>
-public sealed class NumberFieldComponent : ComponentBase
+public class NumberFieldComponent : ComponentBase
 {
     public override string Tag => "cupri-number";
     public override string DefaultCss => """

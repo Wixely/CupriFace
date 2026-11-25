@@ -1,0 +1,8 @@
+.leaf-status { display:inline-flex; align-items:center; gap:6px; padding:3px 10px;
+               border-radius:999px; font-size:13px; font-weight:bold;
+               background:#e7f4ee; color:#1d5c41; }
+.leaf-status-dot { width:8px; height:8px; border-radius:4px; background:#2f9e6b; }
+.leaf-status.warn { background:#fdf3e1; color:#7a4b06; }
+.leaf-status.warn .leaf-status-dot { background:#e09a1a; }
+.leaf-status.down { background:#fdeceb; color:#8f1d16; }
+.leaf-status.down .leaf-status-dot { background:#d92d20; }

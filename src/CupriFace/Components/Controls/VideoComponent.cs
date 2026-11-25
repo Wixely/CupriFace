@@ -18,7 +18,7 @@ namespace CupriFace.Components.Controls;
 /// still overlaid) AND the window goes OS-fullscreen via <c>WindowCommandRequested</c> — so the
 /// video fills the screen, not just the window. Escape (or ⛶ again) undoes both.
 /// </summary>
-public sealed class VideoComponent : ComponentBase
+public class VideoComponent : ComponentBase
 {
     private static long _nextChapterAnchorId;
 
@@ -386,7 +386,7 @@ public sealed class VideoComponent : ComponentBase
 /// choices as an accessible, collapsible form below a player. Omit this element (and the video's
 /// <c>tracks</c> attribute) when an application must not expose track switching to users.
 /// </summary>
-public sealed class VideoTracksComponent : ComponentBase
+public class VideoTracksComponent : ComponentBase
 {
     public override string Tag => "cupri-video-tracks";
     public override string DefaultCss => """
@@ -492,7 +492,7 @@ public sealed class VideoTracksComponent : ComponentBase
 /// player. Selecting a row seeks to that chapter; omit it when an application should not expose
 /// chapter navigation.
 /// </summary>
-public sealed class VideoChaptersComponent : ComponentBase
+public class VideoChaptersComponent : ComponentBase
 {
     public override string Tag => "cupri-video-chapters";
     public override string DefaultCss => """

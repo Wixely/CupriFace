@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    `cupri` — the command-line preview for CupriFace UI: renders markup through the ENGINE at a
+    desktop and a phone size, writes one image, and prints what CupriDoctor finds in the compiler's
+    format. Shipped as a .NET tool so an agent (or a person) can look at a CupriFace UI the right way
+    with one command, instead of the easy wrong way — a browser.
+
+        dotnet tool install (global) CupriFace.Tool
+        cupri preview App.html (with a sample model)
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>CupriFace.Tool</RootNamespace>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>cupri</ToolCommandName>
+    <PackageId>CupriFace.Tool</PackageId>
+    <Description>The `cupri` command: preview and check a CupriFace UI as the engine draws it — one PNG at desktop and phone sizes plus CupriDoctor's findings in compiler format — and install the CupriFace UI skill for coding agents.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CupriFace\CupriFace.csproj" />
+    <!-- Inline <svg> is common enough in real markup that a preview without it would report it as
+         undrawable; the optional package is wired in, as an app that uses it would. -->
+    <ProjectReference Include="..\CupriFace.Svg\CupriFace.Svg.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="CupriFace.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The agent skill, embedded from the repository's own copy so there is one source:
+         `cupri skill` writes it into a project's .claude/skills. -->
+    <EmbeddedResource Include="..\..\.claude\skills\cupriface-ui\SKILL.md" LogicalName="SKILL.md" Link="SKILL.md" />
+  </ItemGroup>
+
+  <!-- Portable native Skia + HarfBuzz for win/linux/osx, so the tool renders on any of them. -->
+  <Import Project="..\SkiaNativeAssets.props" />
+
+</Project>

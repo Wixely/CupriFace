@@ -17,6 +17,9 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <!-- Drives the build-time binding check (BuildTimeBindingCheckTests) the way the compiler does.
+         The same Roslyn the analyzer is built against. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -26,9 +29,16 @@
     <ProjectReference Include="..\..\src\CupriFace.Svg\CupriFace.Svg.csproj" />
     <ProjectReference Include="..\..\src\CupriFace.Woff2\CupriFace.Woff2.csproj" />
     <ProjectReference Include="..\..\src\CupriFace.Media\CupriFace.Media.csproj" />
+    <!-- The `cupri` command, run in-process (CupriToolTests). -->
+    <ProjectReference Include="..\..\src\CupriFace.Tool\CupriFace.Tool.csproj" />
+    <!-- The build-time binding check, referenced as a library so the tests can instantiate it. -->
+    <ProjectReference Include="..\..\src\CupriFace.Binding.Analyzers\CupriFace.Binding.Analyzers.csproj" />
     <!-- The shipped sample apps: their documents are built headlessly here, so a markup or
          binding typo fails in seconds on any OS instead of on a device gate. -->
     <ProjectReference Include="..\..\samples\DemoApp\DemoApp.csproj" />
+    <!-- A real second component library (COMPONENT-PACKAGING.md, phase 4): the override contract is
+         pinned against a library with its own assets and behaviour, not only against test doubles. -->
+    <ProjectReference Include="..\..\samples\ComponentLibrary\ComponentLibrary.csproj" />
     <!-- For the shared web host core (#79): WebHostCore and IWebBridge are public and the
          core has no browser dependency, so the whole host runs here against a fake page —
          which is where video, the straight-alpha present path and the clipboard get tested,
@@ -41,6 +51,8 @@
        would load Silk.NET and SDL into every one of these runs for the sake of maths that needs no
        window. -->
   <Import Project="..\..\src\Hosting.props" />
+  <!-- Desktop input routing (main and secondary windows), compiled in the same way. -->
+  <Import Project="..\..\src\DesktopHosting.props" />
 
   <ItemGroup>
     <!-- Real font files for the registration tests, copied beside the test binary so the tests are
@@ -81,6 +93,14 @@
     <!-- Codec natives when present (codecs.yml artifacts dropped into native/<rid>/): the
          NativeDecodeTests then exercise the real libvpx/libopus binding instead of skipping. -->
     <None Include="@(CupriCodecNative)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- The dev tools' feature switch, ON for this test process as it is for a Debug app: hot reload
+       redirects an embedded asset's read to its file only while the switch is on, and the tests in
+       DevToolsTests exercise exactly that. The switch defaulting OFF is checked against a real
+       NativeAOT publish instead (RELEASE-NOTES, Viewer -p:Aot=true), which is where it matters. -->
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="CupriFace.DevTools.IsSupported" Value="true" />
   </ItemGroup>
 
   <!-- Native Skia + HarfBuzz so RenderToImage/decode run under `dotnet test`. -->

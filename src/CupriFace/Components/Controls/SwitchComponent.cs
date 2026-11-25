@@ -5,7 +5,7 @@ namespace CupriFace.Components.Controls;
 /// <summary>
 /// <c>&lt;cupri-switch checked&gt;</c> — a themed toggle. role=switch, aria-checked.
 /// </summary>
-public sealed class SwitchComponent : ComponentBase
+public class SwitchComponent : ComponentBase
 {
     public override string Tag => "cupri-switch";
 

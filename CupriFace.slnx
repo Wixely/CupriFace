@@ -4,12 +4,15 @@
     <Project Path="samples/AndroidLottie/AndroidLottie.csproj" />
     <Project Path="samples/AndroidViewer/AndroidViewer.csproj" />
     <Project Path="samples/BidiText/BidiText.csproj" />
+    <Project Path="samples/ComponentLibrary/ComponentLibrary.csproj" />
+    <Project Path="samples/ComponentLibraryApp/ComponentLibraryApp.csproj" />
     <Project Path="samples/Controls/Controls.csproj" />
     <Project Path="samples/ControlsGallery/ControlsGallery.csproj" />
     <Project Path="samples/DarkMode/DarkMode.csproj" />
     <Project Path="samples/DataBinding/DataBinding.csproj" />
     <Project Path="samples/Demo3d/Demo3d.csproj" />
     <Project Path="samples/DemoApp/DemoApp.csproj" />
+    <Project Path="samples/DesktopDemo/DesktopDemo.csproj" />
     <Project Path="samples/GridAdvanced/GridAdvanced.csproj" />
     <Project Path="samples/GridDemo/GridDemo.csproj" />
     <Project Path="samples/HelloBox/HelloBox.csproj" />
@@ -44,6 +47,7 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/CupriFace.Android/CupriFace.Android.csproj" />
+    <Project Path="src/CupriFace.Binding.Analyzers/CupriFace.Binding.Analyzers.csproj" />
     <Project Path="src/CupriFace.Binding.Gen/CupriFace.Binding.Gen.csproj" />
     <Project Path="src/CupriFace.Gl/CupriFace.Gl.csproj" />
     <Project Path="src/CupriFace.Lottie/CupriFace.Lottie.csproj" />
@@ -54,6 +58,7 @@
     <Project Path="src/CupriFace.Resources.Gen/CupriFace.Resources.Gen.csproj" />
     <Project Path="src/CupriFace.Shell/CupriFace.Shell.csproj" />
     <Project Path="src/CupriFace.Woff2/CupriFace.Woff2.csproj" />
+    <Project Path="src/CupriFace.Tool/CupriFace.Tool.csproj" />
     <Project Path="src/CupriFace.Web.Mono/CupriFace.Web.Mono.csproj" />
     <Project Path="src/CupriFace.Web.NativeAot/CupriFace.Web.NativeAot.csproj" />
     <Project Path="src/CupriFace/CupriFace.csproj" />

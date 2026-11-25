@@ -156,7 +156,7 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
 
     /// <summary>One mapping for both press and release — a duplicate would drift.
     /// <paramref name="shift"/> only separates Tab from Shift+Tab; releases pass false.</summary>
-    private static EditKey ToEditKey(Scancode sc, bool shift) => sc switch
+    internal static EditKey ToEditKey(Scancode sc, bool shift) => sc switch
     {
         Scancode.ScancodeBackspace => EditKey.Backspace,
         Scancode.ScancodeDelete => EditKey.Delete,
@@ -169,6 +169,8 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         Scancode.ScancodeDown => EditKey.Down,
         Scancode.ScancodeTab => shift ? EditKey.ShiftTab : EditKey.Tab,
         Scancode.ScancodeEscape => EditKey.Escape,
+        // F1..F12 are contiguous in both enums.
+        >= Scancode.ScancodeF1 and <= Scancode.ScancodeF12 => EditKey.F1 + (sc - Scancode.ScancodeF1),
         _ => EditKey.None,
     };
     public event Action<char, KeyMods>? Shortcut;           // Ctrl/Cmd + letter (a/c/x/v …) or =/-/0 (zoom)
@@ -178,6 +180,31 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
     /// on the UI thread — the hook for host work that must run there every frame, e.g. draining
     /// the UIA action queue. Work done here can dirty this same frame.</summary>
     public event Action? Tick;
+
+    /// <summary>
+    /// Events for ANOTHER SDL window in this process — the dev tools pop-out. SDL has one event
+    /// queue for every window, and this window's loop is the one draining it, so anything carrying
+    /// a different window id is handed here instead of being read as this window's own input (a
+    /// click in the pop-out landing on the app; its close button quitting the app).
+    /// </summary>
+    internal Action<Event>? ForeignWindowEvent;
+
+    private uint _windowId;
+
+    /// <summary>The window an event belongs to, for the event types that carry one; null for the
+    /// rest (controllers, quit, drop batches without a window), which are the process's.</summary>
+    internal static uint? WindowOf(in Event e) => (EventType)e.Type switch
+    {
+        EventType.Windowevent => e.Window.WindowID,
+        EventType.Keydown or EventType.Keyup => e.Key.WindowID,
+        EventType.Textinput => e.Text.WindowID,
+        EventType.Textediting => e.Edit.WindowID,
+        EventType.Mousemotion => e.Motion.WindowID,
+        EventType.Mousebuttondown or EventType.Mousebuttonup => e.Button.WindowID,
+        EventType.Mousewheel => e.Wheel.WindowID,
+        EventType.Dropbegin or EventType.Dropfile or EventType.Droptext or EventType.Dropcomplete => e.Drop.WindowID,
+        _ => null,
+    };
 
     /// <summary>The Win32 window handle once the window exists; null before <see cref="Run"/> and on
     /// every other OS. What the UIA bridge attaches to — this window is the path GL-less Windows
@@ -537,6 +564,7 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         _window = _sdl.CreateWindow(_title, Sdl.WindowposCentered, Sdl.WindowposCentered,
             _width, _height, (uint)flags);
         if (_window is null) throw new InvalidOperationException($"SDL_CreateWindow failed: {_sdl.GetErrorS()}");
+        _windowId = _sdl.GetWindowID(_window);
         if (UseGl)
         {
             // Survivable, never silent: a machine with no usable GL gets the software renderer and
@@ -638,6 +666,12 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         {
             while (_sdl.PollEvent(ref e) != 0)
             {
+                // Another window's event (0 = none named, which SDL uses for "the focused one").
+                if (WindowOf(e) is { } owner && owner != 0 && owner != _windowId)
+                {
+                    ForeignWindowEvent?.Invoke(e);
+                    continue;
+                }
                 switch ((EventType)e.Type)
                 {
                     case EventType.Quit:
@@ -768,7 +802,8 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
                         // character and stopped). Two keys are one-shot on both windows: a held Tab
                         // would fly through the focus ring and a held Escape would close a stack of
                         // things nobody meant to close.
-                        if (e.Key.Repeat != 0 && ek is EditKey.Escape or EditKey.Tab or EditKey.ShiftTab) break;
+                        if (e.Key.Repeat != 0 && ek is EditKey.Escape or EditKey.Tab or EditKey.ShiftTab
+                                or >= EditKey.F1 and <= EditKey.F12) break;
                         if (ek != EditKey.None) EditKeyPressed?.Invoke(ek, mods);
                         break;
                     }
@@ -908,6 +943,7 @@ public sealed unsafe class SdlSoftwareWindow : IDisposable
         var sizeChanged = (EventType)e->Type == EventType.Windowevent
             && (WindowEventID)e->Window.Event == WindowEventID.SizeChanged;
         if (!moved && !sizeChanged) return 0;
+        if (e->Window.WindowID != _windowId) return 0;   // another window's (the dev tools pop-out)
 
         // SDL may invoke an event watch from another thread, or re-enter it from an SDL call made
         // while painting. The queued event will still reach the main loop, so defer rather than

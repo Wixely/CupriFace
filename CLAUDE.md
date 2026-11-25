@@ -19,6 +19,23 @@ finished yet, so **reasoning about the markup will not find it.** You have to ch
 
 Everything below is headless — no window, no GPU, no browser — and runs anywhere `dotnet` does.
 
+**Never preview CupriFace markup in a browser.** It shows what Chrome does with the markup, which is
+not what the engine does — it hides exactly the failures above. The one-command preview is:
+
+```bash
+dotnet run --project src/CupriFace.Tool -- preview path/to/App.html --model sample.json
+# → App.preview.png (desktop + phone side by side) and the doctor's findings, in compiler format
+```
+
+(`cupri preview …` once the tool is installed; `--sizes`, `--outlines`, `--tree`, `--sweep` and
+`cupri check` for CI are in `--help`.) Then read the PNG. The steps below are the same tools from
+C#, for tests and for a document already in hand.
+
+**The `cupriface-ui` skill** ([.claude/skills/cupriface-ui/SKILL.md](.claude/skills/cupriface-ui/SKILL.md))
+is the short form of this section and of "Five things" below, for agents building UI. It also
+ships in the tool (`cupri skill` installs it into another project), so it is what agents outside
+this repository see. **Keep the two in step:** a rule changed here belongs there too.
+
 ### 1. `CupriDoctor` — before you look
 
 ```csharp
@@ -40,14 +57,15 @@ error   CF0030 (line 6): <img> is not something the engine draws — it lays out
 | Code | Finds |
 |---|---|
 | `CF0010` / `CF0011` | A tag never closed, or a close matching nothing — reported at the line it *opened* on |
-| `CF0020` / `CF0021` | An unregistered `cupri-*` tag (with "did you mean"), or a control that can never open |
+| `CF0020` / `CF0021` | An unregistered `cupri-*` or library-prefixed tag (with "did you mean"), or a control that can never open |
+| `CF0022` | A tag registered twice through `Register`, the second silently winning (`Replace` says it is meant) |
 | `CF0030` / `CF0031` | `<img>`, `<video>`, `<svg>`, `<canvas>` and friends; anything else that produced no output |
 | `CF0040` / `CF0041` | `<script>` and `onclick=` — there is no JavaScript engine |
 | `CF0050` / `CF0051` | A CSS property or function that is silently ignored |
 | `CF0052` | An `@import` — the engine steps over it, so the sheet it names (usually a web font) never loads |
 | `CF0053` | A `position: sticky` with no inset on any axis — it pins to nothing and scrolls away |
 | `CF0054` | A `shader()` that will not run — its `@shader` block did not compile (the SkSL error is quoted), or it names no shader |
-| **`CF0060`** | **A `{{path}}` that names nothing on the model** — renders as empty text, looks like missing data |
+| **`CF0060`** | **A `{{path}}` that names nothing on the model** — renders as empty text, looks like missing data. Also a **build warning** now, at the line and column in the `.html` (TOOLBOX.md §3 "Build-time binding checks") |
 | **`CF0070`** | **Contents that do not fit a fixed-height box** — they overflow and paint over the next element |
 | **`CF0071`** | **A box that laid out with no area** but has visible content inside it |
 | **`CF0074`** | **Two rounded, filled boxes sitting flush** — a margin nobody set, so the curves collide and they read as one broken shape. Square-edged boxes meeting are a seam, not a collision; so is a pair that is faded out or transformed, which is painted somewhere other than where it was laid out |
@@ -296,6 +314,15 @@ at 128 MiB** because an unbounded read on wasm ends the tab rather than throwing
 - `tools/Screenshots` is a worked 12-page example if you need surfaces, dark mode or 2x capture.
 
 ### For a running window
+
+**A Debug desktop build has dev tools** (TOOLBOX.md §"Dev tools"): saving the app's HTML/CSS
+reloads it live with state intact, every reload prints `CupriDoctor` findings in compiler format,
+and F12 (`CupriApp.DevToolsShortcut`) docks an element inspector, which can pop out into its own
+window. `CUPRIFACE_DEVTOOLS=open` (or `=popout`) starts with it showing, which with
+`CUPRIFACE_FRAME_DUMP` lets you see the inspector without pressing a key (a popped-out panel dumps
+to `<name>.devtools.png`).
+None of it exists in a Release build — every use is behind `CupriDevTools.IsSupported`, a trimmer
+feature switch, and a new host call into `CupriFace.DevTools` must sit behind that test too.
 
 `CUPRIFACE_FRAME_DUMP=out.png` dumps what the window actually presented, read back from the render
 target — ground truth when a live window looks wrong but the document seems right.

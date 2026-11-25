@@ -59,8 +59,14 @@
          nothing: the app never calls Init or Tick from managed code — the page does. Measured
          rather than assumed, by exporting a probe method from a library and looking for its symbol
          in the published wasm: absent without this line, present with it. What it prevents is a
-         clean build whose page then finds no exports to call. -->
-    <TrimmerRootAssembly Include="CupriFace.Web.NativeAot" />
+         clean build whose page then finds no exports to call.
+
+         What is rooted is the export surface, not the assembly (#325): the descriptor keeps every
+         method of Interop, and the rest of the host is kept because those methods reach it. Rooting
+         the whole assembly kept code a feature switch had made unreachable. CupriWebRootWholeHost
+         puts the old root back, should a build ever need it. -->
+    <TrimmerRootDescriptor Include="$(MSBuildThisFileDirectory)CupriFace.Web.NativeAot.roots.xml" Condition="'$(CupriWebRootWholeHost)' != 'true'" />
+    <TrimmerRootAssembly Include="CupriFace.Web.NativeAot" Condition="'$(CupriWebRootWholeHost)' == 'true'" />
 
     <!-- …and this is what makes them callable FROM THE PAGE. Keeping a method (above) and exporting
          it are two different things: ILC scans only the assemblies listed here for
@@ -103,6 +109,57 @@
       <NativeLibrary Include="$(PkgHarfBuzzSharp_NativeAssets_WebAssembly)/buildTransitive/netstandard1.0/libHarfBuzzSharp.a/3.1.56/st/libHarfBuzzSharp.a" />
     </ItemGroup>
   </Target>
+
+  <!--
+    What the app leaves out of its binary (#325), each a feature switch (WebFeatures in the host).
+
+    The bundled sans faces: <CupriWebFonts>all</CupriWebFonts> (the default),
+    `regular` (bold is synthesised from it), or `none` (the app registers its own with
+    doc.LoadFont). Trim="true" makes them feature switches, so a face that is off is removed from
+    the published binary, not merely left unread. Kept identical in CupriFace.Web.Mono.targets.
+  -->
+  <PropertyGroup>
+    <CupriWebFonts Condition="'$(CupriWebFonts)' == ''">all</CupriWebFonts>
+    <_CupriWebFontRegular>true</_CupriWebFontRegular>
+    <_CupriWebFontRegular Condition="'$(CupriWebFonts)' == 'none'">false</_CupriWebFontRegular>
+    <_CupriWebFontBold>true</_CupriWebFontBold>
+    <_CupriWebFontBold Condition="'$(CupriWebFonts)' != 'all'">false</_CupriWebFontBold>
+  </PropertyGroup>
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="CupriFace.Web.Fonts.Regular" Value="$(_CupriWebFontRegular)" Trim="true" />
+    <RuntimeHostConfigurationOption Include="CupriFace.Web.Fonts.Bold" Value="$(_CupriWebFontBold)" Trim="true" />
+    <!-- <CupriWebVideo>false</CupriWebVideo>: no browser-video backend; a <cupri-video> shows its
+         poster. <CupriWebFileDrop>false</CupriWebFileDrop>: the page is told no drop is accepted. -->
+    <RuntimeHostConfigurationOption Include="CupriFace.Web.Video" Value="$(CupriWebVideo)" Trim="true" Condition="'$(CupriWebVideo)' != ''" />
+    <RuntimeHostConfigurationOption Include="CupriFace.Web.FileDrop" Value="$(CupriWebFileDrop)" Trim="true" Condition="'$(CupriWebFileDrop)' != ''" />
+  </ItemGroup>
+  <Target Name="CupriCheckWebFonts" BeforeTargets="CoreCompile;PrepareForPublish"
+          Condition="'$(CupriWebFonts)' != 'all' and '$(CupriWebFonts)' != 'regular' and '$(CupriWebFonts)' != 'none'">
+    <Error Code="CUPRI1003" Text="CupriWebFonts is '$(CupriWebFonts)'; it takes all (the default), regular, or none." />
+  </Target>
+
+  <!--
+    AN OPTIMISED PUBLISH IS OPTIMISED FOR SIZE (#325). The compiler's own defaults are tuned for a
+    quick link: it passes emcc -O1, which never runs wasm-opt, and compiles managed code for speed.
+    For a page those are the wrong way round. Measured on samples/WebLlvmShaders:
+
+      -O1 (the compiler's default)    14,557,940 wasm   3,630,158 brotli   JS glue 395,097
+      Size + -Oz (this default)       12,176,449 wasm   3,581,863 brotli   JS glue 202,199
+
+    Raw is what the browser compiles and holds; brotli is what it downloads. The link takes about
+    75 s longer. wasm-opt is off upstream only because it discards debug info (runtimelab#2357),
+    which a Release link strips anyway; the Showcase passes its whole web gate built this way.
+
+    Only when Optimize is on, so a Debug publish is unchanged, and only where the app has not
+    chosen: its own OptimizationPreference wins, and -Oz goes FIRST so an -O3 in its own
+    EmccExtraArgs still has the last word. <CupriWebOptimizeSize>false</CupriWebOptimizeSize> puts
+    the quick link back, for an edit-publish loop. <StackTraceSupport>false</StackTraceSupport>
+    takes another ~157 KB brotli off, at the price of method names in an exception's trace.
+  -->
+  <PropertyGroup Condition="'$(Optimize)' == 'true' and '$(CupriWebOptimizeSize)' != 'false'">
+    <OptimizationPreference Condition="'$(OptimizationPreference)' == ''">Size</OptimizationPreference>
+    <EmccExtraArgs>-Oz $(EmccExtraArgs)</EmccExtraArgs>
+  </PropertyGroup>
 
   <!-- Put the host's JS half beside the app's page. This host publishes as a plain wasm app rather
        than through the static-web-assets pipeline, so there is no `_content/` to serve from and the

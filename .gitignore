@@ -116,3 +116,6 @@ native/
 
 # Local editor preferences (Peacock colours etc.) — personal, not project config.
 .vscode/settings.json
+
+# Agent worktrees (Claude Code): isolated checkouts, never part of the repository.
+.claude/worktrees/

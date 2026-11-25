@@ -24,6 +24,34 @@
     <EmbeddedResource Include="$(CupriWebFontsDir)*.ttf" LogicalName="fonts.%(Filename)%(Extension)" />
   </ItemGroup>
 
+  <!--
+    Each face is optional for the APP (#325): <CupriWebFonts>all|regular|none</CupriWebFonts> in the
+    app becomes the feature switches BundledFonts reads (the hosts' buildTransitive targets). Folding
+    the code that loads a face is not enough — the resource is data, and data nothing reads is still
+    kept — so the host carries an ILLink.Substitutions.xml that removes each resource when its switch
+    is off. ILLink and ILC both honour it. It must name its own assembly, which differs per host, so
+    it is written at build rather than kept as a file.
+  -->
+  <Target Name="CupriWriteFontSubstitutions" BeforeTargets="PrepareForBuild;AssignTargetPaths">
+    <PropertyGroup>
+      <_CupriFontSubstitutions>$(IntermediateOutputPath)ILLink.Substitutions.xml</_CupriFontSubstitutions>
+    </PropertyGroup>
+    <MakeDir Directories="$(IntermediateOutputPath)" />
+    <WriteLinesToFile File="$(_CupriFontSubstitutions)" Overwrite="true" WriteOnlyWhenDifferent="true"
+                      Lines="&lt;linker&gt;;
+  &lt;assembly fullname=&quot;$(AssemblyName)&quot; feature=&quot;CupriFace.Web.Fonts.Regular&quot; featurevalue=&quot;false&quot;&gt;;
+    &lt;resource name=&quot;fonts.NotoSans-Regular.ttf&quot; action=&quot;remove&quot; /&gt;;
+  &lt;/assembly&gt;;
+  &lt;assembly fullname=&quot;$(AssemblyName)&quot; feature=&quot;CupriFace.Web.Fonts.Bold&quot; featurevalue=&quot;false&quot;&gt;;
+    &lt;resource name=&quot;fonts.NotoSans-Bold.ttf&quot; action=&quot;remove&quot; /&gt;;
+  &lt;/assembly&gt;;
+&lt;/linker&gt;" />
+    <ItemGroup>
+      <EmbeddedResource Include="$(_CupriFontSubstitutions)" LogicalName="ILLink.Substitutions.xml" />
+      <FileWrites Include="$(_CupriFontSubstitutions)" />
+    </ItemGroup>
+  </Target>
+
   <!-- A glob that matches nothing is not an MSBuild error, so the build stays green and the app
        dies at first paint dereferencing a null resource stream instead. That is how moving these
        files broke one host's browser gate and nothing else. Fail here, where the cause is. -->

@@ -72,6 +72,7 @@ If either cost does not fit, CupriFace.Web.Mono builds wherever `dotnet publish`
          and the linker library — cannot drift. -->
     <None Include="buildTransitive\CupriFace.Web.NativeAot.props" Pack="true" PackagePath="buildTransitive\" />
     <None Include="buildTransitive\CupriFace.Web.NativeAot.targets" Pack="true" PackagePath="buildTransitive\" />
+    <None Include="buildTransitive\CupriFace.Web.NativeAot.roots.xml" Pack="true" PackagePath="buildTransitive\" />
     <None Include="template\index.html" Pack="true" PackagePath="template\" />
   </ItemGroup>
 

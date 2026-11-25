@@ -7,7 +7,7 @@ namespace CupriFace.Components.Controls;
 /// <c>&lt;cupri-rating value="{{Score}}" max="5"&gt;</c> — a star rating. Clicking (or keyboard-activating)
 /// the Nth star writes N to the bound value; stars up to the value are filled, the rest are muted.
 /// </summary>
-public sealed class RatingComponent : ComponentBase
+public class RatingComponent : ComponentBase
 {
     public override string Tag => "cupri-rating";
     public override string DefaultCss => """

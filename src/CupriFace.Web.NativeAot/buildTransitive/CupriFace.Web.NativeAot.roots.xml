@@ -1,0 +1,16 @@
+<linker>
+  <!--
+    What the trimmer must keep of this host that nothing in managed code calls: the exports the PAGE
+    calls (every [UnmanagedCallersOnly] method of Interop). That is the whole of it. The rest of the
+    host — WebHostCore, the video backend, the drop reader — is reached from those exports like any
+    other code, which is what lets a feature switch that folds a call (WebFeatures) take the code
+    behind it out too.
+
+    It used to be <TrimmerRootAssembly Include="CupriFace.Web.NativeAot" />, which roots every
+    method in the assembly: correct, and the reason a switch could fold a test and still leave the
+    method it guarded in the binary (#325). Set CupriWebRootWholeHost=true to go back to it.
+  -->
+  <assembly fullname="CupriFace.Web.NativeAot">
+    <type fullname="CupriFace.Web.Interop" preserve="methods" />
+  </assembly>
+</linker>

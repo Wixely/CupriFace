@@ -116,7 +116,9 @@ public sealed class WebHostFixture : IAsyncLifetime
     /// the full labelled list rather than the narrow icon rail, which is where the row positions in
     /// <c>ShowcaseNav</c> were measured.</para>
     /// </summary>
-    public async Task<IPage> DesktopAsync()
+    /// <param name="onPage">Runs before the page navigates, so a listener it attaches (console,
+    /// page errors) hears the boot as well as what follows.</param>
+    public async Task<IPage> DesktopAsync(Action<IPage>? onPage = null)
     {
         var ctx = await Browser.NewContextAsync(new()
         {
@@ -124,6 +126,7 @@ public sealed class WebHostFixture : IAsyncLifetime
             DeviceScaleFactor = 1,
         });
         var page = await ctx.NewPageAsync();
+        onPage?.Invoke(page);
         await page.GotoAsync(Url);
         await page.WaitForFunctionAsync(
             "() => { const c = document.getElementById('cupri');" +

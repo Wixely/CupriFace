@@ -3,7 +3,7 @@ using AngleSharp.Dom;
 namespace CupriFace.Components.Controls;
 
 /// <summary><c>&lt;cupri-chip closable&gt;</c> — a small pill; keeps its label, optional close icon.</summary>
-public sealed class ChipComponent : ComponentBase
+public class ChipComponent : ComponentBase
 {
     public override string Tag => "cupri-chip";
     public override string DefaultCss => """
@@ -19,7 +19,7 @@ public sealed class ChipComponent : ComponentBase
 }
 
 /// <summary><c>&lt;cupri-avatar initials size&gt;</c> — a circular initials badge.</summary>
-public sealed class AvatarComponent : ComponentBase
+public class AvatarComponent : ComponentBase
 {
     public override string Tag => "cupri-avatar";
     public override string DefaultCss => """
@@ -35,7 +35,7 @@ public sealed class AvatarComponent : ComponentBase
 }
 
 /// <summary><c>&lt;cupri-card&gt;</c> — a padded, rounded surface; keeps its children.</summary>
-public sealed class CardComponent : ComponentBase
+public class CardComponent : ComponentBase
 {
     public override string Tag => "cupri-card";
     public override string DefaultCss => """
@@ -48,7 +48,7 @@ public sealed class CardComponent : ComponentBase
 }
 
 /// <summary><c>&lt;cupri-divider&gt;</c> — a horizontal rule.</summary>
-public sealed class DividerComponent : ComponentBase
+public class DividerComponent : ComponentBase
 {
     public override string Tag => "cupri-divider";
     public override string DefaultCss => ".cupri-divider { display:block; height:1px; background:var(--cupri-border, #e0e4ea); margin:10px 0; }";
@@ -61,7 +61,7 @@ public sealed class DividerComponent : ComponentBase
 }
 
 /// <summary><c>&lt;cupri-stat label value&gt;</c> — a metric with a caption.</summary>
-public sealed class StatComponent : ComponentBase
+public class StatComponent : ComponentBase
 {
     public override string Tag => "cupri-stat";
     public override string DefaultCss => """

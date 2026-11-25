@@ -14,7 +14,7 @@ namespace CupriFace.Components.Controls;
 /// internal hrefs), or <c>value</c> with a bound path on the container writes that value straight to
 /// the model. Give it neither and it is a label — useful for a level that has no page of its own.</para>
 /// </summary>
-public sealed class BreadcrumbComponent : ComponentBase
+public class BreadcrumbComponent : ComponentBase
 {
     public override string Tag => "cupri-breadcrumb";
 
@@ -71,7 +71,7 @@ public sealed class BreadcrumbComponent : ComponentBase
 
 /// <summary>Declares one level of a <see cref="BreadcrumbComponent"/>. Consumed by its parent — the
 /// element itself renders nothing, like <c>cupri-tab</c> and <c>cupri-option</c>.</summary>
-public sealed class CrumbComponent : ComponentBase
+public class CrumbComponent : ComponentBase
 {
     public override string Tag => "cupri-crumb";
     public override string DefaultCss => "";
@@ -85,7 +85,7 @@ public sealed class CrumbComponent : ComponentBase
 /// <c>push</c> takes the free space before it, which is how a right-aligned cluster is spelled
 /// without an app writing a spacer div.
 /// </summary>
-public sealed class ToolbarComponent : ComponentBase
+public class ToolbarComponent : ComponentBase
 {
     public override string Tag => "cupri-toolbar";
 
@@ -111,7 +111,7 @@ public sealed class ToolbarComponent : ComponentBase
 
 /// <summary>A cluster inside a <see cref="ToolbarComponent"/>. <c>push</c> pins it (and everything
 /// after it) to the far end.</summary>
-public sealed class ToolbarGroupComponent : ComponentBase
+public class ToolbarGroupComponent : ComponentBase
 {
     public override string Tag => "cupri-toolbar-group";
     public override string DefaultCss => "";
@@ -125,7 +125,7 @@ public sealed class ToolbarGroupComponent : ComponentBase
 }
 
 /// <summary>A hairline between toolbar clusters. Decorative, so it is hidden from the a11y tree.</summary>
-public sealed class ToolbarSeparatorComponent : ComponentBase
+public class ToolbarSeparatorComponent : ComponentBase
 {
     public override string Tag => "cupri-toolbar-sep";
     public override string DefaultCss => "";

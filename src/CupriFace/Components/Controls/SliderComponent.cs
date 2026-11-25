@@ -6,7 +6,7 @@ namespace CupriFace.Components.Controls;
 /// <c>&lt;cupri-slider min max value&gt;</c> — a themed, accessible slider. Expands to a
 /// track/fill/thumb and exposes role=slider with aria-valuemin/max/now.
 /// </summary>
-public sealed class SliderComponent : ComponentBase
+public class SliderComponent : ComponentBase
 {
     public override string Tag => "cupri-slider";
 

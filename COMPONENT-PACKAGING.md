@@ -1,8 +1,10 @@
-# Component packaging (planned)
+# Component packaging
 
-**Status: planned, not built.** This is the design for distributing `cupri-*` components as
-libraries someone can add to a project — and for guaranteeing that whatever they add, they can
-override every part of it.
+**Status: phases 1–4 built (2026-11); the `dotnet new` templates and the `html.customData`
+generator are not.** This is the design for distributing `cupri`-style components as libraries
+someone can add to a project — and for guaranteeing that whatever they add, they can override every
+part of it. Where the build departed from the original plan, the section says what was built and
+why.
 
 Two requirements shape everything below, and they were stated as constraints rather than
 preferences:
@@ -11,32 +13,9 @@ preferences:
 2. **Everything overridable.** A consumer must be able to change the styles *and* the code of any
    control they receive, without forking the library.
 
----
-
-## What already exists
-
-Most of the machinery is here; the gaps are specific and small in number.
-
-- **Components are a public extension point.** `ICupriComponent` (`Tag`, `DefaultCss`,
-  `Expand(IElement)`) is documented in TOOLBOX §8, and its own doc comment states that "first-party
-  controls and third-party components implement this same contract". `CupriApp.Components` is
-  `virtual`, and `ComponentRegistry.Default().Register(new RatingComponent())` is the documented
-  way in.
-- **Compound components are normal.** `cupri-table`, `cupri-board`, `cupri-video` and
-  `cupri-pagination` already expand one tag into a multi-element subtree with roles and `aria-*`
-  baked in. A packaged control is not a new shape of thing.
-- **HTML/CSS already live beside the C#.** `CupriFace.Resources.targets` plus the assets generator
-  turn `Assets/*.html|.css` into typed `Assets.Foo.Html` / `.Css` sources. This is exactly the
-  "keep it all in one folder" story, and it is already reusable MSBuild.
-- **The cascade already favours the consumer** (see below).
-
-## Out of scope
-
-**Runtime-loadable packages.** A manifest + template + CSS that an app loads at run time, with no
-build step, is a genuinely different feature — its value is no-compile distribution and the safety
-of executing no third-party code. It is not needed for the requirement here, so it is deliberately
-excluded rather than left ambiguous. If it is ever wanted, it should be justified on those grounds,
-not adopted as a packaging shortcut.
+A third followed from the engine's targets: **trim- and NativeAOT-clean.** Nothing is discovered by
+scanning assemblies or reading attributes; a library is an object that returns instances, so the
+trimmer sees everything it registers.
 
 ---
 
@@ -45,157 +24,223 @@ not adopted as a packaging shortcut.
 A component library is an ordinary class library that:
 
 - references `CupriFace`,
-- keeps its markup and styles in `Assets/*.html|.css` (typed via the existing generator),
+- keeps its markup and styles in `Assets/*.html|.css` (embedded into the library's own assembly and
+  typed by the resources generator — `Assets.Counter.Css.ReadText()`),
 - implements one `ICupriComponent` per tag,
-- exposes a single entry point: `registry.AddAcmeControls()`.
+- implements `ICupriComponentLibrary` once, and exposes an extension method:
+  `registry.AddAcmeControls()`.
 
-```
-Acme.Controls/
-  Acme.Controls.csproj        → references CupriFace, pulls in the resources targets
-  Assets/Rating.css           → the component's own styles
-  RatingComponent.cs          → ICupriComponent: Tag, DefaultCss, Expand
-  AcmeControlsRegistration.cs → registry.AddAcmeControls()
+```csharp
+public sealed class AcmeControls : ICupriComponentLibrary
+{
+    public string Name => "Acme.Controls";      // named in conflict messages and doctor findings
+    public string Prefix => "acme-";            // every tag carries it — enforced
+    public IEnumerable<ICupriComponent> Components => [new RatingComponent(), new CardComponent()];
+    public string Css => Assets.Acme.Css.ReadText();   // shared tokens; optional
+}
+
+public static class AcmeControlsRegistration
+{
+    public static ComponentRegistry AddAcmeControls(this ComponentRegistry r) => r.Add(new AcmeControls());
+}
+
+// the app
+public override ComponentRegistry Components => base.Components.AddAcmeControls();
 ```
 
-Distribution needs no public feed to start with: this repo already attaches `.nupkg` files to its
-releases and tells people to add the folder as a local source, so "here is a zip" and "here is a
-package" are the same artifact. Versioning, updates and transitive dependencies come free, and
-VS Code handles it natively (`dotnet add package`, IntelliSense, go-to-definition through the
-`.snupkg` symbols already published).
+**Proven by a real second library**: `samples/ComponentLibrary` is the `Leaf.Controls` package
+(`leaf-counter` with behaviour, `leaf-card` with a markup template, `leaf-status`), each with its
+CSS — and two of them their markup — in `Assets/`. `samples/ComponentLibraryApp` consumes it two ways from the same
+source: a ProjectReference (`dotnet run`) and the packed `.nupkg` restored from a local folder
+(`-p:LeafFromPackage=true`, see the README beside it). The test suite references the library too, so
+the contract below is pinned against a real package with real embedded assets, not test doubles.
+
+Distribution needs no public feed: this repo already attaches `.nupkg` files to its releases and
+tells people to add the folder as a local source, so "here is a zip" and "here is a package" are the
+same artifact.
+
+**What a library author outside this repo still needs.** The resources pipeline
+(`CupriFace.Resources.targets` plus the `CupriFace.Resources.Gen` generator) is imported by path in
+this repository and is not shipped inside any package yet. An outside author can embed assets with
+a plain `<EmbeddedResource LogicalName="Assets/…">` and read them with
+`CupriSource.Embedded(typeof(X).Assembly, "Assets/…")` — the generator only adds the typed
+accessors. Shipping the targets in the CupriFace package (opt-in, so an app's own `Assets/` folder is
+not reinterpreted) is the next step.
+
+## Out of scope
+
+**Runtime-loadable packages.** A manifest + template + CSS that an app loads at run time, with no
+build step, is a genuinely different feature — its value is no-compile distribution and the safety
+of executing no third-party code. It is not needed for the requirement here, so it is deliberately
+excluded rather than left ambiguous.
 
 ---
 
 ## The override contract
 
-The point of this section is that "you can change it" must be a **guarantee with a test behind
-it**, not a hope that nothing collides.
+"You can change it" is a **guarantee with a test behind it** (`ComponentPackagingTests`).
 
-### 1. Styles — already works, needs pinning
+### 1. Styles — a cascade in layers
 
-`CupriDocument` parses component CSS *before* the app's, and later rules win ties:
+`ComponentRegistry.AggregatedCss` is emitted in layers, and the document parses it BEFORE the app's
+stylesheet; later rules win ties:
+
+| Order | Layer | Comes from |
+|---|---|---|
+| 1 | built-in | `ComponentRegistry.Default()` |
+| 2 | library | `Add(library)` — the library's shared `Css`, then its components' `DefaultCss`, library by library |
+| 3 | app | `Add(component)`, `Replace(component)`, `Register(component)` |
+| 4 | app stylesheet | `CupriApp.Css` / `CupriDocument.Load(html, css)` |
+| 5 | template | a `<style>` in the markup |
+
+So at **equal specificity**: an app's `.leaf-status.down { … }` beats the library's; a library's
+`.cupri-button { … }` beats the built-in; a replacement's CSS beats what it replaced (it moves to the
+app layer rather than keeping the built-in's slot); and none of it depends on the order the calls
+were made in. Specificity still beats order, as in any cascade — a library rule written as
+`.acme-card .cupri-button` outranks an app's bare `.cupri-button`, and the app answers it with the
+same selector. Tokens work the same way: a library's `:root { --leaf-accent: … }` is overridden by
+the app's own `:root` rule.
+
+**Component class names are public API.** The moment consumers style `.cupri-button` or
+`.cupri-tt-bubble`, renaming one is a breaking change. That price is paid deliberately; it is
+recorded in the release notes and TOOLBOX §8.
+
+**CSS collisions between libraries** are prevented by convention, not scoping: a library's classes
+carry its prefix (`.leaf-card`). The prefix is enforced for TAGS; it cannot be for classes, because a
+library legitimately restyles built-ins it uses (`.leaf-counter .cupri-button`).
+
+### 2. Code — unsealed, `Expand` overridable
+
+Every concrete built-in component is now unsealed. The overridable surface is the
+`ICupriComponent` contract itself — `Tag`, `DefaultCss`, `Expand` — and nothing else; helpers stay
+private or `protected static` on `ComponentBase`.
 
 ```csharp
-rules.AddRange(CssParser.Parse(_components.AggregatedCss));  // components first
-rules.AddRange(CssParser.Parse(_css));                       // the app's CSS second
-rules[i].Order = i;                                          // later stylesheets win ties
+public sealed class SquareButton : ButtonComponent
+{
+    public override string DefaultCss => base.DefaultCss + ".cupri-button.square { border-radius:0 }";
+    public override void Expand(IElement el) { base.Expand(el); el.ClassList.Add("square"); }
+}
+registry.Replace(new SquareButton());                 // or override Tag and Add it beside the original
 ```
 
-So `.cupri-btn { border-radius: 0 }` in an app stylesheet beats the packaged rule at equal
-specificity — no `!important`, no build flag. Two things turn this from a happy accident into a
-contract:
+A component that cannot be subclassed (a sealed one in somebody's library) can still be wrapped:
+`registry.Replace(new Logged(registry.Find("acme-card")!))`.
 
-- **a test** that an app rule overrides a component rule at equal specificity, so the ordering
-  cannot be "tidied" away later;
-- **a documented statement that component class names are public API.** The moment consumers style
-  `.cupri-btn` or `.cupri-tt-bubble`, renaming one is a breaking change. That is a price worth
-  paying deliberately.
+### 3. Identity — explicit add and replace
 
-### 2. Code — blocked today
+Built: the registry has a verb for each intent, and the ambiguous one now leaves a trace.
 
-Every concrete component is `sealed`:
+| Call | Tag free | Tag taken |
+|---|---|---|
+| `Add(component)` | registers (app layer) | **throws** `ComponentConflictException`, naming the owner |
+| `Add(library)` | registers all (library layer) | **throws**, and registers none of them |
+| `Replace(component)` | **throws** — a misspelled override would add a dead control | replaces (app layer) |
+| `Register(component)` | registers (app layer) | replaces, records a `ComponentConflict`; doctor **CF0022** |
 
-```csharp
-public sealed class ButtonComponent : ComponentBase
-```
+A library only ever ADDS. Replacing a control is the app's decision, because the app is the one that
+knows which version of `acme-card` it wants; no package can quietly take over a control the app
+relies on. A library's tags must all carry its prefix and two libraries may not share one, so
+library-against-library tag collisions cannot happen at all. `cupri-` is reserved for CupriFace's
+own packages (Lottie, SVG), which register through the same API.
 
-so the cheap override — subclass, call `base.Expand(el)`, adjust the result — is impossible. The
-only route is writing a replacement from scratch, which is all-or-nothing.
+`Register` was kept, not obsoleted, because every existing app uses it and its behaviour for a new
+tag is exactly `Add`'s. The plan said "make a silent double-Register a warning"; a warning needs
+somewhere to be seen, and the doctor is where this repo puts them.
 
-**Plan: unseal, and make `Expand` virtual — nothing else.** Overridable members are API you are
-committed to, so the surface stays deliberately narrow: override the whole expansion or none of it.
-Helpers stay private. This covers "I like this control, but…" without binding the engine to its own
-internals.
+### 4. Eject — not built
 
-### 3. Identity — explicit replacement
-
-`ComponentRegistry.Register` writes into a dictionary keyed by tag, so a second registration of
-`cupri-slider` silently wins. Today "override" and "collision" are indistinguishable.
-
-**Plan:** add `registry.Replace(tag, component)` for the deliberate case, and make a silent
-double-`Register` a warning. Same behaviour, stated intent.
-
-### 4. Eject — the floor
-
-A `dotnet new` template that emits a component's source into the consumer's project, so they own it
-outright. This is the escape hatch when subclassing is not enough, and it is the *same* template
-work as scaffolding a new library — one piece of work, two uses.
+A `dotnet new` template that emits a component's source into the consumer's project. Still the
+right escape hatch; `samples/ComponentLibrary` is the shape a library template would scaffold.
 
 ---
 
-## Prerequisites
-
-These are not packaging features, but packaging is not worth shipping without them.
-
-### Behaviour: `ICupriBehaviour`
-
-A component can only produce markup; it cannot bring a handler. Today interactive components work
-one of two ways: the app wires it (`doc.OnClick(".signin-submit", …)`, which is what the sample's
-sign-in form does), or the *engine* recognises a marker the component emits (`cupri-video`'s
-controls do this via `data-video-role`). Neither works for a third party.
-
-**Plan:** components may implement `ICupriBehaviour` with `void Wire(CupriDocument doc)`, called
-once per document, so a packaged control owns its own click/submit logic. Without this, a package
-can only ship markup plus instructions.
-
-### Binding order
-
-`Rebuild` binds *then* expands, deliberately — "so components see concrete attribute values":
+## Behaviour: `ICupriBehaviour`
 
 ```csharp
-BindingEngine.Apply(dom, _model, …);   // bind
-_components?.Expand(dom);               // then expand
+public interface ICupriBehaviour { void Attach(CupriDocument document); }
 ```
 
-A component therefore **cannot emit `{{Path}}`** — the binder has already passed. A reusable field
-must be handed the path as a plain string (`user-path="Email"`) and emit `data-bind-value="Email"`
-itself, receiving the current value through a second attribute. It works; it costs two attributes
-where one should do.
+A component (or a whole library) implements it alongside `ICupriComponent`. The document calls
+`Attach` **once per document** — in `UseComponents`, or at the next rebuild for a component added to
+the registry afterwards — and the behaviour registers ordinary document handlers keyed on
+attributes its own expansion emits:
 
-**Option:** bind → expand → bind again, so components emit `{{path}}` naturally. This runs on every
-keystroke, so the cost and the idempotence of a second pass must be **measured before it is
-adopted**, not assumed.
+```csharp
+public void Attach(CupriDocument doc) =>
+    doc.OnAction("data-leaf-step", e => Step(e.Element, e.Value, e.Model));
+```
 
-### Collisions
+The plan called this `Wire`; it is `Attach` because that is what it does to a document. Three
+decisions in it:
 
-- **CSS**: `AggregatedCss` concatenates every component's styles globally. Two libraries will
-  eventually fight over a class name. Needs a prefix convention (`acme-*`) or real scoping —
-  decided before an ecosystem exists, not after.
-- **Tags**: see *Identity* above.
+- **Keyed on attributes, not attached to elements.** The DOM is rebuilt from the template on every
+  model change and keystroke, so an element a handler was hung on is gone a moment later. An
+  attribute-keyed handler finds its markup again in whatever DOM is current — the reason the
+  built-in `data-*` hooks always survived a rebuild — so nothing needs re-attaching. Tested across
+  `Refresh()` and a re-`Bind`.
+- **Per-document state lives in the `Attach` closure.** The component instance is shared by every
+  document using the registry; per-element state lives in the model or in re-emitted attributes.
+- **No detach.** A component replaced after a document attached it keeps its handlers on that
+  document. Compose the registry first, hand it over second — which `CupriApp.Components` does.
 
----
+The available seams are the ones apps already use: `OnAction`, `OnPointer`, `OnManipulate`,
+`OnWheel`, `OnSubmit`, `OnContext`, `OnRebuilt`. Attribute names carry the library prefix so two
+libraries cannot answer each other's clicks.
 
-## IDE support (VS Code)
+`cupri-video`'s engine wiring off `data-video-role` was left as it is: moving a built-in onto the
+seam would change nothing a consumer can observe, and the seam is proven by the library instead.
 
-- **`html.customData`, generated from the registry.** VS Code reads a JSON file describing custom
-  tags and attributes and then offers autocomplete and hover docs for `<cupri-slider min max
-  value>` inside `.html` files. Generating it from the registry means *any* library — first- or
-  third-party — gets IntelliSense for free. Small generator, disproportionate return.
+## Binding order — kept, measured cost avoided
+
+`Rebuild` binds *then* expands, so a component cannot emit `{{Path}}`. This turned out to cost
+nothing in practice: the binder already marks every pure-binding attribute with
+`data-bind-<attr>="Path"`, so `<leaf-counter value="{{Guests}}">` arrives at `Expand` with
+`value="2"` AND `data-bind-value="Guests"` — one attribute in the markup, as the built-in rating
+already does. Two-pass binding was therefore not adopted. One catch, documented in the sample: the
+engine also uses `data-bind-value` to identify a TEXT field, so a control that is not one moves the
+path to an attribute of its own.
+
+## Diagnostics
+
+- **CF0022** (warning): a tag registered twice through `Register`, the second silently winning.
+- **CF0020** covers library prefixes: an unregistered `<leaf-cuonter>` is an error with "did you
+  mean `<leaf-counter>`?". Any other hyphenated tag nothing handles is noted at **info** — the case
+  of a page checked with a registry that lacks its library.
+
+## The `cupri` tool and libraries
+
+`cupri preview` / `cupri check` build their registry with `ComponentRegistry.Default()` and cannot
+add a library: loading one from a path would mean loading an assembly and finding its
+`ICupriComponentLibrary` by reflection, which is exactly what this design rules out. What the tool
+does instead is say so — a library tag shows up as a CF0020 note naming the reason, rather than as an
+unexplained empty box. To preview a page that uses a library, check it where the registry exists:
+`CupriDoctor.Check(html, css, CupriDoctor.DesktopAndPhone, registry, model)` and `DeviceSheet.Render`
+in a test or a tiny console app (`samples/ComponentLibraryApp` is one).
+
+## IDE support — not built
+
+- **`html.customData`, generated from the registry**, for tag completion in VS Code. Would need
+  attribute metadata the components do not carry yet.
 - **`dotnet new` templates**: one to scaffold a library, one to eject a component's source.
 
 ---
 
 ## Phases
 
-Each lands independently and is proven before the next, per the house rule that a claim without a
-test is not a claim.
-
-| # | Work | Proven by |
-|---|------|-----------|
-| 1 | Style-override contract: test + document class names as API | a test where an app rule beats a component rule at equal specificity |
-| 2 | `ICupriBehaviour` — components carry their own handlers | a headless test: a packaged control's own click handler fires |
-| 3 | Unseal + `virtual Expand`; `Replace(tag, …)`; warn on silent double-register | tests for subclass-and-tweak and for deliberate replacement |
-| 4 | Library shape + `dotnet new` template + docs | a real second library (extract something from the samples) consumed by the Showcase |
-| 5 | `html.customData` generator | the generated file loaded in VS Code, tags completing |
-
-Phase 4 is the one that matters: **a packaging story is not proven by a document, it is proven by a
-second library actually being consumed.**
+| # | Work | Status | Proven by |
+|---|------|--------|-----------|
+| 1 | Style-override contract: layered CSS + class names as API | **built** | app beats library beats built-in at equal specificity, independent of call order |
+| 2 | `ICupriBehaviour` — components carry their own handlers | **built** | the library counter's own click handler fires, across refresh and rebind; attach-once-per-document |
+| 3 | Unseal; `Add` / `Replace`; CF0022 for a silent double-register | **built** | subclass-and-replace of a built-in and of a library control; wrapper via `Find`; conflict rules |
+| 4 | Library shape + docs | **built** (template not) | `samples/ComponentLibrary` consumed by ProjectReference and by its `.nupkg` |
+| 5 | `html.customData` generator | not built | — |
 
 ---
 
-## Open decisions (one-way doors)
+## Open decisions (one-way doors) — as taken
 
-- **Unsealing is irreversible.** Once `ButtonComponent` is subclassable, its expansion shape is a
-  compatibility obligation. Narrow surface (`Expand` only) is the mitigation, not a cure.
-- **Component class names become public API** the moment overriding by CSS is documented.
-- **Two-pass binding** may cost more per keystroke than the ergonomics are worth. Measure first;
-  the `*-path` attribute convention is a perfectly serviceable fallback.
+- **Unsealing is irreversible.** Taken: every built-in is subclassable, with the surface narrowed to
+  the three `ICupriComponent` members. Their expansion shape is now a compatibility obligation.
+- **Component class names are public API.** Taken, and stated in the release notes.
+- **Two-pass binding.** Not taken — the `data-bind-*` marker makes it unnecessary.

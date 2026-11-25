@@ -19,6 +19,28 @@ it has no primitive for lays out and then stays empty — so a stylesheet writte
 crash your app. The cost is that a mistake looks exactly like a layout you have not finished:
 nothing throws, nothing logs, the box is just blank.
 
+**From the command line — and instead of a browser.** A browser preview shows what Chrome does with
+the markup, which is not what the engine does. The `cupri` tool renders through the engine:
+
+```bash
+dotnet tool install -g CupriFace.Tool
+cupri preview Assets/App.html --model sample.json    # App.css beside it is picked up
+```
+
+It writes `App.preview.png` — the page at a desktop and a phone size, side by side — and prints the
+doctor's findings below in compiler format (`App.html(14): error CF0060: …`), which an editor's
+problem matcher lists. The model is JSON shaped like the app's model: `{{Name}}`, `data-repeat`
+over arrays and two-way controls all bind to it, and the doctor checks bindings against its keys.
+`--sizes desktop,phone,small-phone` or `1280x800`, `--outlines` to draw every box, `--tree` for the
+laid-out boxes with coordinates, `--sweep` to check every bool flag on and off, and
+`cupri check …` for the findings alone, exiting 1 on an error — for CI. `cupri preview --app
+bin/Debug/net10.0/MyApp.dll [--type MyApp]` previews a BUILT app instead — its own markup, C# model,
+components and `Configure` — and `--sizes app` is the size its window opens at. `cupri skill` installs a
+skill that teaches coding agents all of this, into the project's `.claude/skills`.
+
+A model written as something other than C# properties — JSON, a dictionary — implements
+`IBindableShape` (its list of names) as well as `IBindableAccessor`, and CF0060 checks it by value.
+
 `CupriDoctor` turns that silence into a list:
 
 ```csharp
@@ -40,7 +62,8 @@ if (!report.IsClean) Console.WriteLine(report);
 |---|---|
 | `CF0001` | The document could not be built at all |
 | `CF0010` / `CF0011` | A tag never closed, or a close that matches nothing — reported at the line it *opened* on |
-| `CF0020` | A `cupri-*` tag nothing registered, with a "did you mean" for near misses |
+| `CF0020` | A `cupri-*` tag (or one under a registered library's prefix) nothing registered, with a "did you mean" for near misses; any other custom-element tag nothing handles is a note |
+| `CF0022` | A tag registered twice through `Register`, the second silently winning — use `Replace` if it is meant |
 | `CF0021` | A control that can never open — `<cupri-select>` and friends keep open state in the model, and without an `open` binding the trigger is inert while still reporting the click as handled |
 | `CF0030` | `<img>`, `<video>`, `<svg>`, `<canvas>`, `<iframe>` and friends, each pointed at what to use here |
 | `CF0031` | Anything else in your markup that produced no render output |
@@ -48,7 +71,7 @@ if (!report.IsClean) Console.WriteLine(report);
 | `CF0050` / `CF0051` | A CSS property, or a function like `repeating-linear-gradient()`, that is silently ignored |
 | `CF0052` | An `@import` — stepped over rather than fetched, so the stylesheet it names (usually a web font) never loads |
 | `CF0054` | A `shader()` that will not run: its `@shader` block did not compile (the compiler's message is quoted), or its name refers to nothing — the element then paints as though it were not written |
-| `CF0060` | A `{{path}}` that names nothing on the model — it renders as empty text, which is indistinguishable from data you have not loaded yet |
+| `CF0060` | A `{{path}}` that names nothing on the model — it renders as empty text, which is indistinguishable from data you have not loaded yet. **Also a compiler warning**, at the line and column in the `.html` — see §3 "Build-time binding checks" |
 | `CF0070` | Contents that do not fit a fixed-height box. They do not clip (`overflow: visible` is the CSS default) — they paint over whatever follows, which reads as a z-order bug rather than a height that is too small |
 | `CF0071` | A box that laid out with no area at all while holding visible content |
 | `CF0074` | Two rounded, filled boxes sitting flush against each other with nothing between them — a margin nobody set, so the two curves collide and the pair reads as one broken shape. Only the corners on the seam are examined and both sides must be curved, which is why a card header above a card body (square where they meet, flush by design) stays silent. Overlap is left alone too: a stack of round avatars pulled together is a design, and only a gap of exactly zero means "unset". A box that is not painted where it was laid out is skipped as well — `opacity: 0` on it or any ancestor, or a `transform` on the box itself — because its layout-box adjacency says nothing about the pixels. Info, not a warning — the layout works, it reads badly |
@@ -129,6 +152,84 @@ render tree, unknown components from the real `ComponentRegistry`, and unsupport
 `StyleResolver` reporting what it threw away — so adding an element or a property to the engine stops
 the checker complaining about it, with no list to update. A checker with false positives gets turned
 off, and a turned-off checker finds nothing.
+
+---
+
+## Dev tools: hot reload and the F12 inspector
+
+A **Debug build of a desktop app** (`DesktopHost.Run`) comes with three things, and a Release build
+with none of them:
+
+- **Hot reload of markup and styles.** Save `Assets/App.html` or `App.css` and the running window
+  reloads it — the model, everything the user typed, focus, scroll and zoom all survive, because a
+  document is rebuilt from template + model on every interaction anyway; only the template changes.
+  An embedded asset is traced back to its project folder (CupriFace.Resources.targets stamps it into
+  a Debug build) and read from disk from then on; a `CupriSource.File` is watched where it is.
+  Markup that fails to build is rejected and the previous source kept.
+- **C# hot reload re-reads the markup too.** Under the debugger (C# Dev Kit) or `dotnet watch`, an
+  edit to C# is applied by the runtime, and the engine then re-reads `CupriApp.Html`/`Css` — so
+  markup written as a C# string, or an app that builds its markup in code, reloads the same way.
+- **The doctor on every save.** Each reload runs `CupriDoctor.Check(doc)` on the live document and
+  prints what it finds in the compiler's format:
+
+  ```
+  [CupriFace] Doctor: checking.
+  C:\src\MyApp\Assets\App.html(14): error CF0060: {{Enviroment}} does not name anything on Model, …
+  [CupriFace] Doctor: 1 error.
+  ```
+
+  VS Code's Problems panel picks those up with a background problem matcher — the `watch-viewer`
+  task in this repo's `.vscode/tasks.json` is a working one to copy — and a click goes to the line.
+
+**F12 docks the inspector** beside the app, which is laid out in the width that is left (so a
+`@media` breakpoint can be watched firing as the panel opens):
+
+| Part | What it gives you |
+|---|---|
+| Elements | The live render tree, `div#id.class` and its size per row; empty and overflowing boxes flagged. Arrow keys walk it once the panel has been clicked; hovering a row highlights the element. |
+| Pick | Click it, then click anything in the app: that element is selected and revealed in the tree. Escape cancels. |
+| Selected | The box model (margin, border, padding — also tinted over the app), computed values, the matched rules most specific first, `{{bindings}}`, attributes, and the line it was written on with **Open in editor**. |
+| Problems | The doctor's findings from the last reload; click one to open its line. |
+| Outlines / Reload | `doc.DebugOverlay` on and off; reload and re-check now. |
+| Edit | On the selected element: **Edit as HTML**, **Insert after**, **Insert inside**, **Copy**, **Delete**. With the panel clicked, the keyboard is the panel's: Delete removes the element, Enter edits it, Ctrl+C / Ctrl+X copy and cut its HTML, Ctrl+V pastes HTML after it, Ctrl+Z undoes, Ctrl+S applies the editor (or saves). |
+| Performance (tab) | What each frame of the app cost — a bar per frame against the 60 fps line, frame time avg / p95 / max over two seconds, how many were over budget, layout / paint / diff / raster — and what the last rebuild cost, stage by stage, slowest first. Recorded per document and only while the tab is showing. The host's own presentation (swap, texture upload) is not included, and an idle app draws nothing: an empty chart means nothing changed. |
+| Pop out / Dock | Move the panel into a window of its own beside the app, and back. The app gets its full width back while it is out. Closing that window closes the dev tools; the next F12 opens it popped out again, the way it was left. |
+
+*Open in editor* uses `vscode://file/{path}:{line}`. For another editor set `CUPRIFACE_EDITOR_URI`
+(`cursor://file/{path}:{line}`, `vscode-insiders://…`). `CUPRIFACE_DEVTOOLS=open` starts with the
+panel docked, `=popout` in its own window. With `CUPRIFACE_FRAME_DUMP=out.png` the popped-out
+window dumps its pixels to `out.devtools.png`.
+
+**Moving the shortcut.** The dev tools see their key before the app does, so an app that wants F12
+for itself while being developed moves them — modifiers must match exactly, so plain F12 then
+reaches the app — or returns null to keep every key:
+
+```csharp
+public override KeyChord? DevToolsShortcut => new(EditKey.F12, KeyMods.Ctrl | KeyMods.Shift);
+```
+
+**On, off, and AOT.** The switch is `CupriFace.DevTools.IsSupported`, a feature switch set from the
+APP's configuration by CupriFace.Shell's build targets: true in Debug, false otherwise. With it false,
+a trimmed or NativeAOT publish removes the inspector, the file watcher and the asset redirect
+entirely — there is nothing in the binary to find or switch back on. `<CupriDevTools>true</CupriDevTools>`
+or `false` in the app's project decides it yourself. C# hot reload never applies to an AOT build in
+the first place (there is no JIT to patch); HTML/CSS reload would, if you turned the switch on there.
+
+**Editing is to the markup, as text.** The document is rebuilt from its template on every
+interaction, so an edit to the live elements would last one click. Every template element is tagged
+with where it was written; the selected element is traced back to that span, the TEXT is spliced —
+indentation, comments and line endings as written — and swapped in with `ReplaceSource`, so the model,
+focus and scroll survive. Two consequences worth knowing: a `data-repeat` row is one element in the
+template, so editing any copy edits them all; and the inside of a component is generated, so selecting
+it edits the component's own tag (the panel says which).
+
+**Edits are live until saved.** **Save to file** writes the markup back over the app's `.html` — and
+refuses unless that file still holds exactly the text the edits started from, which covers both a
+file changed on disk since and an app that builds its markup in code. Hot reload then sees the write
+and finds nothing to do. Undo steps back through unsaved edits; a reload from disk discards them.
+
+What it does not do yet: edit a style in the panel (edit the file — the reload is the loop), reload
+images, or run in the browser and Android hosts, whose apps get none of this.
 
 ---
 
@@ -319,8 +420,11 @@ a tripped guard throws `CupriResourceException`.
 
 ### The recommended pattern — embedded, but editable
 
-Author files under an **`Assets/`** folder (real `.html`/`.css`, full IDE tooling). Import the
-resource pipeline and the generator in your `.csproj`:
+Author files under an **`Assets/`** folder (real `.html`/`.css`, full IDE tooling). **From the
+CupriFace package that is all there is to it** — the package embeds everything under `Assets/` and
+generates the `Assets` class (set `<CupriFaceAssets>false</CupriFaceAssets>` if your `Assets/` folder
+belongs to something else). Inside this repository, where a ProjectReference does not carry the
+package's build files, import the resource pipeline and the generator in the `.csproj`:
 
 ```xml
 <ItemGroup>
@@ -377,6 +481,72 @@ fallback, which is **not** AOT‑safe. Value coercion (`"60"` → `int`, etc.) i
 Mutating the model in a click handler and returning re‑binds automatically. If you mutate the model
 outside of an input dispatch (e.g. a background timer), call `doc.Refresh()` (or set
 `RefreshIntervalSeconds` on your `CupriApp`).
+
+### Build-time binding checks (CF0060)
+
+A misspelt binding resolves to null and renders as empty text — on screen it is a model with no data
+yet. The doctor finds it when you run it; **the compiler finds it on every build.** An analyzer in
+the CupriFace package checks every `{{Path}}` and every `data-repeat` in an app's markup against the
+C# model, and reports one that names nothing where it is written:
+
+```
+Assets\ShowcaseApp.html(12,25): warning CF0060: {{NavComponnets}} does not name anything on ShowcaseModel,
+    so it renders as empty text. Did you mean {{NavComponents}}?
+```
+
+Double-click it and the editor opens the `.html` at that column. Markup written in C# (an `Html`
+override, a `const`, a string passed to `CupriDocument.Load`) is reported inside the string literal.
+
+**How it finds the model.** Nothing to configure for the usual shapes:
+
+- a `CupriApp` — whatever its `Html` returns, or failing that its `MarkupSource` (`Assets.App.Html`,
+  `EmbeddedAsset("Assets/App.html")`, a constant string), bound to the **static type** of what
+  `Model` returns, so `public override object Model => _model;` checks against `_model`'s field type;
+- `CupriDocument.Load(markup, …).Bind(model)`, chained, or through one local that nothing reassigns.
+
+Anything else — markup loaded in one place and bound in another, a host that is not a `CupriApp` —
+names its markup on the model:
+
+```csharp
+[CupriMarkup("Assets/Board.html")]                          // CupriFace.Binding
+public sealed partial class BoardModel { … }
+
+[assembly: CupriMarkup("Assets/Board.html", typeof(BoardModel))]   // a model you cannot annotate
+```
+
+The file must reach the compiler as an `AdditionalFiles` item — everything under `Assets/` does, via
+the package's Assets pipeline (§2.1). A project that adds its own is matched by the end of the path.
+
+**What it checks is the doctor's rule, exactly.** Existence, not value — a property that is null is
+fine. Dotted paths walk property types (`{{User.Name}}`, `{{Tasks.Count}}`). Inside a `data-repeat`
+a name may come from the item or from anything outside it, as at runtime; item types are found to a
+fixed point, so a list that lives on an item type is in scope too. `{{.}}` and `{{this}}` are the
+context itself. A `data-repeat` that names nothing is reported (its list renders no rows), and the
+bindings inside it are not — fix the list and they are checked.
+
+**What it deliberately does not check.** The build sees declared types; the runtime sees values. So
+it stays silent wherever the type cannot say what names a value will have: a model or property typed
+`object` or an interface, a type parameter, `dynamic`, a dictionary, `System.Text.Json` nodes, an
+`IBindableShape`, a hand-written `IBindableAccessor` (its switch is its own business), and a
+`data-repeat` over a non-generic or `object` collection. A property typed as a base class is widened
+by every class in the project that derives from it — `{{Current.Radius}}` on a `Shape Current`
+holding a `Circle` is not reported. Like the doctor, a name is accepted if it exists on the model or
+on ANY list's items in the document, which misses a name used outside its own list but never cries
+wolf on markup the engine renders correctly. For those, run the doctor with a real model.
+
+**Severity.** A Warning by default. Set it in a **`.globalconfig`** beside the project, not in a
+section of `.editorconfig`:
+
+```ini
+is_global = true
+dotnet_diagnostic.CF0060.severity = error    # fail the build on a binding typo
+# dotnet_diagnostic.CF0060.severity = none   # or switch it off
+```
+
+An `.editorconfig` section is matched against the C# file a diagnostic is in, and a finding in an
+`.html` file is in no C# file — so `[*.html]` and `[*.cs]` sections never reach it (a `[*.cs]`
+section does reach a finding inside a C# string). `<WarningsAsErrors>CF0060</WarningsAsErrors>` or
+`<NoWarn>CF0060</NoWarn>` in the project work too.
 
 ---
 
@@ -1326,43 +1496,42 @@ executable's manifest already declares an awareness, that wins — CupriFace doe
 ## 8. Writing your own component
 
 A component maps one tag to a themed primitive subtree. Implement `ICupriComponent` (or extend
-`ComponentBase` for helpers) and register it.
+`ComponentBase` for helpers) and add it to the registry.
 
 ```csharp
 using AngleSharp.Dom;
 using CupriFace.Components;
 
-public sealed class RatingComponent : ComponentBase
+public sealed class StarsComponent : ComponentBase
 {
-    public override string Tag => "cupri-rating";
+    public override string Tag => "my-stars";      // cupri- is the engine's; use your own prefix
 
-    // Low-priority default CSS merged into the stylesheet.
+    // Default CSS merged into the stylesheet, BEFORE the app's own — so the app can restyle it.
     public override string DefaultCss => """
-        .cupri-rating { display:inline-flex; gap:2px; color:#B87333; }
-        .cupri-rating-empty { opacity:.25; }
+        .my-stars { display:inline-flex; gap:2px; color:#B87333; }
+        .my-stars-empty { opacity:.25; }
         """;
 
     public override void Expand(IElement el)
     {
         var value = (int)Num(el, "value", 0);     // helper: parse attribute → number
         el.SetAttribute("role", "img");
-        el.ClassList.Add("cupri-rating");
+        el.ClassList.Add("my-stars");
         // Filled stars for the score, dimmed stars for the rest (icon names come from the built-in set).
         el.InnerHtml = string.Concat(Enumerable.Range(0, 5)
-            .Select(i => IconMarkup("star", 18, i < value ? "" : "cupri-rating-empty")));
+            .Select(i => IconMarkup("star", 18, i < value ? "" : "my-stars-empty")));
     }
 }
 
-var registry = ComponentRegistry.Default().Register(new RatingComponent());
+// In a CupriApp: public override ComponentRegistry Components => base.Components.Add(new StarsComponent());
+var registry = ComponentRegistry.Default().Add(new StarsComponent());
 ```
 
-**Shipping components to other people** — bundling several into a library someone can add to their
-project, and guaranteeing they can override the styles and the code of what they receive — is
-designed in [COMPONENT-PACKAGING.md](COMPONENT-PACKAGING.md) and not built yet. Two things there
-are worth knowing even while writing a component for yourself: component CSS is parsed BEFORE the
-app's, so an app stylesheet already wins ties (that is what makes overriding possible), and a
-component cannot yet carry its own event handlers — behaviour is wired by the app, or by the engine
-off a `data-*` marker the component emits.
+**`Add` refuses a tag that is already registered** (`ComponentConflictException`, naming the owner).
+To override a control on purpose, say so with `Replace` — see *Overriding* below. The original
+`Register` still works and still lets the last registration win, but the doctor now reports a
+second registration of a tag as `CF0022`, because from the outside an override and a collision look
+the same.
 
 `ComponentBase` helpers: `Str(el,name,fallback)`, `Num(el,name,fallback)`, `Flag(el,name)`,
 `Percent(value,min,max)`, `IconMarkup(name,size,cssClass?)`, `NextId()` (unique anchor id).
@@ -1384,6 +1553,113 @@ the built‑ins use), rather than reinventing input handling:
 | `data-cupri-anchor="<id>"` + `data-cupri-placement="top\|bottom"` | Position a popup relative to an anchor. |
 | `data-focus-scope` | Trap focus within this subtree while it's the top overlay. |
 | `data-cupri-icon="<path>"` | Render vector icon path (produced by `IconMarkup`). |
+
+### Behaviour: `ICupriBehaviour`
+
+When the hooks above are not enough, a component brings its own handlers. Implement
+`ICupriBehaviour` next to `ICupriComponent`; the document calls `Attach` **once per document** and
+the component registers ordinary document handlers keyed on attributes its own markup emits:
+
+```csharp
+public class CounterComponent : ComponentBase, ICupriBehaviour
+{
+    public override void Expand(IElement el)
+    {
+        // value="{{Guests}}" arrives as value="2" plus data-bind-value="Guests" — the binder marks
+        // every pure binding, so the path to write back is one attribute away.
+        el.SetAttribute("data-leaf-path", el.GetAttribute("data-bind-value") ?? "");
+        el.RemoveAttribute("data-bind-value");   // that one also means "a text field" to the engine
+        el.InnerHtml = "<cupri-button data-leaf-step='1'>+</cupri-button>";
+    }
+
+    public void Attach(CupriDocument doc) =>
+        doc.OnAction("data-leaf-step", e =>
+        {
+            var path = e.Element.Closest("[data-leaf-path]")!.GetAttribute("data-leaf-path")!;
+            var now = Convert.ToInt32(BindingEngine.Resolve(e.Model, path));
+            return BindingEngine.TrySet(e.Model, path, now + int.Parse(e.Value));   // true → refresh
+        });
+}
+```
+
+- **Key handlers on attributes, never on elements.** The DOM is rebuilt from the template on every
+  model change and keystroke; an attribute-keyed handler finds the markup again in whichever DOM is
+  current, so it survives every rebuild with nothing re-attached.
+- **Per-document state goes inside `Attach`** (a closure): one component instance serves every
+  document using the registry.
+- The seams: `OnAction` (click and keyboard activation), `OnPointer` / `OnManipulate` (drags,
+  gestures), `OnWheel`, `OnSubmit`, `OnContext`, `OnRebuilt` (the freshly expanded DOM). Prefix your
+  attributes (`data-leaf-*`) so two libraries cannot answer each other's clicks.
+- Attached in `UseComponents`, or at the next rebuild for a component added later. There is no
+  detach: compose the registry, then hand it over.
+
+### Component libraries
+
+A library of components is an ordinary NuGet class library — markup and CSS in its own `Assets/`,
+embedded in its own assembly — with one `ICupriComponentLibrary` and an extension method:
+
+```csharp
+public sealed class LeafControls : ICupriComponentLibrary
+{
+    public string Name => "Leaf.Controls";
+    public string Prefix => "leaf-";                         // every tag must carry it
+    public IEnumerable<ICupriComponent> Components => [new CounterComponent(), new CardComponent()];
+    public string Css => Assets.Leaf.Css.ReadText();         // shared tokens (optional)
+}
+public static ComponentRegistry AddLeafControls(this ComponentRegistry r) => r.Add(new LeafControls());
+
+// the app
+public override ComponentRegistry Components => base.Components.AddLeafControls();
+```
+
+A library is added **whole or not at all**: any tag without its prefix, or already registered,
+refuses the lot. A library only adds tags — replacing one is the app's call. Everything is
+constructed in code, so it is trim- and NativeAOT-safe with nothing to configure.
+`samples/ComponentLibrary` is a complete one (counter with behaviour, card with a markup template,
+status pill) and `samples/ComponentLibraryApp` consumes it, by ProjectReference and by `.nupkg`.
+
+A PAGE preview (`cupri preview page.html`) knows only the built-in controls: a library tag there is a
+`CF0020` note and draws as a plain box, because finding a library's components from a bare page
+would take reflection. Preview the BUILT app instead — `cupri preview --app MyApp.dll` uses the app's
+own registry, libraries included (`samples/ComponentLibraryApp` previews this way, clean) — or check
+in a test with `CupriDoctor.Check(html, css, CupriDoctor.DesktopAndPhone, registry, model)`.
+
+### Overriding what you received
+
+**Styles — plain CSS, no `!important`.** Component CSS is emitted in layers, all of it before the
+app's stylesheet; at equal specificity later wins:
+
+`built-ins` < `libraries` < `the app's own components and replacements` < `the app's stylesheet` < `<style>` in the markup
+
+So `.leaf-status.down { background:#000080 }` in the app beats the library's rule of the same
+selector, a library's `.cupri-button` rule beats the built-in, and `:root { --leaf-accent:… }` in the
+app retunes a library's tokens — regardless of the order things were added. Specificity still beats
+order, as in any cascade. **Component class names are public API** — `.cupri-button`,
+`.cupri-tt-bubble`, a library's `.leaf-card` — because consumers style them; renaming one is a
+breaking change.
+
+**Code — subclass, or wrap.** Every built-in component is unsealed:
+
+```csharp
+public sealed class SquareButton : ButtonComponent
+{
+    public override string DefaultCss => base.DefaultCss + ".cupri-button.square { border-radius:0 }";
+    public override void Expand(IElement el) { base.Expand(el); el.ClassList.Add("square"); }
+}
+
+registry.Replace(new SquareButton());                       // takes over <cupri-button>
+registry.Replace(new Logged(registry.Find("leaf-card")!)); // decorate one you cannot subclass
+```
+
+| Call | Tag free | Tag taken |
+|---|---|---|
+| `Add(component)` | adds | throws `ComponentConflictException` |
+| `Add(library)` | adds all | throws; adds none |
+| `Replace(component)` | throws — a typo must not add a dead control | replaces; its CSS moves to the app layer |
+| `Register(component)` | adds | replaces, recorded in `Conflicts`, doctor `CF0022` |
+
+Override `Tag` as well and `Add` the subclass to have it beside the original. `Registrations`,
+`Libraries` and `Conflicts` say what a registry holds and where each tag came from.
 
 ---
 
@@ -2086,6 +2362,199 @@ CupriDoctor.Check(html, css, configure: doc => doc.UseSvg());
 
 Without `configure:`, `CF0030` reports every `<svg>` as undrawable — correctly, because the document
 the checker built has no SVG support in it.
+
+## 8.1.3 The desktop's own file dialogs, and more windows
+
+Two host services an app reaches through its document. **Both are null where the host has none** —
+a browser, Android, a headless test — so the same app class runs everywhere and simply asks:
+
+| | Windows | macOS | Linux | Web / Android / headless |
+|---|---|---|---|---|
+| `doc.FileDialogs` | Common Item Dialog | `NSOpenPanel` / `NSSavePanel` sheet | xdg-desktop-portal `FileChooser` | `null` |
+| `doc.Windows` | SDL window | SDL window | SDL window | `null` |
+
+The host sets them **after** `CupriApp.Configure` runs, so read them when you need them (in a
+handler), never cache them during `Configure`, where they are still null. `samples/DesktopDemo` is a
+worked example of everything below.
+
+### Open, Save, folder: `doc.FileDialogs`
+
+```csharp
+doc.OnClick(".open", async _ =>
+{
+    if (doc.FileDialogs is not { } dialogs) return;          // no dialogs on this host
+    var path = await dialogs.OpenFileAsync(new OpenFileOptions
+    {
+        Title = "Open a note",
+        Filters = [new FileFilter("Text", "txt", "md"), FileFilter.AllFiles],
+    });
+    if (path is null) return;                                // the user cancelled
+    _model.Text = await File.ReadAllTextAsync(path);
+    doc.Refresh();                                           // safe: we are on the document's thread
+});
+```
+
+| Call | Returns | Options |
+|---|---|---|
+| `OpenFilesAsync(OpenFileOptions?)` | `string[]?` | `Title`, `Filters`, `AllowMultiple`, `InitialDirectory` |
+| `OpenFileAsync(OpenFileOptions?)` | `string?` | the same, one file |
+| `SaveFileAsync(SaveFileOptions?)` | `string?` | `Title`, `Filters`, `InitialDirectory`, `DefaultName` |
+| `PickFolderAsync(PickFolderOptions?)` | `string?` | `Title`, `InitialDirectory` |
+
+- **Cancelled is `null`**, not an exception. A `CancellationToken` that fires closes the dialog and
+  cancels the task; a dialog the OS could not show faults it with the reason.
+- **The app keeps drawing while a dialog is open.** On Windows the dialog runs on a thread of its
+  own (still owned by, and modal to, your window); on macOS it is a sheet; on Linux the desktop draws
+  it in another process. Nothing waits on the render loop.
+- **The code after the `await` runs on the document's thread**, inside the next frame, so it may
+  touch the model and the document directly. The answer crosses back through `doc.Post`.
+- **One at a time per window.** A second request while one is open throws
+  `InvalidOperationException`; `dialogs.IsShowing` says whether one is.
+- `FileFilter` takes extensions as `"png"`, `".png"` or `"*.png"`; `"*"` is every file. Anything
+  else (a glob with a wildcard in the middle, `"png;jpg"`) is refused when the filter is built.
+  On Windows the first filter's extension is appended to a name typed without one. macOS shows one
+  list of allowed types (the union of the filters); the Linux portal matches them case-insensitively.
+- Save does not write: it returns the path the user chose, after the OS has asked about
+  overwriting.
+- `CUPRIFACE_FILE_DIALOGS=0` turns them off, to try an app's fallback on a desktop.
+- On Linux the portal must exist on the session bus; without one the request faults with a
+  `NotSupportedException` that says so.
+
+### More windows: `doc.Windows`
+
+```csharp
+if (doc.Windows is { } windows)
+{
+    var window = windows.Open(new SettingsApp());            // another CupriApp, in its own window
+    if (window is not null)
+        window.Closed += why => _model.Status = $"settings closed ({why})";
+}
+
+// …or any document, laid out responsively at the window's size
+var w = doc.Windows?.Open(myDocument, new WindowOptions { Title = "Inspector", Width = 360, Height = 480 });
+```
+
+- `Open(CupriApp)` builds a fresh `app.CreateDocument()` and uses the app's `Title`, `Width`,
+  `Height`, `Background` and `Present`. `Open(CupriDocument, WindowOptions?)` shows a document you
+  already have (`Title`, `Width`, `Height` in logical units, `Background`, `Resizable`).
+- It returns **null** when the OS refused the window. A document can be in one window at a time.
+- **Every window runs on the same thread** — the host's. Code in one window can change another
+  window's model and call its `Refresh()` directly. Call `Open` on that thread (a handler, or through
+  `doc.Post`).
+- Input in a window goes to **its** document: pointer, wheel (Ctrl+wheel zooms it), keys including
+  the F-keys, typed text, Ctrl+A/C/X/V/Z/Y against the OS clipboard, the context menu, files dropped
+  on it, cursors. Its `data-window-command` fullscreen and `data-window-drag` act on that window.
+- `window.Close()` is safe from the window's own click handler — it goes at the end of the tick.
+  `Closed` fires once, with `WindowCloseReason.User` (its close button), `App` (`Close()`), or
+  `Host` (the main window closed and took it along). `window.Title` retitles it; `windows.OpenWindows`
+  lists those still open.
+- A document in a second window gets its own `FileDialogs` (dialogs come up over *that* window) and
+  the same `Windows`, so it can open more.
+- Not in a second window (yet): GPU rendering (they draw in software, like the dev tools pop-out),
+  touch, controllers (a pad drives the main window's document), native video overlays, accessibility
+  bridges, and the F12 inspector.
+
+## 8.1.4 Minimal web builds
+
+A trimmed or NativeAOT publish keeps what is *reachable*, not what a page uses. By default that is
+more than most pages need: `CupriApp.Components` returns `ComponentRegistry.Default()`, which
+constructs every control, and the web hosts embed two fonts and wire up video and file drops
+whether the app uses them or not. Four settings leave those parts out of the binary. Each one
+removes code at publish time, not just at run time:
+
+```csharp
+// Only the controls the markup uses. Default() constructs all of them, so all of them stay.
+public override ComponentRegistry Components =>
+    ComponentRegistry.Of(new SliderComponent(), new SwitchComponent());
+```
+
+```xml
+<!-- in the app's .csproj -->
+<CupriWebFonts>regular</CupriWebFonts>      <!-- all (default) | regular | none -->
+<CupriWebVideo>false</CupriWebVideo>        <!-- no browser-video backend -->
+<CupriWebFileDrop>false</CupriWebFileDrop>  <!-- the page accepts no drops -->
+```
+
+What each one does, measured on `samples/WebLlvmShaders` (NativeAOT-LLVM linked at `-O1`, which is
+now `CupriWebOptimizeSize=false` — see "A Release publish links for size" below; a 15,768,972-byte
+wasm before any of them and 14,557,940 with the sample's own settings, which keep the regular face;
+brotli-11 takes the download from 3,895,626 to 3,631,523 bytes):
+
+| Setting | What goes | wasm bytes |
+|---|---|---:|
+| `ComponentRegistry.Of(...)` with the 2 controls used | every other control: charts, pickers, Markdown, carousel… | −492,068 |
+| `CupriWebFonts=regular` | NotoSans-Bold.ttf. Bold text is the regular face, thickened | −631,670 |
+| `CupriWebFonts=none` | NotoSans-Regular.ttf as well | −621,449 more |
+| *(nothing to set: the host's narrower root, below)* | host code no export reaches | −62,998 |
+| `CupriWebVideo=false`, `CupriWebFileDrop=false` | the host's video backend and drop reader | −24,296 together |
+
+- **A control left out of `Of`** stays an unexpanded tag. `CupriDoctor` given the registry reports
+  it as CF0020, and `cupri check --app` passes the app's own registry. A control that expands into
+  another one needs both named.
+- **With `CupriWebFonts=none`**, the app brings its own face: `doc.LoadFont(bytes)` in `Configure`.
+  The first face registered becomes `sans-serif`. Without one, text is drawn in Noto Mono, the only
+  face in the wasm Skia build. The host prints a console line saying so.
+- **With `CupriWebVideo=false`**, a `<cupri-video>` shows its poster. **With `CupriWebFileDrop=false`**,
+  the page tells the browser it accepts no drops. The page's exports stay in both cases and do
+  nothing.
+- **They work on both web hosts.** On Mono the trimmer drops the same code; only the NativeAOT
+  figures above are measured.
+
+`samples/WebLlvmShaders` is the reference minimal build and `samples/WebLlvm` the full one. CI
+publishes both and checks the result, not the source:
+
+- excluded types are absent from ILC's map;
+- the bold face's bytes are absent from the wasm;
+- every export the page calls is still there;
+- the minimal build boots, animates and answers input in Chromium (`MinimalBuildTests`).
+
+The sizes, raw and compressed, go to the job summary.
+
+**How the NativeAOT host is rooted.** The page calls the host through `[UnmanagedCallersOnly]`
+exports, so nothing managed reaches them and they must be rooted explicitly. The host roots only its
+`Interop` type (`buildTransitive/CupriFace.Web.NativeAot.roots.xml`); everything else is kept
+because those exports call it. It used to root the whole host assembly, which kept every method
+whether or not a feature switch had made it unreachable. Narrowing the root cut 71,685 bytes from
+the full Showcase with no switch set. `<CupriWebRootWholeHost>true</CupriWebRootWholeHost>`
+restores the old root if a build ever needs it.
+
+**A Release publish links for size (NativeAOT-LLVM).** The compiler's own defaults favour a quick
+link: emcc `-O1`, which never runs wasm-opt, and managed code compiled for speed. The host's targets
+turn a Release publish (`Optimize=true`) to `OptimizationPreference=Size` and emcc `-Oz`. Measured on
+`samples/WebLlvmShaders` with its minimal settings:
+
+| Link | wasm | wasm, brotli 11 | JS glue | JS glue, brotli 11 | Publish time |
+|---|---:|---:|---:|---:|---:|
+| `-O1` (`CupriWebOptimizeSize=false`) | 14,557,940 | 3,630,158 | 395,097 | 68,534 | 35 s |
+| `OptimizationPreference=Size` only | 14,272,710 | 3,577,412 | 395,097 | 68,477 | 32 s |
+| `-Oz` only | 12,418,173 | 3,641,225 | 202,199 | 41,057 | 111 s |
+| **Size + `-Oz` (the default)** | **12,176,449** | **3,581,863** | **202,199** | **41,089** | 111 s |
+| Size + `-O3` | 12,421,464 | 3,592,537 | 202,420 | 41,180 | 124 s |
+| Size + `-Oz` + `StackTraceSupport=false` | 11,788,840 | 3,425,261 | 201,828 | 41,093 | 110 s |
+
+- **Most of the saving is raw, not downloaded.** Raw size is what the browser compiles and keeps in
+  memory: 2.4 MB less, about 16%. Brotli already squeezed out most of what wasm-opt removes, so the
+  download shrinks by about 76 KB, glue included.
+- **It is safe.** Upstream turns wasm-opt off only because it discards debug info
+  ([runtimelab#2357](https://github.com/dotnet/runtimelab/issues/2357)), and a Release link strips
+  that anyway. The Showcase passes its whole web gate built this way, and CI checks that both
+  samples' JS glue came out minified, which shows the size link applied.
+- **It is slower to publish**, by about 75 seconds. For an edit-publish loop, set
+  `<CupriWebOptimizeSize>false</CupriWebOptimizeSize>` (or pass `-p:CupriWebOptimizeSize=false`).
+  A Debug publish is unchanged either way.
+- **Your own settings win.** An `OptimizationPreference` in the app's project is left alone, and an
+  `-O3` in its own `EmccExtraArgs` comes after the default `-Oz`, so it has the last word.
+- **`<StackTraceSupport>false</StackTraceSupport>` is the largest download saving left** (another
+  157 KB under brotli). It is not the default, because an exception's trace then no longer names
+  its methods, and that is what a bug report from the field depends on.
+
+**Not yet removable:**
+
+- **The engine's media model.** `VideoChapter`, `VideoTrack` and their generic instantiations stay
+  with video off, because the engine itself reaches them.
+- **612,764 bytes of `codepages.nlp`.** AngleSharp's legacy-charset support pulls in
+  System.Text.Encoding.CodePages.
+- **Native Skia and HarfBuzz.** Shrinking them would need differently built native archives.
 
 ## 8.2 Scrolling
 

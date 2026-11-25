@@ -3,7 +3,7 @@ using AngleSharp.Dom;
 namespace CupriFace.Components.Controls;
 
 /// <summary><c>&lt;cupri-checkbox checked&gt;</c> — role=checkbox, ticks with an icon.</summary>
-public sealed class CheckboxComponent : ComponentBase
+public class CheckboxComponent : ComponentBase
 {
     public override string Tag => "cupri-checkbox";
     public override string DefaultCss => """
@@ -32,7 +32,7 @@ public sealed class CheckboxComponent : ComponentBase
 /// (<c>checked="{{X}}"</c>) or one option in a group (<c>group="{{Sel}}" value="a"</c>),
 /// where clicking selects this option for the whole group.
 /// </summary>
-public sealed class RadioComponent : ComponentBase
+public class RadioComponent : ComponentBase
 {
     public override string Tag => "cupri-radio";
     public override string DefaultCss => """
@@ -57,7 +57,7 @@ public sealed class RadioComponent : ComponentBase
 }
 
 /// <summary><c>&lt;cupri-icon-button icon&gt;</c> — a compact button showing only an icon.</summary>
-public sealed class IconButtonComponent : ComponentBase
+public class IconButtonComponent : ComponentBase
 {
     public override string Tag => "cupri-icon-button";
     public override string DefaultCss => """

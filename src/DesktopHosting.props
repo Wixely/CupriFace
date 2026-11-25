@@ -1,0 +1,18 @@
+<Project>
+  <!--
+    Desktop-host input routing, shared by SOURCE with the tests — the same arrangement as
+    Hosting.props, one step further from the metal.
+
+    Hosting.props holds arithmetic with no dependencies at all, and the browser hosts compile it.
+    What is here DOES depend on the engine (it routes input into a CupriDocument), and only the
+    desktop host needs it, so it lives in its own folder that the web and Android hosts never see —
+    a type that is not in their compile cannot cost them a byte.
+
+    The tests compile it for the reason Hosting.props gives: how a second window's input reaches
+    its document is worth testing headless, and a ProjectReference to the Shell would load Silk.NET
+    and SDL into every test run.
+  -->
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)CupriFace.DesktopHosting\*.cs" />
+  </ItemGroup>
+</Project>

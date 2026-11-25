@@ -22,7 +22,7 @@ namespace CupriFace.Components.Controls;
 /// written back to the list and applied to every row's matching cell (columns stay aligned); the last
 /// column is left flexible so the table keeps filling its box.
 /// </summary>
-public sealed class TableComponent : ComponentBase
+public class TableComponent : ComponentBase
 {
     public override string Tag => "cupri-table";
     public override string DefaultCss => """
@@ -148,7 +148,7 @@ public sealed class TableComponent : ComponentBase
 }
 
 /// <summary><c>&lt;cupri-row [header]&gt;</c> — a table row; <c>header</c> styles it as the head row.</summary>
-public sealed class TableRowComponent : ComponentBase
+public class TableRowComponent : ComponentBase
 {
     public override string Tag => "cupri-row";
     public override string DefaultCss => """
@@ -171,7 +171,7 @@ public sealed class TableRowComponent : ComponentBase
 }
 
 /// <summary><c>&lt;cupri-cell&gt;</c> — a table cell; shares row width evenly (flex:1).</summary>
-public sealed class TableCellComponent : ComponentBase
+public class TableCellComponent : ComponentBase
 {
     public override string Tag => "cupri-cell";
     public override string DefaultCss => """

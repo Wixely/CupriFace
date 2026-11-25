@@ -1,5 +1,7 @@
 using CupriFace;
 using CupriFace.Binding;
+using CupriFace.Components;
+using CupriFace.Components.Controls;
 using SkiaSharp;
 
 namespace CupriFace.Samples.Shaders;
@@ -27,6 +29,11 @@ public sealed class ShadersApp : CupriApp
     public override int Height => 640;
     public override SKColor Background => new(0x0E, 0x10, 0x16);
     public override object? Model => _model;
+
+    // The two controls the page uses and nothing else, so a trimmed or NativeAOT publish carries no
+    // charts, pickers, Markdown or video (#325). samples/WebLlvmShaders is the minimal-build sample.
+    public override ComponentRegistry Components =>
+        ComponentRegistry.Of(new SliderComponent(), new SwitchComponent());
 
     private readonly ShaderModel _model;
     public ShadersApp(bool crt = false) => _model = new ShaderModel { Crt = crt };
