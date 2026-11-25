@@ -118,7 +118,8 @@ public sealed class WebHostFixture : IAsyncLifetime
     /// </summary>
     /// <param name="onPage">Runs before the page navigates, so a listener it attaches (console,
     /// page errors) hears the boot as well as what follows.</param>
-    public async Task<IPage> DesktopAsync(Action<IPage>? onPage = null)
+    /// <param name="query">Appended to the URL, e.g. <c>renderer=cpu</c>.</param>
+    public async Task<IPage> DesktopAsync(Action<IPage>? onPage = null, string? query = null)
     {
         var ctx = await Browser.NewContextAsync(new()
         {
@@ -127,7 +128,7 @@ public sealed class WebHostFixture : IAsyncLifetime
         });
         var page = await ctx.NewPageAsync();
         onPage?.Invoke(page);
-        await page.GotoAsync(Url);
+        await page.GotoAsync(query is null ? Url : Url + "?" + query);
         await page.WaitForFunctionAsync(
             "() => { const c = document.getElementById('cupri');" +
             "  return c && c.width > 0 && typeof (globalThis.__cupri||{}).isCoarse === 'function'; }",

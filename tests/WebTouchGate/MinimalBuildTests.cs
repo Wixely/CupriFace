@@ -76,6 +76,154 @@ public class MinimalBuildTests(WebHostFixture host, ITestOutputHelper output)
         Assert.Contains(console, l => l.Contains("[CupriFace] renderer:"));
         Assert.True(errors.Count == 0, $"[{host.Host}] console errors: {string.Join(" | ", errors)}");
     }
+
+    // ---- the paths a page meets after it has booted: a resize, the CPU, a GPU that goes away -----
+
+    private sealed record Booted(IPage Page, List<string> Console, List<string> Errors);
+
+    private async Task<Booted> BootAsync(string? query = null)
+    {
+        var console = new List<string>();
+        var errors = new List<string>();
+        var page = await host.DesktopAsync(onPage: p =>
+        {
+            p.Console += (_, m) => { console.Add(m.Text); if (m.Type == "error") errors.Add(m.Text); };
+            p.PageError += (_, e) => errors.Add(e);
+            p.RouteAsync("**/favicon.ico", r => r.FulfillAsync(new() { Status = 204 })).GetAwaiter().GetResult();
+        }, query: query);
+        await page.WaitForFunctionAsync($"() => document.querySelector('{Switch}')", null, new() { Timeout = 15_000 });
+        return new(page, console, errors);
+    }
+
+    private void Done(Booted b)
+    {
+        foreach (var line in b.Console) output.WriteLine(line);
+        Assert.True(b.Errors.Count == 0, $"[{host.Host}] console errors: {string.Join(" | ", b.Errors)}");
+    }
+
+    // Frames the page has painted. Counted on both renderers (main.js: "__paints() means the same
+    // thing on both"), so "still animating" needs no pixels read back — a WebGL canvas without
+    // preserveDrawingBuffer reads back blank, which would prove nothing either way.
+    private static async Task StillPaintingAsync(IPage page, string when)
+    {
+        var a = await page.EvaluateAsync<int>("() => globalThis.__cupri.paints");
+        try
+        {
+            await page.WaitForFunctionAsync($"() => globalThis.__cupri.paints > {a + 5}", null,
+                                            new() { Timeout = 10_000 });
+        }
+        catch (TimeoutException)
+        {
+            Assert.Fail($"the page stopped painting {when}: {await page.EvaluateAsync<int>("() => globalThis.__cupri.paints")} paints, from {a}");
+        }
+    }
+
+    private static async Task SwitchStillAnswersAsync(IPage page)
+    {
+        var sw = page.Locator(Switch);
+        var before = await sw.GetAttributeAsync("aria-checked");
+        await sw.DispatchEventAsync("click");
+        await Assertions.Expect(sw).ToHaveAttributeAsync("aria-checked", before == "true" ? "false" : "true",
+                                                         new() { Timeout = 5_000 });
+    }
+
+    private static Task<string?> RendererAsync(IPage page) =>
+        page.EvaluateAsync<string?>("() => globalThis.__cupri.renderer");
+
+    private static Task<string?> CurrentAsync(IPage page, string field) =>
+        page.EvaluateAsync<string?>($"() => (globalThis.__cupri.rendererState() || {{}}).current?.{field} ?? null");
+
+    /// <summary>A window resized to a phone's width: the backing store follows, the layout re-flows
+    /// into it (the controls' mirror nodes now sit inside 412px), and the page keeps painting and
+    /// answering. The resize path is the host's, not the app's, so the minimal build has to prove
+    /// it kept it.</summary>
+    [MinimalBuildFact]
+    public async Task A_resize_re_lays_out_and_it_keeps_answering()
+    {
+        var b = await BootAsync();
+        await b.Page.SetViewportSizeAsync(412, 780);
+        await b.Page.WaitForFunctionAsync(
+            "() => { const c = document.getElementById('cupri'); return c.clientWidth === 412 && c.width === 412; }",
+            null, new() { Timeout = 10_000 });
+        await b.Page.WaitForFunctionAsync(
+            $"() => {{ const r = document.querySelector('{Switch}').getBoundingClientRect(); return r.right <= 412 && r.width > 0; }}",
+            null, new() { Timeout = 10_000 });
+
+        await StillPaintingAsync(b.Page, "after the resize");
+        await SwitchStillAnswersAsync(b.Page);
+        Done(b);
+    }
+
+    /// <summary>The CPU renderer, asked for by name: what every browser without a usable GPU gets.
+    /// It boots, animates and answers, and the engine records why it is on the CPU.</summary>
+    [MinimalBuildFact]
+    public async Task On_the_CPU_renderer_it_boots_animates_and_answers()
+    {
+        var b = await BootAsync("renderer=cpu");
+        Assert.Equal("cpu", await RendererAsync(b.Page));
+        Assert.Equal("Cpu", await CurrentAsync(b.Page, "kind"));
+        Assert.Contains("?renderer=cpu", await CurrentAsync(b.Page, "reason") ?? "");
+
+        await StillPaintingAsync(b.Page, "on the CPU");
+        await SwitchStillAnswersAsync(b.Page);
+        Done(b);
+    }
+
+    // On the GPU, by way of ?renderer=webgl, which also accepts the software WebGL a headless
+    // browser has. Fails rather than skips without one: a gate that quietly stopped testing the GPU
+    // would look exactly like one that passed.
+    private async Task<Booted> OnTheGpuAsync()
+    {
+        var b = await BootAsync("renderer=webgl");
+        Assert.True(await RendererAsync(b.Page) == "webgl",
+            $"the page did not start on WebGL ({await CurrentAsync(b.Page, "reason")}), so the GPU paths cannot be checked");
+        await StillPaintingAsync(b.Page, "on the GPU");
+        return b;
+    }
+
+    private static Task LoseContextAsync(IPage page) => page.EvaluateAsync(
+        "() => { const gl = document.getElementById('cupri').getContext('webgl2');" +
+        "        globalThis.__lose = gl.getExtension('WEBGL_lose_context'); globalThis.__lose.loseContext(); }");
+
+    /// <summary>A GPU reset that the browser recovers from: painting stops while the context is
+    /// gone (the engine says why), then the host builds a new Skia context on the restored one and
+    /// carries on on the GPU, where it was.</summary>
+    [MinimalBuildFact]
+    public async Task A_lost_GPU_context_that_comes_back_keeps_the_GPU()
+    {
+        var b = await OnTheGpuAsync();
+        await LoseContextAsync(b.Page);
+        await b.Page.WaitForFunctionAsync(
+            "() => (globalThis.__cupri.rendererState().current.reason || '').includes('was lost')",
+            null, new() { Timeout = 5_000 });
+
+        await b.Page.EvaluateAsync("() => globalThis.__lose.restoreContext()");
+        await b.Page.WaitForFunctionAsync(
+            "() => globalThis.__cupri.renderer === 'webgl' && globalThis.__cupri.rendererState().current.reason === null",
+            null, new() { Timeout = 5_000 });
+
+        await StillPaintingAsync(b.Page, "after the restore");
+        await SwitchStillAnswersAsync(b.Page);
+        Done(b);
+    }
+
+    /// <summary>A GPU that never comes back: after the page's grace period (3 s) the host gives up on
+    /// it, swaps in a fresh canvas and carries on on the CPU, mid-run, with the reason recorded.
+    /// The controls are the same controls afterwards — the document never noticed.</summary>
+    [MinimalBuildFact]
+    public async Task A_lost_GPU_context_that_never_comes_back_falls_back_to_the_CPU()
+    {
+        var b = await OnTheGpuAsync();
+        await LoseContextAsync(b.Page);
+        await b.Page.WaitForFunctionAsync("() => globalThis.__cupri.renderer === 'cpu'", null,
+                                          new() { Timeout = 15_000 });
+        Assert.Equal("Cpu", await CurrentAsync(b.Page, "kind"));
+        Assert.Contains("was lost", await CurrentAsync(b.Page, "reason") ?? "");
+
+        await StillPaintingAsync(b.Page, "after falling back");
+        await SwitchStillAnswersAsync(b.Page);
+        Done(b);
+    }
 }
 
 /// <summary>Runs only when the gate is pointed at the minimal build; the default wwwroot is the

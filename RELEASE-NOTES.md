@@ -13,6 +13,28 @@ which is the correct default for a release that breaks nothing.
 
 Keep entries short and say what a caller must DO. The audience is someone whose build just broke.
 
+## Unreleased
+
+### Changed
+
+- **Web builds no longer carry AngleSharp's legacy code pages** (#325): 612,764 bytes of
+  `codepages.nlp`, and the code that reads them. A NativeAOT page loses 715 KB of wasm (183 KB
+  under brotli), and a Mono page 174 KB of download. The engine never read them: it parses markup
+  from a string. **What to do:** nothing, unless your app calls `Encoding.GetEncoding` for a legacy
+  code page such as windows-1252 in a web build. That worked only because AngleSharp registered the
+  provider, and now throws `NotSupportedException`. Register `CodePagesEncodingProvider` yourself,
+  or publish with `<CupriWebLegacyEncodings>true</CupriWebLegacyEncodings>`.
+
+### Added
+
+- **A web build says when a page reaches for a part it left out** (#325). With
+  `CupriWebVideo=false`, a page that has a `<cupri-video>` prints a console line naming the switch,
+  instead of showing its poster with no explanation. With `CupriWebFileDrop=false`, a file dragged
+  over a document with a drop handler does the same.
+- **TOOLBOX.md §8.1.4 documents the bundled fonts**: what Noto Sans covers, its licence (OFL 1.1,
+  shipped in the packages), why the default stays `all`, and how to bring your own face. It also
+  records how much of a web build is native Skia and HarfBuzz: just under half the code.
+
 ## v0.48.0
 
 ### Added

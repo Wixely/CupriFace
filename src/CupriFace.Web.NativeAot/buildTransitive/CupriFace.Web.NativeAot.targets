@@ -133,6 +133,12 @@
     <RuntimeHostConfigurationOption Include="CupriFace.Web.Video" Value="$(CupriWebVideo)" Trim="true" Condition="'$(CupriWebVideo)' != ''" />
     <RuntimeHostConfigurationOption Include="CupriFace.Web.FileDrop" Value="$(CupriWebFileDrop)" Trim="true" Condition="'$(CupriWebFileDrop)' != ''" />
   </ItemGroup>
+  <!-- AngleSharp's legacy code-page tables (612,764 bytes), which the engine never reads: see the
+       comment in CupriFace.Web.legacy-encodings.xml. <CupriWebLegacyEncodings>true</CupriWebLegacyEncodings>
+       keeps them. Kept identical in CupriFace.Web.Mono.targets. -->
+  <ItemGroup Condition="'$(CupriWebLegacyEncodings)' != 'true'">
+    <IlcArg Include="--substitution:$(MSBuildThisFileDirectory)CupriFace.Web.legacy-encodings.xml" />
+  </ItemGroup>
   <Target Name="CupriCheckWebFonts" BeforeTargets="CoreCompile;PrepareForPublish"
           Condition="'$(CupriWebFonts)' != 'all' and '$(CupriWebFonts)' != 'regular' and '$(CupriWebFonts)' != 'none'">
     <Error Code="CUPRI1003" Text="CupriWebFonts is '$(CupriWebFonts)'; it takes all (the default), regular, or none." />
