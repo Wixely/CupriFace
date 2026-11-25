@@ -207,7 +207,12 @@ public class CupriToolTests(ITestOutputHelper output)
         var (code, outText, _) = Run("preview", "--app", DemoAppDll(), "--type", "SettingsApp", "--sizes", "app,phone", "-o", outPng);
 
         Assert.Equal(0, code);
+#if DEBUG
         Assert.Contains("SettingsApp from DemoApp.dll (SettingsApp.html + SettingsApp.css) bound to its Settings", outText);
+#else
+        // A Release build stamps no project directory, so the tool cannot name the files on disk.
+        Assert.Contains("SettingsApp from DemoApp.dll bound to its Settings", outText);
+#endif
         Assert.Contains("at 600x520, 412x915", outText);          // "app" is the app's own window size
         Assert.True(File.Exists(outPng));
         Assert.Contains("doctor: no problems found", outText);    // #326: it fits a phone now
@@ -218,9 +223,14 @@ public class CupriToolTests(ITestOutputHelper output)
     {
         // Found through the project directory the Debug build stamps, by content — not from a finding,
         // so the test does not depend on a sample being wrong.
+        // A Release build stamps nothing, and then there is no file to name.
         var subject = Subject.FromApp(DemoAppDll(), "SettingsApp", fonts: null);
 
+#if DEBUG
         Assert.Equal(Path.Combine(RepoRoot(), "samples", "DemoApp", "Assets", "SettingsApp.html"), subject.HtmlPath);
+#else
+        Assert.Null(subject.HtmlPath);
+#endif
     }
 
     [Fact]

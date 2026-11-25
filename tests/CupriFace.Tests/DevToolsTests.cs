@@ -236,14 +236,22 @@ body { margin:0; font-family:sans-serif; }
     public void Session_TracesAnEmbeddedAsset_BackToItsProjectFile()
     {
         // The Showcase embeds Assets/ShowcaseApp.html through CupriFace.Resources.targets, which
-        // stamps the project directory into a Debug build — the file hot reload must watch.
+        // stamps the project directory into a Debug build — the file hot reload must watch. A
+        // Release build carries no path from the machine that built it, so there is nothing to trace.
         var app = new CupriFace.Demo.ShowcaseApp();
         using var doc = app.CreateDocument();
         using var session = new HotReloadSession(app, doc, TextWriter.Null);
 
+#if DEBUG
         var expected = Path.GetFullPath(Path.Combine(RepoRoot(), "samples", "DemoApp", "Assets", "ShowcaseApp.html"));
         Assert.Equal(expected, session.MarkupFile, ignoreCase: OperatingSystem.IsWindows());
         Assert.EndsWith("ShowcaseApp.css", session.StyleFile);
+#else
+        Assert.Null(session.MarkupFile);
+        Assert.DoesNotContain(typeof(CupriFace.Demo.ShowcaseApp).Assembly
+            .GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false)
+            .Cast<System.Reflection.AssemblyMetadataAttribute>(), a => a.Key == "CupriFace.AssetsRoot");
+#endif
     }
 
     private static string RepoRoot()
@@ -700,18 +708,19 @@ body { margin:0; font-family:sans-serif; }
     public void Click_InAFieldFocusedFromCode_PlacesTheCaretWhereItLands()
     {
         // Focus(selector) leaves the edit buffer empty, meaning "read the model". The click path read
-        // the buffer alone, so every click put the caret at 0 until a key had been typed.
+        // the buffer alone, so every click put the caret at 0 until a key had been typed. The click
+        // is past the end of the line's text, so where it lands does not depend on the font's widths.
         var model = new AreaModel();
         using var t = new TestDoc("<body><cupri-textarea class='ta' value='{{Text}}'></cupri-textarea></body>",
             "body{margin:0} .ta{width:300px;height:200px}", model, 400, 300, components: true);
         t.Doc.Focus("[data-bind-value='Text']");
         t.Layout();
 
-        ClickOnLine(t, 1, 20);
+        ClickOnLine(t, 1, 250);
         t.Doc.DispatchKey("X", EditKey.None);
         t.Doc.Blur();
 
-        Assert.Equal("first line\nsecXond line\nthird", model.Text);
+        Assert.Equal("first line\nsecond lineX\nthird", model.Text);
     }
 
     [Fact]
